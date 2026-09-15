@@ -62,6 +62,46 @@ Creo paginas de ventas profesionales con frameworks de alta conversion (AIDA, PA
 
 *"Crea una landing impactante para mi curso de piano"*`;
 
+type Diseno = { fondo?: string; botones?: string; color?: string };
+
+const FONDOS = [
+  { value: "claro", label: "Claro" },
+  { value: "marca", label: "Color marca" },
+  { value: "degradado", label: "Degradado" },
+];
+const BOTONES = [
+  { value: "redondeados", label: "Redondeados" },
+  { value: "pill", label: "Píldora" },
+  { value: "cuadrados", label: "Cuadrados" },
+];
+
+/**
+ * Aplica el diseño elegido por el cliente a la preview AL INSTANTE, sin esperar
+ * a la IA. Inyecta un <style> con reglas `!important` que pisan los estilos
+ * inline que generó OpenCode. Es una vista rápida: cuando el cliente regenera,
+ * la IA recibe el mismo diseño y lo hornea bien en el HTML.
+ */
+function inyectarDiseno(html: string, diseno: Diseno): string {
+  const reglas: string[] = [];
+  if (diseno.botones) {
+    const radius = diseno.botones === "pill" ? "999px" : diseno.botones === "redondeados" ? "12px" : "4px";
+    reglas.push(`button, a[href], input[type="submit"], [role="button"] { border-radius: ${radius} !important; }`);
+  }
+  if (diseno.color) {
+    reglas.push(`button, input[type="submit"] { background-color: ${diseno.color} !important; border-color: ${diseno.color} !important; }`);
+  }
+  if (diseno.fondo === "marca" && diseno.color) {
+    reglas.push(`body { background-color: ${diseno.color}18 !important; }`);
+  } else if (diseno.fondo === "degradado" && diseno.color) {
+    reglas.push(`body { background: linear-gradient(180deg, ${diseno.color}26, #ffffff 70%) !important; }`);
+  }
+  if (!reglas.length) return html;
+  const style = `<style id="diseno-cliente">${reglas.join("\n")}</style>`;
+  if (html.includes("</head>")) return html.replace("</head>", `${style}</head>`);
+  if (html.includes("</body>")) return html.replace("</body>", `${style}</body>`);
+  return style + html;
+}
+
 async function apiFetch<T>(url: string, opts?: RequestInit): Promise<T> {
   const r = await fetch(url, { credentials: "include", headers: { "Content-Type": "application/json", ...(opts?.headers || {}) }, ...opts });
   if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `Error ${r.status}`);
@@ -101,6 +141,7 @@ export default function LandingStudioV2() {
   const [busy, setBusy] = useState(false);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
+  const [diseno, setDiseno] = useState<Diseno>({});
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -113,19 +154,34 @@ export default function LandingStudioV2() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
 
+  // Guardar el diseño elegido en la landing (con debounce) para que la versión
+  // publicada lo lleve, sin depender de regenerar con la IA.
+  useEffect(() => {
+    if (!landingId || !previewHtml) return;
+    const t = setTimeout(() => {
+      fetch("/api/landing-studio/design", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ landingId, diseno }),
+      }).catch(() => {});
+    }, 600);
+    return () => clearTimeout(t);
+  }, [diseno, landingId, previewHtml]);
+
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
     const doc = iframe.contentDocument;
     if (!doc) return;
     if (previewHtml) {
-      doc.open(); doc.write(previewHtml); doc.close();
+      doc.open(); doc.write(inyectarDiseno(previewHtml, diseno)); doc.close();
     } else {
       doc.open();
       doc.write(`<!doctype html><html><body style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif;color:#64748b;background:#0f172a;margin:0;flex-direction:column;gap:16px;text-align:center;padding:40px"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="1.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg><p style="font-size:16px;max-width:300px">Selecciona un producto y presiona <strong style="color:#a5b4fc">Generar</strong></p></body></html>`);
       doc.close();
     }
-  }, [previewHtml]);
+  }, [previewHtml, diseno]);
 
   const cargarPreview = useCallback(async (id: number, fam?: Familia) => {
     setPreviewBusy(true);
@@ -160,7 +216,7 @@ export default function LandingStudioV2() {
       const r = await fetch("/api/landing-studio/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, landingId: esNueva ? undefined : landingId, productId: pid }),
+        body: JSON.stringify({ message: text, landingId: esNueva ? undefined : landingId, productId: pid, diseno }),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -190,7 +246,7 @@ export default function LandingStudioV2() {
       setBusy(false);
       inputRef.current?.focus();
     }
-  }, [input, busy, productId, landingId]);
+  }, [input, busy, productId, landingId, diseno]);
 
   const exportar = useCallback(async () => {
     if (!previewHtml) { toast.info("Primero genera una landing."); return; }
@@ -321,6 +377,8 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
     setLandingId(id);
     if (l.productId) setProductId(l.productId);
     if ((l.design as any)?.familia) setFamilia((l.design as any).familia as Familia);
+    const d = (l as any)?.design || {};
+    setDiseno({ fondo: d.fondo, botones: d.botones, color: d.color });
     setUrlPublica((l as any).status === "published" ? ((l as any).publishedUrl || null) : null);
     await cargarPreview(id, (l.design as any)?.familia as Familia);
     setMsgs(m => [...m, { role: "assistant", content: `Landing **"${l.name}"** cargada${(l as any).status === "published" ? ` — publicada en ${(l as any).publishedUrl}` : " (borrador)"}. ¿Qué querés modificar?` }]);
@@ -473,6 +531,46 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                   </button>
                 ))}
               </div>
+            </div>
+            {/* Panel de diseño: fondo, botones y color. El cliente elige, no solo
+                la IA. Se aplica al instante en la preview y se le pasa a la IA. */}
+            <div className="px-3 py-2 border-b bg-muted/20 shrink-0 space-y-2">
+              <p className="text-[10px] font-semibold uppercase text-muted-foreground">Diseño (tú decides)</p>
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-muted-foreground w-12 shrink-0">Fondo</span>
+                  <div className="flex gap-1 flex-wrap">
+                    {FONDOS.map(f => (
+                      <button key={f.value}
+                        onClick={() => setDiseno(d => ({ ...d, fondo: d.fondo === f.value ? undefined : f.value }))}
+                        className={`px-2 py-0.5 rounded text-[10px] font-medium border ${diseno.fondo === f.value ? "border-primary bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground hover:border-primary/40"}`}>
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-muted-foreground w-12 shrink-0">Botones</span>
+                  <div className="flex gap-1 flex-wrap">
+                    {BOTONES.map(b => (
+                      <button key={b.value}
+                        onClick={() => setDiseno(d => ({ ...d, botones: d.botones === b.value ? undefined : b.value }))}
+                        className={`px-2 py-0.5 rounded text-[10px] font-medium border ${diseno.botones === b.value ? "border-primary bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground hover:border-primary/40"}`}>
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-muted-foreground w-12 shrink-0">Color</span>
+                  <input type="color" value={diseno.color || "#8b5cf6"}
+                    onChange={e => setDiseno(d => ({ ...d, color: e.target.value }))}
+                    className="h-6 w-8 rounded border bg-background cursor-pointer" />
+                  <button onClick={() => setDiseno(d => ({ ...d, color: undefined }))}
+                    className="text-[10px] text-muted-foreground underline" disabled={!diseno.color}>quitar</button>
+                </div>
+              </div>
+              <p className="text-[9px] text-muted-foreground leading-snug">Se aplican al instante. Presioná <strong>Generar</strong> o pedile a la IA que los hornee en el HTML.</p>
             </div>
             <div className="flex shrink-0 border-b bg-muted/20 p-1 gap-1">
               {([["chat", "💬 Chat"], ["bloques", "🧱 Bloques"]] as const).map(([valor, etiqueta]) => (

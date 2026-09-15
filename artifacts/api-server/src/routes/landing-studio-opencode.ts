@@ -118,7 +118,7 @@ async function sendMessage(
 // AGENTES ESPECIALIZADOS POR TIPO DE PRODUCTO
 // ═══════════════════════════════════════════════════════════════════════════
 
-type ProductType = "dropshipping" | "digital" | "servicio" | "ecommerce";
+type ProductType = "dropshipping" | "fisico" | "digital" | "servicio" | "ecommerce";
 
 function detectarTipo(product: any): ProductType {
   const kind = (product?.kind || "").toLowerCase();
@@ -127,34 +127,70 @@ function detectarTipo(product: any): ProductType {
   const cat = (product?.category || "").toLowerCase();
   const combined = `${kind} ${name} ${desc} ${cat}`;
 
-  if (kind === "physical" || kind === "fisico") return "dropshipping";
+  // Dropshipping explícito: siempre formulario completo.
+  if (kind === "dropshipping" || /\bdropshipping\b/.test(cat)) return "dropshipping";
+  // Físico SIN categoría dropshipping: se paga digital o por transferencia.
+  if (kind === "physical" || kind === "fisico" || kind === "producto") return "fisico";
   if (/curso|ebook|libro|software|app|plantilla|preset|pack|curso|clase|memoria|guia|manual|video|tutorial|modulo/i.test(combined)) return "digital";
   if (/servicio|consultoria|asesoria|agencia|freelance|coaching|entrenamiento|terapia|salud|belleza|gimnasio|peluqueria|odontolog|medic|abogad|contador|reparacion|mantenimiento|limpieza|fumigacion|transporte|delivery/i.test(combined)) return "servicio";
   if (/tienda|shop|catalogo|multi|varios/i.test(combined)) return "ecommerce";
-  return "dropshipping";
+  return "digital";
 }
 
 // ── AGENTE: DROPSHIPPING ──────────────────────────────────────────────────
-const DROPSHIPPING_SYSTEM = `Eres un experto en landing pages de DROPSHIPPING y productos fisicos. Generas paginas de venta CORATAS que convierten visitantes en compradores.
+const DROPSHIPPING_SYSTEM = `Eres un experto en landing pages de DROPSHIPPING y productos fisicos que se envian. Generas paginas de venta CORATAS que convierten visitantes en compradores.
 
 ESTRUCTURA (solo estas 6 secciones, en este orden):
 1. HERO — Titulo corto que ataca el DOLOR/deseo + subtitulo con la PROMESA + boton CTA + imagen principal.
 2. PROBLEMA→SOLUCION — 2 frases del problema, 2 frases de como el producto lo resuelve.
 3. BENEFICIOS — maximo 4, una linea cada uno (icono + 3-6 palabras).
 4. OFERTA — precio, descuento, urgencia (envio gratis / paga al recibir). Corto.
-5. CTA FINAL — repite la promesa + boton grande de compra.
+5. FORMULARIO COMPLETO — SIEMPRE, sin excepcion. El cliente completa su pedido ahi mismo.
 6. FAQ — maximo 3 preguntas cortas.
 
 REGLAS PARA DROPSHIPPING:
 - Menciona ENVIO en una linea. Si es contraentrega: "Paga al recibir".
 - NO inventes testimonios largos. Usa "Garantia de devolucion" o "Envio gratis" como frase corta.
 - Copy en segunda persona, frases cortas, sin adjetivos vacios.
-- Formulario minimo (si aplica): nombre + telefono.
+- EL FORMULARIO COMPLETO ES OBLIGATORIO. Campos exactos en este orden:
+  * Nombre completo
+  * Telefono / celular
+  * Documento (cedula / DNI / identificacion)
+  * Direccion de entrega
+  * Barrio (opcional)
+  * Ciudad
+  * Departamento / estado
+  * Un campo libre de "notas/referencias" (opcional)
+- El formulario usa method="POST" y action="__FORM_ACTION__" (lo reemplaza el sistema). El boton de enviar dice "Pedir ahora" o "Completar pedido".
+- El formulario va con un titulo tipo "Completa tus datos y recibe el pedido en tu casa".
 
 FORMATO DE SALIDA:
 SOLO el HTML completo. Empieza con <!DOCTYPE html>. Sin markdown, sin explicaciones, sin \`\`\`html.
 Google Fonts via <link> (Inter para texto, Playfair para titulos).
 El HTML debe ser AUTONOMO y funcionar solo.`;
+
+// ── AGENTE: FISICO (no dropshipping) ──────────────────────────────────────
+const FISICO_SYSTEM = `Eres un experto en landing pages de PRODUCTOS FISICOS que se pagan por adelantado (NO dropshipping: no se pide direccion de envio en el formulario). Generas paginas CORATAS de venta.
+
+ESTRUCTURA (solo estas 6 secciones, en este orden):
+1. HERO — Titulo corto que ataca el DOLOR/deseo + subtitulo con la PROMESA + boton CTA + imagen principal.
+2. PROBLEMA→SOLUCION — 2 frases del problema, 2 frases de como el producto lo resuelve.
+3. BENEFICIOS — maximo 4, una linea cada uno (icono + 3-6 palabras).
+4. OFERTA — precio, descuento, urgencia. Corto.
+5. METODOS DE PAGO — la seccion que cierra la venta (ver reglas).
+6. FAQ — maximo 3 preguntas cortas.
+
+REGLAS PARA FISICO NO DROPSHIPPING:
+- Copy en segunda persona, frases cortas, sin adjetivos vacios.
+- LA SECCION DE PAGO ofrece DOS opciones, ambas visibles y claras:
+  * OPCION 1 - PAGO DIGITAL: un boton grande "Pagar ahora" con el enlace de pago que te doy en el brief (usa el link de pago tal cual).
+  * OPCION 2 - TRANSFERENCIA: muestra las cuentas de transferencia EXACTAS que te doy en el brief (tipo + numero + titular), con un boton "Ya transferi - avisar por WhatsApp" que abre el link de WhatsApp que te doy.
+- NO pidas direccion de envio ni documento. Solo nombre y telefono si acaso.
+- Si no hay link de pago ni cuentas de transferencia, el boton unico es WhatsApp.
+
+FORMATO DE SALIDA:
+SOLO el HTML completo. Sin markdown, sin explicaciones.
+Google Fonts. Responsive. Autonomo.`;
 
 // ── AGENTE: DIGITAL ───────────────────────────────────────────────────────
 const DIGITAL_SYSTEM = `Eres un experto en landing pages de PRODUCTOS DIGITALES (cursos, ebooks, software, presets, plantillas, packs). Generas paginas de venta CORTAS que venden acceso inmediato.
@@ -164,14 +200,18 @@ ESTRUCTURA (solo estas 6 secciones, en este orden):
 2. PROBLEMA→SOLUCION — 2 frases del dolor, 2 frases del producto como atajo.
 3. QUE INCLUYE — lista corta de 4-5 items (modulos, archivos, bonuses) con checkmarks.
 4. RESULTADOS — 1-2 frases de la transformacion que logra.
-5. PRECIO + CTA — precio tachado vs real + boton "Descargar ahora" / "Empezar hoy".
+5. PRECIO + METODOS DE PAGO — precio tachado vs real + la seccion que cierra la venta (ver reglas).
 6. GARANTIA + FAQ — garantia en 1 frase + maximo 3 preguntas.
 
 REGLAS PARA DIGITALES:
 - ACCESO INMEDIATO es el beneficio #1. Dilo en una frase corta.
 - CTA sobre ACCESO, no compra: "Quiero acceso" > "Comprar".
 - Sin testimonios largos. Usa "X personas ya lo tienen".
-- Formulario minimo: email y nombre (o pago directo).
+- LA SECCION DE PAGO ofrece DOS opciones, ambas visibles:
+  * OPCION 1 - PAGO DIGITAL: boton grande "Pagar ahora" con el enlace de pago que te doy en el brief (usalo tal cual).
+  * OPCION 2 - TRANSFERENCIA: muestra las cuentas de transferencia EXACTAS que te doy en el brief (tipo + numero + titular), con boton "Ya transferi - avisar por WhatsApp" que abre el link de WhatsApp del brief.
+- Si no hay link de pago ni cuentas de transferencia, el boton unico es WhatsApp.
+- NO pidas documento ni direccion. Solo nombre y email si acaso (o pago directo).
 
 FORMATO DE SALIDA:
 SOLO el HTML completo. Sin markdown, sin explicaciones.
@@ -273,10 +313,11 @@ function getSystemPrompt(tipo: ProductType): string {
   const base = (() => {
     switch (tipo) {
       case "dropshipping": return DROPSHIPPING_SYSTEM;
+      case "fisico": return FISICO_SYSTEM;
       case "digital": return DIGITAL_SYSTEM;
       case "servicio": return SERVICIOS_SYSTEM;
       case "ecommerce": return ECOMMERCE_SYSTEM;
-      default: return DROPSHIPPING_SYSTEM;
+      default: return DIGITAL_SYSTEM;
     }
   })();
   return base + REGLAS_COMPARTIDAS;
@@ -287,6 +328,10 @@ function getSystemPrompt(tipo: ProductType): string {
 // producto. OpenCode los usa para armar la paleta en vez de inventar colores
 // al azar.
 interface Paleta { primary?: string; secondary?: string; accent?: string; dominante?: string }
+
+// Diseño que el cliente elige desde el panel (fondo, botones, color). Se aplica
+// en la preview al instante y se le pasa a la IA para regenerar.
+interface Diseno { fondo?: string; botones?: string; color?: string }
 
 async function colorDominanteDeImagen(url: string): Promise<string | null> {
   if (!/^https?:\/\//i.test(url)) return null;
@@ -339,12 +384,84 @@ async function paletaDelProducto(product: any): Promise<Paleta> {
   return paleta;
 }
 
-function buildUserPrompt(product: any, tipo: ProductType, existingHtml: string | null, instruction: string, paleta?: Paleta): string {
+// ── Datos de pago del negocio ─────────────────────────────────────────────
+// Lo que la landing necesita para cobrar: cuentas de transferencia y WhatsApp.
+interface DatosDePago {
+  cuentas: Array<{ type: string; number: string; name: string }>;
+  paymentLink: string | null;
+  whatsapp: string | null;
+}
+
+async function datosDePagoDelProducto(product: any): Promise<DatosDePago> {
+  const res: DatosDePago = { cuentas: [], paymentLink: product?.paymentLink || null, whatsapp: null };
+  try {
+    const { tenantManager } = await import("../lib/tenantManager");
+    const { credencialesDe } = await import("../lib/tenant-payment-credentials");
+    const tenant = await tenantManager.getTenantById(product?.tenantId || 1);
+    res.whatsapp = (tenant as any)?.contactPhone || (tenant as any)?.whatsappNumber || null;
+    const cred = credencialesDe(tenant || undefined);
+    if (cred?.transfer?.enabled) res.cuentas = cred.transfer.accounts || [];
+  } catch { /* sin tenant: sin datos de pago */ }
+  return res;
+}
+
+function linkWhatsApp(numero: string | null | undefined, texto?: string): string | null {
+  const n = String(numero || "").replace(/\D/g, "");
+  if (!n) return null;
+  const msg = texto ? `?text=${encodeURIComponent(texto)}` : "";
+  return `https://wa.me/${n}${msg}`;
+}
+
+// Hornear el diseño (fondo/botones/color) dentro del HTML guardado, para que la
+// landing publicada lleve los cambios sin depender de la IA.
+function inyectarDisenoEnHtml(html: string, diseno: Diseno): string {
+  if (!html) return html;
+  const reglas: string[] = [];
+  if (diseno.botones) {
+    const radius = diseno.botones === "pill" ? "999px" : diseno.botones === "redondeados" ? "12px" : "4px";
+    reglas.push(`button, a[href], input[type="submit"], [role="button"] { border-radius: ${radius} !important; }`);
+  }
+  if (diseno.color) {
+    reglas.push(`button, input[type="submit"] { background-color: ${diseno.color} !important; border-color: ${diseno.color} !important; }`);
+  }
+  if (diseno.fondo === "marca" && diseno.color) {
+    reglas.push(`body { background-color: ${diseno.color}18 !important; }`);
+  } else if (diseno.fondo === "degradado" && diseno.color) {
+    reglas.push(`body { background: linear-gradient(180deg, ${diseno.color}26, #ffffff 70%) !important; }`);
+  }
+  if (!reglas.length) return html;
+  const style = `<style id="diseno-cliente">${reglas.join("\n")}</style>`;
+  if (html.includes("</head>")) return html.replace("</head>", `${style}</head>`);
+  if (html.includes("</body>")) return html.replace("</body>", `${style}</body>`);
+  return style + html;
+}
+
+function buildUserPrompt(product: any, tipo: ProductType, existingHtml: string | null, instruction: string, paleta?: Paleta, pago?: DatosDePago, diseno?: Diseno): string {
   const fotos = fotosDelProducto(product);
   const videos = videosDelProducto(product);
   const imagenesTxt = fotos.length
     ? fotos.map((f, i) => `  ${i + 1}. ${f}${i === 0 ? " (PRINCIPAL - usar en el HERO)" : ""}`).join("\n")
     : "  Ninguna (usa picsum.photos como respaldo)";
+
+  // Sección de checkout según el tipo de producto.
+  let checkout = "";
+  if (tipo === "dropshipping") {
+    checkout = `\nCHECKOUT (FORMULARIO COMPLETO OBLIGATORIO):
+- Inclui el formulario completo: nombre, telefono, documento, direccion, barrio (opcional), ciudad, departamento, notas (opcional).
+- El <form> usa method="POST" action="__FORM_ACTION__".
+- Boton de enviar: "Pedir ahora" o "Completar pedido".`;
+  } else if (tipo === "fisico" || tipo === "digital") {
+    const cuentasTxt = (pago?.cuentas || []).length
+      ? (pago!.cuentas).map((c) => `  * ${c.type}: ${c.number} — titular ${c.name}`).join("\n")
+      : "  (sin cuentas de transferencia configuradas: no ofrezcas transferencia)";
+    const linkPago = pago?.paymentLink || product?.paymentLink || null;
+    const wa = linkWhatsApp(pago?.whatsapp, `Hola! Quiero pagar ${product.name}`);
+    checkout = `\nCHECKOUT (DOS OPCIONES DE PAGO):
+- OPCION 1 - PAGO DIGITAL: boton "Pagar ahora" con este enlace: ${linkPago || "(sin enlace: usa WhatsApp)"}
+- OPCION 2 - TRANSFERENCIA: muestra estas cuentas EXACTAS (no las cambies):
+${cuentasTxt}
+- Boton "Ya transferi - avisar por WhatsApp" con este link: ${wa || "(sin numero de WhatsApp configurado)"}`;
+  }
 
   let prompt = `PRODUCTO A ANALIZAR:
 - Nombre: ${product.name}
@@ -370,7 +487,11 @@ ${paleta?.primary ? `- Color primario (marca): ${paleta.primary}` : "- Color pri
 ${paleta?.secondary ? `- Color secundario: ${paleta.secondary}` : ""}
 ${paleta?.accent ? `- Color de acento (CTAs/botones): ${paleta.accent}` : ""}
 ${paleta?.dominante ? `- Color dominante de la imagen del producto: ${paleta.dominante}` : ""}
-Regla: el fondo y los acentos de la landing deben combinar con estos colores. Nada de colores de fondo al azar.`;
+Regla: el fondo y los acentos de la landing deben combinar con estos colores. Nada de colores de fondo al azar.
+${diseno?.fondo ? `- Fondo elegido por el cliente: ${diseno.fondo}` : ""}
+${diseno?.botones ? `- Estilo de botones elegido por el cliente: ${diseno.botones}` : ""}
+${diseno?.color ? `- Color primario elegido por el cliente: ${diseno.color} (prioridad sobre la paleta)` : ""}
+${checkout}`;
 
   if (existingHtml) {
     prompt += `\n\nHTML ACTUAL DE LA LANDING (para que mejores/edites):\n${existingHtml}`;
@@ -403,10 +524,11 @@ router.post("/test", async (req, res) => {
       product = rows[0] || null;
     }
 
-    const tipo = product ? detectarTipo(product) : "dropshipping";
+    const tipo = product ? detectarTipo(product) : "digital";
     const paleta = product ? await paletaDelProducto(product) : undefined;
+    const pago = product ? await datosDePagoDelProducto(product) : undefined;
     const userPrompt = product
-      ? buildUserPrompt(product, tipo, null, message, paleta)
+      ? buildUserPrompt(product, tipo, null, message, paleta, pago)
       : `INSTRUCCION: ${message}`;
 
     const startTime = Date.now();
@@ -435,11 +557,39 @@ router.post("/test", async (req, res) => {
   }
 });
 
+// ── POST /api/landing-studio/design ───────────────────────────────────────
+// Guarda el diseño elegido por el cliente y lo hornea en el HTML guardado, para
+// que la landing publicada refleje el cambio sin regenerar con IA.
+router.post("/design", async (req, res) => {
+  try {
+    const { landingId, diseno } = req.body as { landingId?: number; diseno?: Diseno };
+    if (!landingId) return res.status(400).json({ message: "Falta landingId" });
+
+    const rows = await db.select().from(landingPages).where(eq(landingPages.id, landingId));
+    const landing = rows[0];
+    if (!landing) return res.status(404).json({ message: "Landing no encontrada" });
+
+    const previo: Diseno = (landing.design && typeof landing.design === "object") ? landing.design : {};
+    const nuevo: Diseno = { ...previo, ...(diseno || {}) };
+    // Limpia claves en undefined para no guardar basura.
+    for (const k of Object.keys(nuevo) as (keyof Diseno)[]) if (nuevo[k] === undefined) delete nuevo[k];
+
+    const htmlBase = landing.html || "";
+    const htmlFinal = inyectarDisenoEnHtml(htmlBase, nuevo);
+
+    await db.update(landingPages).set({ design: nuevo, html: htmlFinal, updatedAt: new Date() }).where(eq(landingPages.id, landingId));
+    return res.json({ ok: true, design: nuevo, html: htmlFinal });
+  } catch (e: any) {
+    logger.error({ err: e?.message }, "[LandingStudio/design] error");
+    return res.status(500).json({ message: e?.message || "Error interno" });
+  }
+});
+
 // ── POST /api/landing-studio/chat ──────────────────────────────────────────
 router.post("/chat", async (req, res) => {
   try {
-    const { message, landingId, productId } = req.body as {
-      message?: string; landingId?: number; productId?: number;
+    const { message, landingId, productId, diseno } = req.body as {
+      message?: string; landingId?: number; productId?: number; diseno?: Diseno;
     };
     if (!message?.trim()) return res.status(400).json({ message: "Falta el mensaje" });
 
@@ -468,10 +618,16 @@ router.post("/chat", async (req, res) => {
       }
     }
 
-    const tipo = product ? detectarTipo(product) : "dropshipping";
+    const tipo = product ? detectarTipo(product) : "digital";
     const paleta = product ? await paletaDelProducto(product) : undefined;
+    const pago = product ? await datosDePagoDelProducto(product) : undefined;
+
+    // Diseño efectivo: el que manda el cliente ahora, o el guardado en la landing.
+    const disenoGuardado = (existingLanding?.design && typeof existingLanding.design === "object") ? existingLanding.design : {};
+    const disenoFinal: Diseno = { ...disenoGuardado, ...(diseno || {}) };
+
     const userPrompt = product
-      ? buildUserPrompt(product, tipo, existingHtml, message, paleta)
+      ? buildUserPrompt(product, tipo, existingHtml, message, paleta, pago, disenoFinal)
       : existingHtml
         ? `HTML ACTUAL:\n${existingHtml}\n\nINSTRUCCION: ${message}`
         : `INSTRUCCION: ${message}`;
@@ -500,29 +656,36 @@ router.post("/chat", async (req, res) => {
     }
 
     let savedLandingId = landingId;
+    let slug = existingLanding?.slug || "";
     if (landingId && existingLanding) {
-      await db.update(landingPages).set({ html, updatedAt: new Date() }).where(eq(landingPages.id, landingId));
+      await db.update(landingPages).set({ html, design: disenoFinal, updatedAt: new Date() }).where(eq(landingPages.id, landingId));
       savedLandingId = landingId;
     } else {
-      const slug = (product?.name || "landing")
+      slug = (product?.name || "landing")
         .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
         .slice(0, 60) + "-" + Date.now().toString(36);
       const inserted = await db.insert(landingPages).values({
-        tenantId: existingLanding?.tenantId || 1,
+        tenantId: existingLanding?.tenantId || product?.tenantId || 1,
         productId: productId || null,
         name: `Landing · ${product?.name || "Sin nombre"}`,
         slug,
         status: "draft",
         strategy: { tipo, detectedAt: new Date().toISOString() },
         sections: [],
-        design: {},
+        design: disenoFinal,
         source: productId ? { type: "product", productId } : {},
         html,
       }).returning({ id: landingPages.id });
       savedLandingId = inserted[0]?.id;
     }
 
-    return res.json({ html, landingId: savedLandingId, elapsed: `${elapsed}s`, tipo });
+    // Cablear el action del formulario (dropshipping) al endpoint real.
+    if (tipo === "dropshipping" && html.includes("__FORM_ACTION__") && savedLandingId != null) {
+      html = html.split("__FORM_ACTION__").join(`/api/landing-publica/${encodeURIComponent(slug)}/pedido`);
+      await db.update(landingPages).set({ html, updatedAt: new Date() }).where(eq(landingPages.id, savedLandingId));
+    }
+
+    return res.json({ html, landingId: savedLandingId, elapsed: `${elapsed}s`, tipo, design: disenoFinal });
   } catch (e: any) {
     logger.error({ err: e?.message }, "[LandingStudio] error general");
     return res.status(500).json({ message: e?.message || "Error interno" });
