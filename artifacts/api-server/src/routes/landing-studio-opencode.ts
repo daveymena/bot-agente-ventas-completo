@@ -19,6 +19,7 @@ import { Router } from "express";
 import { logger } from "../lib/logger";
 import { db, landingPages, products } from "@workspace/db";
 import { eq } from "drizzle-orm";
+import { fotosDelProducto, videosDelProducto } from "../lib/fotos-de-producto";
 
 const router = Router();
 
@@ -134,156 +135,242 @@ function detectarTipo(product: any): ProductType {
 }
 
 // ── AGENTE: DROPSHIPPING ──────────────────────────────────────────────────
-const DROPSHIPPING_SYSTEM = `Eres un experto en landing pages de DROPSHIPPING y productos fisicos. Generas paginas de venta que convierten visitantes en compradores.
+const DROPSHIPPING_SYSTEM = `Eres un experto en landing pages de DROPSHIPPING y productos fisicos. Generas paginas de venta CORATAS que convierten visitantes en compradores.
 
-ESTRUCTURA OBLIGATORIA DE LA LANDING:
-1. HERO — Titulo que ataca el DOLOR o deseo del cliente. Subtitulo con la PROMESA. boton CTA visible. Imagen del producto.
-2. PROBLEMA — Describe el problema que el cliente tiene (2-3 frases). Genera empatia.
-3. SOLUCION — Presenta el producto como la solucion. Que es, que hace, como funciona.
-4. BENEFICIOS — 4-6 beneficios con iconos. Beneficio = resultado tangible, NO caracteristica.
-5. COMO FUNCIONA — Pasos simples (1, 2, 3). Facilita la decision.
-6. PRUEBA SOCIAL — Testimonios o garantia. Si no hay testimonios reales, usa garantia de satisfaccion.
-7. OFERTA — Precio, descuento si aplica, bonus. Urgencia real (stock limitado, tiempo limitado).
-8. CTA FINAL — Repite la promesa del hero. Boton grande de compra.
-9. FAQ — 3-5 preguntas frecuentes con respuestas claras.
-10. FOOTER — Link de contacto, politicas, redes sociales.
+ESTRUCTURA (solo estas 6 secciones, en este orden):
+1. HERO — Titulo corto que ataca el DOLOR/deseo + subtitulo con la PROMESA + boton CTA + imagen principal.
+2. PROBLEMA→SOLUCION — 2 frases del problema, 2 frases de como el producto lo resuelve.
+3. BENEFICIOS — maximo 4, una linea cada uno (icono + 3-6 palabras).
+4. OFERTA — precio, descuento, urgencia (envio gratis / paga al recibir). Corto.
+5. CTA FINAL — repite la promesa + boton grande de compra.
+6. FAQ — maximo 3 preguntas cortas.
 
 REGLAS PARA DROPSHIPPING:
-- Menciona ENVIO a todo el pais o la region relevante.
-- Si es contraentrega, resalta "Paga al recibir" como beneficio.
-- Usa imagenes del producto que te den. Si no hay, usa picsum.photos.
-- Colores: profesionales, no neones. Azul/verde para confianza, naranja/rojo para urgencia.
-- El formulario de contacto debe tener: nombre, telefono, email, direccion (si es fisico).
-- NO inventes testimonios. Si no los hay, usa "Garantia de devolucion" o "Envio gratis".
-- Copy persuasivo: habla en segunda persona ("tu", "te", "tu vida").
-- Responsive: que se vea perfecto en celular (375px).
+- Menciona ENVIO en una linea. Si es contraentrega: "Paga al recibir".
+- NO inventes testimonios largos. Usa "Garantia de devolucion" o "Envio gratis" como frase corta.
+- Copy en segunda persona, frases cortas, sin adjetivos vacios.
+- Formulario minimo (si aplica): nombre + telefono.
 
 FORMATO DE SALIDA:
 SOLO el HTML completo. Empieza con <!DOCTYPE html>. Sin markdown, sin explicaciones, sin \`\`\`html.
-TODO el CSS va inline (style="..."). Sin <style> ni clases externas.
 Google Fonts via <link> (Inter para texto, Playfair para titulos).
 El HTML debe ser AUTONOMO y funcionar solo.`;
 
 // ── AGENTE: DIGITAL ───────────────────────────────────────────────────────
-const DIGITAL_SYSTEM = `Eres un experto en landing pages de PRODUCTOS DIGITALES (cursos, ebooks, software, presets, plantillas, packs). Generas paginas de venta que venden conocimiento y acceso inmediato.
+const DIGITAL_SYSTEM = `Eres un experto en landing pages de PRODUCTOS DIGITALES (cursos, ebooks, software, presets, plantillas, packs). Generas paginas de venta CORTAS que venden acceso inmediato.
 
-ESTRUCTURA OBLIGATORIA DE LA LANDING:
-1. HERO — Titulo que promete un RESULTADO. Subtitulo con el beneficio principal. CTA: "Quiero acceso ahora" o similar. Imagen del producto o screenshot.
-2. QUIEN SOY — Breve credibilidad del creador. Por que puede enseñar esto.
-3. PROBLEMA — El dolor del cliente. Que pierde si no aprende/compra esto.
-4. SOLUCION — El producto como atajo. Que obtiene el cliente exactamente.
-5. CONTENIDO — Lista de lo que incluye: modulos, videos, archivos, bonuses. Iconos o checkmarks.
-6. RESULTADOS — Que podra hacer despues de comprar. Transformacion antes/despues.
-7. TESTIMONIOS — Si no hay reales, usa "UNETE a X personas que ya compraron".
-8. PRECIO — Precio tachado vs precio real. Bonus con valor agregado. Pago unico o suscripcion.
-9. CTA — Boton grande: "Quiero mi acceso", "Descargar ahora", "Empezar hoy".
-10. GARANTIA — "30 dias de devolucion" o "Satisfaccion garantizada".
-11. FAQ — Preguntas sobre formato, acceso, soporte, duracion.
+ESTRUCTURA (solo estas 6 secciones, en este orden):
+1. HERO — Titulo corto que promete un RESULTADO + subtitulo con el beneficio + CTA "Quiero acceso" + imagen.
+2. PROBLEMA→SOLUCION — 2 frases del dolor, 2 frases del producto como atajo.
+3. QUE INCLUYE — lista corta de 4-5 items (modulos, archivos, bonuses) con checkmarks.
+4. RESULTADOS — 1-2 frases de la transformacion que logra.
+5. PRECIO + CTA — precio tachado vs real + boton "Descargar ahora" / "Empezar hoy".
+6. GARANTIA + FAQ — garantia en 1 frase + maximo 3 preguntas.
 
 REGLAS PARA DIGITALES:
-- ACCESO INMEDIATO es el beneficio #1. Resaltalo.
-- Si es curso: menciona "a tu ritmo", "desde cero", "certificado".
-- Si es ebook: "descarga instantanea", "PDF", "lee en cualquier dispositivo".
-- Si es software/app: "prueba gratis", "sin instalacion", "soporte 24/7".
-- Si es preset/plantilla: "edita en minutos", "compatible con...".
-- El CTA debe ser sobre ACCESO, no sobre COMPRA. "Quiero acceso" > "Comprar".
-- Copia: educar, no vender. El cliente esta aprendiendo, no comprando.
-- Formulario minimo: email y nombre. Opcion de pago directo.
-- Responsive: que se vea bien en movil.
+- ACCESO INMEDIATO es el beneficio #1. Dilo en una frase corta.
+- CTA sobre ACCESO, no compra: "Quiero acceso" > "Comprar".
+- Sin testimonios largos. Usa "X personas ya lo tienen".
+- Formulario minimo: email y nombre (o pago directo).
 
 FORMATO DE SALIDA:
 SOLO el HTML completo. Sin markdown, sin explicaciones.
-CSS inline. Google Fonts. Responsive. Autonomo.`;
+Google Fonts. Responsive. Autonomo.`;
 
 // ── AGENTE: SERVICIOS ─────────────────────────────────────────────────────
-const SERVICIOS_SYSTEM = `Eres un experto en landing pages de SERVICIOS (consultoria, agencias, freelance, coaching, salud, belleza, reparacion, etc). Generas paginas que generan CONFIANZA y bookings/citas.
+const SERVICIOS_SYSTEM = `Eres un experto en landing pages de SERVICIOS (consultoria, agencias, freelance, coaching, salud, belleza, reparacion, etc). Generas paginas CORTAS que generan CONFIANZA y bookings.
 
-ESTRUCTURA OBLIGATORIA DE LA LANDING:
-1. HERO — Titulo que posiciona como EXPERTO. Subtitulo con el resultado que genera. CTA: "Agenda tu cita" o "Consulta gratis". Foto profesional o imagen relevante.
-2. QUIEN ES — Breve presentacion del profesional/empresa. Experiencia, especialidad, enfoque.
-3. PROBLEMA — El problema del cliente. Que le cuesta NO resolver esto (tiempo, dinero, salud, etc).
-4. SERVICIOS — Lista de servicios ofrecidos. Iconos + nombre + descripcion corta (1 linea).
-5. COMO TRABAJA — Proceso paso a paso: 1) Consulta inicial, 2) Diagnostico, 3) Solucion, 4) Seguimiento.
-6. RESULTADOS — Casos de exito, estadisticas, antes/despues. Si no hay, usa "Mas de X clientes atendidos".
-7. CONFIANZA — Certificaciones, garantias, "Sin compromiso", "Primera consulta gratis".
-8. PRECIOS — Opcion basica, premium, VIP. O "Desde $X". Si no hay precios fijos, "Consulta sin compromiso".
-9. CTA — Formulario de contacto: nombre, telefono, email, mensaje, fecha preferida. O boton de WhatsApp.
-10. UBICACION — Mapa o direccion. Horarios de atencion.
-11. FAQ — Preguntas sobre disponibilidad, precios, modalidad, cancelaciones.
+ESTRUCTURA (solo estas 6 secciones, en este orden):
+1. HERO — Titulo corto que posiciona como EXPERTO + subtitulo con el resultado + CTA "Agenda tu cita" + imagen.
+2. PROBLEMA→SOLUCION — 2 frases del problema, 2 frases de como el servicio lo resuelve.
+3. SERVICIOS — lista corta de 3-5 servicios (icono + nombre + 1 linea).
+4. COMO TRABAJA — 3 pasos (consulta, solucion, seguimiento). Una linea cada uno.
+5. CONFIANZA + PRECIOS — "X clientes atendidos" / "Primera consulta gratis" + "Desde $X". Corto.
+6. CTA + UBICACION — formulario (nombre, telefono) o boton WhatsApp + direccion/horarios en 1 linea.
 
 REGLAS PARA SERVICIOS:
-- CONFIANZA es el factor #1. El cliente esta delegando algo importante.
-- Usa lenguaje de EXPERTO: "analizamos", "diagnosticamos", "personalizamos".
-- El formulario debe ser FACIL: nombre, telefono, y UN boton de enviar.
-- Si es WhatsApp, usa link directo: wa.me/NUMERO?text=Hola...
-- Menciona disponibilidad: "Respuesta en menos de 24 horas".
-- Horarios: "Lunes a Viernes 9am-6pm".
-- Si es servicio local: menciona la zona/ciudad.
-- NO uses "Comprar". Usa "Agendar", "Reservar", "Consultar", "Contactar".
-- Colores: profesionales. Azul (confianza), verde (salud), morado (premium).
+- CONFIANZA es el factor #1. Lenguaje de experto, frases cortas.
+- NO uses "Comprar". Usa "Agendar", "Reservar", "Consultar".
+- Si es WhatsApp, link directo wa.me/NUMERO.
+- Formulario FACIL: nombre + telefono + un boton.
 
 FORMATO DE SALIDA:
 SOLO el HTML completo. Sin markdown, sin explicaciones.
-CSS inline. Google Fonts. Responsive. Autonomo.`;
+Google Fonts. Responsive. Autonomo.`;
 
 // ── AGENTE: ECOMMERCE ─────────────────────────────────────────────────────
-const ECOMMERCE_SYSTEM = `Eres un experto en landing pages de ECOMMERCE y catalogos. Generas paginas que muestran multiples productos y facilitan la compra.
+const ECOMMERCE_SYSTEM = `Eres un experto en landing pages de ECOMMERCE y catalogos. Generas paginas CORTAS que muestran productos y facilitan la compra.
 
-ESTRUCTURA OBLIGATORIA DE LA LANDING:
-1. HERO — Nombre de la tienda. Logo o tipografia distintiva. Tagline. Buscador o categorias.
-2. CATEGORIAS — Grid de categorias con iconos/imagenes. Navegacion faciла.
-3. PRODUCTOS DESTACADOS — Grid de 4-8 productos con: imagen, nombre, precio, boton "Ver detalle" o "Agregar al carrito".
-4. OFERTAS — Seccion de productos en oferta con precio tachado y descuento visible.
-5. BENEFICIOS DE LA TIENDA — Envio gratis, pago contraentrega, devoluciones, soporte.
-6. TESTIMONIOS — Opiniones de clientes. Si no hay, "Calificacion 4.8/5" o "X clientes satisfechos".
-7. CONTACTO — WhatsApp, email, telefono, redes sociales.
-8. FOOTER — Politicas, terminos, mapa del sitio.
+ESTRUCTURA (solo estas 5 secciones, en este orden):
+1. HERO — Nombre de la tienda + tagline corto + buscador o categorias.
+2. PRODUCTOS DESTACADOS — Grid de 4-8 productos: imagen + nombre + precio + boton "Comprar".
+3. OFERTAS — productos en oferta con precio tachado + descuento visible.
+4. BENEFICIOS DE LA TIENDA — 3-4 frases cortas (envio gratis, contraentrega, devoluciones).
+5. CONTACTO — WhatsApp + email + redes en una linea.
 
 REGLAS PARA ECOMMERCE:
-- CADA producto debe tener: imagen, nombre, precio, boton de accion.
-- El grid debe ser RESPONSIVE: 1 columna en movil, 2-4 en desktop.
-- Precios visible GRANDE. El precio es el factor de decision #1.
-- Si hay descuento: precio tachado + precio real + "% OFF".
-- Buscador o filtros si hay muchos productos.
-- Carrito simple: icono + numero de items.
-- Colores: consistentes con la marca. Max 3 colores principales.
-- Formulario de contacto minimo: solo WhatsApp o email.
-- NO uses carrito complejo. Links directos a pago o WhatsApp.
+- CADA producto: imagen, nombre, precio, boton. Sin descripciones largas.
+- Grid RESPONSIVE: 1 columna movil, 2-4 desktop.
+- Precios GRANDES. Si hay descuento: precio tachado + "% OFF".
+- Colores de la marca (los de la paleta del brief). Sin carrito complejo: links directos a pago o WhatsApp.
 
 FORMATO DE SALIDA:
 SOLO el HTML completo. Sin markdown, sin explicaciones.
-CSS inline. Google Fonts. Responsive. Autonomo.`;
+Google Fonts. Responsive. Autonomo.`;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSTRUCTOR DE PROMPTS
 // ═══════════════════════════════════════════════════════════════════════════
 
+// Reglas compartidas por TODOS los agentes: concision + imagenes + tipografia + colores.
+const REGLAS_COMPARTIDAS = `
+REGLAS DE CONCISION (LO MAS IMPORTANTE - la landing debe ser CORTA):
+1. MENOS ES MAS. La landing debe atraer al cliente, no leerle un libro. Nada de muros de texto.
+2. HERO: titulo de maximo 8 palabras + subtitulo de maximo 15 palabras + 1 boton CTA. Y ya.
+3. Cada seccion tiene: un titulo corto (3-6 palabras) + 1 o 2 frases cortas + su imagen. Nada mas.
+4. Frases cortas: maximo 15-20 palabras por frase. Sin parrafos largos. Sin relleno.
+5. BENEFICIOS: maximo 4, una linea cada uno (icono + 3-6 palabras).
+6. FAQ: maximo 3 preguntas, respuesta de 1-2 frases.
+7. El visitante debe entender en 10 segundos: que es el producto, que problema resuelve y como comprarlo.
+8. NO repitas informacion entre secciones. Cada seccion aporta algo nuevo.
+9. Prefiere listas y bullets cortos antes que parrafos. La landing se escanea, no se lee.
+10. Total de la landing: corta y directa. Si una seccion no aporta a la conversion, eliminala.
+
+REGLAS DE IMAGENES (OBLIGATORIAS):
+1. Usa TODAS las imagenes del producto que te doy. No te quedes con una sola.
+2. En el HERO usa la imagen PRINCIPAL (la marcada como tal), junto al titulo y subtitulo.
+3. Cada BLOQUE/seccion de contenido debe llevar UNA imagen distinta. Intercala imagenes y texto para que la landing no sea un muro de texto.
+4. NO repitas la misma imagen en secciones consecutivas.
+5. Las imagenes van acompañando el titulo de cada bloque: titulo + imagen + texto.
+6. Usa <img loading="lazy"> en las imagenes que NO estan en el hero (carga mas rapido).
+7. Si una imagen falla, el <img> debe tener alt descriptivo.
+
+REGLAS DE TIPOGRAFIA RESPONSIVE (OBLIGATORIAS):
+1. Titulo principal (hero H1): 28px en movil, 48-56px en desktop. Usa font-size con media queries.
+2. Subtitulos/secciones (H2): 22px en movil, 34-38px en desktop.
+3. Titulos menores (H3): 18px en movil, 24-26px en desktop.
+4. Texto de parrafo (body): 15-16px en movil, 17-18px en desktop. Interlineado 1.6.
+5. Botones CTA: texto 16px, padding amplio, facil de tocar en movil (altura minima 48px).
+6. Usa viewport meta correcto: <meta name="viewport" content="width=device-width, initial-scale=1.0">.
+7. Los tamanos se controlan con CSS inline dentro de <style> o media queries. NUNCA uses clamp() que no funcione en navegadores viejos; prefiere media queries explicitas: @media (max-width: 768px) y @media (min-width: 769px).
+8. En movil: una sola columna, titulos centrados, imagenes a ancho completo.
+9. En desktop: max-width de contenido 1200px, centrado.
+10. Verifica que los titulos NO se corten ni desborden en pantallas de 375px.
+
+REGLAS DE COLORES (OBLIGATORIAS):
+1. NO uses colores de fondo al azar. Usa la PALETA que te doy en el brief (colores de marca + color dominante del producto).
+2. El color PRIMARIO va en fondos de secciones, encabezados y elementos destacados.
+3. El color de ACENTO va en botones CTA, precios y elementos de urgencia.
+4. El color DOMINANTE del producto sirve para degradados, bordes y detalles.
+5. Fondo general: blanco o un tono MUY claro derivado del color primario (ej. si primary es verde, fondo #f0fdf4). Nunca un fondo de color saturado al azar.
+6. Contraste legible: texto oscuro sobre fondo claro, texto blanco sobre fondo oscuro del color primario.
+7. Si el producto NO tiene paleta definida, deriva los colores de la imagen del producto y de la categoria (tecnologia=azul, salud/belleza=verde/rosa, comida=naranja/rojo, premium/negocio=negro/dorado, educativo=indigo).
+8. Maximo 3-4 colores en total. Consistencia en toda la landing.
+
+NOTA: El <style> es obligatorio para los media queries. No todo puede ir inline: las media queries SIEMPRE van en un <style> dentro del <head>.`;
+
 function getSystemPrompt(tipo: ProductType): string {
-  switch (tipo) {
-    case "dropshipping": return DROPSHIPPING_SYSTEM;
-    case "digital": return DIGITAL_SYSTEM;
-    case "servicio": return SERVICIOS_SYSTEM;
-    case "ecommerce": return ECOMMERCE_SYSTEM;
-    default: return DROPSHIPPING_SYSTEM;
+  const base = (() => {
+    switch (tipo) {
+      case "dropshipping": return DROPSHIPPING_SYSTEM;
+      case "digital": return DIGITAL_SYSTEM;
+      case "servicio": return SERVICIOS_SYSTEM;
+      case "ecommerce": return ECOMMERCE_SYSTEM;
+      default: return DROPSHIPPING_SYSTEM;
+    }
+  })();
+  return base + REGLAS_COMPARTIDAS;
+}
+
+// ── Paleta de colores del producto ────────────────────────────────────────
+// Saca los colores de marca del tenant y el color dominante de la imagen del
+// producto. OpenCode los usa para armar la paleta en vez de inventar colores
+// al azar.
+interface Paleta { primary?: string; secondary?: string; accent?: string; dominante?: string }
+
+async function colorDominanteDeImagen(url: string): Promise<string | null> {
+  if (!/^https?:\/\//i.test(url)) return null;
+  try {
+    const resp = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!resp.ok) return null;
+    const buf = Buffer.from(await resp.arrayBuffer());
+    const sharp = (await import("sharp")).default;
+    const data = await sharp(buf)
+      .resize(24, 24, { fit: "cover" })
+      .removeAlpha()
+      .raw()
+      .toBuffer();
+    const buckets = new Map<string, { r: number; g: number; b: number; n: number }>();
+    for (let i = 0; i < data.length; i += 3) {
+      const r = data[i], g = data[i + 1], b = data[i + 2];
+      if (r > 232 && g > 232 && b > 232) continue; // fondo blanco
+      if (r < 22 && g < 22 && b < 22) continue;    // casi negro
+      const key = `${r >> 5},${g >> 5},${b >> 5}`;
+      const e = buckets.get(key) || { r: 0, g: 0, b: 0, n: 0 };
+      e.r += r; e.g += g; e.b += b; e.n += 1;
+      buckets.set(key, e);
+    }
+    let mejor: { r: number; g: number; b: number; n: number } | null = null;
+    for (const e of buckets.values()) if (!mejor || e.n > mejor.n) mejor = e;
+    if (!mejor || mejor.n < 4) return null;
+    const hex = (v: number) => Math.round(v).toString(16).padStart(2, "0");
+    return `#${hex(mejor.r / mejor.n)}${hex(mejor.g / mejor.n)}${hex(mejor.b / mejor.n)}`;
+  } catch {
+    return null;
   }
 }
 
-function buildUserPrompt(product: any, tipo: ProductType, existingHtml: string | null, instruction: string): string {
+async function paletaDelProducto(product: any): Promise<Paleta> {
+  const paleta: Paleta = {};
+  try {
+    const { tenantManager } = await import("../lib/tenantManager");
+    const tenant = await tenantManager.getTenantById(product?.tenantId || 1);
+    const brand = tenant?.brandColors;
+    if (brand?.primary) paleta.primary = brand.primary;
+    if (brand?.secondary) paleta.secondary = brand.secondary;
+    if (brand?.accent) paleta.accent = brand.accent;
+  } catch { /* sin tenant: se sigue con la imagen */ }
+
+  const foto = fotosDelProducto(product)[0] || product?.imageUrl;
+  if (foto) {
+    const dom = await colorDominanteDeImagen(foto);
+    if (dom) paleta.dominante = dom;
+  }
+  return paleta;
+}
+
+function buildUserPrompt(product: any, tipo: ProductType, existingHtml: string | null, instruction: string, paleta?: Paleta): string {
+  const fotos = fotosDelProducto(product);
+  const videos = videosDelProducto(product);
+  const imagenesTxt = fotos.length
+    ? fotos.map((f, i) => `  ${i + 1}. ${f}${i === 0 ? " (PRINCIPAL - usar en el HERO)" : ""}`).join("\n")
+    : "  Ninguna (usa picsum.photos como respaldo)";
+
   let prompt = `PRODUCTO A ANALIZAR:
 - Nombre: ${product.name}
 - Descripcion: ${product.description || "N/A"}
 - Precio: ${product.price} ${product.currency || "USD"}
 - Tipo detectado: ${tipo}
 - Categoria: ${product.category || "N/A"}
-- Imagen: ${product.imageUrl || "Ninguna"}
 - Highlight: ${product.highlight || "N/A"}
 - Features: ${(product.features || []).join(", ") || "N/A"}
 - Link de pago: ${product.paymentLink || "N/A"}
 - Link de entrega: ${product.deliveryLink || "N/A"}
 
+IMAGENES DEL PRODUCTO (${fotos.length} disponibles - USALAS TODAS):
+${imagenesTxt}
+${videos.principal ? `\nVIDEO PRINCIPAL DEL PRODUCTO: ${videos.principal}\n(Colocalo con un <video> en la seccion de demo/prueba si aplica)` : ""}
+
 CONTEXTO DEL NEGOCIO:
 - Moneda: ${product.currency || "USD"}
-- Pais objetivo: Colombia (usar COP si es precio colombiano, USD si es dolar)`;
+- Pais objetivo: Colombia (usar COP si es precio colombiano, USD si es dolar)
+
+PALETA DE COLORES (USALA - NO inventes colores al azar):
+${paleta?.primary ? `- Color primario (marca): ${paleta.primary}` : "- Color primario: derivalo del color dominante del producto"}
+${paleta?.secondary ? `- Color secundario: ${paleta.secondary}` : ""}
+${paleta?.accent ? `- Color de acento (CTAs/botones): ${paleta.accent}` : ""}
+${paleta?.dominante ? `- Color dominante de la imagen del producto: ${paleta.dominante}` : ""}
+Regla: el fondo y los acentos de la landing deben combinar con estos colores. Nada de colores de fondo al azar.`;
 
   if (existingHtml) {
     prompt += `\n\nHTML ACTUAL DE LA LANDING (para que mejores/edites):\n${existingHtml}`;
@@ -317,8 +404,9 @@ router.post("/test", async (req, res) => {
     }
 
     const tipo = product ? detectarTipo(product) : "dropshipping";
+    const paleta = product ? await paletaDelProducto(product) : undefined;
     const userPrompt = product
-      ? buildUserPrompt(product, tipo, null, message)
+      ? buildUserPrompt(product, tipo, null, message, paleta)
       : `INSTRUCCION: ${message}`;
 
     const startTime = Date.now();
@@ -381,8 +469,9 @@ router.post("/chat", async (req, res) => {
     }
 
     const tipo = product ? detectarTipo(product) : "dropshipping";
+    const paleta = product ? await paletaDelProducto(product) : undefined;
     const userPrompt = product
-      ? buildUserPrompt(product, tipo, existingHtml, message)
+      ? buildUserPrompt(product, tipo, existingHtml, message, paleta)
       : existingHtml
         ? `HTML ACTUAL:\n${existingHtml}\n\nINSTRUCCION: ${message}`
         : `INSTRUCCION: ${message}`;
