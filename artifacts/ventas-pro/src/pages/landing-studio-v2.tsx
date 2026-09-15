@@ -152,29 +152,40 @@ export default function LandingStudioV2() {
 
     setBusy(true);
     const esNueva = /genera|crea|construye|haz una landing|nueva landing/i.test(text);
-    setMsgs(m => [...m, { role: "assistant", content: esNueva ? "Generando landing con OpenCode..." : "Aplicando cambios...", loading: true }]);
+    setMsgs(m => [...m, { role: "assistant", content: esNueva ? "Generando landing con OpenCode... esto puede tardar 30-60 segundos." : "Aplicando cambios...", loading: true }]);
 
     try {
-      const r = await apiFetch<{ html: string; landingId: number }>("/api/landing-studio/chat", {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
+      const r = await fetch("/api/landing-studio/chat", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text, landingId: esNueva ? undefined : landingId, productId: pid }),
+        signal: controller.signal,
       });
-      setLandingId(r.landingId);
-      setPreviewHtml(r.html);
+      clearTimeout(timeoutId);
+      if (!r.ok) {
+        const err = await r.json().catch(() => null);
+        throw new Error(err?.message || `Error ${r.status}`);
+      }
+      const data = await r.json();
+      setLandingId(data.landingId);
+      setPreviewHtml(data.html);
       setLandings(prev => {
-        const exists = prev.find(l => l.id === r.landingId);
-        if (exists) return prev.map(l => l.id === r.landingId ? { ...l, html: r.html } as any : l);
-        return [{ id: r.landingId, name: `Landing #${r.landingId}`, productId: pid, status: "draft" } as any, ...prev];
+        const exists = prev.find(l => l.id === data.landingId);
+        if (exists) return prev.map(l => l.id === data.landingId ? { ...l, html: data.html } as any : l);
+        return [{ id: data.landingId, name: `Landing #${data.landingId}`, productId: pid, status: "draft" } as any, ...prev];
       });
       setMsgs(m => [
         ...m.filter(x => !(x as any).loading),
         { role: "assistant", content: esNueva
-          ? `**Landing generada con OpenCode**\n\nID: ${r.landingId}\n\nPuedes pedirme ajustes como:\n> *"Haz el hero más agresivo"*\n> *"Cambia los colores a oscuro"*\n> *"Agrega una sección de testimonios"*\n> *"Genera landings para otros productos" (selecciona varios arriba)`
-          : `**Landing actualizada** (ID: ${r.landingId})\n\nPreview actualizada. Que más ajustamos?` },
+          ? `**Landing generada** (${data.elapsed || "?"})\n\nID: ${data.landingId}\n\nPuedes pedirme ajustes como:\n> *"Haz el hero más agresivo"*\n> *"Cambia los colores a oscuro"*\n> *"Agrega una sección de testimonios"`
+          : `**Landing actualizada** (ID: ${data.landingId})\n\nPreview actualizada. Que más ajustamos?` },
       ]);
       toast.success(esNueva ? "¡Landing generada!" : "¡Landing actualizada!");
     } catch (e: any) {
-      setMsgs(m => [...m.filter(x => !(x as any).loading), { role: "assistant", content: `Error: ${e.message || "Error al procesar."}` }]);
+      const msg = e.name === "AbortError" ? "Tiempo de espera agotado (2 min). Intenta con un producto más simple." : (e.message || "Error al procesar.");
+      setMsgs(m => [...m.filter(x => !(x as any).loading), { role: "assistant", content: `Error: ${msg}` }]);
     } finally {
       setBusy(false);
       inputRef.current?.focus();
@@ -336,7 +347,12 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
             <option value="">Nueva landing...</option>
             {landings.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
-          <Button size="sm" disabled={busy || !productId} onClick={() => productId && generarLanding(Number(productId))}
+          <Button size="sm" disabled={busy || !productId} onClick={async () => {
+              if (!productId) return;
+              setInput("Genera una landing page para este producto");
+              // Trigger enviar via ref
+              setTimeout(() => enviar(), 100);
+            }}
             className="bg-violet-600 hover:bg-violet-700 text-white h-8 px-3 text-xs">
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Wand2 className="h-3.5 w-3.5 mr-1" />}
             Generar

@@ -89,25 +89,23 @@ async function sendMessage(
 
 // ── Prompt del sistema para generación de landings ─────────────────────────
 function systemPrompt(): string {
-  return `Eres el generador de Landing Pages de VentasPro. Creas landing pages HTML+CSS completas, profesionales y dinámicas.
+  return `Eres un generador de landing pages HTML. Tu ÚNICO trabajo es generar HTML completo.
 
-REGLAS ESTRICTAS:
-1. Devuelves SOLO HTML válido. Sin markdown, sin explicaciones.
-2. TODO el CSS va INLINE en cada elemento (style="..."). Sin <style> ni clases externas.
-3. Responsive: usa media queries inline o flex/grid que se adapten a móvil y desktop.
-4. Imágenes: usa URLs reales del producto que te doy. Si no hay imagen, usa picsum.photos o placehold.co.
-5. Google Fonts: puedes usar <link> para tipografías de Google (Inter, Playfair Display, etc.).
-6. Colores: usa la paleta que te indico o elige colores profesionales acordes al producto.
-7. El HTML debe ser una landing page COMPLETA: hero, beneficios, oferta, CTA, FAQ si aplica.
-8. Copy persuasivo: AIDA (Atención, Interés, Deseo, Acción). Sin relleno, sin adjetivos vacíos.
-9. Un solo botón de acción principal visible (CTA).
-10. NO uses <script> salvo para algo trivial como smooth scroll.
-11. Responsive design: que se vea bien en celular (375px) y desktop (1200px+).
-12. El HTML debe ser AUTÓNOMO: que funcione solo, sin dependencias externas excepto Google Fonts.
+IMPORTANTE: NO devuelvas planes, tablas, ni explicaciones. Devuelves SOLO el código HTML.
 
-FORMATO DE SALIDA:
-Solo el HTML completo empezando con <!DOCTYPE html> y terminando con </html>.
-Sin nada más alrededor.`;
+REGLAS:
+1. Solo HTML válido. Empieza con <!DOCTYPE html> y termina con </html>.
+2. CSS inline en cada elemento (style="..."). Sin <style> ni clases.
+3. Responsive (flex/grid + media queries).
+4. Google Fonts via <link> (Inter, Playfair, etc).
+5. Imágenes: usa la URL del producto que te dan. Si no hay, usa picsum.photos.
+6. Landing COMPLETA: hero, beneficios, oferta, CTA, FAQ si aplica.
+7. Copy persuasivo AIDA. Sin adjetivos vacíos.
+8. Un solo botón CTA principal.
+9. Responsive: móvil (375px) y desktop (1200px+).
+10. Autónomo: sin dependencias externas excepto Google Fonts.
+11. Colors professional and appropriate for the product.
+12. NO uses markdown, NO uses \`\`\`html, NO expliques nada. Solo el HTML.`;
 }
 
 function buildUserPrompt(product: any, existingHtml: string | null, instruction: string): string {
