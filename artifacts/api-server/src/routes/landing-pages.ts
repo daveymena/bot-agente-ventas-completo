@@ -89,6 +89,11 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
     if (source?.landingforgeUrl) return res.redirect(302, source.landingforgeUrl);
     if (row.publishedUrl && !/\/l\//.test(String(row.publishedUrl))) return res.redirect(302, row.publishedUrl);
 
+    if (row.html) {
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.send(row.html);
+    }
+
     let producto: any = null;
     if (row.productId) {
       const [p] = await db.select().from(products).where(and(eq(products.id, row.productId), eq(products.tenantId, tenantId))).limit(1);

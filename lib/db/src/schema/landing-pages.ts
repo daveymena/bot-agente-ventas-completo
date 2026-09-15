@@ -18,6 +18,7 @@ export const landingPages = pgTable("landing_pages", {
   sections: jsonb("sections").$type<Array<Record<string, any>>>().notNull().default([]),
   design: jsonb("design").$type<Record<string, any>>().notNull().default({}),
   source: jsonb("source").$type<Record<string, any>>().notNull().default({}),
+  html: text("html"),
   publishedUrl: text("published_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),

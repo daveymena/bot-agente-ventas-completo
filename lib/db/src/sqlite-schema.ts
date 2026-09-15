@@ -671,6 +671,7 @@ export const landingPages = sqliteTable("landing_pages", {
   sections: text("sections", { mode: "json" }).$type<Array<Record<string, any>>>().notNull().default([]),
   design: text("design", { mode: "json" }).$type<Record<string, any>>().notNull().default({}),
   source: text("source", { mode: "json" }).$type<Record<string, any>>().notNull().default({}),
+  html: text("html"),
   publishedUrl: text("published_url"),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
