@@ -5692,6 +5692,21 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       const dias = Math.min(Math.max(num(args.dias) || 30, 1), 365);
       const { runDiagnosticCycle } = await import("./marketing-team/orchestrator");
       const r = await runDiagnosticCycle({ tenantId: ctx.tenantId, days: dias });
+      // La revisión ejecutable (revision-diaria.ts): los mismos números y
+      // acciones que le llegan al dueño por WhatsApp cada mañana. Lo que
+      // proponga Atlas acá tiene que ser lo mismo que se le ofreció allá.
+      let revision = "";
+      try {
+        const { medir, decidir } = await import("./revision-diaria");
+        const d = decidir(await medir(ctx.tenantId));
+        revision = [
+          `📊 Revisión de hoy (7 días, medida):`,
+          ...d.estado.map((l) => `• ${l}`),
+          ...(d.acciones.length ? [`Acciones que el servidor puede hacer ya:`, ...d.acciones.map((a) => `${a.n}. ${a.texto}`)] : [`Sin acciones urgentes.`]),
+        ].join("\n");
+      } catch (e: any) {
+        revision = `(la revisión medida no se pudo calcular: ${String(e?.message || e).slice(0, 120)})`;
+      }
       const bloque = (h: any) => {
         if (!h) return "(sin datos)";
         const d = h.data ?? h.output ?? h;
@@ -5700,6 +5715,8 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       return {
         ok: true,
         summary: [
+          revision,
+          ``,
           `🩺 Diagnóstico del embudo (últimos ${dias} días):`,
           ``,
           `📊 Rendimiento: ${bloque(r.performance)}`,

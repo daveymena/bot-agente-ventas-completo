@@ -2516,6 +2516,19 @@ export class WhatsAppManager {
                  console.error("[Pago] fallo atendiendo la decisión del admin:", e?.message);
                }
 
+               // ── ¿Responde a la revisión diaria ("1", "la 2", "todas")? ──
+               // Solo números explícitos: un "sí" pelado sigue siendo para las
+               // sugerencias del agente de anuncios (handleAdminReply, abajo).
+               try {
+                 const { atenderRespuestaAlAviso } = await import("./revision-diaria");
+                 const respuesta = await atenderRespuestaAlAviso(phone, text.trim());
+                 if (respuesta) {
+                   await this.sendText(phone, respuesta);
+                   continue;
+                 }
+               } catch (e: any) {
+                 console.log(`⚠️ [REVISION] no se pudo atender la respuesta del admin: ${e?.message}`);
+               }
                const handled = await handleAdminReply(phone, text.trim());
                if (handled) continue;
              } catch (err) {

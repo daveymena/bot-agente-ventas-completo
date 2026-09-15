@@ -113,31 +113,28 @@ export function accionesDelDiagnostico(resultado: any): string[] {
   return salida;
 }
 
-/** Diagnóstico diario: leer los números y avisar solo si hay algo que hacer. */
+/**
+ * Diagnóstico diario: leer los números y avisar solo si hay algo que hacer.
+ *
+ * Antes mandaba las `accionesInmediatas` del diagnostic-agent: frases
+ * genéricas ("Revisar la oferta y garantía visibles") que nadie podía
+ * ejecutar, y cerraba con "decime cuál querés que haga" — y la respuesta
+ * del dueño caía en el agente de ventas. Ahora es `revision-diaria.ts`:
+ * números reales, acciones numeradas que el servidor sabe hacer, y la
+ * respuesta "1" / "todas" por WhatsApp se atiende (ver whatsapp.ts).
+ */
 async function diagnosticoDiario(ctx: ContextoDeTrabajo) {
-  const { runDiagnosticCycle } = await import("./marketing-team/orchestrator");
-  const r = await runDiagnosticCycle({ tenantId: ctx.tenantId, days: 7 });
+  const { revisionDiaria } = await import("./revision-diaria");
+  const { texto, revision } = await revisionDiaria(ctx.tenantId);
+  const conclusion = revision.estado.join(" ");
 
-  const acciones = accionesDelDiagnostico(r);
-  const conclusion = String(r?.diagnostic?.summary || "").trim();
-
-  if (acciones.length === 0) {
-    logger.info({ tenantId: ctx.tenantId }, "[Agencia] diagnóstico sin acciones: no se molesta a nadie");
+  if (!texto) {
+    logger.info({ tenantId: ctx.tenantId }, "[Agencia] revisión sin acciones: no se molesta a nadie");
     return { acciones: 0, aviso: false, conclusion };
   }
 
-  const texto = [
-    "📊 *Revisión de la semana*",
-    "",
-    conclusion || "Hay cosas para ajustar en la cuenta.",
-    "",
-    ...acciones.slice(0, 5).map((a) => `• ${a}`),
-    "",
-    "Nada de esto se aplicó solo. Decime cuál querés que haga.",
-  ].join("\n");
-
   const aviso = await avisar(ctx.tenantId, texto);
-  return { acciones: acciones.length, aviso, conclusion };
+  return { acciones: revision.acciones.length, aviso, conclusion };
 }
 
 /**
