@@ -14,6 +14,7 @@ import QRCode from "qrcode";
 import { decryptSecret, encryptSecret } from "../lib/credentials-vault";
 import { generateRecoveryCodes, generateTotpSecret, hashRecoveryCode, verifyTotp } from "../lib/totp";
 import { twoFactorLimiter } from "../lib/rate-limiter";
+import { googleAuthUrl, exchangeCodeForProfile, googleOAuthConfig, type GoogleProfile } from "../lib/google-auth";
 
 const router = Router();
 
@@ -442,6 +443,182 @@ router.post("/reset-password", authRateLimit, async (req, res, next) => {
     return res.json({ message: "Contraseña actualizada correctamente" });
   } catch (e) {
     return next(e);
+  }
+});
+
+// ── Google OAuth 2.0 / OpenID Connect ──────────────────────────────────────
+// Login "Continuar con Google" por AUTHORIZATION CODE (server-side): el client
+// secret nunca sale del backend. La sesión termina en la MISMA cookie firmada
+// `tenant_id` que usa el login por email/password, así que no hay una segunda
+// vía de autenticación: solo una cuenta distinta de iniciarla.
+
+const GOOGLE_STATE_TTL_MS = 10 * 60 * 1000;
+
+// Adónde se vuelve DESPUÉS de autenticar. En producción el frontend y la API
+// comparten origen, así que con "/" alcanza. En dev el frontend vive en otro
+// puerto (Vite :5173) y se apunta con GOOGLE_LOGIN_REDIRECT.
+function frontendUrl(path: string): string {
+  const base = String(process.env.GOOGLE_LOGIN_REDIRECT || "").trim().replace(/\/+$/, "");
+  return base ? `${base}${path}` : path;
+}
+
+function sanitizeSlug(s: string): string {
+  return s
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40);
+}
+
+/** Crea el tenant (negocio) para un usuario nuevo que entra con Google. */
+async function crearTenantDesdeGoogle(profile: GoogleProfile): Promise<number> {
+  const email = normalizeEmail(profile.email);
+  const nombre = profile.name?.trim() || email.split("@")[0];
+  const base = sanitizeSlug(profile.name || email.split("@")[0]) || "usuario";
+
+  let slug = base;
+  for (let i = 0; i < 10; i++) {
+    const existente = await db.select({ id: tenants.id }).from(tenants).where(eq(tenants.slug, slug)).limit(1);
+    if (existente.length === 0) break;
+    slug = `${base}-${crypto.randomBytes(3).toString("hex")}`;
+  }
+
+  const [nuevo] = await db.insert(tenants).values({
+    name: nombre,
+    email,
+    slug,
+    brandName: nombre,
+    status: "trial",
+    plan: "basic",
+    agentName: "Sofía",
+    agentPersonality: "professional",
+    settings: { timezone: "America/Bogota", language: "es", currency: "COP", autoRespond: true },
+    limits: { maxConversations: 1000, maxProducts: 100, maxAgents: 1, maxMonthlyMessages: 5000, apiCallsPerMinute: 60 },
+    googleId: profile.sub,
+    authProvider: "google",
+    avatarUrl: profile.picture || null,
+    emailVerified: true,
+  } as any).returning({ id: tenants.id });
+
+  try {
+    await db.insert(stores).values({ tenantId: nuevo!.id, name: nombre, slug: nuevo!.slug });
+  } catch (err) {
+    logger.error({ err, tenantId: nuevo!.id }, "[Auth] No se pudo crear la tienda automática del tenant de Google");
+  }
+
+  return nuevo!.id;
+}
+
+/**
+ * Busca o crea el tenant para un perfil de Google, sin duplicados:
+ *   1. Por google_id (sub) → ya estaba vinculada.
+ *   2. Por email → era una cuenta de email/password, se VINCULA el sub.
+ *   3. Ninguna → se crea un tenant nuevo.
+ */
+async function findOrCreateGoogleTenant(profile: GoogleProfile): Promise<number> {
+  const [porGoogle] = await db
+    .select({ id: tenants.id })
+    .from(tenants)
+    .where(eq(tenants.googleId, profile.sub))
+    .limit(1);
+  if (porGoogle) return porGoogle.id;
+
+  const email = normalizeEmail(profile.email);
+  const [porEmail] = await db
+    .select({ id: tenants.id })
+    .from(tenants)
+    .where(sql`lower(${tenants.email}) = ${email}`)
+    .limit(1);
+  if (porEmail) {
+    await db
+      .update(tenants)
+      .set({ googleId: profile.sub, authProvider: "google", avatarUrl: profile.picture || null, emailVerified: true } as any)
+      .where(eq(tenants.id, porEmail.id));
+    return porEmail.id;
+  }
+
+  return crearTenantDesdeGoogle(profile);
+}
+
+router.get("/google", (req, res, next) => {
+  try {
+    if (!googleOAuthConfig().configured) {
+      return res.redirect(`${frontendUrl("/auth")}?google=error&reason=not_configured`);
+    }
+    const state = crypto.randomBytes(16).toString("hex");
+    res.cookie("google_oauth_state", state, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production" || req.secure,
+      sameSite: "lax",
+      signed: true,
+      maxAge: GOOGLE_STATE_TTL_MS,
+      path: "/",
+    });
+    const url = googleAuthUrl(state);
+    if (!url) return res.redirect(`${frontendUrl("/auth")}?google=error&reason=not_configured`);
+    return res.redirect(url);
+  } catch (e) {
+    return next(e);
+  }
+});
+
+router.get("/google/callback", async (req, res, next) => {
+  try {
+    const state = String(req.query?.state || "");
+    const expected = req.signedCookies?.google_oauth_state;
+    res.clearCookie("google_oauth_state");
+    if (!expected || state !== expected) {
+      return res.redirect(`${frontendUrl("/auth")}?google=error&reason=state_mismatch`);
+    }
+
+    const code = String(req.query?.code || "");
+    if (!code) {
+      // Google manda ?error=access_denied cuando el usuario cancela.
+      const googleError = String(req.query?.error || "");
+      const reason = googleError === "access_denied" ? "cancelled" : "oauth_failed";
+      return res.redirect(`${frontendUrl("/auth")}?google=error&reason=${reason}`);
+    }
+
+    const { profile, error } = await exchangeCodeForProfile(code);
+    if (!profile) {
+      return res.redirect(`${frontendUrl("/auth")}?google=error&reason=${error || "oauth_failed"}`);
+    }
+
+    const tenantId = await findOrCreateGoogleTenant(profile);
+
+    // El 2FA se respeta también en Google: no se salta la segunda barrera.
+    const [tenant] = await db
+      .select({ twoFactorEnabled: tenants.twoFactorEnabled })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
+    if (tenant?.twoFactorEnabled) {
+      res.cookie("login_2fa", challengeFor(tenantId), {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production" || req.secure,
+        sameSite: "lax",
+        signed: true,
+        maxAge: TWO_FACTOR_CHALLENGE_TTL_MS,
+        path: "/",
+      });
+      return res.redirect(`${frontendUrl("/auth")}?google=2fa`);
+    }
+
+    res.cookie("tenant_id", tenantId, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production" || req.secure,
+      sameSite: "lax",
+      path: "/",
+      maxAge: 30 * 24 * 60 * 60 * 1000,
+      signed: true,
+    });
+
+    return res.redirect(frontendUrl("/"));
+  } catch (e) {
+    logger.error({ err: (e as any)?.message }, "[Auth] error en el callback de Google");
+    return res.redirect(`${frontendUrl("/auth")}?google=error&reason=server_error`);
   }
 });
 

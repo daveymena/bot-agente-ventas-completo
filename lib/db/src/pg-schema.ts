@@ -666,6 +666,18 @@ export const ALL_TABLES = [
     sql: `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT true`
   },
   {
+    name: 'tenants.google_id',
+    sql: `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS google_id TEXT`
+  },
+  {
+    name: 'tenants.auth_provider',
+    sql: `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS auth_provider TEXT NOT NULL DEFAULT 'password'`
+  },
+  {
+    name: 'tenants.avatar_url',
+    sql: `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS avatar_url TEXT`
+  },
+  {
     // Migración idempotente: leads.ad_context cierra la atribución
     // ad → lead → venta (el contexto del anuncio llega en messages.metadata).
     name: 'leads.ad_context',

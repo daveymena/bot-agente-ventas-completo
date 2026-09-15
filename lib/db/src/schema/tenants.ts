@@ -112,6 +112,14 @@ export const tenants = pgTable("tenants", {
   trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
   subscriptionEndsAt: timestamp("subscription_ends_at", { withTimezone: true }),
   metadata: jsonb("metadata"),
+  // Google OAuth / OpenID Connect. `google_id` guarda el `sub` de Google, que
+  // es el identificador primario de la cuenta vinculada (no el email, que puede
+  // cambiar). `auth_provider` distingue el origen de la cuenta (password|google)
+  // y `avatar_url` la foto de perfil de Google. Todos nullable para no tocar
+  // las cuentas que ya existen.
+  googleId: text("google_id"),
+  authProvider: text("auth_provider").notNull().default("password"),
+  avatarUrl: text("avatar_url"),
   emailVerified: boolean("email_verified").default(false),
   emailVerificationCode: text("email_verification_code"),
   emailVerificationExpiry: timestamp("email_verification_expiry", { withTimezone: true }),

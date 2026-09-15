@@ -27,11 +27,58 @@ const FIELD =
 const FIELD_ICON =
   "absolute left-3.5 top-1/2 -translate-y-1/2 h-[18px] w-[18px] text-muted-foreground pointer-events-none";
 
+// Logo "G" de Google, con los colores oficiales de la marca. Va en el botón de
+// "Continuar con Google" según las directrices de Google (botón blanco, texto
+// oscuro, logo G).
+function GoogleG({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 48 48" aria-hidden="true">
+      <path fill="#FFC107" d="M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z" />
+      <path fill="#FF3D00" d="M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z" />
+      <path fill="#4CAF50" d="M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z" />
+      <path fill="#1976D2" d="M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571.001-.001.002-.001.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z" />
+    </svg>
+  );
+}
+
 export default function AuthPage() {
   const [, setLocation] = useLocation();
   const [isLoading, setIsLoading] = useState(false);
   const { refreshSession } = useSession();
   const defaultTab = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("tab") === "register" ? "register" : "login";
+
+  // ── Login con Google ──────────────────────────────────────────────────────
+  // Es un redirect completo al backend (/api/auth/google), que redirige a
+  // Google y después vuelve al callback del backend. Acá solo se arranca el
+  // flujo; no se maneja ningún token en el frontend.
+  const handleGoogleLogin = () => {
+    window.location.href = "/api/auth/google";
+  };
+
+  // Al volver del flujo de Google, el backend redirige a /auth con un query
+  // (google=error&reason=... o google=2fa). Se lee UNA vez al montar y se
+  // limpia la URL para no re-disparar el aviso en cada re-render.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("google") === "error") {
+      const reason = params.get("reason") || "";
+      const mensajes: Record<string, string> = {
+        cancelled: "Cancelaste el inicio de sesión con Google.",
+        state_mismatch: "No se pudo validar la sesión de Google. Intentá de nuevo.",
+        email_not_verified: "Tu cuenta de Google no tiene el email verificado.",
+        oauth_failed: "No se pudo completar el inicio de sesión con Google.",
+        not_configured: "Google Login no está configurado en el servidor.",
+        server_error: "Error del servidor al iniciar sesión con Google.",
+      };
+      toast.error(mensajes[reason] || "No se pudo iniciar sesión con Google.");
+      window.history.replaceState({}, "", "/auth");
+    }
+    if (params.get("google") === "2fa") {
+      setTwoFactorPending(true);
+      toast.info("Introduce el código de tu aplicación autenticadora");
+      window.history.replaceState({}, "", "/auth");
+    }
+  }, []);
 
   // Estados para modal de éxito de registro
   const [showSuccessModal, setShowSuccessModal] = useState(false);
@@ -760,6 +807,28 @@ export default function AuthPage() {
                     </Button>
                   </CardFooter>
                 </form>
+
+                {/* Separador "o" + botón oficial de Google. Sigue las directrices
+                    de marca de Google: fondo blanco, borde suave, texto oscuro y
+                    el logo G a la izquierda. */}
+                <div className="px-6 pb-6">
+                  <div className="relative my-4">
+                    <div className="absolute inset-0 flex items-center" aria-hidden>
+                      <span className="w-full border-t border-border/60" />
+                    </div>
+                    <div className="relative flex justify-center">
+                      <span className="bg-card px-3 text-xs font-medium uppercase tracking-wide text-muted-foreground">o</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleGoogleLogin}
+                    className="w-full h-12 rounded-xl bg-white border border-[#dadce0] text-[#1f1f1f] text-[15px] font-medium flex items-center justify-center gap-3 hover:bg-[#f8f9fa] hover:shadow-sm active:bg-[#f1f3f4] transition-colors"
+                  >
+                    <GoogleG className="h-5 w-5" />
+                    Continuar con Google
+                  </button>
+                </div>
               </Card>
              </TabsContent>
 

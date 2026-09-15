@@ -308,6 +308,12 @@ const MIGRATIONS = [
   // todos sin IA al mismo tiempo. Decision del dueno: cada cliente conecta la
   // suya y no hay respaldo a la del dueno.
   `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS copilot_tokens JSONB`,
+  // ── Google OAuth / OpenID Connect ────────────────────────────────────────
+  // Login con Google. google_id = sub de Google (id primario de la cuenta
+  // vinculada), auth_provider = origen de la cuenta, avatar_url = foto.
+  `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS google_id TEXT`,
+  `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS auth_provider TEXT NOT NULL DEFAULT 'password'`,
+  `ALTER TABLE tenants ADD COLUMN IF NOT EXISTS avatar_url TEXT`,
 
   // ── Landing AI Studio ───────────────────────────────────────────────────
   // Sin esto la tabla no existe en produccion y TODA la API de landings
