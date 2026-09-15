@@ -50,18 +50,24 @@ function rellenoDe(casilla: Casilla, product: any): LandingSection {
     ? product.features.join(" · ")
     : "";
 
+  const tipo = tipoDeProducto(product?.kind);
+  // El verbo del botón no puede ser "comprar" en un servicio ni "acceder" en
+  // un físico: es lo que distingue los tres mundos.
+  const cta = tipo === "servicio" ? "Agendar" : tipo === "fisico" || tipo === "dropshipping" ? "Pedir ahora" : "Quiero acceso";
+  const dudar = tipo === "servicio" ? "Pedir una consulta" : "Quiero saber más";
+
   const base: Record<string, Partial<LandingSection>> = {
-    hero: { title: String(nombre), subtitle: product?.description || "", cta: "Quiero saber más" },
+    hero: { title: String(nombre), subtitle: product?.description || "", cta: dudar },
     benefits: { title: "Para qué sirve", body: rasgos || product?.description || "" },
-    "how-it-works": { title: "Qué incluye", body: rasgos },
+    "how-it-works": { title: tipo === "servicio" ? "Cómo se trabaja" : "Qué incluye", body: rasgos },
     offer: {
       title: "La oferta",
       subtitle: product?.price ? `${product.price} ${product.currency || ""}`.trim() : "",
-      cta: "Comprar ahora",
+      cta,
     },
     logistics: { title: "Envío y pago", body: "" },
     faq: { title: "Preguntas frecuentes", body: "" },
-    cta: { title: "Da el siguiente paso", cta: "Comprar ahora" },
+    cta: { title: "Da el siguiente paso", cta },
   };
 
   return { id: casilla.type, type: casilla.type, title: "", ...base[casilla.type] } as LandingSection;
@@ -104,7 +110,7 @@ export function imagenesRealesDe(product: any): string[] {
 
 export function normalizeSections(input: unknown, product: any, casillas: Casilla[], condiciones?: CondicionesDelNegocio | null): LandingSection[] {
   const reales = imagenesRealesDe(product);
-  const esFisico = String(product?.kind || "digital") === "physical";
+  const esFisico = ["fisico", "dropshipping"].includes(tipoDeProducto(product?.kind));
   // Un "antes/después" sin fotos reales de antes y después es una imagen
   // inventada con una persona inventada: en un físico no va. (En digital la
   // plantilla lo usa solo como texto.)

@@ -44,8 +44,12 @@
  * landing.
  */
 
-/** Los dos mundos que se venden distinto. */
-export type TipoDeProducto = "digital" | "fisico";
+/**
+ * Los mundos que se venden distinto. Dropshipping es un físico que despacha el
+ * proveedor (se pide y paga al recibir); servicio es atención personal que se
+ * agenda, no se compra. No pueden caer al mismo molde que un físico o un curso.
+ */
+export type TipoDeProducto = "digital" | "fisico" | "servicio" | "dropshipping";
 
 /**
  * Qué hecho necesita una sección para poder existir.
@@ -191,6 +195,40 @@ export const PLANTILLAS: Plantilla[] = [
       { type: "cta", obligatoria: true, queVa: "El cierre, retomando la diferencia que se mostró en la comparativa." },
     ],
   },
+
+  // ═══ DROPSHIPPING ═════════════════════════════════════════════════════════
+  {
+    id: "dropshipping-pedido",
+    nombre: "Dropshipping con pedido a domicilio",
+    para: "dropshipping",
+    cuando: "Productos que despacha el proveedor: el cliente pide y paga al recibir en su casa.",
+    casillas: [
+      { type: "hero", obligatoria: true, requiere: "imagen", queVa: "El producto y la promesa de que le llega a su casa, en una frase. La foto manda." },
+      { type: "benefits", obligatoria: true, queVa: "Para qué sirve y por qué lo quiere, en concreto. Sin adjetivos de catálogo." },
+      { type: "how-it-works", obligatoria: true, queVa: "Cómo lo recibe: pide hoy, lo despachamos, llega a su casa y paga al recibir. Tres pasos cortos." },
+      { type: "logistics", obligatoria: true, requiere: "envio", queVa: "El envío y que paga al recibir. Es la objeción principal: va antes del precio." },
+      { type: "offer", obligatoria: true, requiere: "precio", queVa: "Precio y que no paga nada hasta tenerlo en la mano." },
+      { type: "faq", obligatoria: true, queVa: "Envío, cambios, cuánto tarda y qué pasa si no le sirve." },
+      { type: "cta", obligatoria: true, queVa: "Pedir ahora y pagar al recibir, con el formulario de envío a un paso." },
+    ],
+  },
+
+  // ═══ SERVICIOS ════════════════════════════════════════════════════════════
+  {
+    id: "servicio-agendamiento",
+    nombre: "Servicio con agenda de citas",
+    para: "servicio",
+    cuando: "Atención personal: consultas, asesorías, talleres, servicios a domicilio. Se agenda, no se compra.",
+    casillas: [
+      { type: "hero", obligatoria: true, queVa: "El resultado que logra el servicio y para quién, en una frase. El botón es para agendar, no comprar." },
+      { type: "benefits", obligatoria: true, queVa: "Qué cambia para el cliente después de contratar, no la lista de tareas." },
+      { type: "how-it-works", obligatoria: true, queVa: "El proceso en tres pasos: consulta, solución y seguimiento. Una línea cada uno." },
+      { type: "authority", obligatoria: false, requiere: "autor", queVa: "Quién lo atiende y por qué sabe. Solo datos que existan en el negocio." },
+      { type: "offer", obligatoria: true, requiere: "precio", queVa: "El precio o 'desde $X', y qué incluye. Si no hay precio cerrado, decilo así." },
+      { type: "faq", obligatoria: true, queVa: "Las dudas para agendar: horarios, lugar, cómo se coordina la cita." },
+      { type: "cta", obligatoria: true, queVa: "Agendar o pedir la cita, por el WhatsApp o el formulario del negocio." },
+    ],
+  },
 ];
 
 /**
@@ -200,11 +238,14 @@ export const PLANTILLAS: Plantilla[] = [
  * `dropshipping`: el campo se fue llenando desde pantallas distintas. Un
  * `kind === "fisico"` a secas se le escapa la mitad de los productos.
  *
- * Los servicios van por el camino digital: no se envían, se prestan.
+ * Cada mundo se vende distinto: el dropshipping pide y paga al recibir, el
+ * servicio se agenda, el físico se envía y el digital se entrega por enlace.
  */
 export function tipoDeProducto(kind: unknown): TipoDeProducto {
   const k = String(kind || "").trim().toLowerCase();
-  if (k === "fisico" || k === "físico" || k === "physical" || k === "dropshipping") return "fisico";
+  if (k === "dropshipping") return "dropshipping";
+  if (k === "fisico" || k === "físico" || k === "physical") return "fisico";
+  if (k === "service" || k === "servicio" || k === "cita" || k === "asesoria" || k === "asesoría" || k === "consulta") return "servicio";
   return "digital";
 }
 
@@ -269,7 +310,8 @@ export function hechosQueTiene(
   if (lleno(p.imageUrl)) hay.add("imagen");
   if (lleno(p.description)) hay.add("descripcion");
   if (lleno(p.features)) hay.add("caracteristicas");
-  if (tipoDeProducto(p.kind) === "fisico") hay.add("envio");
+  const tipo = tipoDeProducto(p.kind);
+  if (tipo === "fisico" || tipo === "dropshipping") hay.add("envio");
   if (lleno(negocio?.brandName)) hay.add("autor");
   return hay;
 }
@@ -301,6 +343,14 @@ export function elegirPlantilla(
     // distingue las dos páginas, y sale de un campo que existe.
     const pagaAntes = String(producto?.paymentLink || "").trim().length > 0;
     return delTipo.find((p) => p.id === (pagaAntes ? "fisico-visual" : "fisico-contraentrega"))!;
+  }
+
+  // Dropshipping y servicio tienen UN molde cada uno: no dependen del precio.
+  if (tipo === "dropshipping") {
+    return delTipo.find((p) => p.id === "dropshipping-pedido")!;
+  }
+  if (tipo === "servicio") {
+    return delTipo.find((p) => p.id === "servicio-agendamiento")!;
   }
 
   // El precio decide el registro: lo barato se decide rápido, lo caro necesita

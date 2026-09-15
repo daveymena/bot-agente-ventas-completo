@@ -19,12 +19,22 @@ const ZAPATOS = { name: "Zapatos", kind: "fisico", price: "120000", description:
 describe("tipoDeProducto: el catálogo trae el campo sucio", () => {
   // Los valores conviven de verdad en la base porque se llenó desde pantallas
   // distintas. Un `kind === "fisico"` a secas se come la mitad del catálogo.
-  it.each(["fisico", "físico", "physical", "dropshipping", "FISICO", " Physical "])(
+  it.each(["fisico", "físico", "physical", "FISICO", " Physical "])(
     "%s es físico",
     (k) => expect(tipoDeProducto(k)).toBe("fisico"),
   );
 
-  it.each(["digital", "service", "card", "text", "", null, undefined])(
+  it.each(["dropshipping", "DROPSHIPPING"])(
+    "%s es dropshipping (se pide y paga al recibir)",
+    (k) => expect(tipoDeProducto(k)).toBe("dropshipping"),
+  );
+
+  it.each(["service", "servicio", "cita", "asesoria", "consulta"])(
+    "%s es servicio (se agenda)",
+    (k) => expect(tipoDeProducto(k)).toBe("servicio"),
+  );
+
+  it.each(["digital", "card", "text", "", null, undefined])(
     "%s va por digital",
     (k) => expect(tipoDeProducto(k)).toBe("digital"),
   );
@@ -74,6 +84,14 @@ describe("elegir plantilla", () => {
 
   it("un digital caro con marca va a la de autoridad", () => {
     expect(elegirPlantilla({ ...CURSO, price: "800000" }, null, { brandName: "X" }).id).toBe("digital-autoridad");
+  });
+
+  it("un dropshipping va a la de pedido a domicilio, no a la de físico", () => {
+    expect(elegirPlantilla({ ...ZAPATOS, kind: "dropshipping" }).id).toBe("dropshipping-pedido");
+  });
+
+  it("un servicio va a la de agendar, no a la de curso", () => {
+    expect(elegirPlantilla({ ...CURSO, kind: "service" }).id).toBe("servicio-agendamiento");
   });
 
   it("nunca devuelve una plantilla del otro tipo", () => {
@@ -183,6 +201,8 @@ describe("integridad del catálogo de plantillas", () => {
   it("hay al menos una de cada tipo", () => {
     expect(PLANTILLAS.some((p) => p.para === "digital")).toBe(true);
     expect(PLANTILLAS.some((p) => p.para === "fisico")).toBe(true);
+    expect(PLANTILLAS.some((p) => p.para === "dropshipping")).toBe(true);
+    expect(PLANTILLAS.some((p) => p.para === "servicio")).toBe(true);
   });
 
   it("toda casilla explica qué va adentro: es la instrucción al modelo", () => {
