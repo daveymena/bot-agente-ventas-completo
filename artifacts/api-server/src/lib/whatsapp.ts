@@ -30,7 +30,7 @@ import {
 
 import { logger } from "./logger";
 import { runAgentReply } from "./agent";
-import { toEmojiStyle } from "./conversation-engine";
+import { presentarParaWhatsApp } from "./presentacion";
 import { createAIClient, getProviderConfig } from "@workspace/integrations-openai-ai-server";
 import { getMessageHandler } from "./services/message-handler";
 import { tenantManager, addTenantToInsert, type TenantContext } from "./tenantManager";
@@ -2588,8 +2588,9 @@ export class WhatsAppManager {
     const targetJid = originalJid || `${phone}@s.whatsapp.net`;
     await this.esperarEspaciadoEntreEnvios(targetJid);
 
-    // Estilo emoji: sin asteriscos ni viñetas de punto (más amigable/pro)
-    text = toEmojiStyle(text);
+    // Presentación: negritas conservadas, precio en negrita, aire entre
+    // párrafos y viñetas con emoji con sentido (ver lib/presentacion.ts).
+    text = presentarParaWhatsApp(text);
 
     // Simular lectura + escritura
     await sleep(READ_DELAY_MS);

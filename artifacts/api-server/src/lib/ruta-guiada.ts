@@ -510,8 +510,10 @@ export async function prepararRuta(o: {
     `No escribas el encabezado "Paso N de N" (lo pone el sistema). ` +
     `Nada de "decime qué querés": decidí vos y proponé. ` +
     instruccionPorNivel(estado.nivel) +
-    `CÓMO ESCRIBIR: como una persona que sabe, no como un folleto. Párrafos cortos, nada de una viñeta con emoji en cada línea, ` +
-    `máximo un emoji por respuesta, y sin frases hechas ("compra por impulso", "se entiende en 3 segundos"). ` +
+    `CÓMO ESCRIBIR: como una persona que sabe, no como un folleto. Que se lea de un vistazo en el celular: ` +
+    `un título corto en **negrita** con su emoji de marcador por bloque (📦 producto, 🔎 competencia, 💰 plata, 📢 anuncio), ` +
+    `línea en blanco entre bloques, párrafos de 2-3 líneas, lista con viñetas solo cuando enumerás, cifras y nombres en **negrita**. ` +
+    `Un emoji por bloque, no en cada línea, y sin frases hechas ("compra por impulso", "se entiende en 3 segundos"). ` +
     `NUNCA hables de tu mecánica: ni herramientas, ni "me pidió iniciar sesión", ni "no me alcanzó el tiempo", ni "no te invento"; ` +
     `si algo no se pudo saber, no lo menciones salvo que cambie la decisión. Una sola respuesta: no repitas nada que ya dijiste en esta ruta. ` +
     (nombrado ? `El admin acaba de nombrar el producto (${nombrado.name}): ya está elegido, NO vuelvas a preguntar si arrancamos con ese. ` : "") +

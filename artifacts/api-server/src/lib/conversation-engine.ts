@@ -895,11 +895,17 @@ export function detectHardcodedIntent(text: string): "delivery" | "access" | "gu
  * viñetas de punto/guion — usa emojis, que se leen más amigables y pro en
  * WhatsApp/Messenger. Se aplica a TODO mensaje saliente.
  */
+import { sinAsteriscosSueltos } from "./presentacion";
+
 export function toEmojiStyle(text: string): string {
   if (!text) return text;
   let t = text;
-  // Negritas markdown *texto* → texto (y quitar asteriscos sueltos)
-  t = t.replace(/\*([^*\n]+)\*/g, "$1").replace(/\*/g, "");
+  // Las negritas SE CONSERVAN. Antes esto borraba todos los asteriscos y el
+  // admin (y el cliente de WhatsApp) recibían todo en texto plano: "las
+  // respuestas salen en texto plano, da pereza leer" (dueño, 14-09-2026).
+  // El panel renderiza Markdown y WhatsApp muestra *negrita*; solo se quita
+  // el asterisco que quedó suelto en una línea (impar), que sí se ve raro.
+  t = sinAsteriscosSueltos(t);
   // Viñetas al inicio de línea (•, -, ▪, ●, ·, ‣) → ✅, salvo que la línea ya
   // empiece con un emoji.
   t = t.replace(/^[ \t]*[•▪●‣·]\s+/gm, "✅ ");
