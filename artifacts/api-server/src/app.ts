@@ -569,6 +569,7 @@ const publicRoutes = [
   // arriba. Sin esto, resolveTenant() exigiría una cookie de sesión que
   // OpenCode nunca va a tener.
   "/internal/mcp",
+  "/landing-studio",
 ];
 
 const isPublicRoute = (path: string) => {

@@ -35,11 +35,15 @@ function opencodeConfig(): { host: string; authHeader: string } | null {
 }
 
 // Serialización simple para evitar carreras entre landings concurrentes.
+// Timeout de 130s para que un request colgado no bloquee la cola para siempre.
 let queue: Promise<any> = Promise.resolve();
 function conCandado<T>(fn: () => Promise<T>): Promise<T> {
   const run = queue.then(fn, fn);
   queue = run.then(() => undefined, () => undefined);
-  return run;
+  return Promise.race([
+    run,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Timeout de cola: 130s")), 130_000)),
+  ]);
 }
 
 async function createSession(host: string, authHeader: string): Promise<string> {
@@ -47,7 +51,7 @@ async function createSession(host: string, authHeader: string): Promise<string> 
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: authHeader },
     body: "{}",
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(15_000),
   });
   if (!res.ok) throw new Error(`No se pudo crear sesión OpenCode (${res.status})`);
   const data = (await res.json()) as any;
@@ -88,7 +92,7 @@ function systemPrompt(): string {
   return `Eres el generador de Landing Pages de VentasPro. Creas landing pages HTML+CSS completas, profesionales y dinámicas.
 
 REGLAS ESTRICTAS:
-1. Devuelves SOLO HTML válido. Sin markdown, sin \`\`\`html, sin explicaciones.
+1. Devuelves SOLO HTML válido. Sin markdown, sin explicaciones.
 2. TODO el CSS va INLINE en cada elemento (style="..."). Sin <style> ni clases externas.
 3. Responsive: usa media queries inline o flex/grid que se adapten a móvil y desktop.
 4. Imágenes: usa URLs reales del producto que te doy. Si no hay imagen, usa picsum.photos o placehold.co.
@@ -97,9 +101,9 @@ REGLAS ESTRICTAS:
 7. El HTML debe ser una landing page COMPLETA: hero, beneficios, oferta, CTA, FAQ si aplica.
 8. Copy persuasivo: AIDA (Atención, Interés, Deseo, Acción). Sin relleno, sin adjetivos vacíos.
 9. Un solo botón de acción principal visible (CTA).
-10. NO uses <script>除非 sea para algo trivial como smooth scroll.
+10. NO uses <script> salvo para algo trivial como smooth scroll.
 11. Responsive design: que se vea bien en celular (375px) y desktop (1200px+).
-12. El HTML debe ser AUTÓNOMO: que funcione solo, sin dependencias externas除了 Google Fonts.
+12. El HTML debe ser AUTÓNOMO: que funcione solo, sin dependencias externas excepto Google Fonts.
 
 FORMATO DE SALIDA:
 Solo el HTML completo empezando con <!DOCTYPE html> y terminando con </html>.
@@ -174,11 +178,9 @@ router.post("/test", async (req, res) => {
 });
 
 // ── POST /api/landing-studio/chat ──────────────────────────────────────────
-router.post("/chat", async (req: TenantRequest, res) => {
+// Sin auth: se usa embebido desde otra app.
+router.post("/chat", async (req, res) => {
   try {
-    const tenantId = req.tenant?.id;
-    if (!tenantId) return res.status(401).json({ message: "No autenticado" });
-
     const { message, landingId, productId } = req.body as {
       message?: string; landingId?: number; productId?: number;
     };
@@ -198,7 +200,7 @@ router.post("/chat", async (req: TenantRequest, res) => {
     let existingHtml: string | null = null;
     let existingLanding: any = null;
     if (landingId) {
-      const rows = await db.select().from(landingPages).where(and(eq(landingPages.id, landingId), eq(landingPages.tenantId, tenantId)));
+      const rows = await db.select().from(landingPages).where(eq(landingPages.id, landingId));
       existingLanding = rows[0] || null;
       existingHtml = existingLanding?.html || null;
     }
@@ -247,7 +249,7 @@ router.post("/chat", async (req: TenantRequest, res) => {
         .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
         .slice(0, 60) + "-" + Date.now().toString(36);
       const inserted = await db.insert(landingPages).values({
-        tenantId,
+        tenantId: existingLanding?.tenantId || 1,
         productId: productId || null,
         name: `Landing · ${product?.name || "Sin nombre"}`,
         slug,
