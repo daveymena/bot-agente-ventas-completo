@@ -190,7 +190,7 @@ router.post("/chat", async (req: TenantRequest, res) => {
     // Buscar producto si se dio uno
     let product: any = null;
     if (productId) {
-      const rows = await db.select().from(products).where(and(eq(products.id, productId)));
+      const rows = await db.select().from(products).where(eq(products.id, productId));
       product = rows[0] || null;
     }
 
