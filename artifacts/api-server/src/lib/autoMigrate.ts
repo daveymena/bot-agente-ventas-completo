@@ -39,6 +39,10 @@ const MIGRATIONS = [
   // Fotos múltiples para borradores de Facebook (carrusel) -- antes solo
   // existía image_url (una sola imagen por anuncio).
   `ALTER TABLE facebook_drafts ADD COLUMN IF NOT EXISTS images JSONB DEFAULT '[]'`,
+  // Landing pages con HTML dinámico generado por OpenCode (Chat → Landing).
+  // El HTML se almacena completo (inline CSS, responsive) para servirlo
+  // directamente sin pasar por renderer-v3.
+  `ALTER TABLE landing_pages ADD COLUMN IF NOT EXISTS html TEXT`,
   // ── Dropshipping ──────────────────────────────────────────────────────────
   // Un producto fisico no se entrega con un link de Google Drive: hay que
   // pedirle al cliente a donde se lo mandan y despachar. Hasta ahora no habia

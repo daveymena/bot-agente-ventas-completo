@@ -374,6 +374,8 @@ async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: (
     // las bases SQLite creadas antes de hoy se quedaban sin la columna y el
     // enrutador por especialidad no encontraba nada.
     `ALTER TABLE agents ADD COLUMN especialidad TEXT`,
+    // Landing pages con HTML dinámico generado por OpenCode.
+    `ALTER TABLE landing_pages ADD COLUMN html TEXT`,
   ];
   for (const sql of columnMigrations) {
     try { sqliteDb.run(sql); } catch { /* columna ya existe */ }

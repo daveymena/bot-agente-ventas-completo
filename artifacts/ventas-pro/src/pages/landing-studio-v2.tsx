@@ -137,79 +137,56 @@ export default function LandingStudioV2() {
     finally { setPreviewBusy(false); }
   }, [familia]);
 
-  const generarLanding = useCallback(async (pid: number) => {
-    const product = products.find(p => p.id === pid);
-    setBusy(true);
-    setMsgs(m => [...m, { role: "assistant", content: `Generando landing para **${product?.name}** con estilo *${familia}*...`, loading: true }]);
-    try {
-      const gen = await apiFetch<any>("/api/landing-pages/generate", {
-        method: "POST",
-        body: JSON.stringify({ productId: pid, language: "es", country: "CO", objective: "sales" }),
-      });
-      const saved = await apiFetch<Landing>("/api/landing-pages", {
-        method: "POST",
-        body: JSON.stringify({ name: gen.name, productId: pid, strategy: gen.strategy, sections: gen.sections, design: { ...gen.design, familia }, source: gen.source, status: "draft" }),
-      });
-      setLandingId(saved.id);
-      setLandings(prev => [saved, ...prev.filter(l => l.id !== saved.id)]);
-      const renderResp = await fetch(`/api/landing-pages/${saved.id}/render?familia=${familia}`, { credentials: "include" });
-      if (renderResp.ok) setPreviewHtml(await renderResp.text());
-      setMsgs(m => [
-        ...m.filter(x => !(x as any).loading),
-        { role: "assistant", content: `**Landing generada y guardada**\n\n**Nombre:** ${gen.name}\n**Estilo:** ${familia}\n**Motor:** ${gen.generatedBy === "ai" ? "VentasPro IA" : "Plantilla con los datos del producto"}\n\n**Secciones creadas:**\n${(gen.sections as any[]).map((s: any) => `- **${s.type}** — ${s.title}`).join("\n")}\n\nPuedes pedirme ajustes:\n> *"Haz el hero mas agresivo"*\n> *"Cambia el CTA a urgencia"*\n> *"Agrega mas beneficios"*` },
-      ]);
-      toast.success("¡Landing generada!");
-    } catch (e: any) {
-      setMsgs(m => [...m.filter(x => !(x as any).loading), { role: "assistant", content: `Error: ${e.message || "Error al generar."}` }]);
-    } finally { setBusy(false); }
-  }, [products, familia]);
-
-  const aplicarComando = useCallback(async (instruccion: string) => {
-    if (!landingId) {
-      setMsgs(m => [...m, { role: "assistant", content: "Primero genera o carga una landing para editarla." }]);
-      return;
-    }
-    setBusy(true);
-    setMsgs(m => [...m, { role: "assistant", content: "Aplicando cambios con IA...", loading: true }]);
-    try {
-      const r = await apiFetch<any>(`/api/landing-pages/${landingId}/command`, {
-        method: "POST",
-        body: JSON.stringify({ instruction: instruccion }),
-      });
-      if (r.operations?.length) await cargarPreview(landingId);
-      setMsgs(m => [
-        ...m.filter(x => !(x as any).loading),
-        { role: "assistant", content: `${r.message || "Cambio aplicado."}\n\nPreview actualizada. Que mas ajustamos?` },
-      ]);
-    } catch (e: any) {
-      setMsgs(m => [...m.filter(x => !(x as any).loading), { role: "assistant", content: `Error: ${e.message}` }]);
-    } finally { setBusy(false); }
-  }, [landingId, cargarPreview]);
-
   const enviar = useCallback(async () => {
     const text = input.trim();
     if (!text || busy) return;
     setInput("");
     setMsgs(m => [...m, { role: "user", content: text }]);
-    const querGenerar = /genera|crea|construye|haz una landing|nueva landing/i.test(text);
+
     const pid = typeof productId === "number" ? productId : null;
-    if (querGenerar && pid) await generarLanding(pid);
-    else if (querGenerar && !pid) setMsgs(m => [...m, { role: "assistant", content: "Selecciona primero un **producto** en el selector de arriba." }]);
-    else await aplicarComando(text);
-    inputRef.current?.focus();
-  }, [input, busy, productId, generarLanding, aplicarComando]);
+    if (!pid && !landingId) {
+      setMsgs(m => [...m, { role: "assistant", content: "Selecciona primero un **producto** en el selector de arriba." }]);
+      inputRef.current?.focus();
+      return;
+    }
+
+    setBusy(true);
+    const esNueva = /genera|crea|construye|haz una landing|nueva landing/i.test(text);
+    setMsgs(m => [...m, { role: "assistant", content: esNueva ? "Generando landing con OpenCode..." : "Aplicando cambios...", loading: true }]);
+
+    try {
+      const r = await apiFetch<{ html: string; landingId: number }>("/api/landing-studio/chat", {
+        method: "POST",
+        body: JSON.stringify({ message: text, landingId: esNueva ? undefined : landingId, productId: pid }),
+      });
+      setLandingId(r.landingId);
+      setPreviewHtml(r.html);
+      setLandings(prev => {
+        const exists = prev.find(l => l.id === r.landingId);
+        if (exists) return prev.map(l => l.id === r.landingId ? { ...l, html: r.html } as any : l);
+        return [{ id: r.landingId, name: `Landing #${r.landingId}`, productId: pid, status: "draft" } as any, ...prev];
+      });
+      setMsgs(m => [
+        ...m.filter(x => !(x as any).loading),
+        { role: "assistant", content: esNueva
+          ? `**Landing generada con OpenCode**\n\nID: ${r.landingId}\n\nPuedes pedirme ajustes como:\n> *"Haz el hero más agresivo"*\n> *"Cambia los colores a oscuro"*\n> *"Agrega una sección de testimonios"*\n> *"Genera landings para otros productos" (selecciona varios arriba)`
+          : `**Landing actualizada** (ID: ${r.landingId})\n\nPreview actualizada. Que más ajustamos?` },
+      ]);
+      toast.success(esNueva ? "¡Landing generada!" : "¡Landing actualizada!");
+    } catch (e: any) {
+      setMsgs(m => [...m.filter(x => !(x as any).loading), { role: "assistant", content: `Error: ${e.message || "Error al procesar."}` }]);
+    } finally {
+      setBusy(false);
+      inputRef.current?.focus();
+    }
+  }, [input, busy, productId, landingId]);
 
   const exportar = useCallback(async () => {
-    // `return toast.info(...)` devolvia el id del toast mientras el resto de
-    // la funcion no devuelve nada: dos tipos de retorno en la misma funcion.
-    // Avisar y cortar son dos cosas, y se escriben como dos cosas.
-    if (!landingId) { toast.info("Primero genera una landing."); return; }
-    const r = await fetch(`/api/landing-pages/${landingId}/render?familia=${familia}`, { credentials: "include" });
-    if (!r.ok) { toast.error("Error al exportar"); return; }
+    if (!previewHtml) { toast.info("Primero genera una landing."); return; }
     const a = document.createElement("a");
-    a.href = URL.createObjectURL(new Blob([await r.text()], { type: "text/html" }));
-    a.download = `landing-${landingId}.html`; a.click();
-  }, [landingId, familia]);
+    a.href = URL.createObjectURL(new Blob([previewHtml], { type: "text/html" }));
+    a.download = `landing-${landingId || "nueva"}.html`; a.click();
+  }, [previewHtml, landingId]);
 
   // Publicar: la landing queda en /l/<slug> con el dominio de la app, sin
   // login. Esa es la URL que va en el anuncio. Hasta hoy no había forma de

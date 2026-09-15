@@ -55,6 +55,13 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
     const { row, producto } = encontrada;
     const tenantId = row.tenantId;
 
+    // Si la landing tiene HTML dinámico generado por OpenCode, servirlo directo.
+    if ((row as any).html) {
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "public, max-age=60");
+      return res.send((row as any).html);
+    }
+
     const { htmlDeCopia } = await import("../lib/landing/clonar-html");
     const copia = htmlDeCopia(row);
     if (copia) {
