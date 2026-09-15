@@ -33,3 +33,4 @@ export * from "./marketing-audit-logs";
 export * from "./trabajos-programados";
 export * from "./consumo-mensual";
 export * from "./landing-pages";
+export * from "./coupons";

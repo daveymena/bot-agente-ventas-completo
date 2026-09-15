@@ -15,7 +15,7 @@
  * hasta que el modelo marca done:true (o se alcanza el límite de pasos).
  */
 
-import { db, products, productCategories, agents, settings, stores, tenants, conversations, leads, architectMemory, facebookDrafts, payments } from "@workspace/db";
+import { db, products, productCategories, agents, settings, stores, tenants, conversations, leads, architectMemory, facebookDrafts, payments, coupons } from "@workspace/db";
 import { eq, desc, asc, and, or, gte, sql, ilike, inArray } from "drizzle-orm";
 import { logger } from "./logger";
 import { tenantManager } from "./tenantManager";
@@ -4362,6 +4362,65 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "cupon_listar",
+    description: "Lista los cupones/promociones del negocio: código, tipo (porcentaje o fijo), valor, producto (si aplica a uno solo), usos y vigencia. Lectura pura.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const filas = await db.select().from(coupons).where(eq(coupons.tenantId, ctx.tenantId));
+      const lista = filas.map((c: any) => `[${c.id}] ${c.code} · ${c.tipo === "fijo" ? "$" + c.valor : c.valor + "%"}${c.productId ? ` · solo producto ${c.productId}` : " · todo el catálogo"} · ${c.activo ? "activo" : "inactivo"}`);
+      return { ok: true, summary: lista.length ? lista.join(" · ") : "No hay cupones todavía.", data: { cupones: filas } };
+    },
+  },
+  {
+    name: "cupon_crear",
+    description: "Crea un cupón de descuento REAL del negocio (no inventado): código, tipo (porcentaje o fijo), valor, producto opcional, usos máximos y vigencia. ⚠️ Cambia el sistema: va por propose_action.",
+    args: '{ "code": string (req), "valor": number (req, % o monto), "tipo"?: "porcentaje"|"fijo", "productId"?: number, "usosMax"?: number, "minimoCompra"?: number, "vigenciaFin"?: string fecha }',
+    run: async (args, ctx) => {
+      const code = String(args?.code || "").trim().toUpperCase().replace(/\s+/g, "");
+      const valor = num(args?.valor);
+      if (!code || !valor || valor <= 0) return { ok: false, summary: "Faltan 'code' y un 'valor' de descuento válido." };
+      const tipo = String(args?.tipo || "porcentaje") === "fijo" ? "fijo" : "porcentaje";
+      const productId = num(args?.productId) || null;
+      if (productId) {
+        const [p] = await db.select().from(products).where(and(eq(products.id, productId), eq(products.tenantId, ctx.tenantId))).limit(1);
+        if (!p) return { ok: false, summary: `No encontré el producto ${productId}.` };
+      }
+      const [creado] = await db.insert(coupons).values({
+        tenantId: ctx.tenantId, code, tipo, valor,
+        productId, usosMax: num(args?.usosMax) || null,
+        minimoCompra: num(args?.minimoCompra) || null,
+        activo: true,
+        vigenciaFin: args?.vigenciaFin ? new Date(args.vigenciaFin) : null,
+      } as any).returning();
+      return { ok: true, summary: `Cupón ${creado.code} creado: ${tipo === "fijo" ? "$" + valor : valor + "%"}${productId ? ` para el producto ${productId}` : " para todo el catálogo"}.`, data: { id: creado.id, code: creado.code } };
+    },
+  },
+  {
+    name: "cupon_eliminar",
+    description: "Elimina un cupón del negocio. ⚠️ Irreversible: va por propose_action.",
+    args: '{ "id": number (req) }',
+    run: async (args, ctx) => {
+      const id = num(args?.id);
+      if (!id) return { ok: false, summary: "Falta 'id' del cupón." };
+      const [borrado] = await db.delete(coupons).where(and(eq(coupons.id, id), eq(coupons.tenantId, ctx.tenantId))).returning({ id: coupons.id, code: coupons.code });
+      if (!borrado) return { ok: false, summary: `No encontré el cupón ${id}.` };
+      return { ok: true, summary: `Cupón [${borrado.id}] ${borrado.code} eliminado.`, data: { id: borrado.id } };
+    },
+  },
+  {
+    name: "cupon_validar",
+    description: "Calcula cuánto descuenta un cupón sobre un total/producto SIN redimirlo (vista previa). El admin decide después si aplicarlo. Lectura pura.",
+    args: '{ "code": string (req), "total": number (req), "productId"?: number }',
+    run: async (args, ctx) => {
+      const code = String(args?.code || "").trim().toUpperCase().replace(/\s+/g, "");
+      if (!code) return { ok: false, summary: "Falta 'code' del cupón." };
+      const [cupon] = await db.select().from(coupons).where(and(eq(coupons.tenantId, ctx.tenantId), eq(coupons.code, code))).limit(1);
+      const { aplicarCupon } = await import("./cupones");
+      const r = aplicarCupon(cupon, { total: num(args?.total) || 0, productId: num(args?.productId) || null });
+      return { ok: true, summary: r.ok ? `Cupón ${code}: descuenta $${r.descuento.toLocaleString("es-CO")}, total $${r.precioFinal.toLocaleString("es-CO")}.` : `Cupón ${code} no aplica: ${r.motivo}`, data: r };
+    },
+  },
+  {
     name: "woocommerce_estado",
     description:
       "Estado REAL de WooCommerce: si está configurado, si responde, los últimos pedidos que tiene WooCommerce y los pedidos " +
@@ -6669,6 +6728,9 @@ export const READ_ONLY_TOOLS = new Set([
   "configurar_mi_agente",
   // Inspección del agente: solo lee configuración, no cambia nada.
   "agente_inspectar",
+  // Cupones: listar y previsualizar un descuento son lectura pura; crear y
+  // eliminar cambian datos y van por propose_action.
+  "cupon_listar", "cupon_validar",
 ]);
 export const DESTRUCTIVE_TOOLS = new Set([
   "delete_product",

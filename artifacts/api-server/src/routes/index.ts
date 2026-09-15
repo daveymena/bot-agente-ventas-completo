@@ -41,6 +41,7 @@ import mcpBridgeRouter from "./mcp-bridge";
 import marketingRouter from "./marketing";
 import landingPagesRouter from "./landing-pages";
 import landingPagesAiRouter from "./landing-pages-ai";
+import couponsRouter from "./coupons";
 
 const router: IRouter = Router();
 
@@ -84,6 +85,7 @@ router.use("/internal/mcp", mcpBridgeRouter);
 router.use("/marketing", marketingRouter);
 router.use("/landing-pages", landingPagesAiRouter);
 router.use("/landing-pages", landingPagesRouter);
+router.use("/coupons", couponsRouter);
 router.use("/payment-approvals", paymentApprovalsRouter);
 router.use(errorHandler);
 

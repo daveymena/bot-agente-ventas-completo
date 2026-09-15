@@ -899,6 +899,38 @@ export async function runAgentReply(conversationId: number) {
       .catch((err) => console.error(`⚠️ [LEARNING] Error evaluando intercambio para conversación ${conversationId}:`, err?.message || err));
   }
 
+  // ── 2c. CLIENTE PIDE EL LINK DE LA LANDING ────────────────────────────────
+  // "Pasarle eso al bot": si el cliente pide la página/enlace/landing de un
+  // producto y existe una publicada, se le manda el link directo. Es dato
+  // real del negocio, no texto de IA, y ahorra el viaje al modelo.
+  {
+    const texto = String(lastText || "").toLowerCase();
+    const pidePagina =
+      /(landing|p[áa]gina|enlace|link|url)/.test(texto) &&
+      /(dame|pasame|pásame|mandame|mándame|enviame|envíame|me pasas|me envias|me mandas|cu[áa]l es|d[óo]nde|tienes|ten[eé]s|de compra|de pago|quiero)/.test(texto);
+    if (pidePagina && convo.tenantId) {
+      try {
+        const { landingPages } = await import("@workspace/db");
+        const filas = await db.select().from(landingPages).where(eq(landingPages.tenantId, convo.tenantId));
+        const publicadas = filas.filter((l: any) => l.status === "published" && l.publishedUrl);
+        if (publicadas.length) {
+          const nombre = String(memory.currentProductName || "").toLowerCase();
+          const elegida: any =
+            publicadas.find((l: any) => nombre && String(l.name).toLowerCase().includes(nombre)) ||
+            publicadas[0];
+          const raw = `Acá está la página de *${String(elegida.name).trim()}*:\n${elegida.publishedUrl}`;
+          console.log(`🔗 [LANDING-LINK] Cliente pidió el enlace → ${elegida.publishedUrl} - ${ts()}`);
+          await saveAgentMessage(conversationId, raw, memory.currentStage, { intent: "landing_link", isHardcoded: true });
+          const totalTime = Date.now() - startTime;
+          console.log(`🏁 [AGENT-END] Completado en ${totalTime}ms (link de landing) - ${ts()}`);
+          return { content: raw, stage: memory.currentStage, parts: [{ kind: "text", content: raw }], cardProductIds: [] };
+        }
+      } catch (e: any) {
+        console.error(`⚠️ [LANDING-LINK] Error buscando landing: ${e?.message}`);
+      }
+    }
+  }
+
   // ── 3. Seleccionar agente activo ──────────────────────────────────────────
   t1 = Date.now();
   const { getActiveAgent } = await import("./agent-router");

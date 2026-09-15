@@ -111,7 +111,7 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
     const cierre = modelo === "fisico"
       ? { tipo: "contraentrega" as const, accion: `/api/landing-publica/${encodeURIComponent(row.slug)}/pedido`, pais: c.pais, pago: c.envio.pago }
       : modelo === "digital"
-        ? { tipo: "pago" as const, mercadopago: producto ? (await enlacesDePagoLocal(tenantId, producto)).mercadopago : undefined, paypal: producto ? (await enlacesDePagoLocal(tenantId, producto)).paypal : undefined }
+        ? { tipo: "pago" as const, accion: `/api/landing-publica/${encodeURIComponent(row.slug)}/cupon`, mercadopago: producto ? (await enlacesDePagoLocal(tenantId, producto)).mercadopago : undefined, paypal: producto ? (await enlacesDePagoLocal(tenantId, producto)).paypal : undefined }
         : { tipo: "whatsapp" as const };
     const html = renderizarLanding({
       nombre: row.name,
@@ -173,7 +173,7 @@ router.post("/preview", async (req: TenantRequest, res, next) => {
     const cierre = modelo === "fisico"
       ? { tipo: "contraentrega" as const, accion: `/api/landing-publica/preview/pedido`, pais: c.pais, pago: c.envio.pago }
       : modelo === "digital"
-        ? { tipo: "pago" as const, mercadopago: producto ? (await enlacesDePagoLocal(tenantId, producto)).mercadopago : undefined, paypal: producto ? (await enlacesDePagoLocal(tenantId, producto)).paypal : undefined }
+        ? { tipo: "pago" as const, accion: `/api/landing-publica/preview/cupon`, mercadopago: producto ? (await enlacesDePagoLocal(tenantId, producto)).mercadopago : undefined, paypal: producto ? (await enlacesDePagoLocal(tenantId, producto)).paypal : undefined }
         : { tipo: "whatsapp" as const };
 
     const html = renderizarLanding({

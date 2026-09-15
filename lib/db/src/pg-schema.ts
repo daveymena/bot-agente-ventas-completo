@@ -670,5 +670,26 @@ export const ALL_TABLES = [
     // ad → lead → venta (el contexto del anuncio llega en messages.metadata).
     name: 'leads.ad_context',
     sql: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS ad_context JSONB`
+  },
+  {
+    name: 'coupons',
+    sql: `
+      CREATE TABLE IF NOT EXISTS coupons (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL,
+        product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+        code TEXT NOT NULL,
+        tipo TEXT NOT NULL DEFAULT 'porcentaje',
+        valor NUMERIC(12,2) NOT NULL,
+        minimo_compra NUMERIC(12,2),
+        usos_max INTEGER,
+        usos INTEGER NOT NULL DEFAULT 0,
+        activo BOOLEAN NOT NULL DEFAULT true,
+        vigencia_inicio TIMESTAMPTZ,
+        vigencia_fin TIMESTAMPTZ,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
   }
 ];

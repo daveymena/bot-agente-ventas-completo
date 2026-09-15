@@ -74,6 +74,7 @@ export const facebookDrafts = schema.facebookDrafts;
 // typecheck lo venía diciendo ("has no exported member 'landingPages'") y se
 // leía como un artefacto de compilación viejo.
 export const landingPages = schema.landingPages;
+export const coupons = schema.coupons;
 export const opencodeConfig = schema.opencodeConfig;
 export const adAgentLogs = schema.adAgentLogs;
 export const remarketingCampaigns = schema.remarketingCampaigns;
@@ -119,6 +120,7 @@ export type {
   MarketingCampaign, InsertMarketingCampaign,
   MarketingBudget, InsertMarketingBudget,
   MarketingAuditLog, InsertMarketingAuditLog,
+  Coupon, InsertCoupon,
 } from "./schema";
 export type { AdContext, CommercialProfile } from "./schema/leads";
 export type { AgentStage } from "./schema/agents";
@@ -351,6 +353,7 @@ async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: (
     `CREATE TABLE IF NOT EXISTS marketing_audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, agent TEXT NOT NULL, task_id INTEGER, action TEXT NOT NULL, resource TEXT, before TEXT, after TEXT, approval TEXT, reason TEXT, result TEXT DEFAULT 'PENDING', error TEXT, request_id TEXT, created_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS trabajos_programados (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, tipo TEXT NOT NULL, clave TEXT NOT NULL UNIQUE, corre_at TEXT NOT NULL, estado TEXT NOT NULL DEFAULT 'pendiente', datos TEXT NOT NULL DEFAULT '{}', resultado TEXT, intentos INTEGER NOT NULL DEFAULT 0, error TEXT, repite_cada_min INTEGER, creado_at TEXT DEFAULT (datetime('now')), actualizado_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS consumo_mensual (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, periodo TEXT NOT NULL, mensajes INTEGER NOT NULL DEFAULT 0, actualizado_at TEXT DEFAULT (datetime('now')), UNIQUE(tenant_id, periodo))`,
+    `CREATE TABLE IF NOT EXISTS coupons (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, product_id INTEGER REFERENCES products(id) ON DELETE SET NULL, code TEXT NOT NULL, tipo TEXT NOT NULL DEFAULT 'porcentaje', valor REAL NOT NULL, minimo_compra REAL, usos_max INTEGER, usos INTEGER NOT NULL DEFAULT 0, activo INTEGER DEFAULT 1, vigencia_inicio TEXT, vigencia_fin TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
   ];
 
   for (const sql of tables) {

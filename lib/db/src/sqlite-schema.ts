@@ -690,3 +690,25 @@ export const productKnowledge = sqliteTable("product_knowledge", {
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
   updatedAt: text("updated_at").default(sql`(datetime('now'))`),
 });
+
+/**
+ * Cupones / promociones reales -- espejo SQLite de schema/coupons.ts.
+ * Igual que landingPages: tiene que estar acá para que `coupons` no quede
+ * `undefined` cuando USE_SQLITE=true (local y pruebas).
+ */
+export const coupons = sqliteTable("coupons", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  productId: integer("product_id").references(() => products.id, { onDelete: "set null" }),
+  code: text("code").notNull(),
+  tipo: text("tipo").notNull().default("porcentaje"),
+  valor: real("valor").notNull(),
+  minimoCompra: real("minimo_compra"),
+  usosMax: integer("usos_max"),
+  usos: integer("usos").notNull().default(0),
+  activo: integer("activo", { mode: "boolean" }).notNull().default(true),
+  vigenciaInicio: text("vigencia_inicio"),
+  vigenciaFin: text("vigencia_fin"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});

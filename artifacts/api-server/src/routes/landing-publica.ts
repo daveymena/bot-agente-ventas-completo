@@ -10,7 +10,7 @@
 import { Router, type Request, type Response } from "express";
 import { fotosDelProducto } from "../lib/fotos-de-producto";
 import { and, eq } from "drizzle-orm";
-import { db, landingPages, products } from "@workspace/db";
+import { db, landingPages, products, coupons } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { tenantManager } from "../lib/tenantManager";
 import { getBusinessContext } from "../lib/business-context";
@@ -73,7 +73,7 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
     const cierre = modelo === "fisico"
       ? { tipo: "contraentrega" as const, accion: `/api/landing-publica/${encodeURIComponent(row.slug)}/pedido`, pais: c.pais, pago: c.envio.pago }
       : modelo === "digital"
-        ? { tipo: "pago" as const, ...(producto ? await enlacesDePago(tenantId, producto) : {}) }
+        ? { tipo: "pago" as const, accion: `/api/landing-publica/${encodeURIComponent(row.slug)}/cupon`, ...(producto ? await enlacesDePago(tenantId, producto) : {}) }
         : { tipo: "whatsapp" as const };
 
     const html = renderizarLanding({
@@ -149,17 +149,42 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
 
     const cantidad = Math.max(1, Math.min(10, Number(b.cantidad) || 1));
     const detalleOpciones = Object.entries(opciones).map(([k, v]) => `${k}: ${v}`).join(" · ");
+
+    // Cupón: dato real del negocio. Si viene un código, se valida, se descuenta
+    // del precio y se consume un uso. Si no aplica, el pedido sigue al precio
+    // normal y el motivo queda en las notas.
+    let unitPrice = Number(producto.price) || 0;
+    let cuponNota = "";
+    const codigoCupon = String(b.cupon || "").trim().toUpperCase().replace(/\s+/g, "");
+    if (codigoCupon) {
+      try {
+        const [cupon] = await db.select().from(coupons)
+          .where(and(eq(coupons.tenantId, row.tenantId), eq(coupons.code, codigoCupon))).limit(1);
+        const { aplicarCupon } = await import("../lib/cupones");
+        const r = aplicarCupon(cupon, { total: unitPrice * cantidad, productId: producto.id });
+        if (r.ok && cupon) {
+          unitPrice = r.precioFinal / cantidad;
+          cuponNota = `Cupón ${codigoCupon} (−$${Math.round(r.descuento).toLocaleString("es-CO")})`;
+          await db.update(coupons).set({ usos: Number(cupon.usos || 0) + 1, updatedAt: new Date() } as any).where(eq(coupons.id, cupon.id));
+        } else {
+          cuponNota = `Cupón ${codigoCupon} no aplicó: ${r.motivo || "inválido"}`;
+        }
+      } catch (e: any) {
+        logger.warn({ err: e?.message }, "[LandingPublica] no se pudo validar el cupón");
+      }
+    }
+
     let pedido = await ds.abrirPedido({
       tenantId: row.tenantId,
       conversationId: null,
       productId: producto.id,
       productName: producto.name,
-      unitPrice: Number(producto.price) || 0,
+      unitPrice,
       quantity: cantidad,
       telefono: datos.telefono,
       metodoPago: c.envio.pago === "anticipado" ? "transferencia" : "contraentrega",
     });
-    const notas = [detalleOpciones, datos.notas, `Pedido desde la landing ${row.slug}`].filter(Boolean).join(" · ");
+    const notas = [detalleOpciones, cuponNota, datos.notas, `Pedido desde la landing ${row.slug}`].filter(Boolean).join(" · ");
     pedido = (await ds.guardarDatos(pedido.id, { ...datos, notas })) || pedido;
     await ds.marcarEstado(pedido.id, "confirmado");
     pedido.estado = "confirmado";
@@ -190,5 +215,47 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
   } catch (e: any) {
     logger.error({ err: e?.message }, "[LandingPublica] error creando el pedido");
     return res.status(500).json({ ok: false, error: "No se pudo registrar el pedido" });
+  }
+});
+
+/**
+ * Cupón para productos digitales (MercadoPago / PayPal): valida el código y
+ * regenera los enlaces de pago con el precio ya descontado. No consume un uso
+ * (el pago todavía no ocurrió); el uso se consumiría al confirmarse el cobro.
+ */
+landingPublicaRouter.post("/api/landing-publica/:slug/cupon", async (req: Request, res: Response) => {
+  try {
+    const encontrada = await landingPorSlug(String(req.params.slug || ""));
+    if (!encontrada || !encontrada.producto) return res.status(404).json({ ok: false, error: "Landing no encontrada" });
+    const { row, producto } = encontrada;
+    if (modeloDelProducto(producto as any) !== "digital") {
+      return res.status(400).json({ ok: false, error: "Este producto no acepta cupón por pago en línea." });
+    }
+
+    const code = String(req.body?.code || "").trim().toUpperCase().replace(/\s+/g, "");
+    if (!code) return res.status(400).json({ ok: false, error: "Falta el código del cupón." });
+
+    const [cupon] = await db.select().from(coupons)
+      .where(and(eq(coupons.tenantId, row.tenantId), eq(coupons.code, code))).limit(1);
+    const { aplicarCupon } = await import("../lib/cupones");
+    const precio = Number(producto.price) || 0;
+    const r = aplicarCupon(cupon, { total: precio, productId: producto.id });
+
+    if (!r.ok || !cupon) return res.json({ ok: false, motivo: r.motivo || "Cupón no válido." });
+
+    const conDescuento = { ...producto, price: r.precioFinal };
+    const links = await enlacesDePago(row.tenantId, conDescuento);
+
+    return res.json({
+      ok: true,
+      code,
+      descuento: r.descuento,
+      precioFinal: r.precioFinal,
+      links,
+      mensaje: `Cupón aplicado: −$${Math.round(r.descuento).toLocaleString("es-CO")}`,
+    });
+  } catch (e: any) {
+    logger.error({ err: e?.message }, "[LandingPublica] error aplicando cupón digital");
+    return res.status(500).json({ ok: false, error: "No se pudo aplicar el cupón." });
   }
 });

@@ -18,6 +18,7 @@ import {
   type Casilla,
   type Plantilla,
 } from "../lib/landing/plantillas";
+import { elegirFamilia } from "../lib/landing/design-system";
 import {
   getOrCreateLanding,
 } from "../lib/landingforge-client";
@@ -280,7 +281,14 @@ Frases cortas. Una idea por línea. Sin adjetivos de relleno ("increíble", "pre
 
     const strategy = normalizeStrategy(result?.strategy, product, sourceAd);
     const sections = normalizeSections(result?.sections, product, casillas, (await getBusinessContext(tenantId).catch(() => null))?.condiciones);
-    const design = result?.design || { tone: "direct-response premium", primary: "#111827", background: "#ffffff", radius: "14px" };
+    // Familia visual sugerida por las señales del producto (rubro → precio → tipo).
+    // El admin puede pisarla después en el Landing Studio; acá sale profesional
+    // por defecto en vez de caer siempre a ecommerce.
+    const sugerida = elegirFamilia({
+      categoria: (product as any)?.category, nombre: product.name, descripcion: product.description,
+      tipo: product.kind, precio: Number(product.price),
+    });
+    const design = { ...(result?.design || { tone: "direct-response premium", primary: "#111827", background: "#ffffff", radius: "14px" }), familia: (result?.design as any)?.familia || sugerida.familia };
     const name = String(result?.name || `Landing · ${product.name}`);
 
     return { ok: true as const, generatedBy: conSecciones ? "ai" : "fallback", name, productId, strategy, sections, design,
