@@ -127,6 +127,52 @@ function buildUserPrompt(product: any, existingHtml: string | null, instruction:
   return prompt;
 }
 
+// ── POST /api/landing-studio/test ──────────────────────────────────────────
+// Endpoint de prueba SIN auth para verificar conexión OpenCode.
+router.post("/test", async (req, res) => {
+  try {
+    const { message, productId } = req.body as { message?: string; productId?: number };
+    if (!message?.trim()) return res.status(400).json({ message: "Falta el mensaje" });
+
+    const config = opencodeConfig();
+    if (!config) return res.status(503).json({ message: "OpenCode no configurado (faltan ATLAS_OPENCODE_* env vars)" });
+
+    let product: any = null;
+    if (productId) {
+      const rows = await db.select().from(products).where(eq(products.id, productId));
+      product = rows[0] || null;
+    }
+
+    const userPrompt = product
+      ? `PRODUCTO: ${product.name} - ${product.description || "N/A"} - Precio: ${product.price} ${product.currency || "USD"} - Tipo: ${product.kind || "digital"} - Imagen: ${product.imageUrl || "Ninguna"}\n\nINSTRUCCIÓN: ${message}`
+      : `INSTRUCCIÓN: ${message}`;
+
+    const startTime = Date.now();
+    const result = await conCandado(async () => {
+      const sessionId = await createSession(config.host, config.authHeader);
+      return await sendMessage(config.host, config.authHeader, sessionId, {
+        system: systemPrompt(),
+        text: userPrompt,
+        timeoutMs: 120_000,
+      });
+    });
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+
+    if (result.error) {
+      return res.status(500).json({ error: result.error, elapsed: `${elapsed}s` });
+    }
+
+    let html = result.text.trim();
+    const codeBlockMatch = html.match(/```(?:html)?\s*\n?([\s\S]*?)\n?```/);
+    if (codeBlockMatch) html = codeBlockMatch[1].trim();
+
+    return res.json({ html, elapsed: `${elapsed}s`, length: html.length });
+  } catch (e: any) {
+    logger.error({ err: e?.message }, "[LandingStudio/test] error");
+    return res.status(500).json({ error: e?.message || "Error interno" });
+  }
+});
+
 // ── POST /api/landing-studio/chat ──────────────────────────────────────────
 router.post("/chat", requireAdmin, async (req: TenantRequest, res) => {
   try {
