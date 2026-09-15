@@ -4212,10 +4212,14 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       const [prod] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
       if (!prod) return { ok: false, summary: `No encontré el producto ${id}.` };
       const { generarLandingLocal } = await import("../routes/landing-pages-ai");
+      const { contextoLanding, recordarLanding } = await import("./landing/memoria");
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const tipoMem = String((prod as any)?.kind || "digital");
+      const contexto = await contextoLanding(ctx.tenantId, { productId: id, tipo: tipoMem });
       const gen = await generarLandingLocal({
         tenantId: ctx.tenantId, product: prod, brandName: (tenant as any)?.brandName,
         objective: /mensaje/.test(String(args?.objetivo || "")) ? "messages" : /trafico|tráfico/.test(String(args?.objetivo || "")) ? "traffic" : "sales",
+        contexto: contexto || undefined,
       });
       const { landingPages } = await import("@workspace/db");
       const familia = String(args?.familia || "").trim() || null;
@@ -4225,6 +4229,16 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
         strategy: gen.strategy, sections: gen.sections, design: { ...(gen.design || {}), ...(familia ? { familia } : {}) }, source: gen.source,
       } as any).returning();
       const tipos = (gen.sections as any[]).map((x) => x.type).join(" → ");
+      await recordarLanding({
+        tenantId: ctx.tenantId,
+        productId: prod.id,
+        productName: prod.name,
+        tipo: tipoMem,
+        familia: familia || (gen.design as any)?.familia || null,
+        slug,
+        landingId: creada.id,
+        summary: `Landing [${creada.id}] ${gen.name} (${gen.generatedBy === "ai" ? "texto generado" : "texto de plantilla"}; secciones: ${tipos}).`,
+      });
       return {
         ok: true,
         summary: `Landing creada como borrador: [${creada.id}] ${gen.name} (${gen.generatedBy === "ai" ? "texto generado" : "texto de plantilla"}; plantilla ${gen.plantilla?.id}; secciones: ${tipos}). ` +

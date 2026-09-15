@@ -99,15 +99,25 @@ export async function callMarketingAI<T = unknown>(
   for (const { nombre, cfg } of candidatos) {
     try {
       const client = createAIClient(cfg);
-      const completion = await client.chat.completions.create({
-        model: cfg.model || "gpt-5.6-luna",
-        temperature: 0.7,
-        max_tokens: opts.maxTokens ?? 900,
-        messages: [
-          { role: "system", content: opts.systemPrompt },
-          { role: "user", content: opts.userPrompt },
-        ],
-      });
+
+      // Implementar timeout para evitar que un proveedor lento cuelgue la petición
+      const timeoutPromise = new Promise<null>((_, reject) =>
+        setTimeout(() => reject(new Error(`Timeout de ${cfg.timeout || 30000}ms`)), cfg.timeout || 30000)
+      );
+
+      const completion = await Promise.race([
+        client.chat.completions.create({
+          model: cfg.model || "gpt-5.6-luna",
+          temperature: 0.7,
+          max_tokens: opts.maxTokens ?? 900,
+          messages: [
+            { role: "system", content: opts.systemPrompt },
+            { role: "user", content: opts.userPrompt },
+          ],
+        }),
+        timeoutPromise
+      ]) as any;
+
 
       const text = completion.choices?.[0]?.message?.content?.trim() ?? "";
       // Texto vacío es un fallo REAL, no una respuesta: es justo lo que hacen

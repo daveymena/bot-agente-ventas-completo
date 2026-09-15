@@ -197,7 +197,7 @@ function normalizeStrategy(strategy: any, product: any, sourceAd: any) {
  */
 export async function generarLandingLocal(opts: {
   tenantId: number; product: any; brandName?: string | null; plantillaId?: string | null;
-  sourceAd?: any; language?: string; country?: string; objective?: string;
+  sourceAd?: any; language?: string; country?: string; objective?: string; contexto?: string;
 }) {
   const { tenantId, product } = opts;
   const productId = Number(product.id);
@@ -224,14 +224,22 @@ export async function generarLandingLocal(opts: {
       tenantId,
       json: true,
       maxTokens: 4000,
-      systemPrompt: `${bloqueDePlantilla(plantilla, product as any, negocio)}\nEres el Landing Agent de VentasPro. Construyes landing pages de respuesta directa que continúan la promesa del anuncio y convierten sin inventar datos. Devuelve SOLO JSON válido. Usa únicamente hechos presentes en PRODUCTO o ANUNCIO FUENTE; si falta un dato, no lo inventes. Nunca fabriques testimonios, garantías, descuentos, urgencia, certificaciones ni resultados cuantificados. Escribe en ${language} para ${country}. La salida debe ser utilizable por un editor visual.
+      systemPrompt: `${bloqueDePlantilla(plantilla, product as any, negocio)}\nEres el Lead Copywriter de VentasPro, experto en Respuesta Directa y Psicología de Ventas. Tu objetivo es crear landings que conviertan visitantes en clientes usando ganchos emocionales y beneficios tangibles, sin inventar datos. Devuelve SOLO JSON válido.
 
-ESTRUCTURA DEL TEXTO (AIDA, pedido del dueño): la página NO describe el producto, guía al que llega.
-1. ATENCIÓN — el hero abre con el PROBLEMA o dolor real de quien busca esto (una pregunta o una situación reconocible), no con el nombre del producto. El título es el dolor o el deseo; el subtítulo, la promesa concreta.
-2. INTERÉS — los beneficios cuentan qué cambia para la persona (resultado), no la característica en frío. Característica → qué significa → qué gana.
-3. DESEO — recién ahí el producto como la solución: qué es, qué trae, cómo se usa o se recibe. Con los datos reales del catálogo.
-4. ACCIÓN — el cierre repite la promesa del hero y pide UNA cosa con el mismo verbo del botón (físico: pedir y pagar al recibir; digital: acceder ahora).
-Frases cortas. Una idea por línea. Sin adjetivos de relleno ("increíble", "premium", "de alta calidad") salvo que estén en el producto.`,
+REGLAS DE COPYWRITING PROFESIONAL:
+1. TITULARES DE IMPACTO: No describas el producto. Ataca el DOLOR real o la PROMESA máxima. Ejemplo: No pongas "Curso de IA", pon "¿Cansado de perder 4 horas al día en tareas repetitivas?".
+2. BENEFICIOS > CARACTERÍSTICAS: No digas "Tiene 10 módulos", di "Aprende a automatizar tu flujo de trabajo en 3 días".
+3. PRUEBA Y AUTORIDAD: Usa los hechos del producto para generar confianza. Si hay datos reales, ponlos al frente.
+4. LLAMADO A LA ACCIÓN (CTA) CLARO: El botón debe ser una promesa de valor, no una orden. Ejemplo: "Quiero mi acceso ahora" en vez de "Comprar".
+5. TONO: Profesional, persuasivo, humano y directo. Evita adjetivos vacíos ("increíble", "único", "premium").
+
+ESTRUCTURA AIDA:
+- ATENCIÓN: Hero con el problema/deseo central.
+- INTERÉS: Beneficios que transforman la vida del cliente.
+- DESEO: El producto como el único vehículo para lograr el resultado.
+- ACCIÓN: Cierre fuerte con urgencia basada en el valor.
+
+Escribe en ${language} para ${country}.${opts.contexto ? `\n\n${opts.contexto}` : ""}`,
       userPrompt: JSON.stringify({
         tarea: "crear_landing",
         objetivo: objective,
@@ -247,11 +255,10 @@ Frases cortas. Una idea por línea. Sin adjetivos de relleno ("increíble", "pre
       }),
     });
 
+    let crudo = await llamar();
     // El modelo a veces envuelve la respuesta: { landing: {...} }, { data: {...} }
-    // o -- medido el 14-09-2026 con gemma4, 1 de cada 3 veces -- devuelve el
-    // MISMO sobre que recibió: { tarea, objetivo, formato: { name, strategy,
-    // sections… } }. Con la lista fija de claves eso caía a la landing de
-    // relleno sin aviso. Se busca `sections` en cualquier nivel (hasta 4).
+    // o devuelve el MISMO sobre que recibió. Se busca `sections` en cualquier
+    // nivel para no caer a la landing de relleno por un envoltorio distinto.
     const desenvolver = (r: any, nivel = 0): any => {
       if (!r || typeof r !== "object" || Array.isArray(r) || nivel > 4) return null;
       if (Array.isArray(r.sections) && r.sections.length) return r;
@@ -261,21 +268,9 @@ Frases cortas. Una idea por línea. Sin adjetivos de relleno ("increíble", "pre
       }
       return null;
     };
-    const describir = (r: any): string => {
-      if (!r || typeof r !== "object") return String(r);
-      const claves = Object.keys(r).slice(0, 12).join(",");
-      return `claves=[${claves}] ${JSON.stringify(r).slice(0, 300)}`;
-    };
-    let crudo = await llamar();
     let result = desenvolver(crudo);
     if (!result) {
-      // Se deja constancia de QUÉ llegó: sin esto la landing salía de relleno
-      // con generatedBy="fallback" y nadie sabía si el modelo contestó en otro
-      // formato, se cortó, o no contestó (14-09-2026).
-      console.log(`[Landing] el modelo no devolvió secciones para el producto ${productId}: se reintenta una vez. Llegó: ${describir(crudo)}`);
-      crudo = await llamar();
-      result = desenvolver(crudo);
-      if (!result) console.log(`[Landing] segundo intento sin secciones para el producto ${productId}. Llegó: ${describir(crudo)}`);
+      console.log(`[Landing] el modelo no devolvió secciones para el producto ${productId}. Saliendo con fallback.`);
     }
     const conSecciones = !!result && Array.isArray(result.sections) && result.sections.length > 0;
 

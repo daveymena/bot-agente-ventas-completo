@@ -20,6 +20,7 @@ import { logger } from "../lib/logger";
 import { db, landingPages, products } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { fotosDelProducto, videosDelProducto } from "../lib/fotos-de-producto";
+import { contextoLanding, recordarLanding } from "../lib/landing/memoria";
 
 const router = Router();
 
@@ -86,7 +87,10 @@ async function sendMessage(
           agent: "general",
           model: { providerID: model.providerID, modelID: model.modelID },
           system: opts.system,
-          tools: {},
+          // Investigación y navegación reales: si el admin pide investigar la
+          // competencia o pasa una URL de referencia, el agente puede usar
+          // webfetch/websearch en vez de responder a ciegas.
+          tools: { webfetch: true, websearch: true },
           parts: [{ type: "text", text: opts.text }],
         }),
         signal: AbortSignal.timeout(opts.timeoutMs),
@@ -316,7 +320,12 @@ REGLAS DE COLORES (OBLIGATORIAS):
 7. Si el producto NO tiene paleta definida, deriva los colores de la imagen del producto y de la categoria (tecnologia=azul, salud/belleza=verde/rosa, comida=naranja/rojo, premium/negocio=negro/dorado, educativo=indigo).
 8. Maximo 3-4 colores en total. Consistencia en toda la landing.
 
-NOTA: El <style> es obligatorio para los media queries. No todo puede ir inline: las media queries SIEMPRE van en un <style> dentro del <head>.`;
+NOTA: El <style> es obligatorio para los media queries. No todo puede ir inline: las media queries SIEMPRE van en un <style> dentro del <head>.
+
+REGLAS DE INVESTIGACIÓN (solo cuando aplica):
+1. Tenés disponible webfetch y websearch. Usalos SOLO si el admin pide investigar (ej: "mirá la competencia X", "fijate qué hace tal página") o te pasa una URL de referencia para tomar estilo.
+2. Si NO hay pedido de investigación, NO busques en internet: generá directo con los datos del brief (más rápido y más barato).
+3. Lo que encontrás en internet sirve para el ÁNGULO y el ESTILO, NUNCA para copiar condiciones comerciales ajenas (garantías, precios, cupos): esas salen del brief del negocio.`;
 
 function getSystemPrompt(tipo: ProductType): string {
   const base = (() => {
@@ -536,9 +545,11 @@ router.post("/test", async (req, res) => {
     const tipo = product ? detectarTipo(product) : "digital";
     const paleta = product ? await paletaDelProducto(product) : undefined;
     const pago = product ? await datosDePagoDelProducto(product) : undefined;
-    const userPrompt = product
+    const memoria = await contextoLanding(product?.tenantId || 1, { productId: product?.id, tipo });
+    let userPrompt = product
       ? buildUserPrompt(product, tipo, null, message, paleta, pago)
       : `INSTRUCCION: ${message}`;
+    if (memoria) userPrompt += `\n\n${memoria}`;
 
     const startTime = Date.now();
     const result = await conCandado(async () => {
@@ -635,11 +646,13 @@ router.post("/chat", async (req, res) => {
     const disenoGuardado = (existingLanding?.design && typeof existingLanding.design === "object") ? existingLanding.design : {};
     const disenoFinal: Diseno = { ...disenoGuardado, ...(diseno || {}) };
 
-    const userPrompt = product
+    const memoria = await contextoLanding(product?.tenantId || existingLanding?.tenantId || 1, { productId: product?.id ?? productId, tipo });
+    let userPrompt = product
       ? buildUserPrompt(product, tipo, existingHtml, message, paleta, pago, disenoFinal)
       : existingHtml
         ? `HTML ACTUAL:\n${existingHtml}\n\nINSTRUCCION: ${message}`
         : `INSTRUCCION: ${message}`;
+    if (memoria) userPrompt += `\n\n${memoria}`;
 
     const startTime = Date.now();
     const result = await conCandado(async () => {
@@ -693,6 +706,18 @@ router.post("/chat", async (req, res) => {
       html = html.split("__FORM_ACTION__").join(`/api/landing-publica/${encodeURIComponent(slug)}/pedido`);
       await db.update(landingPages).set({ html, updatedAt: new Date() }).where(eq(landingPages.id, savedLandingId));
     }
+
+    // Guardar en memoria para que la próxima generación no arranque de cero.
+    await recordarLanding({
+      tenantId: existingLanding?.tenantId || product?.tenantId || 1,
+      productId: product?.id ?? productId ?? null,
+      productName: product?.name || null,
+      tipo,
+      slug: slug || null,
+      landingId: savedLandingId ?? null,
+      instruccion: message || null,
+      summary: `Landing ${savedLandingId ? `[${savedLandingId}]` : ""} ${product?.name || ""} (${tipo}).`,
+    });
 
     return res.json({ html, landingId: savedLandingId, elapsed: `${elapsed}s`, tipo, design: disenoFinal });
   } catch (e: any) {
