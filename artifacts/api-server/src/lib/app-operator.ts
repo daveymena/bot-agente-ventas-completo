@@ -4201,58 +4201,8 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   {
     name: "landing_crear",
     description:
-      "Generador por PLANTILLA (arma una maqueta a partir de secciones). Si el admin quiere una landing que 'se vea profesional', preferí landing_profesional (OpenCode escribe el HTML completo con un agente especializado). " +
-      "Esta crea y GUARDA una landing con texto en AIDA (dolor → solución → producto → acción), " +
-      "fotos reales del producto, cierre según el modelo (físico: formulario contraentrega o WhatsApp; digital: MercadoPago/PayPal o WhatsApp) " +
-      "y las condiciones reales del negocio. Queda como BORRADOR: para que exista la URL pública hay que llamar landing_publicar. " +
-      "⚠️ Cambia el sistema: va por propose_action. 'familia' es el estilo visual (premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch — este último es el estilo 'lanzamiento de app': oscuro, con halo de marca y cristal, tipo Launch UI).",
-    args: '{ "productId": number (req), "familia"?: string, "objetivo"?: "ventas"|"mensajes"|"trafico" }',
-    run: async (args, ctx) => {
-      const id = num(args?.productId);
-      if (!id) return { ok: false, summary: "Falta 'productId'." };
-      const [prod] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
-      if (!prod) return { ok: false, summary: `No encontré el producto ${id}.` };
-      const { generarLandingLocal } = await import("../routes/landing-pages-ai");
-      const { contextoLanding, recordarLanding } = await import("./landing/memoria");
-      const tenant = await tenantManager.getTenantById(ctx.tenantId);
-      const tipoMem = String((prod as any)?.kind || "digital");
-      const contexto = await contextoLanding(ctx.tenantId, { productId: id, tipo: tipoMem });
-      const gen = await generarLandingLocal({
-        tenantId: ctx.tenantId, product: prod, brandName: (tenant as any)?.brandName,
-        objective: /mensaje/.test(String(args?.objetivo || "")) ? "messages" : /trafico|tráfico/.test(String(args?.objetivo || "")) ? "traffic" : "sales",
-        contexto: contexto || undefined,
-      });
-      const { landingPages } = await import("@workspace/db");
-      const familia = String(args?.familia || "").trim() || null;
-      const slug = `${String(gen.name).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "landing"}-${Date.now().toString(36)}`;
-      const [creada] = await db.insert(landingPages).values({
-        tenantId: ctx.tenantId, productId: prod.id, name: String(gen.name).slice(0, 200), slug,
-        strategy: gen.strategy, sections: gen.sections, design: { ...(gen.design || {}), ...(familia ? { familia } : {}) }, source: gen.source,
-      } as any).returning();
-      const tipos = (gen.sections as any[]).map((x) => x.type).join(" → ");
-      await recordarLanding({
-        tenantId: ctx.tenantId,
-        productId: prod.id,
-        productName: prod.name,
-        tipo: tipoMem,
-        familia: familia || (gen.design as any)?.familia || null,
-        slug,
-        landingId: creada.id,
-        summary: `Landing [${creada.id}] ${gen.name} (${gen.generatedBy === "ai" ? "texto generado" : "texto de plantilla"}; secciones: ${tipos}).`,
-      });
-      return {
-        ok: true,
-        summary: `Landing creada como borrador: [${creada.id}] ${gen.name} (${gen.generatedBy === "ai" ? "texto generado" : "texto de plantilla"}; plantilla ${gen.plantilla?.id}; secciones: ${tipos}). ` +
-          `Para verla publicada y tener la URL para el anuncio: landing_publicar con id ${creada.id}.`,
-        data: { id: creada.id, slug, generatedBy: gen.generatedBy, plantilla: gen.plantilla?.id, secciones: tipos },
-      };
-    },
-  },
-  {
-    name: "landing_profesional",
-    description:
       "Genera y GUARDA una landing page PROFESIONAL con OpenCode, el generador premium de VentasPro. Un agente de IA especializado (dropshipping, digital, servicio, físico) escribe el HTML completo: diseño premium, copy de respuesta directa y el checkout correcto (formulario contra entrega en dropshipping; pago MercadoPago/PayPal o WhatsApp en el resto). " +
-      "USALA SIEMPRE que el admin pida una landing, página de venta o 'que se vea profesional': este es el resultado que quiere, no una maqueta genérica por plantilla (esa es landing_crear). Queda en BORRADOR: para la URL pública, landing_publicar. ⚠️ Va por propose_action.",
+      "USALA SIEMPRE que el admin pida una landing, página de venta o 'que se vea profesional'. Queda en BORRADOR: para la URL pública, landing_publicar. ⚠️ Va por propose_action.",
     args: '{ "productId": number (req), "instruccion"?: string (opcional, ej. "enfatizá el envío gratis y el pago al recibir") }',
     run: async (args, ctx) => {
       const id = num(args?.productId);
@@ -4284,11 +4234,11 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       }
 
       const { recordarLanding } = await import("./landing/memoria");
-      await recordarLanding({ tenantId: ctx.tenantId, productId: prod.id, productName: prod.name, tipo: r.tipo, slug, landingId: creada.id, instruccion, summary: `Landing profesional [${creada.id}] ${prod.name} (${r.tipo}) con OpenCode.` });
+      await recordarLanding({ tenantId: ctx.tenantId, productId: prod.id, productName: prod.name, tipo: r.tipo, slug, landingId: creada.id, instruccion, summary: `Landing [${creada.id}] ${prod.name} (${r.tipo}) con OpenCode.` });
 
       return {
         ok: true,
-        summary: `Landing profesional creada como borrador: [${creada.id}] ${prod.name} (${r.tipo}). Para la URL pública: landing_publicar con id ${creada.id}.`,
+        summary: `Landing creada como borrador: [${creada.id}] ${prod.name} (${r.tipo}). Para la URL pública: landing_publicar con id ${creada.id}.`,
         data: { id: creada.id, slug, tipo: r.tipo },
       };
     },
