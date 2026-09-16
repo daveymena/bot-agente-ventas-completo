@@ -4201,7 +4201,8 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   {
     name: "landing_crear",
     description:
-      "Crea y GUARDA una landing page para un producto con el generador de VentasPro: texto en AIDA (dolor → solución → producto → acción), " +
+      "Generador por PLANTILLA (arma una maqueta a partir de secciones). Si el admin quiere una landing que 'se vea profesional', preferí landing_profesional (OpenCode escribe el HTML completo con un agente especializado). " +
+      "Esta crea y GUARDA una landing con texto en AIDA (dolor → solución → producto → acción), " +
       "fotos reales del producto, cierre según el modelo (físico: formulario contraentrega o WhatsApp; digital: MercadoPago/PayPal o WhatsApp) " +
       "y las condiciones reales del negocio. Queda como BORRADOR: para que exista la URL pública hay que llamar landing_publicar. " +
       "⚠️ Cambia el sistema: va por propose_action. 'familia' es el estilo visual (premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch — este último es el estilo 'lanzamiento de app': oscuro, con halo de marca y cristal, tipo Launch UI).",
@@ -4244,6 +4245,51 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
         summary: `Landing creada como borrador: [${creada.id}] ${gen.name} (${gen.generatedBy === "ai" ? "texto generado" : "texto de plantilla"}; plantilla ${gen.plantilla?.id}; secciones: ${tipos}). ` +
           `Para verla publicada y tener la URL para el anuncio: landing_publicar con id ${creada.id}.`,
         data: { id: creada.id, slug, generatedBy: gen.generatedBy, plantilla: gen.plantilla?.id, secciones: tipos },
+      };
+    },
+  },
+  {
+    name: "landing_profesional",
+    description:
+      "Genera y GUARDA una landing page PROFESIONAL con OpenCode, el generador premium de VentasPro. Un agente de IA especializado (dropshipping, digital, servicio, físico) escribe el HTML completo: diseño premium, copy de respuesta directa y el checkout correcto (formulario contra entrega en dropshipping; pago MercadoPago/PayPal o WhatsApp en el resto). " +
+      "USALA SIEMPRE que el admin pida una landing, página de venta o 'que se vea profesional': este es el resultado que quiere, no una maqueta genérica por plantilla (esa es landing_crear). Queda en BORRADOR: para la URL pública, landing_publicar. ⚠️ Va por propose_action.",
+    args: '{ "productId": number (req), "instruccion"?: string (opcional, ej. "enfatizá el envío gratis y el pago al recibir") }',
+    run: async (args, ctx) => {
+      const id = num(args?.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'." };
+      const [prod] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
+      if (!prod) return { ok: false, summary: `No encontré el producto ${id}.` };
+
+      const { generarLandingConOpenCode } = await import("../routes/landing-studio-opencode");
+      const instruccion = String(args?.instruccion || args?.instruction || "Genera una landing page profesional y de alta conversión para este producto.");
+      const r = await generarLandingConOpenCode({ product: prod, instruction: instruccion });
+      if (r.error || !r.html) return { ok: false, summary: `No se pudo generar la landing: ${r.error || "respuesta vacía"}` };
+
+      const { landingPages } = await import("@workspace/db");
+      const slug = `${String(prod.name).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "landing"}-${Date.now().toString(36)}`;
+      const [creada] = await db.insert(landingPages).values({
+        tenantId: ctx.tenantId, productId: prod.id, name: `Landing · ${prod.name}`.slice(0, 200), slug,
+        status: "draft",
+        strategy: { tipo: r.tipo, detectedAt: new Date().toISOString() },
+        sections: [],
+        design: {},
+        source: { type: "product", productId: prod.id },
+        html: r.html,
+      } as any).returning();
+
+      let html = r.html;
+      if (r.tipo === "dropshipping" && html.includes("__FORM_ACTION__")) {
+        html = html.split("__FORM_ACTION__").join(`/api/landing-publica/${encodeURIComponent(slug)}/pedido`);
+        await db.update(landingPages).set({ html, updatedAt: new Date() }).where(eq(landingPages.id, creada.id));
+      }
+
+      const { recordarLanding } = await import("./landing/memoria");
+      await recordarLanding({ tenantId: ctx.tenantId, productId: prod.id, productName: prod.name, tipo: r.tipo, slug, landingId: creada.id, instruccion, summary: `Landing profesional [${creada.id}] ${prod.name} (${r.tipo}) con OpenCode.` });
+
+      return {
+        ok: true,
+        summary: `Landing profesional creada como borrador: [${creada.id}] ${prod.name} (${r.tipo}). Para la URL pública: landing_publicar con id ${creada.id}.`,
+        data: { id: creada.id, slug, tipo: r.tipo },
       };
     },
   },

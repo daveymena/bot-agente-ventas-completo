@@ -599,6 +599,55 @@ ${checkout}`;
   return prompt;
 }
 
+/**
+ * Genera una landing PROFESIONAL con OpenCode (agentes especializados por tipo).
+ *
+ * Es el camino "premium": a diferencia del generador por plantillas (que arma
+ * maquetas a partir de secciones), acá OpenCode escribe el HTML completo con un
+ * agente especializado para dropshipping/digital/servicio/etc. Atlas usa esta
+ * función vía la herramienta `landing_profesional` para no entregar maquetas
+ * genéricas.
+ */
+export async function generarLandingConOpenCode(opts: {
+  product: any;
+  instruction: string;
+  existingHtml?: string | null;
+  diseno?: Diseno;
+}): Promise<{ html: string; tipo: ProductType; error?: string }> {
+  const config = opencodeConfig();
+  if (!config) return { html: "", tipo: "digital", error: "OpenCode no configurado" };
+
+  const { product, instruction } = opts;
+  const existingHtml = opts.existingHtml ?? null;
+  const diseno = opts.diseno ?? {};
+  const tipo = detectarTipo(product);
+  const paleta = await paletaDelProducto(product);
+  const pago = await datosDePagoDelProducto(product);
+  const memoria = await contextoLanding(product?.tenantId || 1, { productId: product?.id, tipo });
+
+  let userPrompt = buildUserPrompt(product, tipo, existingHtml, instruction, paleta, pago, diseno);
+  if (memoria) userPrompt += `\n\n${memoria}`;
+
+  const result = await conCandado(async () => {
+    const sessionId = await createSession(config.host, config.authHeader);
+    return await sendMessage(config.host, config.authHeader, sessionId, {
+      system: getSystemPrompt(tipo),
+      text: userPrompt,
+      timeoutMs: 45_000,
+    });
+  });
+
+  if (result.error) return { html: "", tipo, error: result.error };
+
+  let html = result.text.trim();
+  const codeBlockMatch = html.match(/```(?:html)?\s*\n?([\s\S]*?)\n?```/);
+  if (codeBlockMatch) html = codeBlockMatch[1].trim();
+  if (!html.includes("<!DOCTYPE") && !html.includes("<html")) html = result.text;
+  if (tipo === "dropshipping") html = asegurarFormularioDropshipping(html);
+
+  return { html, tipo };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // ENDPOINTS
 // ═══════════════════════════════════════════════════════════════════════════
