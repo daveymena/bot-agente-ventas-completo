@@ -132,10 +132,17 @@ function detectarTipo(product: any): ProductType {
   const cat = (product?.category || "").toLowerCase();
   const combined = `${kind} ${name} ${desc} ${cat}`;
 
-  // Dropshipping explícito: siempre formulario completo.
-  if (kind === "dropshipping" || /\bdropshipping\b/.test(cat)) return "dropshipping";
-  // Físico SIN categoría dropshipping: se paga digital o por transferencia.
-  if (kind === "physical" || kind === "fisico" || kind === "producto") return "fisico";
+  // Todo físico se vende con CONTRAENTREGA salvo que tenga link de pago en
+  // línea. Es la misma señal que usa el renderer ("la señal real de
+  // contraentrega es que NO haya link de pago"). Dropi importa con kind
+  // "physical" (ver dropi_import_product), así que acá NO alcanza con mirar
+  // `kind === "dropshipping"`: si es físico sin pago en línea, es dropshipping.
+  const esFisico = kind === "physical" || kind === "fisico" || kind === "producto" || kind === "dropshipping";
+  if (esFisico) {
+    const pagaEnLinea = String(product?.paymentLink || "").trim().length > 0;
+    return pagaEnLinea ? "fisico" : "dropshipping";
+  }
+  if (/\bdropshipping\b/.test(cat)) return "dropshipping";
   if (/curso|ebook|libro|software|app|plantilla|preset|pack|curso|clase|memoria|guia|manual|video|tutorial|modulo/i.test(combined)) return "digital";
   if (/servicio|consultoria|asesoria|agencia|freelance|coaching|entrenamiento|terapia|salud|belleza|gimnasio|peluqueria|odontolog|medic|abogad|contador|reparacion|mantenimiento|limpieza|fumigacion|transporte|delivery/i.test(combined)) return "servicio";
   if (/tienda|shop|catalogo|multi|varios/i.test(combined)) return "ecommerce";
@@ -286,9 +293,10 @@ REGLAS DE IMAGENES (OBLIGATORIAS):
 2. En el HERO usa la imagen PRINCIPAL (la marcada como tal), junto al titulo y subtitulo.
 3. Cada BLOQUE/seccion de contenido debe llevar UNA imagen distinta. Intercala imagenes y texto para que la landing no sea un muro de texto.
 4. NO repitas la misma imagen en secciones consecutivas.
-5. Las imagenes van acompañando el titulo de cada bloque: titulo + imagen + texto.
-6. Usa <img loading="lazy"> en las imagenes que NO estan en el hero (carga mas rapido).
-7. Si una imagen falla, el <img> debe tener alt descriptivo.
+5. Cada imagen se usa UNA SOLA VEZ en toda la landing: si hay 6 imagenes y 6 secciones con imagen, asigná una distinta a cada una. Repetir la misma foto en dos secciones es un error.
+6. Las imagenes van acompañando el titulo de cada bloque: titulo + imagen + texto.
+7. Usa <img loading="lazy"> en las imagenes que NO estan en el hero (carga mas rapido).
+8. Si una imagen falla, el <img> debe tener alt descriptivo.
 
 REGLAS DE VIDEO (OBLIGATORIAS - si el producto tiene video):
 1. El video va en su PROPIA seccion, con titulo propio (ej: "Mira como funciona") y espacio de fondo y padding generoso (padding: 48px 16px o mas).

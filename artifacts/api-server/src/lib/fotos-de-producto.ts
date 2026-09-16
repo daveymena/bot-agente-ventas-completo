@@ -34,7 +34,11 @@ export function fotosDelProducto(p: any, appUrl = process.env.APP_URL || "https:
   const m = meta(p);
   const propias: string[] = Array.isArray(m.imagenes) ? m.imagenes.map(String) : [];
   const deWoo: string[] = Array.isArray(m?.woocommerce?.imageUrls) ? m.woocommerce.imageUrls.map(String) : [];
-  const todas = [absoluta(String(p?.imageUrl || ""), appUrl), ...propias.map((u) => absoluta(u, appUrl)), ...deWoo.map((u) => absoluta(u, appUrl))].filter(Boolean);
+  // Dropi guarda la galería en `metadata.imageUrls` (dropi_import_product), no
+  // en `imagenes`. Sin esto, un producto de Dropi solo muestra su foto principal
+  // y la landing repetía la misma imagen en todas las secciones.
+  const deDropi: string[] = Array.isArray(m.imageUrls) ? m.imageUrls.map(String) : [];
+  const todas = [absoluta(String(p?.imageUrl || ""), appUrl), ...propias.map((u) => absoluta(u, appUrl)), ...deWoo.map((u) => absoluta(u, appUrl)), ...deDropi.map((u) => absoluta(u, appUrl))].filter(Boolean);
   return [...new Set(todas)].filter((u) => ES_IMAGEN.test(u)).slice(0, max);
 }
 
