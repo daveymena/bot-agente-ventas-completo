@@ -862,7 +862,7 @@ export default function FacebookAdsPage() {
                     <AlertDescription>
                       <p className="font-semibold">Anuncio creado</p>
                       <p className="text-sm break-all">Campaña: {result.campaignId} | Anuncio: {result.adId}</p>
-                      {result.adCopy && <div className="mt-2 p-2 bg-muted rounded text-xs"><p><strong>Texto:</strong> {result.adCopy.primaryText}</p></div>}
+                      {result.adCopy && <div className="mt-2 p-2 bg-muted rounded text-xs break-words"><p className="whitespace-pre-wrap break-words"><strong>Texto:</strong> {result.adCopy.primaryText}</p></div>}
                     </AlertDescription>
                   </Alert>
                 )}
@@ -935,15 +935,15 @@ export default function FacebookAdsPage() {
                                 </span>
                                 {d.fbStatus && <span className="shrink-0 px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-500">{d.fbStatus}</span>}
                               </div>
-                              {d.niche && <p className="text-xs text-muted-foreground">Estrategia: {d.niche}</p>}
+                              {d.niche && <p className="text-xs text-muted-foreground break-words">Estrategia: {d.niche}</p>}
                               <div className="flex flex-wrap gap-3 mt-2 text-xs">
                                 {d.budget && <span className="text-muted-foreground">💰 ${d.budget.toLocaleString("es-CO")} COP/día</span>}
-                                {d.headline && <span className="text-foreground font-medium">📝 {d.headline}</span>}
+                                {d.headline && <span className="text-foreground font-medium break-words min-w-0">📝 {d.headline}</span>}
                               </div>
                               {d.primaryText && (
                                 <details className="mt-2">
                                   <summary className="text-xs text-primary cursor-pointer hover:underline">Ver texto del anuncio</summary>
-                                  <p className="text-xs text-muted-foreground mt-2 whitespace-pre-wrap bg-background/50 p-2 rounded border max-h-40 overflow-y-auto">{d.primaryText}</p>
+                                  <p className="text-xs text-muted-foreground mt-2 whitespace-pre-wrap break-words bg-background/50 p-2 rounded border max-h-40 overflow-y-auto">{d.primaryText}</p>
                                 </details>
                               )}
                               <p className="text-xs text-muted-foreground mt-2">
