@@ -320,6 +320,17 @@ REGLAS DE COLORES (OBLIGATORIAS):
 7. Si el producto NO tiene paleta definida, deriva los colores de la imagen del producto y de la categoria (tecnologia=azul, salud/belleza=verde/rosa, comida=naranja/rojo, premium/negocio=negro/dorado, educativo=indigo).
 8. Maximo 3-4 colores en total. Consistencia en toda la landing.
 
+REGLAS DE DISEÑO PREMIUM (para que se vea cara, no plantilla barata):
+1. Aire entre secciones: padding vertical generoso (64-96px en desktop). Nunca secciones pegadas.
+2. Jerarquía clara: UN mensaje por sección. Título grande, una frase de apoyo, y el contenido. Nada más.
+3. Botones: altura mínima 52px, ancho completo en móvil, con sombra suave de color (no sombra negra dura).
+4. Bordes redondeados consistentes (12-16px) en tarjetas, botones e imágenes. Nada de esquinas 0px que parezcan de los 2000.
+5. Chips de confianza bajo el hero o junto al precio: "Pago al recibir", "Envío incluido", "Garantía de devolución" como pills pequeñas con borde suave.
+6. En móvil, una barra de CTA fija abajo (sticky) con el botón principal: el usuario nunca tiene que buscar cómo comprar.
+7. Sombras suaves y difusas (0 20px 50px rgba(0,0,0,.08)), no bordes negros ni box-shadows duras.
+8. Un solo acento dominante para los CTA. El resto en grises suaves. Consistencia de punta a punta.
+9. Micro-espaciado: los bullets con iconos van con gap, no apilados. Respira.
+
 NOTA: El <style> es obligatorio para los media queries. No todo puede ir inline: las media queries SIEMPRE van en un <style> dentro del <head>.
 
 REGLAS DE INVESTIGACIÓN (solo cuando aplica):
@@ -454,6 +465,62 @@ function inyectarDisenoEnHtml(html: string, diseno: Diseno): string {
   return style + html;
 }
 
+// ── Formulario de dropshipping: GARANTIZADO ────────────────────────────────
+// El modelo a veces omite el formulario de pedido (o lo borra al editar). No se
+// puede depender de que lo incluya: si no está, se inyecta acá, determinista.
+// Es la única sección que NO puede faltar en una landing de dropshipping: sin
+// formulario no hay pedido, y sin pedido no hay venta.
+function asegurarFormularioDropshipping(html: string): string {
+  if (!html) return html;
+  const yaTieneFormulario = /<form/i.test(html) && /name=["']direccion["']/i.test(html) && /name=["']telefono["']/i.test(html);
+  if (yaTieneFormulario) return html;
+
+  const form = `
+<section class="pedido-ds" id="pedido">
+  <div class="pedido-ds__wrap">
+    <div class="pedido-ds__head">
+      <h2>Completa tus datos y recibe el pedido en tu casa</h2>
+      <p>Paga al recibir. Sin anticipos.</p>
+    </div>
+    <form method="POST" action="__FORM_ACTION__" class="pedido-ds__form">
+      <div class="pedido-ds__grid">
+        <label><span>Nombre completo *</span><input name="nombre" autocomplete="name" required></label>
+        <label><span>Celular *</span><input name="telefono" inputmode="tel" autocomplete="tel" required></label>
+        <label><span>Documento *</span><input name="documento" inputmode="numeric" required></label>
+        <label><span>Ciudad *</span><input name="ciudad" autocomplete="address-level2" required></label>
+        <label class="pedido-ds__full"><span>Dirección de entrega *</span><input name="direccion" autocomplete="street-address" required></label>
+        <label><span>Barrio</span><input name="barrio"></label>
+        <label><span>Departamento *</span><input name="departamento" autocomplete="address-level1" required></label>
+        <label class="pedido-ds__full"><span>Referencia / notas</span><input name="referencia"></label>
+      </div>
+      <button type="submit" class="pedido-ds__btn">Pedir ahora y pagar al recibir</button>
+      <p class="pedido-ds__note">Pago contra entrega · Envío a todo el país</p>
+    </form>
+  </div>
+</section>
+<style>
+.pedido-ds{--ds-accent:var(--accent,#2563eb);padding:72px 16px;background:linear-gradient(180deg,color-mix(in srgb,var(--ds-accent) 7%,#ffffff),#ffffff)}
+.pedido-ds__wrap{max-width:680px;margin:0 auto}
+.pedido-ds__head{text-align:center;margin-bottom:28px}
+.pedido-ds__head h2{font-size:clamp(1.5rem,4vw,2rem);font-weight:800;margin:0 0 8px}
+.pedido-ds__head p{color:#64748b;margin:0}
+.pedido-ds__form{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:28px;box-shadow:0 20px 50px rgba(2,6,23,.08)}
+.pedido-ds__grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.pedido-ds__grid label{display:flex;flex-direction:column;gap:6px}
+.pedido-ds__grid label span{font-size:.8rem;font-weight:600;color:#334155}
+.pedido-ds__grid input{padding:12px 14px;border:1px solid #cbd5e1;border-radius:10px;font-size:1rem;width:100%;box-sizing:border-box}
+.pedido-ds__grid input:focus{outline:none;border-color:var(--ds-accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--ds-accent) 20%,transparent)}
+.pedido-ds__full{grid-column:1 / -1}
+.pedido-ds__btn{width:100%;margin-top:20px;padding:16px;background:var(--ds-accent);color:#fff;border:none;border-radius:12px;font-size:1rem;font-weight:700;cursor:pointer}
+.pedido-ds__btn:hover{filter:brightness(1.05)}
+.pedido-ds__note{text-align:center;color:#64748b;font-size:.8rem;margin:14px 0 0}
+@media(max-width:600px){.pedido-ds__grid{grid-template-columns:1fr}}
+</style>`;
+
+  if (html.includes("</body>")) return html.replace("</body>", `${form}</body>`);
+  return html + form;
+}
+
 function buildUserPrompt(product: any, tipo: ProductType, existingHtml: string | null, instruction: string, paleta?: Paleta, pago?: DatosDePago, diseno?: Diseno): string {
   const fotos = fotosDelProducto(product);
   const videos = videosDelProducto(product);
@@ -512,7 +579,7 @@ ${diseno?.color ? `- Color primario elegido por el cliente: ${diseno.color} (pri
 ${checkout}`;
 
   if (existingHtml) {
-    prompt += `\n\nHTML ACTUAL DE LA LANDING (para que mejores/edites):\n${existingHtml}`;
+    prompt += `\n\nMODO EDICIÓN — NO regeneres la página desde cero. Reglas de oro:\n1. Aplicá SOLO lo que pide el admin. Conservá TODO lo demás EXACTO: secciones, textos, imágenes, colores, tipografía y el formulario/checkout.\n2. NUNCA borres el FORMULARIO de pedido (dropshipping) ni ninguna sección que no te hayan pedido quitar.\n3. Si el pedido es ambiguo, hacé el cambio más pequeño posible.\n4. Devolvé el HTML completo con tu cambio aplicado, pero sin alterar lo que no se pidió.\n\nHTML ACTUAL DE LA LANDING:\n${existingHtml}`;
     prompt += `\n\nINSTRUCCION DEL ADMIN: ${instruction}`;
   } else {
     prompt += `\n\nINSTRUCCION: ${instruction || "Genera una landing page profesional y de alta conversion para este producto."}`;
@@ -569,6 +636,7 @@ router.post("/test", async (req, res) => {
     let html = result.text.trim();
     const codeBlockMatch = html.match(/```(?:html)?\s*\n?([\s\S]*?)\n?```/);
     if (codeBlockMatch) html = codeBlockMatch[1].trim();
+    if (tipo === "dropshipping") html = asegurarFormularioDropshipping(html);
 
     return res.json({ html, elapsed: `${elapsed}s`, length: html.length, tipo, model: result.model });
   } catch (e: any) {
@@ -650,7 +718,7 @@ router.post("/chat", async (req, res) => {
     let userPrompt = product
       ? buildUserPrompt(product, tipo, existingHtml, message, paleta, pago, disenoFinal)
       : existingHtml
-        ? `HTML ACTUAL:\n${existingHtml}\n\nINSTRUCCION: ${message}`
+        ? `MODO EDICIÓN — NO regeneres la página. Aplicá SOLO lo que pide el admin y conservá TODO lo demás EXACTO (secciones, formulario, imágenes, colores). Nunca borres lo que no te pidieron tocar.\n\nHTML ACTUAL:\n${existingHtml}\n\nINSTRUCCION: ${message}`
         : `INSTRUCCION: ${message}`;
     if (memoria) userPrompt += `\n\n${memoria}`;
 
@@ -701,10 +769,15 @@ router.post("/chat", async (req, res) => {
       savedLandingId = inserted[0]?.id;
     }
 
-    // Cablear el action del formulario (dropshipping) al endpoint real.
-    if (tipo === "dropshipping" && html.includes("__FORM_ACTION__") && savedLandingId != null) {
-      html = html.split("__FORM_ACTION__").join(`/api/landing-publica/${encodeURIComponent(slug)}/pedido`);
-      await db.update(landingPages).set({ html, updatedAt: new Date() }).where(eq(landingPages.id, savedLandingId));
+    // Garantizar el formulario completo de dropshipping: no depende del modelo.
+    // Si el modelo lo omitió (o lo borró al editar), se inyecta acá y se cablea
+    // el action al endpoint real de pedido.
+    if (tipo === "dropshipping") {
+      html = asegurarFormularioDropshipping(html);
+      if (savedLandingId != null) {
+        html = html.split("__FORM_ACTION__").join(`/api/landing-publica/${encodeURIComponent(slug)}/pedido`);
+        await db.update(landingPages).set({ html, updatedAt: new Date() }).where(eq(landingPages.id, savedLandingId));
+      }
     }
 
     // Guardar en memoria para que la próxima generación no arranque de cero.
