@@ -414,23 +414,35 @@ async function paletaDelProducto(product: any): Promise<Paleta> {
 }
 
 // ── Datos de pago del negocio ─────────────────────────────────────────────
-// Lo que la landing necesita para cobrar: cuentas de transferencia y WhatsApp.
+// Lo que la landing necesita para cobrar: enlaces de pago REALES de la app
+// (MercadoPago/PayPal) y el WhatsApp. NUNCA números de cuenta ni nombres de
+// titular: eso es sensible y no se muestra en una página pública.
 interface DatosDePago {
-  cuentas: Array<{ type: string; number: string; name: string }>;
-  paymentLink: string | null;
+  mercadopago?: string;
+  paypal?: string;
   whatsapp: string | null;
 }
 
 async function datosDePagoDelProducto(product: any): Promise<DatosDePago> {
-  const res: DatosDePago = { cuentas: [], paymentLink: product?.paymentLink || null, whatsapp: null };
+  const res: DatosDePago = { whatsapp: null };
   try {
     const { tenantManager } = await import("../lib/tenantManager");
-    const { credencialesDe } = await import("../lib/tenant-payment-credentials");
     const tenant = await tenantManager.getTenantById(product?.tenantId || 1);
     res.whatsapp = (tenant as any)?.contactPhone || (tenant as any)?.whatsappNumber || null;
-    const cred = credencialesDe(tenant || undefined);
-    if (cred?.transfer?.enabled) res.cuentas = cred.transfer.accounts || [];
-  } catch { /* sin tenant: sin datos de pago */ }
+
+    // Enlaces de pago generados por la app (PaymentGateway), no un link crudo
+    // del producto: así el botón "Pagar" lleva al checkout real de MercadoPago
+    // o PayPal del negocio, con el monto correcto.
+    try {
+      const { PaymentGateway } = await import("../lib/payments");
+      const pg = new PaymentGateway(tenant || undefined);
+      const links: any = await pg.getAllLinks(product, { phone: "", name: "Landing" });
+      res.mercadopago = links?.mercadopago?.shortUrl || links?.mercadopago?.url || undefined;
+      res.paypal = links?.paypal?.shortUrl || links?.paypal?.url || undefined;
+    } catch (e: any) {
+      logger.warn({ err: e?.message }, "[LandingStudio] no se pudieron generar los enlaces de pago");
+    }
+  } catch { /* sin tenant: sin enlaces */ }
   return res;
 }
 
@@ -536,16 +548,14 @@ function buildUserPrompt(product: any, tipo: ProductType, existingHtml: string |
 - El <form> usa method="POST" action="__FORM_ACTION__".
 - Boton de enviar: "Pedir ahora" o "Completar pedido".`;
   } else if (tipo === "fisico" || tipo === "digital") {
-    const cuentasTxt = (pago?.cuentas || []).length
-      ? (pago!.cuentas).map((c) => `  * ${c.type}: ${c.number} — titular ${c.name}`).join("\n")
-      : "  (sin cuentas de transferencia configuradas: no ofrezcas transferencia)";
-    const linkPago = pago?.paymentLink || product?.paymentLink || null;
+    const mp = pago?.mercadopago;
+    const pp = pago?.paypal;
     const wa = linkWhatsApp(pago?.whatsapp, `Hola! Quiero pagar ${product.name}`);
-    checkout = `\nCHECKOUT (DOS OPCIONES DE PAGO):
-- OPCION 1 - PAGO DIGITAL: boton "Pagar ahora" con este enlace: ${linkPago || "(sin enlace: usa WhatsApp)"}
-- OPCION 2 - TRANSFERENCIA: muestra estas cuentas EXACTAS (no las cambies):
-${cuentasTxt}
-- Boton "Ya transferi - avisar por WhatsApp" con este link: ${wa || "(sin numero de WhatsApp configurado)"}`;
+    const botones = [mp ? `"Pagar ahora" → ${mp}` : "", pp ? `"Pagar con PayPal" → ${pp}` : ""].filter(Boolean).join(" y ");
+    checkout = `\nCHECKOUT (PAGO POR LA APP — SIN datos sensibles en la pagina):
+- BOTON PRINCIPAL "Pagar ahora": ${botones || "sin enlace de pago configurado: usa WhatsApp"}
+- BOTON SECUNDARIO "Pagar por transferencia": abre este WhatsApp ${wa || "(sin numero configurado)"}. La cuenta se le pasa al cliente por PRIVADO en el chat, NUNCA en la pagina.
+- PROHIBIDO: escribir numeros de cuenta, nombres de titular, claves ni ningun dato bancario en la landing. El unico dato que se muestra es el precio.`;
   }
 
   let prompt = `PRODUCTO A ANALIZAR:
@@ -556,7 +566,6 @@ ${cuentasTxt}
 - Categoria: ${product.category || "N/A"}
 - Highlight: ${product.highlight || "N/A"}
 - Features: ${(product.features || []).join(", ") || "N/A"}
-- Link de pago: ${product.paymentLink || "N/A"}
 - Link de entrega: ${product.deliveryLink || "N/A"}
 
 IMAGENES DEL PRODUCTO (${fotos.length} disponibles - USALAS TODAS):
