@@ -21,6 +21,7 @@ import { db, landingPages, products } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { fotosDelProducto, videosDelProducto } from "../lib/fotos-de-producto";
 import { contextoLanding, recordarLanding } from "../lib/landing/memoria";
+import { tokensDe } from "../lib/landing/design-system";
 
 const router = Router();
 
@@ -533,7 +534,25 @@ function asegurarFormularioDropshipping(html: string): string {
   return html + form;
 }
 
-function buildUserPrompt(product: any, tipo: ProductType, existingHtml: string | null, instruction: string, paleta?: Paleta, pago?: DatosDePago, diseno?: Diseno): string {
+// ── Estilo visual (familia) ────────────────────────────────────────────────
+// Traduce los tokens de una familia del design system a una instrucción de
+// diseño concreta para OpenCode. Así el selector "estilo visual" deja de ser
+// decorativo: cambia de verdad la tipografía, los colores, el ritmo, la
+// alineación, el tratamiento de imagen y la forma del CTA de la landing.
+function instruccionDeFamilia(familia: string | null | undefined): string {
+  if (!familia) return "";
+  const t = tokensDe(familia);
+  return `\n\nESTILO VISUAL ELEGIDO (familia "${t.nombre}" — ${t.cuando}):
+- Tipografía: títulos en ${t.tipografia.display} (peso ${t.tipografia.pesoDisplay}, escala ${t.tipografia.escala}), cuerpo en ${t.tipografia.texto} con interlineado ${t.tipografia.interlineado}.
+- Paleta: fondo ${t.color.fondo}, superficies ${t.color.superficie}, texto ${t.color.texto}, texto suave ${t.color.textoSuave}, ACENTO (botones/destacados) ${t.color.acento}, borde ${t.color.borde}.
+- Ritmo: contenido de hasta ${t.ritmo.anchoContenido}, secciones con padding vertical ${t.ritmo.padSeccionY} y separación interna ${t.ritmo.separacion}.
+- Alineación general: ${t.alineacion}. Fondo: ${t.fondos}.
+- Imágenes: tratamiento "${t.imagen}". CTA: estilo "${t.cta}".
+- Bordes redondeados ${t.forma.radio}, sombra ${t.forma.sombra}.
+Respetá este estilo en TODA la página: es lo que el admin eligió explícitamente. No lo mezcles con otra paleta.`;
+}
+
+function buildUserPrompt(product: any, tipo: ProductType, existingHtml: string | null, instruction: string, paleta?: Paleta, pago?: DatosDePago, diseno?: Diseno, familia?: string | null): string {
   const fotos = fotosDelProducto(product);
   const videos = videosDelProducto(product);
   const imagenesTxt = fotos.length
@@ -585,7 +604,7 @@ Regla: el fondo y los acentos de la landing deben combinar con estos colores. Na
 ${diseno?.fondo ? `- Fondo elegido por el cliente: ${diseno.fondo}` : ""}
 ${diseno?.botones ? `- Estilo de botones elegido por el cliente: ${diseno.botones}` : ""}
 ${diseno?.color ? `- Color primario elegido por el cliente: ${diseno.color} (prioridad sobre la paleta)` : ""}
-${checkout}`;
+${checkout}${instruccionDeFamilia(familia)}`;
 
   if (existingHtml) {
     prompt += `\n\nMODO EDICIÓN — NO regeneres la página desde cero. Reglas de oro:\n1. Aplicá SOLO lo que pide el admin. Conservá TODO lo demás EXACTO: secciones, textos, imágenes, colores, tipografía y el formulario/checkout.\n2. NUNCA borres el FORMULARIO de pedido (dropshipping) ni ninguna sección que no te hayan pedido quitar.\n3. Si el pedido es ambiguo, hacé el cambio más pequeño posible.\n4. Devolvé el HTML completo con tu cambio aplicado, pero sin alterar lo que no se pidió.\n\nHTML ACTUAL DE LA LANDING:\n${existingHtml}`;
@@ -613,6 +632,7 @@ export async function generarLandingConOpenCode(opts: {
   instruction: string;
   existingHtml?: string | null;
   diseno?: Diseno;
+  familia?: string | null;
 }): Promise<{ html: string; tipo: ProductType; error?: string }> {
   const config = opencodeConfig();
   if (!config) return { html: "", tipo: "digital", error: "OpenCode no configurado" };
@@ -620,12 +640,13 @@ export async function generarLandingConOpenCode(opts: {
   const { product, instruction } = opts;
   const existingHtml = opts.existingHtml ?? null;
   const diseno = opts.diseno ?? {};
+  const familia = opts.familia ?? null;
   const tipo = detectarTipo(product);
   const paleta = await paletaDelProducto(product);
   const pago = await datosDePagoDelProducto(product);
   const memoria = await contextoLanding(product?.tenantId || 1, { productId: product?.id, tipo });
 
-  let userPrompt = buildUserPrompt(product, tipo, existingHtml, instruction, paleta, pago, diseno);
+  let userPrompt = buildUserPrompt(product, tipo, existingHtml, instruction, paleta, pago, diseno, familia);
   if (memoria) userPrompt += `\n\n${memoria}`;
 
   const result = await conCandado(async () => {
@@ -734,8 +755,8 @@ router.post("/design", async (req, res) => {
 // ── POST /api/landing-studio/chat ──────────────────────────────────────────
 router.post("/chat", async (req, res) => {
   try {
-    const { message, landingId, productId, diseno } = req.body as {
-      message?: string; landingId?: number; productId?: number; diseno?: Diseno;
+    const { message, landingId, productId, diseno, familia } = req.body as {
+      message?: string; landingId?: number; productId?: number; diseno?: Diseno; familia?: string | null;
     };
     if (!message?.trim()) return res.status(400).json({ message: "Falta el mensaje" });
 
@@ -771,10 +792,15 @@ router.post("/chat", async (req, res) => {
     // Diseño efectivo: el que manda el cliente ahora, o el guardado en la landing.
     const disenoGuardado = (existingLanding?.design && typeof existingLanding.design === "object") ? existingLanding.design : {};
     const disenoFinal: Diseno = { ...disenoGuardado, ...(diseno || {}) };
+    // Familia visual (estilo): la que manda el cliente ahora, o la guardada.
+    const familiaElegida = (familia ?? (disenoGuardado as any)?.familia ?? null) as string | null;
+    // El diseño que se persiste incluye la familia, para que el selector del
+    // panel la recuerde al recargar.
+    const designGuardado: any = { ...disenoFinal, ...(familiaElegida ? { familia: familiaElegida } : {}) };
 
     const memoria = await contextoLanding(product?.tenantId || existingLanding?.tenantId || 1, { productId: product?.id ?? productId, tipo });
     let userPrompt = product
-      ? buildUserPrompt(product, tipo, existingHtml, message, paleta, pago, disenoFinal)
+      ? buildUserPrompt(product, tipo, existingHtml, message, paleta, pago, disenoFinal, familiaElegida)
       : existingHtml
         ? `MODO EDICIÓN — NO regeneres la página. Aplicá SOLO lo que pide el admin y conservá TODO lo demás EXACTO (secciones, formulario, imágenes, colores). Nunca borres lo que no te pidieron tocar.\n\nHTML ACTUAL:\n${existingHtml}\n\nINSTRUCCION: ${message}`
         : `INSTRUCCION: ${message}`;
@@ -806,7 +832,7 @@ router.post("/chat", async (req, res) => {
     let savedLandingId = landingId;
     let slug = existingLanding?.slug || "";
     if (landingId && existingLanding) {
-      await db.update(landingPages).set({ html, design: disenoFinal, updatedAt: new Date() }).where(eq(landingPages.id, landingId));
+      await db.update(landingPages).set({ html, design: designGuardado, updatedAt: new Date() }).where(eq(landingPages.id, landingId));
       savedLandingId = landingId;
     } else {
       slug = (product?.name || "landing")
@@ -820,7 +846,7 @@ router.post("/chat", async (req, res) => {
         status: "draft",
         strategy: { tipo, detectedAt: new Date().toISOString() },
         sections: [],
-        design: disenoFinal,
+        design: designGuardado,
         source: productId ? { type: "product", productId } : {},
         html,
       }).returning({ id: landingPages.id });
@@ -850,7 +876,7 @@ router.post("/chat", async (req, res) => {
       summary: `Landing ${savedLandingId ? `[${savedLandingId}]` : ""} ${product?.name || ""} (${tipo}).`,
     });
 
-    return res.json({ html, landingId: savedLandingId, elapsed: `${elapsed}s`, tipo, design: disenoFinal });
+    return res.json({ html, landingId: savedLandingId, elapsed: `${elapsed}s`, tipo, design: designGuardado });
   } catch (e: any) {
     logger.error({ err: e?.message }, "[LandingStudio] error general");
     return res.status(500).json({ message: e?.message || "Error interno" });

@@ -216,7 +216,7 @@ export default function LandingStudioV2() {
       const r = await fetch("/api/landing-studio/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, landingId: esNueva ? undefined : landingId, productId: pid, diseno }),
+        body: JSON.stringify({ message: text, landingId: esNueva ? undefined : landingId, productId: pid, diseno, familia }),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -246,7 +246,7 @@ export default function LandingStudioV2() {
       setBusy(false);
       inputRef.current?.focus();
     }
-  }, [input, busy, productId, landingId, diseno]);
+  }, [input, busy, productId, landingId, diseno, familia]);
 
   const exportar = useCallback(async () => {
     if (!previewHtml) { toast.info("Primero genera una landing."); return; }

@@ -4203,7 +4203,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     description:
       "Genera y GUARDA una landing page PROFESIONAL con OpenCode, el generador premium de VentasPro. Un agente de IA especializado (dropshipping, digital, servicio, físico) escribe el HTML completo: diseño premium, copy de respuesta directa y el checkout correcto (formulario contra entrega en dropshipping; pago MercadoPago/PayPal o WhatsApp en el resto). " +
       "USALA SIEMPRE que el admin pida una landing, página de venta o 'que se vea profesional'. Queda en BORRADOR: para la URL pública, landing_publicar. ⚠️ Va por propose_action.",
-    args: '{ "productId": number (req), "instruccion"?: string (opcional, ej. "enfatizá el envío gratis y el pago al recibir") }',
+    args: '{ "productId": number (req), "instruccion"?: string (opcional), "familia"?: string (estilo visual: premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch) }',
     run: async (args, ctx) => {
       const id = num(args?.productId);
       if (!id) return { ok: false, summary: "Falta 'productId'." };
@@ -4212,7 +4212,8 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
 
       const { generarLandingConOpenCode } = await import("../routes/landing-studio-opencode");
       const instruccion = String(args?.instruccion || args?.instruction || "Genera una landing page profesional y de alta conversión para este producto.");
-      const r = await generarLandingConOpenCode({ product: prod, instruction: instruccion });
+      const familia = String(args?.familia || "").trim() || null;
+      const r = await generarLandingConOpenCode({ product: prod, instruction: instruccion, familia });
       if (r.error || !r.html) return { ok: false, summary: `No se pudo generar la landing: ${r.error || "respuesta vacía"}` };
 
       const { landingPages } = await import("@workspace/db");
@@ -4222,7 +4223,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
         status: "draft",
         strategy: { tipo: r.tipo, detectedAt: new Date().toISOString() },
         sections: [],
-        design: {},
+        design: familia ? { familia } : {},
         source: { type: "product", productId: prod.id },
         html: r.html,
       } as any).returning();
