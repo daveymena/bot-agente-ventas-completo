@@ -1,0 +1,42 @@
+# VentasPro — Software propietario
+
+© 2026 Davey Mena. Todos los derechos reservados.
+
+## Licencia de uso (reservada — no es software libre)
+
+Este software, incluido (y sin limitarse a) el código fuente, los binarios,
+la documentación, los diseños, los prompts de los agentes de IA, las plantillas
+de landing pages, los flujos de venta y cualquier material derivado, es
+propiedad exclusiva del titular del copyright.
+
+**NO está permitido**, sin autorización escrita previa y expresa del titular:
+
+1. Reproducir, copiar, modificar, adaptar, traducir o crear obras derivadas
+   del software, en todo o en parte.
+2. Distribuir, vender, sublicenciar, arrendar o transferir el software o
+   cualquier parte del mismo a terceros.
+3. Usar el software para prestar un servicio a terceros (incluido un SaaS
+   competidor o una "revenda") fuera de los términos acordados por escrito.
+4. Realizar ingeniería inversa, descompilar o desensamblar el software,
+   salvo en los casos expresamente permitidos por la ley aplicable.
+5. Eliminar o alterar los avisos de copyright, marcas o identificaciones de
+   propiedad que aparezcan en el software o la documentación.
+
+## Sin garantía
+
+El software se proporciona "TAL CUAL", sin garantías de ningún tipo, expresas
+o implícitas. El titular no será responsable por daños directos, indirectos,
+incidentales o consecuentes derivados del uso o la imposibilidad de uso del
+software.
+
+## Protección de propiedad intelectual
+
+Este software está protegido por las leyes de derechos de autor y tratados
+internacionales. La marca y el nombre comercial se protegen conforme a las
+leyes de propiedad industrial. Véase `REGISTRO_PROPIEDAD_INTELECTUAL.md` para
+los pasos de registro (copyright y marca).
+
+---
+
+*El acceso al código fuente de este repositorio no otorga ninguna licencia de
+uso. Ver el archivo LICENSE para los términos completos.*
