@@ -239,7 +239,7 @@ export default function WhatsAppConnection() {
               <div className="w-full flex flex-col items-center">
                 <div className="bg-white p-5 rounded-3xl shadow-[0_0_40px_rgba(var(--primary),0.15)] border border-primary/10 mb-8 transition-transform hover:scale-105 duration-500">
                   {qrCode ? (
-                    <img src={qrCode} alt="WhatsApp QR Code" className="w-64 h-64" />
+                    <img src={qrCode} alt="WhatsApp QR Code" className="w-64 h-64 max-w-full h-auto" />
                   ) : (
                     <Skeleton className="w-64 h-64 rounded-xl" />
                   )}
@@ -373,10 +373,10 @@ export default function WhatsAppConnection() {
   return (
     <Layout>
       <div className="flex flex-col gap-6 animate-enter">
-        <div className="flex items-start justify-between">
-          <div>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
             <div className="flex items-start gap-1.5">
-              <h1 className="text-3xl font-bold tracking-tight">Conexión de WhatsApp</h1>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight break-words min-w-0">Conexión de WhatsApp</h1>
               <HelpTourButton guide={HELP_GUIDE} />
             </div>
             <p className="text-muted-foreground mt-1">

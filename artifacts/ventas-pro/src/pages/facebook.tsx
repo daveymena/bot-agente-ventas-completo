@@ -626,9 +626,9 @@ export default function FacebookAdsPage() {
     <Layout>
       <div className="space-y-6 p-6">
         <div className="flex items-center justify-between">
-          <div>
+          <div className="min-w-0">
             <div className="flex items-start gap-1.5">
-              <h1 className="text-3xl font-bold tracking-tight">Facebook Multi-Canal</h1>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight break-words min-w-0">Facebook Multi-Canal</h1>
               <HelpTourButton guide={HELP_GUIDE} />
             </div>
             <p className="text-muted-foreground">Conecta todos los canales de Facebook: Ads, Messenger y Comentarios</p>
