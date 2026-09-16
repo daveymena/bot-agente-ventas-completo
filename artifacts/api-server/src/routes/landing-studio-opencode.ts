@@ -150,36 +150,36 @@ function detectarTipo(product: any): ProductType {
 }
 
 // ── AGENTE: DROPSHIPPING ──────────────────────────────────────────────────
-const DROPSHIPPING_SYSTEM = `Eres un experto en landing pages de DROPSHIPPING y productos fisicos que se envian. Generas paginas de venta CORATAS que convierten visitantes en compradores.
+const DROPSHIPPING_SYSTEM = `Eres un experto en landing pages de DROPSHIPPING y productos fisicos que se envian. Generas paginas de venta CORTAS que convierten, con la información ANTES de pedir los datos.
 
-ESTRUCTURA (solo estas 6 secciones, en este orden):
-1. HERO — Titulo corto que ataca el DOLOR/deseo + subtitulo con la PROMESA + boton CTA + imagen principal.
-2. PROBLEMA→SOLUCION — 2 frases del problema, 2 frases de como el producto lo resuelve.
-3. BENEFICIOS — maximo 4, una linea cada uno (icono + 3-6 palabras).
-4. OFERTA — precio, descuento, urgencia (envio gratis / paga al recibir). Corto.
-5. FORMULARIO COMPLETO — SIEMPRE, sin excepcion. El cliente completa su pedido ahi mismo.
-6. FAQ — maximo 3 preguntas cortas.
+ESTRUCTURA (AIDA — en este orden EXACTO, la información SIEMPRE antes de pedir el pedido):
+1. HERO — Titulo corto que nombra el DOLOR/deseo (no el producto) + subtitulo con la PROMESA + imagen principal. El boton NO lleva directo al formulario: baja suavemente a los beneficios.
+2. PROBLEMA — 2 frases del dolor real que resuelve. Sin nombrar el producto todavia.
+3. SOLUCION — el producto como la respuesta natural al dolor. Una o dos frases.
+4. BENEFICIOS — maximo 4, una linea cada uno (icono + 3-6 palabras).
+5. OFERTA — precio, y que paga al recibir. Corto, sin urgencia inventada.
+6. FORMULARIO COMPLETO — ULTIMO. El cliente ya vio qué es, para qué sirve y cuánto cuesta ANTES de dar sus datos. Es la sección final, nunca antes.
+7. FAQ — maximo 3 preguntas cortas.
 
-REGLAS PARA DROPSHIPPING:
-- Menciona ENVIO en una linea. Si es contraentrega: "Paga al recibir".
-- NO inventes testimonios largos. Usa "Garantia de devolucion" o "Envio gratis" como frase corta.
-- Copy en segunda persona, frases cortas, sin adjetivos vacios.
-- EL FORMULARIO COMPLETO ES OBLIGATORIO. Campos exactos en este orden:
-  * Nombre completo
-  * Telefono / celular
-  * Documento (cedula / DNI / identificacion)
-  * Direccion de entrega
+TONO (importante): informa, no vendas. El cliente no tiene que sentir que le están vendiendo: describí el dolor y cómo el producto lo resuelve, con naturalidad. Nada de "oferta por tiempo limitado" inventada, ni presión, ni urgencia falsa. Menciona ENVIO en una linea: si es contraentrega, "Paga al recibir".
+
+REGLAS DEL FORMULARIO (OBLIGATORIO, sin excepcion):
+- Campos exactos en este orden:
+  * Nombre completo (input texto)
+  * Telefono / celular (input tel)
+  * Documento / cedula (input)
+  * Direccion de entrega (input)
   * Barrio (opcional)
-  * Ciudad
-  * Departamento / estado
-  * Un campo libre de "notas/referencias" (opcional)
-- El formulario usa method="POST" y action="__FORM_ACTION__" (lo reemplaza el sistema). El boton de enviar dice "Pedir ahora" o "Completar pedido".
-- El formulario va con un titulo tipo "Completa tus datos y recibe el pedido en tu casa".
+  * DEPARTAMENTO: usa <select> desplegable con los 32 departamentos de Colombia, NO campo de texto libre.
+  * CIUDAD: usa <select> desplegable que se llena segun el departamento elegido, NO campo de texto libre.
+  * Campo libre de "notas/referencias" (opcional)
+- El formulario usa method="POST" action="__FORM_ACTION__". Boton "Pedir ahora y pagar al recibir".
+- Titulo del formulario: "Completa tus datos y recibe el pedido en tu casa".
 
 FORMATO DE SALIDA:
 SOLO el HTML completo. Empieza con <!DOCTYPE html>. Sin markdown, sin explicaciones, sin \`\`\`html.
 Google Fonts via <link> (Inter para texto, Playfair para titulos).
-El HTML debe ser AUTONOMO y funcionar solo.`;
+El HTML debe ser AUTONOMO y funcionar solo (incluido el <script> que llena las ciudades segun el departamento).`;
 
 // ── AGENTE: FISICO (no dropshipping) ──────────────────────────────────────
 const FISICO_SYSTEM = `Eres un experto en landing pages de PRODUCTOS FISICOS que se pagan por adelantado (NO dropshipping: no se pide direccion de envio en el formulario). Generas paginas CORATAS de venta.
@@ -508,10 +508,10 @@ function asegurarFormularioDropshipping(html: string): string {
         <label><span>Nombre completo *</span><input name="nombre" autocomplete="name" required></label>
         <label><span>Celular *</span><input name="telefono" inputmode="tel" autocomplete="tel" required></label>
         <label><span>Documento *</span><input name="documento" inputmode="numeric" required></label>
-        <label><span>Ciudad *</span><input name="ciudad" autocomplete="address-level2" required></label>
+        <label><span>Departamento *</span><select name="departamento" id="ds-departamento" required></select></label>
+        <label><span>Ciudad *</span><select name="ciudad" id="ds-ciudad" required><option value="">Elige un departamento primero</option></select></label>
         <label class="pedido-ds__full"><span>Dirección de entrega *</span><input name="direccion" autocomplete="street-address" required></label>
         <label><span>Barrio</span><input name="barrio"></label>
-        <label><span>Departamento *</span><input name="departamento" autocomplete="address-level1" required></label>
         <label class="pedido-ds__full"><span>Referencia / notas</span><input name="referencia"></label>
       </div>
       <button type="submit" class="pedido-ds__btn">Pedir ahora y pagar al recibir</button>
@@ -529,14 +529,61 @@ function asegurarFormularioDropshipping(html: string): string {
 .pedido-ds__grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 .pedido-ds__grid label{display:flex;flex-direction:column;gap:6px}
 .pedido-ds__grid label span{font-size:.8rem;font-weight:600;color:#334155}
-.pedido-ds__grid input{padding:12px 14px;border:1px solid #cbd5e1;border-radius:10px;font-size:1rem;width:100%;box-sizing:border-box}
-.pedido-ds__grid input:focus{outline:none;border-color:var(--ds-accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--ds-accent) 20%,transparent)}
+.pedido-ds__grid input,.pedido-ds__grid select{padding:12px 14px;border:1px solid #cbd5e1;border-radius:10px;font-size:1rem;width:100%;box-sizing:border-box;background:#fff}
+.pedido-ds__grid input:focus,.pedido-ds__grid select:focus{outline:none;border-color:var(--ds-accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--ds-accent) 20%,transparent)}
 .pedido-ds__full{grid-column:1 / -1}
 .pedido-ds__btn{width:100%;margin-top:20px;padding:16px;background:var(--ds-accent);color:#fff;border:none;border-radius:12px;font-size:1rem;font-weight:700;cursor:pointer}
 .pedido-ds__btn:hover{filter:brightness(1.05)}
 .pedido-ds__note{text-align:center;color:#64748b;font-size:.8rem;margin:14px 0 0}
 @media(max-width:600px){.pedido-ds__grid{grid-template-columns:1fr}}
-</style>`;
+</style>
+<script>
+(function(){
+  var DEPARTAMENTOS = {
+    "Amazonas":["Leticia","Puerto Nariño"],
+    "Antioquia":["Medellín","Bello","Envigado","Itagüí","Rionegro","Apartadó","Sabaneta","Caucasia"],
+    "Arauca":["Arauca","Saravena","Tame"],
+    "Atlántico":["Barranquilla","Soledad","Malambo","Baranoa","Sabanalarga"],
+    "Bogotá D.C.":["Bogotá"],
+    "Bolívar":["Cartagena","Magangué","Turbaco","El Carmen de Bolívar"],
+    "Boyacá":["Tunja","Duitama","Sogamoso","Chiquinquirá","Paipa"],
+    "Caldas":["Manizales","La Dorada","Chinchiná","Villamaría"],
+    "Caquetá":["Florencia","San Vicente del Caguán"],
+    "Casanare":["Yopal","Aguazul","Villanueva"],
+    "Cauca":["Popayán","Santander de Quilichao","Puerto Tejada"],
+    "Cesar":["Valledupar","Aguachica","Codazzi"],
+    "Chocó":["Quibdó","Istmina","Bahía Solano"],
+    "Córdoba":["Montería","Cereté","Lorica","Sahagún"],
+    "Cundinamarca":["Soacha","Chía","Zipaquirá","Facatativá","Girardot","Mosquera","Cajicá","Fusagasugá"],
+    "Guainía":["Inírida"],
+    "Guaviare":["San José del Guaviare"],
+    "Huila":["Neiva","Pitalito","Garzón","La Plata"],
+    "La Guajira":["Riohacha","Maicao","Uribia"],
+    "Magdalena":["Santa Marta","Ciénaga","Fundación","El Banco"],
+    "Meta":["Villavicencio","Acacías","Granada","Puerto López"],
+    "Nariño":["Pasto","Ipiales","Tumaco","Túquerres"],
+    "Norte de Santander":["Cúcuta","Ocaña","Pamplona","Villa del Rosario"],
+    "Putumayo":["Mocoa","Puerto Asís","Orito"],
+    "Quindío":["Armenia","Calarcá","Montenegro","La Tebaida"],
+    "Risaralda":["Pereira","Dosquebradas","Santa Rosa de Cabal","La Virginia"],
+    "San Andrés y Providencia":["San Andrés","Providencia"],
+    "Santander":["Bucaramanga","Floridablanca","Girón","Piedecuesta","Barrancabermeja","San Gil"],
+    "Sucre":["Sincelejo","Corozal","Tolú","San Marcos"],
+    "Tolima":["Ibagué","Espinal","Melgar","Honda"],
+    "Valle del Cauca":["Cali","Palmira","Buenaventura","Tuluá","Cartago","Buga","Yumbo","Jamundí"],
+    "Vaupés":["Mitú"],
+    "Vichada":["Puerto Carreño"]
+  };
+  var dpto = document.getElementById("ds-departamento");
+  var ciudad = document.getElementById("ds-ciudad");
+  if (!dpto || !ciudad) return;
+  dpto.innerHTML = '<option value="">Elige tu departamento</option>' + Object.keys(DEPARTAMENTOS).map(function(d){ return '<option value="'+d+'">'+d+'</option>'; }).join("");
+  dpto.addEventListener("change", function(){
+    var ciudades = DEPARTAMENTOS[dpto.value] || [];
+    ciudad.innerHTML = '<option value="">Elige tu ciudad</option>' + ciudades.map(function(c){ return '<option value="'+c+'">'+c+'</option>'; }).join("");
+  });
+})();
+</script>`;
 
   if (html.includes("</body>")) return html.replace("</body>", `${form}</body>`);
   return html + form;
