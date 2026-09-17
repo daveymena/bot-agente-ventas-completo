@@ -417,7 +417,7 @@ class OptimizedProviderRotation {
   /**
    * Verifica si un proveedor está en cooldown
    */
-  private isInCooldown(provider: string): boolean {
+  isInCooldown(provider: string): boolean {
     if (!this.blacklist.has(provider)) return false;
 
     const status = this.providers.get(provider);

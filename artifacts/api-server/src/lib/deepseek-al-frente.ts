@@ -37,6 +37,8 @@ export interface EstadoDeDeepSeek {
   hayClave: boolean;
   /** ¿El monitor de salud lo da por sano? Un proveedor apartado no encabeza nada. */
   sano: boolean;
+  /** ¿El rotador lo tiene en cooldown? (sin_credito = 6h, cuota_agotada = 1h) */
+  enCooldown: boolean;
   /** Lo que el admin eligió en Configuración ("none" si no eligió). */
   proveedorElegido: string;
 }
@@ -51,6 +53,7 @@ export interface EstadoDeDeepSeek {
 export function deepseekVaPrimero(estado: EstadoDeDeepSeek): boolean {
   if (!estado.hayClave) return false;
   if (!estado.sano) return false;
+  if (estado.enCooldown) return false;
   if (estado.proveedorElegido === "deepseek") return false;
   return true;
 }

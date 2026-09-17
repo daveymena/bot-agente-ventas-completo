@@ -9,7 +9,7 @@
 import { describe, it, expect } from "vitest";
 import { deepseekVaPrimero } from "../deepseek-al-frente";
 
-const base = { hayClave: true, sano: true, proveedorElegido: "none" };
+const base = { hayClave: true, sano: true, enCooldown: false, proveedorElegido: "none" };
 
 describe("DeepSeek al frente de la cola", () => {
   it("va primero cuando no hay nada elegido", () => {
@@ -42,9 +42,15 @@ describe("DeepSeek al frente de la cola", () => {
   });
 
   /** Un proveedor apartado por el monitor de salud no encabeza: si se acaba de
-   *  quedar sin saldo, ponerlo primero es gastar el turno en el mismo 402. */
+   *  quitar sin saldo, ponerlo primero es gastar el turno en el mismo 402. */
   it("apartado por salud, no encabeza", () => {
     expect(deepseekVaPrimero({ ...base, sano: false })).toBe(false);
+  });
+
+  /** DeepSeek en cooldown del rotador (sin_credito = 6h) no encabeza:
+   *  cada modelo cuesta 12s, y el turno entero se pierde. */
+  it("en cooldown del rotador, no encabeza", () => {
+    expect(deepseekVaPrimero({ ...base, enCooldown: true })).toBe(false);
   });
 
   it("sin clave manda sobre todo lo demás", () => {

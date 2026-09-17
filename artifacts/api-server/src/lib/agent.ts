@@ -136,6 +136,7 @@ import {
   reportProviderResult,
   getProviderTimeout,
   resetProviderRotation,
+  optimizedRotation,
 } from "./optimized-rotation";
 import { deepseekVaPrimero } from "./deepseek-al-frente";
 import { getG4FResponse, initializeG4F } from "./providers/g4f-provider";
@@ -2816,6 +2817,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         if (!deepseekVaPrimero({
           hayClave: !!process.env.DEEPSEEK_API_KEY,
           sano: healthMonitor.isServiceHealthy("deepseek"),
+          enCooldown: optimizedRotation.isInCooldown("deepseek"),
           proveedorElegido: activeProvider,
         })) return [];
         return getProviderRotation("deepseek").map((config) => ({
@@ -2855,6 +2857,14 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         const cuentasCopilot = cuentasCopilotDelCliente;
         const conModelos = (proveedor: string, salud: string) => {
           if (activeProvider === proveedor || !healthMonitor.isServiceHealthy(salud)) return [];
+          // ── No encolar proveedores en cooldown ─────────────────────────────
+          // `healthMonitor` y `optimizedRotation` son sistemas distintos: el
+          // primero se alimenta de la cola de mensajes, el segundo de cada
+          // llamada a la API. Un DeepSeek sin crédito se castiga en el rotador
+          // (6h) pero `healthMonitor` no lo sabe porque usa "AI_OP_CONV_X" como
+          // service name, no "deepseek". Sin esto, `conModelos` lo encola y el
+          // bucle lo intenta para fallar igual — 12s de penalidad por modelo.
+          if (optimizedRotation.isInCooldown(proveedor)) return [];
           return getProviderRotation(proveedor).map((config) => ({
             config,
             source: `${proveedor}/${config.model}`,
@@ -2941,6 +2951,19 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         let posicion = 0;
         for (const { config, source } of queue) {
           posicion++;
+          // ── Saltear proveedores en cooldown ────────────────────────────────
+          //
+          // Sin esto, un DeepSeek sin crédito (402) se skipea con `skipProvider`
+          // pero el bucle lo vuelve a intentar en el mismo turno: `available`
+          // nunca se pone en false, y la cola ya lo tiene listado. Cada
+          // reintento quita 12s del turno del cliente para fallar igual.
+          //
+          // `reportFailure` ya registra el castigo; acá solo se lee.
+          const providerName = source.split("/")[0];
+          if (optimizedRotation.isInCooldown && optimizedRotation.isInCooldown(providerName)) {
+            console.log(`⏭️ [AI] ${source} en cooldown — se salta - ${ts()}`);
+            continue;
+          }
           // G4F: manejo especial (no usa OpenAI client)
           if (source === "g4f") {
             if (!G4F_ENABLED) continue;

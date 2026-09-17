@@ -677,7 +677,7 @@ export default function FacebookAdsPage() {
             </div>
 
             {tab === "config" && (
-              <div className="grid gap-6">
+              <div className="grid grid-cols-1 gap-6">
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2"><Globe className="h-5 w-5" /> Conectar con Facebook</CardTitle>
@@ -796,7 +796,7 @@ export default function FacebookAdsPage() {
             )}
 
             {tab === "ads" && connected && (
-              <div className="grid gap-6">
+              <div className="grid grid-cols-1 gap-6">
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2"><Package className="h-5 w-5" /> Productos</CardTitle>
@@ -876,7 +876,7 @@ export default function FacebookAdsPage() {
             )}
 
             {tab === "drafts" && (
-              <div className="grid gap-6">
+              <div className="grid grid-cols-1 gap-6">
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2"><FileText className="h-5 w-5" /> Borradores de Anuncios (Megapacks)</CardTitle>
