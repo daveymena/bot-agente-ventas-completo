@@ -690,8 +690,19 @@ export default function AuthPage() {
                         onChange={(e) => setForgotPasswordData({ ...forgotPasswordData, newPassword: e.target.value })}
                       />
                     </div>
-                  </div>
-                  <div className="space-y-2">
+</div>
+                        {/* Botón Google en registro */}
+                        <div className="mt-4">
+                          <button
+                            onClick={handleGoogleLogin}
+                            className="w-full py-2 px-4 rounded-md border bg-white text-sm font-medium text-gray-900 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                            type="button"
+                          >
+                            <GoogleG className="h-4 w-4 mr-2" />
+                            Continuar con Google
+                          </button>
+                        </div>
+                     <div className="space-y-2">
                     <Label htmlFor="confirm-password">Confirmar Contraseña</Label>
                     <div className="relative">
                       <Lock className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
