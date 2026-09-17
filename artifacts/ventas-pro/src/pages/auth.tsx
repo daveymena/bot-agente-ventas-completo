@@ -914,12 +914,19 @@ export default function AuthPage() {
                          {registerData.email && emailCheckStatus === "taken" && (
                            <AlertCircle className="absolute right-3.5 top-1/2 -translate-y-1/2 h-[18px] w-[18px] text-red-500" />
                          )}
-                       </div>
-                       {emailCheckStatus === "taken" && (
-                         <p className="text-xs text-red-500 flex items-center gap-1.5"><AlertCircle className="h-3.5 w-3.5" /> Este email ya está registrado</p>
-                       )}
-                     </div>
-                    <div className="space-y-2">
+</div>
+                        {/* Botón Google en registro */}
+                        <div className="mt-4">
+                          <button
+                            onClick={handleGoogleLogin}
+                            className="w-full py-2 px-4 rounded-md border bg-white text-sm font-medium text-gray-900 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+                            type="button"
+                          >
+                            <GoogleG className="h-4 w-4 mr-2" />
+                            Continuar con Google
+                          </button>
+                        </div>
+                     <div className="space-y-2">
                        <Label htmlFor="reg-slug" className="text-[13px] font-medium">Slug (URL personalizada) <span className="text-xs font-normal text-muted-foreground">(opcional)</span></Label>
                        {/* Prefijo y campo pegados dentro de un solo marco, en vez
                            de dos cajas separadas con distinta altura y un hueco
