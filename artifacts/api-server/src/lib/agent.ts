@@ -2980,13 +2980,12 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             continue;
           }
 
-          // El nombre con el que se reporta salud al rotador. Se corta en "/"
-          // (opencode/mimo-v2.5-free → opencode) pero NO en "_": recortar ahí
-          // convertía "opencode_go" y "opencode_zen" en "opencode", así que
-          // un fallo del gratuito ponía en cooldown al de pago y viceversa --
-          // justo los dos que existen para cubrirse entre sí.
-          const providerName = source.split("/")[0];
-          const timeout = getProviderTimeout(providerName);
+           // El nombre con el que se reporta salud al rotador. Se corta en "/"
+           // (opencode/mimo-v2.5-free → opencode) pero NO en "_": recortar ahí
+           // convertía "opencode_go" y "opencode_zen" en "opencode", así que
+           // un fallo del gratuito ponía en cooldown al de pago y viceversa --
+           // justo los dos que existen para cubrirse entre sí.
+           const timeout = getProviderTimeout(providerName);
           const startTime = Date.now();
           try {
             console.log(`🎯 [AI] Intentando proveedor: ${source} (timeout: ${timeout}ms) - ${ts()}`);
