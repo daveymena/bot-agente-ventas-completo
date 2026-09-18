@@ -684,6 +684,51 @@ app.use("/api", resolveTenantMiddleware);
 app.use("/api", validateSaasMiddleware);
 app.use("/api", validateLimitsMiddleware);
 
+// ── Reseteo de pruebas y backups de emergencia ─────────────────────────────
+// Protegido por sesión (resolveTenantMiddleware ya resolvió req.tenant). Borra
+// SOLO los datos de prueba del tenant logueado: conversaciones, leads, pagos,
+// memoria de Atlas, anuncios y tareas de marketing. Conserva productos,
+// agentes, tienda, sesión de WhatsApp y suscripción. Hace backup antes de
+// borrar, así que es reversible.
+app.post("/api/admin/reset-pruebas", async (req, res, next) => {
+  try {
+    const tenantId = Number((req as any).tenant?.id);
+    if (!Number.isInteger(tenantId) || tenantId <= 0) return res.status(401).json({ error: "No autenticado" });
+    const { resetearPruebas } = await import("./lib/reset-pruebas");
+    const resultado = await resetearPruebas(tenantId);
+    if (!resultado.ok) return res.status(500).json({ error: resultado.error || "No se pudo resetear" });
+    return res.json({ ok: true, backup: resultado.backup, borrados: resultado.borrados });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+app.get("/api/admin/backups", async (req, res, next) => {
+  try {
+    const tenantId = Number((req as any).tenant?.id);
+    if (!Number.isInteger(tenantId) || tenantId <= 0) return res.status(401).json({ error: "No autenticado" });
+    const { listarBackups } = await import("./lib/reset-pruebas");
+    return res.json({ ok: true, backups: listarBackups() });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+app.post("/api/admin/restaurar", async (req, res, next) => {
+  try {
+    const tenantId = Number((req as any).tenant?.id);
+    if (!Number.isInteger(tenantId) || tenantId <= 0) return res.status(401).json({ error: "No autenticado" });
+    const { restaurarDesdeBackup } = await import("./lib/reset-pruebas");
+    const ruta = String((req.body as any)?.ruta || "");
+    if (!ruta) return res.status(400).json({ error: "Falta 'ruta' del backup a restaurar" });
+    const resultado = await restaurarDesdeBackup(ruta);
+    if (!resultado.ok) return res.status(500).json({ error: resultado.error || "No se pudo restaurar" });
+    return res.json({ ok: true, reinicioRequerido: resultado.reinicioRequerido });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 // Upload de imagen para un producto. Esta ruta debe quedar detrás de tenant
 // auth y ownership: antes era pública, aceptaba SSRF y podía cambiar la imagen
 // de un producto de otro negocio si se conocía su id.
