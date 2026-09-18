@@ -6173,7 +6173,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       "estilo de venta, o si negocia precios. MANDÁ solo los campos que querés cambiar; lo que no mandes NO se toca. " +
       "⚠️ Va por propose_action: cambia cómo el bot le habla a TODOS los clientes. " +
       "Mostrá primero el estado con agente_inspectar ANTES de proponer un cambio, para que el admin vea qué tiene y qué cambia.",
-    args: '{ "agentName"?: string, "brandName"?: string, "agentPersonality"?: "professional"|"casual"|"enthusiastic"|"consultative", "prompt"?: string, "tono"?: string, "negociaPrecio"?: boolean, "estiloDeVenta"?: { "calificacion"?: "siempre"|"salvo_si_pidio_dato"|"nunca", "ganchoVideo"?: boolean, "anteLaDuda"?: "dar_espacio"|"algo_concreto"|"preguntar_que_frena" } }',
+    args: '{ "agentName"?: string, "brandName"?: string, "agentPersonality"?: "professional"|"casual"|"enthusiastic"|"consultative", "prompt"?: string, "promptLibre"?: string, "tono"?: string, "negociaPrecio"?: boolean, "estiloDeVenta"?: { "calificacion"?: "siempre"|"salvo_si_pidio_dato"|"nunca", "ganchoVideo"?: boolean, "anteLaDuda"?: "dar_espacio"|"algo_concreto"|"preguntar_que_frena" } }',
     run: async (args, ctx) => {
       const [t] = await db.select().from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
       if (!t) return { ok: false, summary: "No se encontró el negocio." };
@@ -6189,6 +6189,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
         patch.agentPersonality = args.agentPersonality;
       }
       if (args.prompt !== undefined) patch.agentPrompt = String(args.prompt);
+      if (args.promptLibre !== undefined && args.prompt === undefined) patch.agentPrompt = String(args.promptLibre);
 
       // Estilo de venta: se mezcla con el existente
       if (args.estiloDeVenta !== undefined || args.negociaPrecio !== undefined || args.tono !== undefined) {
