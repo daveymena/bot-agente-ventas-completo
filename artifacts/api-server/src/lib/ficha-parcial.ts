@@ -486,8 +486,11 @@ export function elCierreOfrece(
   tieneVideo = true,
   yaVioContenido = false,
   yaSabeElPrecio = false,
-): "video" | "contenido" | "precio" | "otro" {
+): "video" | "contenido" | "precio" | "pago" | "otro" {
   const t = invitacionesDe(s, esFisico, tieneVideo, yaVioContenido, yaSabeElPrecio).join(" ").toLowerCase();
+  // La oferta de pago va primero: "¿te envío los medios de pago?" nombra el
+  // pago, y agent.ts la lee como `ofrecioAntes === "pago"`.
+  if (/medios de pago|datos de pago|lo pedimos|arrancamos/.test(t)) return "pago";
   if (/video|c[oó]mo es por dentro|c[oó]mo se ve en uso|pedacito/.test(t)) return "video";
   if (/qu[eé] trae|qu[eé] incluye|qu[eé] viene|todo lo que trae/.test(t)) return "contenido";
   // El cierre de una ficha SIN video ofrece el precio ("¿Te paso el precio?").
@@ -495,7 +498,7 @@ export function elCierreOfrece(
   // `intent: confirmation` -> checkout completo. Medido en produccion el
   // 2026-09-01: el cierre pregunto el precio y salieron los tres medios de
   // pago. Al que pregunta cuanto vale se le dice cuanto vale.
-  if (/precio|cu[aá]nto est[aá]|cu[aá]nto sale|cu[aá]nto vale|c[oó]mo (te llega|se paga)/.test(t)) return "precio";
+  if (/precio|costo|cu[aá]nto est[aá]|cu[aá]nto sale|cu[aá]nto vale|c[oó]mo (te llega|se paga)/.test(t)) return "precio";
   return "otro";
 }
 
@@ -576,7 +579,7 @@ export function invitacionesDe(
   if (!tieneVideo && (s === "info" || s === "completa")) {
     return esFisico
       ? ["¿Quieres saber cuánto está y cómo te llega? 💰", "¿Te cuento cuánto vale y cómo se paga? 💰"]
-      : ["¿Quieres saber cuánto está? 💰", "¿Te cuento cuánto vale? 💰"];
+      : ["¿Te gustaría conocer el precio para iniciar hoy mismo? ⚡", "¿Quieres saber cuánto está? 💰"];
   }
 
   switch (s) {
@@ -587,7 +590,12 @@ export function invitacionesDe(
             ? (esFisico
                 ? ["¿Te muestro cómo se ve en uso? 🎬", "¿Querés verlo en video antes de decidir? 🎬"]
                 : ["¿Te muestro cómo es por dentro? 🎬", "¿Querés ver un pedacito antes de decidir? 🎬"])
-            : ["¿Te resuelvo alguna duda antes de decidir?", "¿Hay algo puntual que quieras saber?"])
+            // Ya vio qué trae y preguntó el precio: eso es señal de compra. El
+            // agente de Meta (16-09) sigue con "¿te envío los medios de pago?"
+            // en vez de abrir otra duda, y el dueño quiere eso.
+            : (esFisico
+                ? ["¿Te resuelvo alguna duda antes de decidir?", "¿Hay algo puntual que quieras saber?"]
+                : ["¿Te envío los medios de pago para iniciar? ⚡", "¿Te paso los datos de pago? 💳"]))
         : (esFisico
             ? ["¿Te cuento cómo te llega y cómo se paga? 📦", "¿Lo pedimos? Solo necesito tus datos de envío 📦"]
             : [
@@ -608,7 +616,7 @@ export function invitacionesDe(
     case "entrega":
       return esFisico
         ? ["¿Lo pedimos? 📦", "¿Te ayudo con el pedido?"]
-        : ["¿Arrancamos? 🚀", "¿Te dejo listo el acceso?"];
+        : ["¿Te paso los datos de pago? 💳", "¿Te envío los medios de pago para iniciar? ⚡"];
 
     case "pago_transferencia":
     case "pago_link":
@@ -631,7 +639,7 @@ export function invitacionesDe(
       // físico, a cómo llega y se paga).
       return esFisico
         ? ["¿Quieres saber cuánto está y cómo te llega? 💰", "¿Te cuento cuánto vale y cómo se paga? 💰"]
-        : ["¿Quieres saber cuánto está? 💰", "¿Te cuento cuánto vale? 💰"];
+        : ["¿Te gustaría conocer el precio para iniciar hoy mismo? ⚡", "¿Quieres saber cuánto está? 💰"];
   }
 
   // Una sección nueva que nadie contempló acá NO puede hacer que el mensaje
@@ -813,6 +821,6 @@ export function queOfrecioElBot(mensajeDelBot: string): LoOfrecido {
   // --mandar solo el precio a quien pidio los modulos-- es la falla que se
   // esta corrigiendo.
   if (/\b(informacion|info|modulos|temario|contenido|que incluye|que trae|que viene|detalles|la ficha|todo lo que)\b/.test(m)) return "contenido";
-  if (/\b(precio|valor|cuanto (vale|cuesta|esta))\b/.test(m)) return "precio";
+  if (/\b(precio|costo|valor|cuanto (vale|cuesta|esta))\b/.test(m)) return "precio";
   return null;
 }

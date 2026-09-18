@@ -103,7 +103,8 @@ describe("cada respuesta apunta a algo que el cliente todavía no vio", () => {
 
   it("la invitación de entrega cambia según sea físico o digital", () => {
     expect(invitacionDe("entrega", true)).toMatch(/pedido|pedimos/i);
-    expect(invitacionDe("entrega", false)).toMatch(/acceso|arrancamos/i);
+    // Digital: tras explicar la entrega, lo que sigue es pagar (Meta, 16-09).
+    expect(invitacionDe("entrega", false)).toMatch(/datos de pago|medios de pago/i);
   });
 
   it("ninguna sección se queda sin invitación", () => {
@@ -238,7 +239,9 @@ describe("el cierre no repite lo que ya se mostró", () => {
     // Nunca se ofrece lo que no se puede entregar.
     const c = invitacionDe("precio", false, "sem", false, true);
     expect(c).not.toMatch(/video/i);
-    expect(c).toMatch(/duda|puntual/i);
+    // Ya vio qué trae y preguntó el precio: es señal de compra, se ofrece el
+    // pago (como el agente de Meta), no otra ronda de dudas.
+    expect(c).toMatch(/medios de pago|datos de pago/i);
   });
 
   it("si TODAVÍA no las vio, sí se las ofrece", () => {

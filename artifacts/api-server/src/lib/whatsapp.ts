@@ -779,6 +779,65 @@ function presupuestoUsadoPorElEncabezado(lineas: string[]): number {
   return lineas.join("\n").length;
 }
 
+/** La primera oración entera. Nada de cortar a los 240 caracteres con "…". */
+function primeraFrase(texto: string): string {
+  const t = String(texto || "").replace(/\s+/g, " ").trim();
+  const m = t.match(/^.+?[.!?](?=\s|$)/);
+  const frase = (m ? m[0] : t).trim();
+  if (frase.length <= 220) return frase;
+  const corte = frase.lastIndexOf(" ", 220);
+  return `${frase.slice(0, corte > 80 ? corte : 220).trim()}…`;
+}
+
+/**
+ * Hasta 4 viñetas "• texto emoji", como las escribe el agente de Meta.
+ * Primero lo propio del producto, después los puntos de su ficha, y al final
+ * lo estándar (acceso de por vida, etc.) para completar.
+ */
+export function vinetasDeLoQueIncluye(
+  propias: string[],
+  puntos: Array<{ emoji: string; texto: string }>,
+  todasLasFeatures: string[],
+  nombreProducto: string,
+): string[] {
+  const vistos = new Set<string>();
+  const out: string[] = [];
+  const clave = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9ñ ]/g, " ").replace(/\s+/g, " ").trim();
+  const corta = (t: string) => {
+    const limpio = String(t || "").replace(/\s+/g, " ").replace(/[.;:]\s*$/, "").trim();
+    if (limpio.length <= 70) return limpio;
+    const c = limpio.lastIndexOf(" ", 70);
+    return `${limpio.slice(0, c > 30 ? c : 70)}…`;
+  };
+  const agregar = (texto: string, emoji?: string) => {
+    const k = clave(texto);
+    if (!k || vistos.has(k) || out.length >= 4) return;
+    vistos.add(k);
+    const e = emoji && emoji !== "•" ? emoji : emojiDeCaracteristica(texto, nombreProducto);
+    out.push(`• ${corta(texto)}${e !== "•" ? ` ${e}` : ""}`);
+  };
+  for (const f of propias) agregar(f);
+  for (const pt of puntos) agregar(pt.texto, pt.emoji);
+  for (const f of todasLasFeatures) agregar(f);
+  return out;
+}
+
+/** Una línea de cómo se entrega, con los hechos del negocio (no inventada). */
+async function lineaDeComoSeEntrega(p: typeof products.$inferSelect): Promise<string> {
+  const { modeloDelProducto, fraseCostoEnvio, frasePagoEnvio } = await import("./modelo-de-negocio");
+  const modelo = modeloDelProducto(p as any);
+  if (modelo === "digital") {
+    return `Es 100% digital, sin suscripciones ni pagos mensuales: ${p.deliveryLink ? "te llega por un enlace de acceso" : "te lo enviamos por aquí"} apenas se confirme el pago. 💎`;
+  }
+  if (modelo === "fisico") {
+    try {
+      const c = await condicionesDelProducto(p);
+      return `📦 ${fraseCostoEnvio(c)}. ${frasePagoEnvio(c)}.`;
+    } catch { return ""; }
+  }
+  return "";
+}
+
 export async function construirSeccion(
   p: typeof products.$inferSelect,
   seccion: SeccionFicha,
@@ -876,7 +935,13 @@ export async function construirSeccion(
   }
 
   if (seccion === "precio") {
-    return { conFoto: false, mensajes: [`💰 *${mon.precioTexto}*\n\n${cierre}`] };
+    // Copiado del agente de Meta que el dueño probó el 16-09-2026: el precio
+    // va con el nombre del producto y "(Pago único)" en los digitales, para
+    // que nadie lea 60.000 como una cuota o una suscripción.
+    const texto = esFisico
+      ? `💰 *${mon.precioTexto}*\n\n${cierre}`
+      : `La inversión para el *${p.name}* es de:\n\n💰 *${mon.precioTexto}*\n(Pago único)\n\n${cierre}`;
+    return { conFoto: false, mensajes: [texto] };
   }
 
   // ── El video de muestra ───────────────────────────────────────────────────
@@ -922,7 +987,10 @@ export async function construirSeccion(
           ? `🧾 Este se cotiza según lo que necesités: contame qué buscás y el negocio te manda la cotización por acá.\n\n${cierre}`
           : modelo === "captacion"
             ? `🤝 Un asesor te contacta por este mismo número para acompañarte.\n\n${cierre}`
-            : `💻 Es digital: apenas confirmamos el pago te llega el acceso por aquí, y te queda de por vida ♾️\n\n${cierre}`;
+            // Tres pasos, como los explicó el agente de Meta (16-09-2026). No
+            // promete tiempos: el pago lo confirma una persona (ver
+            // INSTRUCCIONES_AGENTE_META.txt, punto 2).
+            : `🚀 *ENTREGA DIGITAL*\n\nLo recibes así:\n\n1. Realizas el pago. 💳\n2. Me envías el comprobante por aquí. 📸\n3. Apenas se confirme, te llega el acceso por este mismo chat. 📂\n\n${cierre}`;
     return { conFoto: false, mensajes: [texto] };
   }
 
@@ -1028,9 +1096,33 @@ export async function construirSeccion(
   const esDetallePosterior = seccion === "info" && yaVioContenido;
   const mensajes: string[] = [];
   if (!esDetallePosterior) {
+    // ── La presentación, copiada del agente de Meta ─────────────────────
+    //
+    // El dueño probó el agente de Meta Business el 16-09-2026 y pidió que el
+    // nuestro se vea igual. Antes acá salía la descripción cruda cortada a
+    // 240 caracteres en un solo bloque ("apiñado", según él). Lo de Meta:
+    //
+    //   🎹 *CURSO DE PIANO COMPLETO*
+    //   <una frase de qué es>
+    //   ✅ *Lo que incluye:* + 4 viñetas cortas con emoji al final
+    //   <una línea de cómo se entrega / que es digital>
+    //   <la pregunta de cierre>
+    //
+    // Todo en UN mensaje (el pie de la foto), sin precio: el precio sigue
+    // siendo la pregunta siguiente. Los datos salen del producto, no del
+    // modelo, así que no puede inventar.
     L.push(`${emojiTitulo} *${p.name}*`);
     L.push("");
-    L.push(`• ${resumen || (await resumenDeRespaldo(p))}`);
+    L.push(primeraFrase(resumen || (await resumenDeRespaldo(p))));
+    // En el orden en que el dueño las cargó: la primera suele ser la más fuerte.
+    const vinetas = vinetasDeLoQueIncluye((p.features ?? []) as string[], suFicha.puntos, [], p.name);
+    if (vinetas.length) {
+      L.push("", "✅ *Lo que incluye:*");
+      for (const v of vinetas) L.push(v);
+    }
+    const lineaDeEntrega = await lineaDeComoSeEntrega(p);
+    if (lineaDeEntrega) L.push("", lineaDeEntrega);
+    if (cierre) L.push("", cierre);
     mensajes.push(hablarColombiano(L.join("\n").trim()));
   }
 
@@ -1079,7 +1171,9 @@ export async function construirSeccion(
   if (urlVideo && !videoYaEnviado && (seccion === "completa" || esDetallePosterior)) {
     mensajes.push(`🎬 Te dejo este video para que veas el contenido por dentro:\n${urlVideo}`);
   }
-  if (cierre) mensajes.push(cierre);
+  // En la presentación el cierre ya va dentro del pie de foto (un solo
+  // mensaje, como Meta). Solo el detalle posterior lo lleva aparte.
+  if (cierre && esDetallePosterior) mensajes.push(cierre);
 
   // -- La foto va con la PRESENTACION, y una sola vez ------------------
   //
