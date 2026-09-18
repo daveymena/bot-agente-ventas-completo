@@ -4055,11 +4055,13 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         }
       }
 
-      // La ficha es la fuente única de la información del producto. Si el
-      // modelo escribió un párrafo antes del marcador, no se manda: repetiría
-      // la misma información en texto y de nuevo en la ficha.
+      // El texto del modelo ANTES del marcador [CARD:] se conserva como
+      // intro natural. Antes se borra porque "repetiría la información de la
+      // ficha", pero el modelo no repite: escribe una respuesta conversacional
+      // (saludo, contexto, enganche) que es MÁS natural que la ficha
+      // estructurada. El cliente recibe primero la voz humana y después los
+      // datos verificados del producto.
       const finalParts = parts
-        .filter((p: any) => !(cardCount > 0 && p.kind === "text" && p._beforeCard))
         .filter((p: any) => !(p.kind === "text" && !String(p.content || "").trim()))
         .map((p: any) => { delete p._beforeCard; return p; });
 

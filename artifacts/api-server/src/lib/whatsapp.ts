@@ -779,7 +779,7 @@ function presupuestoUsadoPorElEncabezado(lineas: string[]): number {
   return lineas.join("\n").length;
 }
 
-async function construirSeccion(
+export async function construirSeccion(
   p: typeof products.$inferSelect,
   seccion: SeccionFicha,
   dynamicLinks: any,
