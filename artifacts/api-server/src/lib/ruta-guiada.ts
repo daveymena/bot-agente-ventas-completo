@@ -47,6 +47,8 @@ export interface EstadoDeRuta {
   angulo?: string;
   landingId?: number;
   landingUrl?: string;
+  /** "ventas" (a la landing) o "mensajes" (WhatsApp): se decide al escribir el anuncio y se respeta al subirlo. */
+  objetivoDelAnuncio?: "ventas" | "mensajes";
   draftId?: number;
   campaignId?: string;
   /** Ruta "empezar": lo que el diagnóstico propuso hacer primero. */
@@ -177,10 +179,14 @@ const PRODUCTO_NUEVO: Paso[] = [
         }
       }
       avisar("Escribiendo el anuncio...");
-      const a = await executeAction("crear_anuncio", { producto: e.producto, dailyBudget: PRESUPUESTO_DIARIO_POR_DEFECTO, objetivo: "mensajes" }, ctx);
+      // Con la landing publicada, el anuncio lleva a la landing (campaña de
+      // ventas a la web: el enlace lo resuelve destino-del-producto.ts). Sin
+      // landing, abre WhatsApp, que es el camino que siempre funciona.
+      e.objetivoDelAnuncio = e.landingUrl ? "ventas" : "mensajes";
+      const a = await executeAction("crear_anuncio", { producto: e.producto, dailyBudget: PRESUPUESTO_DIARIO_POR_DEFECTO, objetivo: e.objetivoDelAnuncio }, ctx);
       if (!a.ok) return `[SISTEMA] ${partes.join(" ")}\nEl anuncio NO se pudo escribir: ${a.summary}. Decíselo y ofrecé reintentar.`;
       e.draftId = Number((a as any).data?.draftId) || Number((a as any).data?.id) || undefined;
-      return `[SISTEMA] ${partes.join(" ")}\nAnuncio creado por el servidor (borrador${e.draftId ? ` ${e.draftId}` : ""}):\n${a.summary.slice(0, 3000)}`;
+      return `[SISTEMA] ${partes.join(" ")}\nAnuncio creado por el servidor (borrador${e.draftId ? ` ${e.draftId}` : ""}; ${e.landingUrl ? `lleva a la landing ${e.landingUrl}` : "abre WhatsApp"}):\n${a.summary.slice(0, 3000)}`;
     },
   },
   {
@@ -200,7 +206,7 @@ const PRODUCTO_NUEVO: Paso[] = [
       avisar("Subiendo el anuncio a tu cuenta de Facebook (en pausa)...");
       // En PAUSA no gasta: por eso lo hace el servidor con el sí del paso 4.
       // Activarlo es lo que gasta, y eso va por propose_action.
-      const r = await executeAction("fb_upload_draft_to_meta", { draftId: e.draftId, objetivo: "mensajes" }, ctx);
+      const r = await executeAction("fb_upload_draft_to_meta", { draftId: e.draftId, objetivo: e.objetivoDelAnuncio || "mensajes" }, ctx);
       if (!r.ok) return `[SISTEMA] La subida a Meta falló: ${r.summary}`;
       e.campaignId = String(r.summary).match(/campaña\s+([\w-]+)/)?.[1] || undefined;
       return `[SISTEMA] Subido a Meta en pausa: ${r.summary}`;

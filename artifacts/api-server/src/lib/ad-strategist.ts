@@ -1,5 +1,6 @@
 import { logger } from "./logger";
 import { getAppUrl } from "./app-url";
+import { destinoWebDelProducto } from "./landing/destino-del-producto";
 import { db, products, productCategories, facebookDrafts } from "@workspace/db";
 import { eq, desc, and } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
@@ -772,15 +773,17 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       const act = `act_${adAccountId}`;
 
       const images = (draft.images && draft.images.length > 0 ? draft.images : (draft.imageUrl ? [draft.imageUrl] : [])) as string[];
+      // Landing publicada del producto si la hay; si no, la tienda.
+      const { url: destinoWeb } = await destinoWebDelProducto(this.tenant.id, Number(draft.productId));
       const linkData: Record<string, any> = {
-        link: `${getAppUrl()}/p/${draft.productId ?? ""}`,
+        link: destinoWeb,
         message: draft.primaryText || "",
         name: draft.headline || "",
         description: draft.description || "",
       };
       if (images.length > 1) {
         linkData.child_attachments = images.map((url, i) => ({
-          link: `${getAppUrl()}/p/${draft.productId ?? ""}`,
+          link: destinoWeb,
           picture: url,
           name: i === 0 ? (draft.headline || "") : `${draft.headline || ""} (${i + 1})`,
           description: draft.description || "",
@@ -1189,7 +1192,9 @@ Este contenido digital es tu atajo directo a resultados profesionales.
       // "Enviar mensaje por WhatsApp": si se deja el CTA de venta normal
       // (ej. SHOP_NOW), Meta rechaza el creativo por no corresponder al
       // destino de mensajería declarado en el conjunto.
-      const destinoLink = esWhatsApp ? waLink! : `${getAppUrl()}/p/${product.id}`;
+      // Destino web: la landing PUBLICADA del producto si la hay (es lo que se
+      // armó para convertir), si no la página de la tienda.
+      const destinoLink = esWhatsApp ? waLink! : (await destinoWebDelProducto(this.tenant.id, product.id)).url;
       const linkData: Record<string, any> = {
         link: destinoLink,
         message: adCopy.primaryText,

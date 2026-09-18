@@ -1,5 +1,6 @@
 import { logger } from "./logger";
 import { getAppUrl } from "./app-url";
+import { destinoWebDelProducto } from "./landing/destino-del-producto";
 import { db, products } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
@@ -1099,9 +1100,11 @@ Responde SOLO con este JSON exacto:
             // es el WhatsApp del negocio con el mensaje ya escrito, no la web:
             // mandar a la web una campana de mensajes es justo lo que el admin
             // reporto ("todo lo lanza a la web y eso esta mal").
+            // Destino web: la landing PUBLICADA del producto si la hay, si no
+            // la página de la tienda. Ver lib/landing/destino-del-producto.ts.
             link: OBJ.destino === "whatsapp" && waDelNegocio
               ? `https://wa.me/${waDelNegocio}?text=${encodeURIComponent(`Hola! Me interesa ${product.name}`)}`
-              : `${getAppUrl()}/p/${product.id}`,
+              : (await destinoWebDelProducto(this.tenant.id, product.id)).url,
             message: adCopy.primaryText,
             name: adCopy.headline,
             description: adCopy.description,
