@@ -3459,37 +3459,12 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       const productoPedido = decision.productoDelMensaje ?? decision.productToShow ?? null;
       const idPedido = productoPedido?.id ?? null;
       if (!isPaymentFlow && !esChatSocial && idPedido && validIds.has(idPedido) && !raw.includes("[CARD:")) {
-        // Solo forzar si la respuesta parece estar hablando DEL producto
-        // (menciona la primera palabra de su nombre) y no es una pregunta de
-        // clarificación genérica ("¿quieres que te lo muestre?").
-        const primeraPalabra = productoPedido?.name?.toLowerCase().split(" ")[0];
-        const nombraProducto = primeraPalabra ? raw.toLowerCase().includes(primeraPalabra) : true;
-        // ── O si el texto ANUNCIA que algo viene abajo ────────────────────
-        //
-        // Medido contra producción el 2026-09-04:
-        //
-        //   cliente: "vi su anuncio del curso de marketing digital, cuanto vale?"
-        //   bot:     "¡Buenísimo que te haya llamado la atención! 👇"
-        //
-        // Y nada más. Sin ficha, sin precio: una flecha apuntando al vacío.
-        //
-        // Pasó porque DOS candados buenos se encadenaron mal. El modelo
-        // escribió la intro esperando que la ficha saliera sola y no puso el
-        // marcador; este forzado no la puso porque exige que el texto NOMBRE
-        // el producto, y "¡Buenísimo!" no lo nombra; y después el candado de
-        // promesas --que hace bien su trabajo-- borró el "👇" por prometer
-        // algo que no salía. Resultado: el cliente preguntó el precio y
-        // recibió un saludo.
-        //
-        // Apuntar hacia abajo ES nombrar la ficha: es exactamente lo que el
-        // detector de promesas ya reconoce como "acá viene algo". Si el
-        // servidor SABE cuál es el producto, se adjunta en vez de borrar la
-        // frase. Cumplir la promesa es mejor que taparla.
-        const anunciaAlgoAbajo = promesasDe(raw).includes("ficha");
-        if (nombraProducto || anunciaAlgoAbajo) {
-          raw = `${raw.trim()}\n\n[CARD: ${idPedido}]`;
-          console.log(`🔧 [POST] Consulta de producto ${idPedido} sin card → forzada. La IA escribía la ficha a mano - ${ts()}`);
-        }
+        // Forzar card SIEMPRE que el cliente haya pedido un producto y la
+        // respuesta no tenga marcador. El safety net anterior solo forzaba
+        // si el texto "nombraba el producto" o "anunciaba algo", pero el
+        // modelo a veces escribe una descripción larga sin esas condiciones.
+        raw = `${raw.trim()}\n\n[CARD: ${idPedido}]`;
+        console.log(`🔧 [POST] Consulta de producto ${idPedido} sin card → forzada. La IA escribía la ficha a mano - ${ts()}`);
       }
 
       // ── 2b-ter. EL QUE YA DIJO QUE COMPRA SE VA CON LOS DATOS DE PAGO ────
@@ -4056,14 +4031,19 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       }
 
       // El texto del modelo ANTES del marcador [CARD:] se conserva como
-      // intro natural. Antes se borra porque "repetiría la información de la
-      // ficha", pero el modelo no repite: escribe una respuesta conversacional
-      // (saludo, contexto, enganche) que es MÁS natural que la ficha
-      // estructurada. El cliente recibe primero la voz humana y después los
-      // datos verificados del producto.
+      // intro natural. Pero si es muy largo (>300 chars), se trunca para
+      // que la respuesta no sea pesada de leer. La ficha técnica entrega
+      // la info completa del producto.
+      const MAX_INTRO_LENGTH = 300;
       const finalParts = parts
         .filter((p: any) => !(p.kind === "text" && !String(p.content || "").trim()))
-        .map((p: any) => { delete p._beforeCard; return p; });
+        .map((p: any) => {
+          if (p.kind === "text" && p._beforeCard && String(p.content || "").length > MAX_INTRO_LENGTH) {
+            p.content = String(p.content || "").substring(0, MAX_INTRO_LENGTH).trim() + "...";
+          }
+          delete p._beforeCard;
+          return p;
+        });
 
 
       // -- SI EL CLIENTE LO PIDIO Y EL SERVIDOR LO TIENE, SALE ------------
