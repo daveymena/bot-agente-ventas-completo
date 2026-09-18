@@ -27,12 +27,53 @@ export interface PedidoDelBot {
   creado: string;
 }
 
+/**
+ * Qué hizo el plugin Dropify con un pedido de WooCommerce.
+ *
+ * Leído del código fuente del plugin (wc-dropi-integration, sep-2026): al
+ * pasar a "processing" escribe en la orden la meta `_is_dropi_order` con
+ * "Yes" (+ `_dropi_order_id`), "Dropi sync error: …" o "This order do not
+ * have dropi products". Si NO escribe nada es que el gancho no corrió: la
+ * opción "sincronizar órdenes automáticamente" del plugin está apagada.
+ * Es la única forma de saber, desde acá, si el pedido llegó a Dropi.
+ */
+export interface RastroDropi {
+  estado: "sincronizada" | "error" | "sin_productos_dropi" | "sin_rastro";
+  dropiOrderId: string | null;
+  detalle: string;
+  /** Por línea: si el producto de Woo tiene la meta `_dropi_product` que Dropify exige. */
+  productos: Array<{ wooProductId: number; nombre: string; esDeDropi: boolean | null }>;
+}
+
 export interface EstadoWooCommerce {
   configurada: boolean;
   conexion: { ok: boolean; detalle: string; productosVisibles?: number };
-  ultimosPedidosEnWoo: Array<{ id: number; estado: string; total: string; fecha: string; nombre: string; ciudad: string }>;
+  ultimosPedidosEnWoo: Array<{ id: number; estado: string; total: string; fecha: string; nombre: string; ciudad: string; dropi: RastroDropi }>;
   pedidosDelBot: PedidoDelBot[];
   resumen: string;
+}
+
+function leerRastroDropi(o: any): Omit<RastroDropi, "productos"> {
+  const meta = (o?.meta_data || []) as Array<{ key: string; value: any }>;
+  const marca = String(meta.find((m) => m.key === "_is_dropi_order")?.value ?? "").trim();
+  const dropiOrderId = meta.find((m) => m.key === "_dropi_order_id")?.value;
+  if (marca === "Yes") {
+    return { estado: "sincronizada", dropiOrderId: dropiOrderId != null ? String(dropiOrderId) : null, detalle: `Dropify la envió a Dropi${dropiOrderId != null ? ` (orden Dropi #${dropiOrderId})` : ""}.` };
+  }
+  if (/sync error/i.test(marca)) {
+    return { estado: "error", dropiOrderId: null, detalle: `Dropify intentó y Dropi la rechazó: ${marca.replace(/^Dropi sync error:\s*/i, "")}` };
+  }
+  if (/do not have dropi products/i.test(marca)) {
+    return { estado: "sin_productos_dropi", dropiOrderId: null, detalle: "Dropify corrió pero ningún producto de la orden tiene la meta `_dropi_product` (no fue importado por Dropify)." };
+  }
+  if (marca) return { estado: "error", dropiOrderId: null, detalle: marca };
+  return {
+    estado: "sin_rastro",
+    dropiOrderId: null,
+    detalle: o?.status === "processing"
+      ? "Dropify no dejó rastro: el gancho no corrió. Casi seguro la opción 'sincronizar órdenes automáticamente' del plugin está apagada (WP-admin → Dropify → ajustes)."
+      : `La orden está en '${o?.status}': Dropify solo envía a Dropi cuando pasa a 'processing'.`,
+  };
 }
 
 const ESTADO_LEGIBLE: Record<string, string> = {
@@ -82,12 +123,34 @@ export async function estadoWooCommerce(tenantId: number): Promise<EstadoWooComm
   if (conexion.ok) {
     try {
       const orders = await woo.getOrders({ per_page: 5 });
-      ultimosPedidosEnWoo = orders.map((o: any) => ({
-        id: Number(o.id), estado: String(o.status), total: String(o.total),
-        fecha: String(o.date_created || ""),
-        nombre: `${o.shipping?.first_name || o.billing?.first_name || ""} ${o.shipping?.last_name || o.billing?.last_name || ""}`.trim(),
-        ciudad: String(o.shipping?.city || o.billing?.city || ""),
-      }));
+      // ¿Los productos de cada orden son de Dropify? Sin `_dropi_product` el
+      // plugin la descarta aunque el auto-sync esté encendido.
+      const cacheProductos = new Map<number, boolean | null>();
+      const esDeDropi = async (id: number): Promise<boolean | null> => {
+        if (!id) return null;
+        if (cacheProductos.has(id)) return cacheProductos.get(id)!;
+        let r: boolean | null = null;
+        try {
+          const p = await woo.getProduct(id);
+          r = !!(p.meta_data || []).find((m) => m.key === "_dropi_product" && m.value);
+        } catch { r = null; }
+        cacheProductos.set(id, r);
+        return r;
+      };
+      ultimosPedidosEnWoo = [];
+      for (const o of orders) {
+        const productos = [] as RastroDropi["productos"];
+        for (const li of (o.line_items || []) as any[]) {
+          productos.push({ wooProductId: Number(li.product_id), nombre: String(li.name || ""), esDeDropi: await esDeDropi(Number(li.product_id)) });
+        }
+        ultimosPedidosEnWoo.push({
+          id: Number(o.id), estado: String(o.status), total: String(o.total),
+          fecha: String(o.date_created || ""),
+          nombre: `${o.shipping?.first_name || o.billing?.first_name || ""} ${o.shipping?.last_name || o.billing?.last_name || ""}`.trim(),
+          ciudad: String(o.shipping?.city || o.billing?.city || ""),
+          dropi: { ...leerRastroDropi(o), productos },
+        });
+      }
     } catch (e: any) {
       conexion = { ...conexion, detalle: `responde, pero no deja leer pedidos: ${e?.message || e}` };
     }
@@ -99,7 +162,7 @@ export async function estadoWooCommerce(tenantId: number): Promise<EstadoWooComm
   const resumen = [
     conexion.ok ? "WooCommerce conectado y responde." : `WooCommerce configurado pero NO responde: ${conexion.detalle}.`,
     ultimosPedidosEnWoo.length
-      ? `Últimos pedidos en WooCommerce: ${ultimosPedidosEnWoo.map((o) => `#${o.id} ${o.estado} $${o.total} (${o.ciudad || "sin ciudad"})`).join(" · ")}.`
+      ? `Últimos pedidos en WooCommerce: ${ultimosPedidosEnWoo.map((o) => `#${o.id} ${o.estado} $${o.total} (${o.ciudad || "sin ciudad"}) → Dropi: ${o.dropi.detalle}`).join(" · ")}.`
       : conexion.ok ? "WooCommerce no tiene pedidos todavía." : "",
     pedidosDelBot.length
       ? `Pedidos que tomó el bot por WhatsApp: ${pedidosDelBot.length} (${llegaron.length} registrados en Woo, ${fallaron.length} fallaron, ${sinConfirmar.length} sin confirmar por el cliente).`
