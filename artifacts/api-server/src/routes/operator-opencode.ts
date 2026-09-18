@@ -31,7 +31,7 @@ import { requireAdmin, type TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
 import { esUnSiParaEstePlan } from "../lib/es-un-si";
 import { correrTurnoDirecto, directoDisponible } from "../lib/atlas-directo";
-import { promptDeAtlas, executeAction, verifyMutation, investigacionRapida, mensajeParaAdmin, isReadOnlyTool, type OperatorContext } from "../lib/app-operator";
+import { promptDeAtlas, executeAction, verifyMutation, investigacionRapida, mensajeParaAdmin, isReadOnlyTool, notaDeLandingsEnSegundoPlano, type OperatorContext } from "../lib/app-operator";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
   clearPendingPlan, isApproval, isRejection, loadRecentLessons,
@@ -1321,6 +1321,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // qué toca en este paso y la entrega por partes producía DOS respuestas
       // al mismo turno (sesión del 14-09, dos mensajes a las 05:25 con la
       // misma investigación).
+      // Landings que terminaron (o siguen) en segundo plano: el modelo lo
+      // sabe sin tener que adivinar ni mostrar una vieja.
+      try { text += await notaDeLandingsEnSegundoPlano(ctx); } catch { /* accesorio */ }
+
       const partido = rutaActiva ? null : partirElPedido(String(prompt));
       if (partido) {
         partesPendientes = partido.pendientes;

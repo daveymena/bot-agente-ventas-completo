@@ -737,6 +737,8 @@ export async function generarLandingConOpenCode(opts: {
   existingHtml?: string | null;
   diseno?: Diseno;
   familia?: string | null;
+  /** Por modelo. Los 45s de siempre valen dentro de un request; en segundo plano se puede esperar más. */
+  timeoutMs?: number;
 }): Promise<{ html: string; tipo: ProductType; error?: string }> {
   const config = opencodeConfig();
   if (!config) return { html: "", tipo: "digital", error: "OpenCode no configurado" };
@@ -758,7 +760,7 @@ export async function generarLandingConOpenCode(opts: {
     return await sendMessage(config.host, config.authHeader, sessionId, {
       system: getSystemPrompt(tipo),
       text: userPrompt,
-      timeoutMs: 45_000,
+      timeoutMs: opts.timeoutMs ?? 45_000,
     });
   });
 

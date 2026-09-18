@@ -393,6 +393,142 @@ export interface ToolResult {
   data?: any;
 }
 
+// ── Landings en SEGUNDO PLANO ───────────────────────────────────────────────
+//
+// Mismo motivo que las investigaciones: no entra en un request. Ver el
+// comentario en la herramienta landing_crear.
+const landingsEnCurso = new Map<number, { tenantId: number; sessionId: string | undefined; productName: string; desde: number }>();
+/** Landings que terminaron y todavía no se le contaron al modelo (por sesión). */
+const landingsPorAvisar = new Map<string, number[]>();
+
+function vistaPreviaDeLanding(slug: string): string {
+  return `${getAppUrl().replace(/\/$/, "")}/l/${encodeURIComponent(slug)}`;
+}
+
+/** Qué se le dice al modelo sobre una landing según cómo quedó. */
+export function estadoDeGeneracion(l: any): { estado: "generando" | "lista" | "fallo"; texto: string; vistaPrevia: string | null } {
+  const st: any = l?.strategy || {};
+  const vistaPrevia = vistaPreviaDeLanding(String(l.slug));
+  if (st.generando) {
+    const seg = Math.round((Date.now() - new Date(st.desde || Date.now()).getTime()) / 1000);
+    // Si el proceso se reinició a mitad, nunca va a terminar: se dice.
+    if (seg > 6 * 60) {
+      return { estado: "fallo", texto: `La landing [${l.id}] quedó a medias (el servidor se reinició mientras la armaba). Ofrecé crearla de nuevo con landing_crear.`, vistaPrevia: null };
+    }
+    return { estado: "generando", texto: `⏳ La landing [${l.id}] "${l.name}" sigue generándose (arrancó hace ${seg}s). Decile al admin que le falta poco y que te vuelva a escribir en un momento.`, vistaPrevia: null };
+  }
+  if (st.error && !l.html && !(Array.isArray(l.sections) && l.sections.length)) {
+    return { estado: "fallo", texto: `❌ La landing [${l.id}] no se pudo generar: ${String(st.error).slice(0, 300)}. Decíselo al admin y ofrecé reintentar.`, vistaPrevia: null };
+  }
+  const gen = st.generador === "opencode" ? "diseño completo (HTML) por el agente especializado" : "generador por secciones (AIDA con las fotos reales)";
+  return {
+    estado: "lista",
+    texto:
+      `✅ La landing [${l.id}] "${l.name}" está LISTA (${gen}${st.motivoRespaldo ? `; el generador premium falló: ${String(st.motivoRespaldo).slice(0, 120)}` : ""}). ` +
+      `Vista previa: ${vistaPrevia} . Está en borrador: para la URL pública, landing_publicar con id ${l.id}.`,
+    vistaPrevia,
+  };
+}
+
+function lanzarGeneracionDeLandingEnSegundoPlano(
+  ctx: OperatorContext,
+  job: { landingId: number; slug: string; product: any; instruccion: string; familia: string | null },
+): void {
+  landingsEnCurso.set(job.landingId, { tenantId: ctx.tenantId, sessionId: ctx.sessionId, productName: String(job.product?.name || ""), desde: Date.now() });
+
+  void (async () => {
+    const { landingPages } = await import("@workspace/db");
+    const listo = async (cambios: Record<string, any>) => {
+      // `new Date()` no se puede atar en SQLite (sql.js): en local el update
+      // reventaba y la fila quedaba "generando" para siempre.
+      const { dbNow } = await import("./date-utils");
+      await db.update(landingPages).set({ ...cambios, updatedAt: dbNow() } as any).where(eq(landingPages.id, job.landingId));
+    };
+    try {
+      let generador: "opencode" | "plantilla" = "opencode";
+      let motivoRespaldo = "";
+      let tipo = "digital";
+
+      // 1) El generador premium (OpenCode escribe el HTML entero). Sin un
+      //    request esperando, se le da tiempo real.
+      try {
+        const { generarLandingConOpenCode } = await import("../routes/landing-studio-opencode");
+        const r = await generarLandingConOpenCode({ product: job.product, instruction: job.instruccion, familia: job.familia, timeoutMs: 150_000 });
+        tipo = r.tipo;
+        if (r.error || !r.html) throw new Error(r.error || "respuesta vacía");
+        let html = r.html;
+        if (r.tipo === "dropshipping" && html.includes("__FORM_ACTION__")) {
+          html = html.split("__FORM_ACTION__").join(`/api/landing-publica/${encodeURIComponent(job.slug)}/pedido`);
+        }
+        await listo({ html, strategy: { tipo: r.tipo, generador: "opencode", generando: false, listaEn: new Date().toISOString(), instruccion: job.instruccion.slice(0, 500) } });
+      } catch (e: any) {
+        // 2) Respaldo: el generador por secciones, que corre en este mismo
+        //    proceso con el proveedor de IA del negocio y NO depende de
+        //    OpenCode. La landing existe siempre.
+        generador = "plantilla";
+        motivoRespaldo = String(e?.message || e).slice(0, 300);
+        logger.warn({ landingId: job.landingId, motivo: motivoRespaldo }, "[AppOperator] OpenCode no generó la landing; se usa el generador por secciones");
+        const { generarLandingLocal } = await import("../routes/landing-pages-ai");
+        const tenant = await tenantManager.getTenantById(ctx.tenantId).catch(() => null);
+        const g: any = await generarLandingLocal({
+          tenantId: ctx.tenantId, product: job.product, brandName: (tenant as any)?.brandName || null,
+          objective: "sales", contexto: `Instrucción del admin: ${job.instruccion}`,
+        });
+        await listo({
+          name: String(g?.name || `Landing · ${job.product.name}`).slice(0, 200),
+          sections: g?.sections || [],
+          design: { ...(g?.design || {}), ...(job.familia ? { familia: job.familia } : {}) },
+          strategy: { ...(g?.strategy || {}), tipo, generador: "plantilla", generadoPor: g?.generatedBy, motivoRespaldo, generando: false, listaEn: new Date().toISOString(), instruccion: job.instruccion.slice(0, 500) },
+          html: null,
+        });
+      }
+
+      try {
+        const { recordarLanding } = await import("./landing/memoria");
+        await recordarLanding({ tenantId: ctx.tenantId, productId: job.product.id, productName: job.product.name, tipo, slug: job.slug, landingId: job.landingId, instruccion: job.instruccion, summary: `Landing [${job.landingId}] ${job.product.name} (${tipo}) con ${generador}.` });
+      } catch { /* la memoria es accesoria */ }
+      logger.info({ landingId: job.landingId, generador }, "[AppOperator] Landing generada en segundo plano");
+    } catch (e: any) {
+      // Un fallo acá no puede quedar sin rastro: la fila dice qué pasó.
+      logger.error({ err: String(e?.message || e), landingId: job.landingId }, "[AppOperator] La generación de la landing reventó");
+      try { await listo({ strategy: { generando: false, error: String(e?.message || e).slice(0, 300), instruccion: job.instruccion.slice(0, 500) } }); } catch { /* nada */ }
+    } finally {
+      landingsEnCurso.delete(job.landingId);
+      if (ctx.sessionId) {
+        const clave = `${ctx.tenantId}:${ctx.sessionId}`;
+        landingsPorAvisar.set(clave, [...(landingsPorAvisar.get(clave) || []), job.landingId]);
+      }
+    }
+  })();
+}
+
+/**
+ * Lo que el turno siguiente tiene que saber sobre las landings de esta
+ * sesión: las que terminaron desde la última vez (se avisan UNA vez) y las
+ * que siguen en curso. Lo llama la ruta de Atlas antes de cada turno.
+ */
+export async function notaDeLandingsEnSegundoPlano(ctx: OperatorContext): Promise<string> {
+  if (!ctx.sessionId) return "";
+  const clave = `${ctx.tenantId}:${ctx.sessionId}`;
+  const partes: string[] = [];
+  const terminadas = landingsPorAvisar.get(clave) || [];
+  if (terminadas.length) {
+    landingsPorAvisar.delete(clave);
+    const { landingPages } = await import("@workspace/db");
+    for (const id of terminadas) {
+      const [l] = await db.select().from(landingPages).where(eq(landingPages.id, id)).limit(1);
+      if (l) partes.push(estadoDeGeneracion(l).texto);
+    }
+  }
+  for (const [id, job] of landingsEnCurso) {
+    if (job.tenantId === ctx.tenantId && job.sessionId === ctx.sessionId) {
+      partes.push(`⏳ La landing [${id}] para "${job.productName}" sigue generándose (hace ${Math.round((Date.now() - job.desde) / 1000)}s).`);
+    }
+  }
+  if (!partes.length) return "";
+  return `\n\n[SISTEMA] Landings de esta conversación (hecho por el servidor, no lo prometas ni lo repitas):\n${partes.join("\n")}`;
+}
+
 /**
  * Camino ÚNICO para arrancar una investigación, compartido por `research_start`
  * y por `deep_research` (que quedó como alias). Tener una sola implementación
@@ -4201,8 +4337,10 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   {
     name: "landing_crear",
     description:
-      "Genera y GUARDA una landing page PROFESIONAL con OpenCode, el generador premium de VentasPro. Un agente de IA especializado (dropshipping, digital, servicio, físico) escribe el HTML completo: diseño premium, copy de respuesta directa y el checkout correcto (formulario contra entrega en dropshipping; pago MercadoPago/PayPal o WhatsApp en el resto). " +
-      "USALA SIEMPRE que el admin pida una landing, página de venta o 'que se vea profesional'. Queda en BORRADOR: para la URL pública, landing_publicar. ⚠️ Va por propose_action.",
+      "Genera y GUARDA una landing page PROFESIONAL para un producto: un agente especializado (dropshipping, digital, servicio, físico) escribe el HTML completo con diseño premium, copy de respuesta directa y el checkout correcto; si ese generador falla, el servidor la arma igual con el generador por secciones (AIDA, fotos reales). " +
+      "La generación tarda 1 a 3 minutos y corre EN SEGUNDO PLANO: esta herramienta devuelve al instante el id de la landing NUEVA en estado 'generando'. " +
+      "USALA SIEMPRE que el admin pida una landing, página de venta o 'que se vea profesional'. Queda en BORRADOR: para la URL pública, landing_publicar. ⚠️ Va por propose_action. " +
+      "⚠️ NUNCA presentes una landing anterior (de landing_listar o de tu memoria) como si fuera la que acabás de pedir: la nueva es la del id que devuelve ESTA herramienta, y hasta que landing_estado diga 'lista' no existe nada para mostrar.",
     args: '{ "productId": number (req), "instruccion"?: string (opcional), "familia"?: string (estilo visual: premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch) }',
     run: async (args, ctx) => {
       const id = num(args?.productId);
@@ -4210,38 +4348,64 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       const [prod] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
       if (!prod) return { ok: false, summary: `No encontré el producto ${id}.` };
 
-      const { generarLandingConOpenCode } = await import("../routes/landing-studio-opencode");
       const instruccion = String(args?.instruccion || args?.instruction || "Genera una landing page profesional y de alta conversión para este producto.");
       const familia = String(args?.familia || "").trim() || null;
-      const r = await generarLandingConOpenCode({ product: prod, instruction: instruccion, familia });
-      if (r.error || !r.html) return { ok: false, summary: `No se pudo generar la landing: ${r.error || "respuesta vacía"}` };
 
+      // ── Por qué NO se genera acá adentro ──────────────────────────────
+      //
+      // Medido por el dueño (18-09-2026): Atlas decía "voy a crear la
+      // landing" y lo que mostraba después era una landing VIEJA. La causa
+      // es la misma que la de las investigaciones (ver arriba, "Investigación
+      // en SEGUNDO PLANO"): el proxy corta el request a ~150s y OpenCode
+      // tarda 45s por modelo × hasta 4 modelos. La generación moría a mitad,
+      // el turno quedaba parcial, y en el turno siguiente el modelo sacaba
+      // de landing_listar / de su memoria la que había, y la presentaba.
+      //
+      // Ahora se crea la fila YA (con id, en estado "generando"), se
+      // responde al instante, y la generación corre después del request.
+      // Si OpenCode falla, se arma con el generador por secciones: la
+      // landing existe SIEMPRE, y el resultado se lee con landing_estado o
+      // llega solo al turno siguiente (ver notaDeLandingsEnSegundoPlano).
       const { landingPages } = await import("@workspace/db");
       const slug = `${String(prod.name).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || "landing"}-${Date.now().toString(36)}`;
       const [creada] = await db.insert(landingPages).values({
         tenantId: ctx.tenantId, productId: prod.id, name: `Landing · ${prod.name}`.slice(0, 200), slug,
         status: "draft",
-        strategy: { tipo: r.tipo, detectedAt: new Date().toISOString() },
+        strategy: { generando: true, desde: new Date().toISOString(), instruccion: instruccion.slice(0, 500) },
         sections: [],
         design: familia ? { familia } : {},
         source: { type: "product", productId: prod.id },
-        html: r.html,
+        html: null,
       } as any).returning();
 
-      let html = r.html;
-      if (r.tipo === "dropshipping" && html.includes("__FORM_ACTION__")) {
-        html = html.split("__FORM_ACTION__").join(`/api/landing-publica/${encodeURIComponent(slug)}/pedido`);
-        await db.update(landingPages).set({ html, updatedAt: new Date() }).where(eq(landingPages.id, creada.id));
-      }
-
-      const { recordarLanding } = await import("./landing/memoria");
-      await recordarLanding({ tenantId: ctx.tenantId, productId: prod.id, productName: prod.name, tipo: r.tipo, slug, landingId: creada.id, instruccion, summary: `Landing [${creada.id}] ${prod.name} (${r.tipo}) con OpenCode.` });
+      lanzarGeneracionDeLandingEnSegundoPlano(ctx, { landingId: creada.id, slug, product: prod, instruccion, familia });
 
       return {
         ok: true,
-        summary: `Landing creada como borrador: [${creada.id}] ${prod.name} (${r.tipo}). Para la URL pública: landing_publicar con id ${creada.id}.`,
-        data: { id: creada.id, slug, tipo: r.tipo },
+        summary:
+          `🛠️ Landing NUEVA [${creada.id}] para "${prod.name}" en generación (tarda 1 a 3 minutos). ` +
+          `Todavía NO está lista: decile al admin que la estás armando y que en un momento se la mostrás; ` +
+          `no describas su contenido ni muestres otra landing en su lugar. Para saber si terminó: landing_estado con id ${creada.id}.`,
+        data: { id: creada.id, slug, estado: "generando" },
       };
+    },
+  },
+  {
+    name: "landing_estado",
+    description:
+      "Lee el estado de una landing que se está generando (o la última generada en esta conversación): 'generando', 'lista' (con el enlace de vista previa) o 'fallo' (con el motivo). " +
+      "Usala al principio del turno cuando el admin vuelve a escribir después de pedir una landing. Lectura pura.",
+    args: '{ "id"?: number }',
+    run: async (args, ctx) => {
+      const { landingPages } = await import("@workspace/db");
+      const id = num(args?.id ?? args?.landingId);
+      const filas = id
+        ? await db.select().from(landingPages).where(and(eq(landingPages.id, id), eq(landingPages.tenantId, ctx.tenantId))).limit(1)
+        : await db.select().from(landingPages).where(eq(landingPages.tenantId, ctx.tenantId)).orderBy(desc(landingPages.createdAt)).limit(1);
+      const l: any = filas[0];
+      if (!l) return { ok: false, summary: id ? `No existe la landing [${id}].` : "No hay landings todavía." };
+      const est = estadoDeGeneracion(l);
+      return { ok: est.estado !== "fallo", summary: est.texto, data: { id: l.id, estado: est.estado, slug: l.slug, url: l.publishedUrl || null, vistaPrevia: est.vistaPrevia } };
     },
   },
   {
