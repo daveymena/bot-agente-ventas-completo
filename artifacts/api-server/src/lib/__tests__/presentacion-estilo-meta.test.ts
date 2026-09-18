@@ -41,8 +41,7 @@ describe("presentación al estilo Meta", () => {
     expect(m).not.toContain("…");
     expect(m).toContain("✅ *Lo que incluye:*");
     expect(m).toContain("• 19 módulos en video HD 🎬");
-    expect(m.split("
-").filter((l) => l.startsWith("• "))).toHaveLength(4);
+    expect(m.split(/\r?\n/).filter((l) => l.startsWith("• "))).toHaveLength(4);
     expect(m).toMatch(/100% digital, sin suscripciones/);
     // Sin precio: el precio es la pregunta siguiente.
     expect(m).not.toMatch(/60\.000|\$/);
