@@ -215,6 +215,12 @@ const MIGRATIONS = [
   `CREATE INDEX IF NOT EXISTS control_plane_audit_tenant_idx ON control_plane_audit (tenant_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS marketing_audit_logs_tenant_idx ON marketing_audit_logs (tenant_id, created_at)`,
   `CREATE INDEX IF NOT EXISTS dropshipping_orders_conv_idx ON dropshipping_orders (conversation_id)`,
+  // Veredicto de Dropi sobre el pedido (lo escribe Dropify en la orden de Woo
+  // y el bot lo relee al crearla). Sin esto el #323 quedó "registrado" tres
+  // días mientras Dropi lo había rechazado.
+  `ALTER TABLE dropshipping_orders ADD COLUMN IF NOT EXISTS dropi_estado TEXT`,
+  `ALTER TABLE dropshipping_orders ADD COLUMN IF NOT EXISTS dropi_order_id TEXT`,
+  `ALTER TABLE dropshipping_orders ADD COLUMN IF NOT EXISTS dropi_error TEXT`,
   `CREATE INDEX IF NOT EXISTS dropshipping_orders_estado_idx ON dropshipping_orders (tenant_id, estado)`,
   `CREATE TABLE IF NOT EXISTS remarketing_campaigns (
     id SERIAL PRIMARY KEY,

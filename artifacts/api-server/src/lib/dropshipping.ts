@@ -51,6 +51,9 @@ export interface PedidoDropshipping extends DatosDeEnvio {
   estado: string;
   wooOrderId: number | null;
   wooError: string | null;
+  dropiEstado?: string | null;
+  dropiOrderId?: string | null;
+  dropiError?: string | null;
 }
 
 /**
@@ -439,6 +442,7 @@ function aPedido(r: any): PedidoDropshipping {
     productId: r.product_id, productName: r.product_name, quantity: r.quantity,
     unitPrice: r.unit_price, total: r.total, metodoPago: r.metodo_pago,
     estado: r.estado, wooOrderId: r.woo_order_id, wooError: r.woo_error,
+    dropiEstado: r.dropi_estado ?? null, dropiOrderId: r.dropi_order_id ?? null, dropiError: r.dropi_error ?? null,
     nombre: r.nombre, telefono: r.telefono, documento: r.documento,
     departamento: r.departamento, ciudad: r.ciudad, direccion: r.direccion,
     barrio: r.barrio, notas: r.notas,
@@ -547,14 +551,32 @@ export async function guardarDatos(
  * token que usa Dropify, que sí funciona ahí). El camino que sirve es
  * WooCommerce + el plugin Dropify.
  */
-export async function despacharPedido(
-  pedido: PedidoDropshipping,
-): Promise<{ ok: boolean; wooOrderId?: number; error?: string }> {
+export interface VeredictoDropi {
+  /** sincronizada = el proveedor ya la tiene; error = Dropi la rechazó; sin_rastro = Dropify no corrió. */
+  estado: "sincronizada" | "error" | "sin_productos_dropi" | "sin_rastro";
+  dropiOrderId: string | null;
+  detalle: string;
+}
+
+export interface ResultadoDespacho {
+  ok: boolean;
+  wooOrderId?: number;
+  error?: string;
+  /** Qué hizo Dropi con el pedido. Solo falta cuando ni siquiera llegó a Woo. */
+  dropi?: VeredictoDropi;
+  /** true cuando el rechazo dejó el producto fuera del catálogo. */
+  productoDesactivado?: boolean;
+}
+
+export async function despacharPedido(pedido: PedidoDropshipping): Promise<ResultadoDespacho> {
   if (!pedidoCompleto(pedido)) {
     return { ok: false, error: `Faltan datos: ${datosQueFaltan(pedido).join(", ")}` };
   }
   if (pedido.wooOrderId) {
-    return { ok: true, wooOrderId: pedido.wooOrderId };
+    const dropi: VeredictoDropi | undefined = pedido.dropiEstado
+      ? { estado: pedido.dropiEstado as VeredictoDropi["estado"], dropiOrderId: pedido.dropiOrderId ?? null, detalle: pedido.dropiError || "" }
+      : undefined;
+    return { ok: dropi?.estado !== "error", wooOrderId: pedido.wooOrderId, dropi, error: dropi?.estado === "error" ? dropi.detalle : undefined };
   }
 
   try {
@@ -615,11 +637,102 @@ export async function despacharPedido(
       [pedido.id, wooOrderId],
     );
     logger.info({ pedidoId: pedido.id, wooOrderId }, "[Dropshipping] Pedido creado en WooCommerce");
-    return { ok: true, wooOrderId };
+
+    // Woo lo tiene; ahora, ¿lo tiene Dropi? Dropify corre dentro del guardado
+    // y deja el veredicto en la meta de la orden, pero sobre OTRA instancia:
+    // la respuesta del POST no lo trae, hay que releer.
+    const dropi = await leerVeredictoDeDropi(woo, wooOrderId);
+    const productoDesactivado = await registrarVeredicto({ ...pedido, wooOrderId }, dropi);
+    if (dropi.estado === "error") {
+      return { ok: false, wooOrderId, dropi, productoDesactivado, error: `Dropi rechazó el pedido: ${dropi.detalle}` };
+    }
+    return { ok: true, wooOrderId, dropi };
   } catch (e: any) {
     const error = e?.message || String(e);
     await pool.query(`UPDATE dropshipping_orders SET woo_error = $2, updated_at = now() WHERE id = $1`, [pedido.id, error]);
     logger.error({ pedidoId: pedido.id, error }, "[Dropshipping] Falló la creación en WooCommerce");
     return { ok: false, error };
+  }
+}
+
+// ─── Veredicto de Dropi ─────────────────────────────────────────────────────
+
+/**
+ * Relee la orden en Woo para saber qué hizo Dropify con ella.
+ *
+ * Si Woo no deja leerla, se responde "sin_rastro" con el motivo: es mejor
+ * decir "no sé si llegó a Dropi" que dar el pedido por despachado.
+ */
+async function leerVeredictoDeDropi(woo: { getOrder(id: number): Promise<any> }, wooOrderId: number): Promise<VeredictoDropi> {
+  try {
+    const { leerRastroDropi } = await import("./woocommerce-estado");
+    const orden = await woo.getOrder(wooOrderId);
+    const r = leerRastroDropi(orden);
+    return { estado: r.estado, dropiOrderId: r.dropiOrderId, detalle: r.detalle };
+  } catch (e: any) {
+    return { estado: "sin_rastro", dropiOrderId: null, detalle: `No se pudo releer la orden en WooCommerce: ${e?.message || e}` };
+  }
+}
+
+/** Motivos por los que Dropi rechaza y que significan "este producto ya no se vende". */
+export const PRODUCTO_YA_NO_SE_VENDE = /archivad|agotad|sin stock|no disponible|inactiv|descontinuad|eliminad/i;
+
+/**
+ * Guarda el veredicto y actúa sobre él: si Dropi rechazó porque el proveedor
+ * archivó o agotó el producto, se saca del catálogo — cada minuto que siga
+ * publicado es otro cliente dando sus datos para nada (pasó con el #323:
+ * "Bolso by lola 1.1", tres días "registrado" sin que nadie supiera).
+ * Devuelve si el producto quedó desactivado.
+ */
+async function registrarVeredicto(pedido: PedidoDropshipping, dropi: VeredictoDropi): Promise<boolean> {
+  const estado = dropi.estado === "sincronizada" ? "despachado" : dropi.estado === "error" ? "rechazado_dropi" : "enviado";
+  await pool.query(
+    `UPDATE dropshipping_orders
+        SET dropi_estado = $2, dropi_order_id = $3, dropi_error = $4, estado = $5, updated_at = now()
+      WHERE id = $1`,
+    [pedido.id, dropi.estado, dropi.dropiOrderId, dropi.estado === "sincronizada" ? null : dropi.detalle, estado],
+  );
+
+  if (dropi.estado === "sincronizada") {
+    logger.info({ pedidoId: pedido.id, dropiOrderId: dropi.dropiOrderId }, "[Dropshipping] Pedido aceptado por Dropi");
+    return false;
+  }
+  logger.warn({ pedidoId: pedido.id, wooOrderId: pedido.wooOrderId, veredicto: dropi }, "[Dropshipping] El pedido NO quedó en Dropi");
+
+  let productoDesactivado = false;
+  if (dropi.estado === "error" && pedido.productId && PRODUCTO_YA_NO_SE_VENDE.test(dropi.detalle)) {
+    try {
+      await db.update(products).set({ isActive: false } as any).where(eq(products.id, pedido.productId));
+      productoDesactivado = true;
+      logger.warn({ productId: pedido.productId, motivo: dropi.detalle }, "[Dropshipping] Producto desactivado: Dropi ya no lo despacha");
+    } catch (e: any) {
+      logger.error({ err: e?.message, productId: pedido.productId }, "[Dropshipping] No se pudo desactivar el producto");
+    }
+  }
+
+  await avisarAlAdmin(pedido, dropi, productoDesactivado);
+  return productoDesactivado;
+}
+
+/** Aviso por WhatsApp al dueño: el mismo canal por el que le llegan los comprobantes. */
+async function avisarAlAdmin(pedido: PedidoDropshipping, dropi: VeredictoDropi, productoDesactivado: boolean): Promise<void> {
+  try {
+    const { telefonoDelAdmin } = await import("./verificacion-pago");
+    const { getWhatsAppForTenant } = await import("./whatsapp-factory");
+    const phone = await telefonoDelAdmin(pedido.tenantId);
+    if (!phone) return;
+    const wa = getWhatsAppForTenant(pedido.tenantId);
+    if (!wa.isConnected()) return;
+    const texto = [
+      dropi.estado === "error" ? "⚠️ *Dropi RECHAZÓ un pedido*" : "⚠️ *Pedido sin confirmar en Dropi*",
+      `Pedido #${pedido.id} · Woo #${pedido.wooOrderId} · ${pedido.productName}`,
+      `Cliente: ${pedido.nombre} · ${pedido.telefono} · ${pedido.ciudad}, ${pedido.departamento}`,
+      `Motivo: ${dropi.detalle}`,
+      productoDesactivado ? "Saqué el producto del catálogo para que el bot no lo siga ofreciendo." : "",
+      "El cliente ya sabe que hubo un problema; hay que contactarlo o cargar el pedido a mano en Dropi.",
+    ].filter(Boolean).join("\n");
+    await wa.sendText(phone, texto);
+  } catch (e: any) {
+    logger.error({ err: e?.message, pedidoId: pedido.id }, "[Dropshipping] No se pudo avisar al admin del rechazo de Dropi");
   }
 }

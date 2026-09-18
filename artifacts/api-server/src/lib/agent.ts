@@ -1711,6 +1711,19 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 
         if (pedido.estado === "confirmado") {
           const r = await ds.despacharPedido(pedido);
+          // Tres desenlaces, no dos: llegó y Dropi lo aceptó; llegó a Woo pero
+          // Dropi lo rechazó (el proveedor archivó el producto, sin stock…);
+          // o ni siquiera llegó a Woo. En el segundo el cliente ya dio todos
+          // sus datos y NO va a recibir nada: hay que decírselo, no "en un
+          // momento te confirmo" (pasó con el #323, tres días en silencio).
+          if (!r.ok && r.wooOrderId && r.dropi?.estado === "error") {
+            bloqueDropshipping =
+              `\n\n❌ EL PROVEEDOR NO PUEDE DESPACHAR ESTE PEDIDO. Motivo real: ${r.dropi.detalle}\n`
+              + (r.productoDesactivado
+                ? `El producto quedó fuera del catálogo. Decile con honestidad y sin tecnicismos que justo ese producto se agotó con el proveedor, pedile disculpas por el tiempo, y ofrecele buscar una alternativa parecida del catálogo. NO le prometas que se despacha. NO inventes número de pedido ni de guía.`
+                : `Decile con honestidad que hubo un problema con el proveedor para despachar ese producto, que ya avisaste al equipo y que le confirmás por este chat en cuanto se resuelva. NO le prometas despacho ni inventes número de guía.`);
+            console.log(`📦 [DROPSHIPPING] Dropi RECHAZÓ el pedido Woo #${r.wooOrderId}: ${r.dropi.detalle} - ${ts()}`);
+          } else
           bloqueDropshipping = r.ok
             ? `\n\n✅ PEDIDO REGISTRADO (#${r.wooOrderId}). Ya quedó creado y se despacha.\n`
               + `Confirmáselo al cliente, ordenado y en líneas cortas: producto, total (${cond.envio.costo === "incluido" ? "envío incluido" : `envío ${cond.envio.costo}`}), ${cond.envio.pago === "contraentrega" ? "pago contraentrega al recibir" : "pago ya acordado"}, la dirección exacta a la que llega (${pedido.direccion}${pedido.barrio ? `, barrio ${pedido.barrio}` : ""} — ${pedido.ciudad}, ${pedido.departamento}), que la entrega es en ${cond.envio.plazo} y que le compartís el número de guía por este chat apenas la transportadora lo genere.\n`

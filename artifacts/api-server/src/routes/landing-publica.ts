@@ -210,7 +210,11 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
           `👤 ${datos.nombre} · 📱 ${datos.telefono} · 🪪 ${datos.documento}`,
           `🏠 ${datos.direccion}${datos.barrio ? `, ${datos.barrio}` : ""} — ${datos.ciudad}, ${datos.departamento}`,
           datos.notas ? `📍 ${datos.notas}` : "",
-          r.ok ? `✅ Registrado en WooCommerce como #${r.wooOrderId}` : `⚠️ NO se pudo registrar en WooCommerce: ${r.error}`,
+          r.ok
+            ? `✅ Registrado en WooCommerce como #${r.wooOrderId}${r.dropi?.estado === "sincronizada" ? ` y en Dropi #${r.dropi.dropiOrderId || "?"}` : r.dropi ? ` (Dropi: ${r.dropi.detalle})` : ""}`
+            : r.wooOrderId
+              ? `⚠️ Quedó en WooCommerce como #${r.wooOrderId} pero Dropi lo RECHAZÓ: ${r.dropi?.detalle || r.error}`
+              : `⚠️ NO se pudo registrar en WooCommerce: ${r.error}`,
         ].filter(Boolean).join("\n");
         await mgr?.sendText?.(admin, texto);
       }

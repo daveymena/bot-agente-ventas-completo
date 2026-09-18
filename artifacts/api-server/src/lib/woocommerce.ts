@@ -169,6 +169,21 @@ export class WooCommerceService {
   }
 
   /**
+   * Un pedido puntual, con su `meta_data`. Es donde Dropify deja escrito qué
+   * hizo con él (`_is_dropi_order`): la respuesta del POST que lo crea NO lo
+   * trae, porque el plugin escribe sobre otra instancia del pedido.
+   */
+  async getOrder(orderId: number): Promise<any> {
+    try {
+      const response = await this.client.get(`/orders/${orderId}`);
+      return response.data;
+    } catch (error: any) {
+      logger.error({ tenantId: this.tenantId, orderId, error: error.message }, "[WooCommerce] Error obteniendo pedido");
+      throw new Error(`Error obteniendo pedido ${orderId}: ${error.message}`);
+    }
+  }
+
+  /**
    * Obtener un producto específico por ID
    */
   async getProduct(productId: number): Promise<WooCommerceProduct> {

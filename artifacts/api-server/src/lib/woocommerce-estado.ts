@@ -53,7 +53,7 @@ export interface EstadoWooCommerce {
   resumen: string;
 }
 
-function leerRastroDropi(o: any): Omit<RastroDropi, "productos"> {
+export function leerRastroDropi(o: any): Omit<RastroDropi, "productos"> {
   const meta = (o?.meta_data || []) as Array<{ key: string; value: any }>;
   const marca = String(meta.find((m) => m.key === "_is_dropi_order")?.value ?? "").trim();
   const dropiOrderId = meta.find((m) => m.key === "_dropi_order_id")?.value;
@@ -82,6 +82,8 @@ const ESTADO_LEGIBLE: Record<string, string> = {
   por_confirmar: "esperando el sí del cliente",
   confirmado: "confirmado, sin registrar en Woo",
   enviado: "registrado en WooCommerce",
+  despachado: "en Dropi, el proveedor despacha",
+  rechazado_dropi: "en WooCommerce pero Dropi lo RECHAZÓ",
   cancelado: "cancelado",
 };
 
