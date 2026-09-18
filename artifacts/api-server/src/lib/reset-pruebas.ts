@@ -9,9 +9,10 @@
  * negocio: productos, categorías, tienda, agentes, la sesión de WhatsApp
  * (para no re-escanear el QR) y la suscripción.
  *
- * ANTES de borrar hace un backup del archivo SQLite a un `.bak-<timestamp>`,
- * y guarda la ruta en la tabla `settings` (campo `business_config`) para poder
- * restaurarlo después desde la ruta de emergencia.
+ * ANTES de borrar exporta un backup en JSON a `data/backups/` con TODO lo que
+ * se va a eliminar, para poder restaurarlo en caso de emergencia. El backup es
+ * agnóstico del motor (funciona con SQLite y con PostgreSQL): exporta las filas
+ * con el mismo cliente drizzle que las va a borrar.
  *
  * ⚠️ Acción destructiva e irreversible (fuera del backup). Se llama desde una
  * ruta protegida por sesión y nunca desde una herramienta de Atlas.
@@ -19,7 +20,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { count, eq, sql } from "drizzle-orm";
+import { count, eq, inArray, sql } from "drizzle-orm";
 import {
   db,
   conversations,
@@ -40,7 +41,8 @@ import {
   trabajosProgramados,
   consumoMensual,
   activityEvents,
-  saveDbToDisk,
+  messages,
+  followUps,
 } from "@workspace/db";
 
 /** Tablas que se limpian POR tenant (tienen tenant_id). */
@@ -69,20 +71,19 @@ const GLOBALES: Array<{ nombre: string; tabla: any }> = [
   { nombre: "eventos de actividad", tabla: activityEvents },
 ];
 
-async function contarPorTenant(tabla: any, tenantId: number): Promise<number> {
+function directorioBackups(): string {
+  const dir = process.env.BACKUP_DIR || path.join(process.cwd(), "data", "backups");
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+async function filasDe(tabla: any, tenantId: number): Promise<any[]> {
+  return db.select().from(tabla).where(eq(tabla.tenantId, tenantId));
+}
+
+async function contar(tabla: any, tenantId: number): Promise<number> {
   const r = await db.select({ n: count() }).from(tabla).where(eq(tabla.tenantId, tenantId));
   return Number(r?.[0]?.n ?? 0);
-}
-
-async function contarGlobal(tabla: any): Promise<number> {
-  const r = await db.select({ n: count() }).from(tabla);
-  return Number(r?.[0]?.n ?? 0);
-}
-
-function rutaBackup(): string | null {
-  const dbPath = process.env.SQLITE_PATH || "./data/tecnovariedades.db";
-  const fullPath = path.resolve(dbPath);
-  return fs.existsSync(fullPath) ? fullPath : null;
 }
 
 export interface ResultadoReset {
@@ -97,39 +98,57 @@ export async function resetearPruebas(tenantId: number): Promise<ResultadoReset>
     return { ok: false, backup: null, borrados: {}, error: "tenantId inválido" };
   }
 
-  // ── Backup del archivo SQLite antes de tocar nada ────────────────────────
+  // ── 1. Exportar el backup ANTES de borrar ────────────────────────────────
   // Si el backup falla, NO se borra nada: resetear sin respaldo es un tiro a
   // ciegas sobre la base de producción.
   let backup: string | null = null;
+  const snapshot: Record<string, any[]> = {};
   try {
-    if (saveDbToDisk) saveDbToDisk();
-    const fullPath = rutaBackup();
-    if (!fullPath) {
-      return { ok: false, backup: null, borrados: {}, error: "No se encontró el archivo de base de datos para respaldar" };
+    // Mensajes y seguimientos cuelgan de las conversaciones (que se borran por
+    // cascade): se respaldan por el id de conversación del tenant.
+    const convs = await filasDe(conversations, tenantId);
+    const convIds = convs.map((c: any) => c.id);
+    snapshot.conversaciones = convs;
+    snapshot.mensajes = convIds.length
+      ? await db.select().from(messages).where(inArray(messages.conversationId, convIds))
+      : [];
+    snapshot.seguimientos = convIds.length
+      ? await db.select().from(followUps).where(inArray(followUps.conversationId, convIds))
+      : [];
+
+    for (const { nombre, tabla } of POR_TENANT) {
+      if (nombre === "conversaciones") continue; // ya exportadas
+      snapshot[nombre] = await filasDe(tabla, tenantId);
     }
-    backup = `${fullPath}.bak-${Date.now()}`;
-    fs.copyFileSync(fullPath, backup);
+    for (const { nombre, tabla } of GLOBALES) {
+      snapshot[nombre] = await db.select().from(tabla);
+    }
+
+    const nombreArchivo = `reset-${tenantId}-${Date.now()}.json`;
+    const rutaArchivo = path.join(directorioBackups(), nombreArchivo);
+    fs.writeFileSync(
+      rutaArchivo,
+      JSON.stringify({ tenantId, timestamp: new Date().toISOString(), tablas: snapshot }),
+    );
+    backup = rutaArchivo;
   } catch (e: any) {
     return { ok: false, backup: null, borrados: {}, error: `No se pudo hacer el backup: ${e?.message || e}` };
   }
 
+  // ── 2. Borrar ────────────────────────────────────────────────────────────
   const borrados: Record<string, number> = {};
-
   try {
-    // ── Tablas por tenant ──────────────────────────────────────────────────
     for (const { nombre, tabla } of POR_TENANT) {
-      borrados[nombre] = await contarPorTenant(tabla, tenantId);
+      borrados[nombre] = await contar(tabla, tenantId);
       await db.delete(tabla).where(eq(tabla.tenantId, tenantId));
     }
-
-    // ── Tablas globales ────────────────────────────────────────────────────
+    // mensajes y seguimientos se van por cascade al borrar conversaciones.
+    borrados.mensajes = snapshot.mensajes.length;
+    borrados.seguimientos = snapshot.seguimientos.length;
     for (const { nombre, tabla } of GLOBALES) {
-      borrados[nombre] = await contarGlobal(tabla);
+      borrados[nombre] = snapshot[nombre].length;
       await db.delete(tabla).where(sql`1 = 1`);
     }
-
-    // ── Persistir el resultado ─────────────────────────────────────────────
-    if (saveDbToDisk) saveDbToDisk();
 
     return { ok: true, backup, borrados };
   } catch (e: any) {
@@ -138,43 +157,62 @@ export async function resetearPruebas(tenantId: number): Promise<ResultadoReset>
 }
 
 /**
- * Restaura la base desde un archivo de backup.
+ * Restaura un backup JSON generado por `resetearPruebas`.
  *
- * Para SQLite en producción el archivo se reemplaza por el backup y el proceso
- * debe reiniciarse para recargarlo en memoria (sql.js mantiene la base en RAM y
- * la persiste por intervalos). La ruta devuelve `reinicioRequerido: true` para
- * que quien la llame sepa que hay que reiniciar el servicio.
+ * Reinserta las filas guardadas. No borra nada antes: está pensada para
+ * recuperar lo que se eliminó, no para reemplazar el estado actual.
  */
-export async function restaurarDesdeBackup(ruta: string): Promise<{ ok: boolean; reinicioRequerido: boolean; error?: string }> {
+export async function restaurarDesdeBackup(ruta: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    const fullPath = path.resolve(ruta);
-    if (!fs.existsSync(fullPath)) {
-      return { ok: false, reinicioRequerido: false, error: `No existe el archivo de backup: ${fullPath}` };
+    const contenido = fs.readFileSync(path.resolve(ruta), "utf8");
+    const datos = JSON.parse(contenido);
+    const tablas = datos?.tablas || {};
+
+    // Orden de reinserción: primero las conversaciones (los mensajes y
+    // seguimientos dependen de su id), después el resto.
+    const orden = ["conversaciones", "mensajes", "seguimientos", "leads", "pagos", "transacciones de pago", "memoria de Atlas", "analíticas de respuestas", "versiones de prompt", "borradores de anuncios", "logs del agente de anuncios", "tareas de marketing", "experimentos de marketing", "campañas de marketing", "presupuestos de marketing", "auditorías de marketing", "trabajos programados", "consumo mensual", "enlaces de pago", "eventos de actividad"];
+    const tablaPorNombre: Record<string, any> = {
+      conversaciones: conversations, mensajes, seguimientos: followUps, leads, pagos,
+      "transacciones de pago": paymentTransactions, "memoria de Atlas": architectMemory,
+      "analíticas de respuestas": responseAnalytics, "versiones de prompt": promptVersions,
+      "borradores de anuncios": facebookDrafts, "logs del agente de anuncios": adAgentLogs,
+      "tareas de marketing": marketingTasks, "experimentos de marketing": marketingExperiments,
+      "campañas de marketing": marketingCampaigns, "presupuestos de marketing": marketingBudgets,
+      "auditorías de marketing": marketingAuditLogs, "trabajos programados": trabajosProgramados,
+      "consumo mensual": consumoMensual, "enlaces de pago": paymentLinks,
+      "eventos de actividad": activityEvents,
+    };
+
+    for (const nombre of orden) {
+      const filas = tablas[nombre];
+      const tabla = tablaPorNombre[nombre];
+      if (!filas || !Array.isArray(filas) || filas.length === 0 || !tabla) continue;
+      for (const fila of filas) {
+        await db.insert(tabla).values(fila as any);
+      }
     }
-    const destino = rutaBackup();
-    if (!destino) {
-      return { ok: false, reinicioRequerido: false, error: "No se encontró el archivo de base de datos destino" };
-    }
-    fs.copyFileSync(fullPath, destino);
-    return { ok: true, reinicioRequerido: true };
+
+    return { ok: true };
   } catch (e: any) {
-    return { ok: false, reinicioRequerido: false, error: e?.message || String(e) };
+    return { ok: false, error: e?.message || String(e) };
   }
 }
 
 /** Lista los backups disponibles (para que el admin sepa qué puede restaurar). */
-export function listarBackups(): Array<{ nombre: string; ruta: string; bytes: number }> {
-  const fullPath = rutaBackup();
-  if (!fullPath) return [];
-  const dir = path.dirname(fullPath);
-  if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir)
-    .filter((f) => f.startsWith(path.basename(fullPath) + ".bak-"))
-    .map((f) => {
-      const ruta = path.join(dir, f);
-      let bytes = 0;
-      try { bytes = fs.statSync(ruta).size; } catch { /* ignore */ }
-      return { nombre: f, ruta, bytes };
-    })
-    .sort((a, b) => b.nombre.localeCompare(a.nombre));
+export function listarBackups(): Array<{ nombre: string; ruta: string; bytes: number; fecha: string }> {
+  try {
+    const dir = directorioBackups();
+    return fs.readdirSync(dir)
+      .filter((f) => f.endsWith(".json") && f.startsWith("reset-"))
+      .map((f) => {
+        const ruta = path.join(dir, f);
+        let bytes = 0;
+        let mtime = 0;
+        try { const s = fs.statSync(ruta); bytes = s.size; mtime = s.mtimeMs; } catch { /* ignore */ }
+        return { nombre: f, ruta, bytes, fecha: new Date(mtime).toISOString() };
+      })
+      .sort((a, b) => b.fecha.localeCompare(a.fecha));
+  } catch {
+    return [];
+  }
 }

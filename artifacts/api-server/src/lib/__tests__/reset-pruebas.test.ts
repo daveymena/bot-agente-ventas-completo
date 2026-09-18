@@ -75,10 +75,9 @@ describe("el reset borra solo los datos de prueba", () => {
     await db.insert(leads).values({ tenantId: T, name: "L", phone: "57" } as any);
     const r = await resetearPruebas(T);
     expect(r.ok).toBe(true);
-    // El backup es un archivo .bak-<timestamp>. En tests apunta a la base de
-    // prueba; solo se comprueba que exista una ruta de respaldo.
+    // El backup es un JSON con lo que se borró, restaurable en emergencia.
     expect(r.backup).toBeTruthy();
-    expect(r.backup).toContain(".bak-");
+    expect(r.backup).toContain(".json");
   });
 
   it("limpia los eventos de actividad (sin tenant)", async () => {
