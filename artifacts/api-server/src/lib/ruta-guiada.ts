@@ -130,7 +130,18 @@ const PRODUCTO_NUEVO: Paso[] = [
       const r = await executeAction("landing_crear", { productId: e.productoId, objetivo: "ventas" }, ctx);
       if (!r.ok) return `[SISTEMA] La página de venta NO se pudo crear: ${r.summary}. Decíselo y ofrecé reintentar.`;
       e.landingId = Number((r as any).data?.id) || undefined;
-      return `[SISTEMA] Página de venta creada por el servidor (borrador): ${r.summary}${e.landingId ? `\nVista previa en el panel: Landing Studio → landing ${e.landingId}.` : ""}`;
+      // landing_crear ahora genera EN SEGUNDO PLANO (ver app-operator). Acá se
+      // espera un rato razonable dentro del request; si no alcanza, se dice
+      // la verdad y el turno siguiente la muestra (landing_estado / la nota
+      // automática del sistema).
+      const listaEn = await esperarLanding(e.landingId, ctx, 90_000, avisar);
+      if (listaEn.estado === "lista") {
+        return `[SISTEMA] Página de venta creada por el servidor (borrador): ${listaEn.texto}`;
+      }
+      if (listaEn.estado === "fallo") {
+        return `[SISTEMA] La página de venta NO se pudo crear: ${listaEn.texto}. Decíselo y ofrecé reintentar.`;
+      }
+      return `[SISTEMA] La página de venta [${e.landingId}] se está generando todavía (tarda 1 a 3 minutos). Decile al admin que ya la está armando el servidor y que en el próximo mensaje se la mostrás; NO describas su contenido ni muestres otra landing. No preguntes si la publica todavía.`;
     },
   },
   {
@@ -148,8 +159,16 @@ const PRODUCTO_NUEVO: Paso[] = [
       if (!e.producto) return "[SISTEMA] No hay producto elegido.";
       const partes: string[] = [];
       if (e.landingId) {
+        // Si todavía se está generando, se espera lo que se pueda antes de
+        // publicar: publicar una fila vacía sería una URL en blanco.
+        const est = await esperarLanding(e.landingId, ctx, 60_000, avisar);
+        if (est.estado !== "lista") {
+          partes.push(`La página [${e.landingId}] ${est.estado === "fallo" ? `falló (${est.texto.slice(0, 160)})` : "sigue generándose"}; el anuncio lleva a WhatsApp por ahora y se puede publicar después con landing_publicar.`);
+        }
         avisar("Publicando la página de venta...");
-        const p = await executeAction("landing_publicar", { id: e.landingId, publicada: true }, ctx);
+        const p: any = est.estado === "lista"
+          ? await executeAction("landing_publicar", { id: e.landingId, publicada: true }, ctx)
+          : { ok: false, summary: "landing en generación" };
         if (p.ok) {
           e.landingUrl = String((p as any).data?.url || "");
           partes.push(`Página publicada: ${e.landingUrl || p.summary}`);
@@ -587,3 +606,27 @@ export const METAS_DE_INICIO = [
   { id: "empezar", texto: "🧭 No sé por dónde empezar", mensaje: "No sé por dónde empezar" },
   { id: "experto", texto: "⚡ Ya sé pautar: solo ejecutá", mensaje: "Ya sé pautar, quiero vender un producto nuevo: solo ejecutá" },
 ];
+
+
+/**
+ * Espera a que una landing generada en segundo plano termine, hasta `maxMs`.
+ * Devuelve el estado tal como lo describe app-operator (generando/lista/fallo).
+ */
+async function esperarLanding(
+  landingId: number | undefined,
+  ctx: OperatorContext,
+  maxMs: number,
+  avisar: (t: string) => void,
+): Promise<{ estado: "generando" | "lista" | "fallo"; texto: string }> {
+  if (!landingId) return { estado: "fallo", texto: "sin id de landing" };
+  const t0 = Date.now();
+  let avisado = false;
+  for (;;) {
+    const r: any = await executeAction("landing_estado", { id: landingId }, ctx);
+    const estado = String(r?.data?.estado || (r?.ok ? "lista" : "fallo")) as "generando" | "lista" | "fallo";
+    if (estado !== "generando") return { estado, texto: String(r?.summary || "") };
+    if (Date.now() - t0 > maxMs) return { estado: "generando", texto: String(r?.summary || "") };
+    if (!avisado && Date.now() - t0 > 15_000) { avisar("La página se está generando, un momento..."); avisado = true; }
+    await new Promise((res) => setTimeout(res, 3000));
+  }
+}
