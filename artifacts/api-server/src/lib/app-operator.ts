@@ -426,7 +426,9 @@ export function estadoDeGeneracion(l: any): { estado: "generando" | "lista" | "f
   if (st.error && !l.html && !(Array.isArray(l.sections) && l.sections.length)) {
     return { estado: "fallo", texto: `❌ La landing [${l.id}] no se pudo generar: ${String(st.error).slice(0, 300)}. Decíselo al admin y ofrecé reintentar.`, vistaPrevia: null };
   }
-  const gen = st.generador === "opencode" ? "diseño completo (HTML) por el agente especializado" : "generador por secciones (AIDA con las fotos reales)";
+  const motor = st.motor ? ` con ${st.motor}` : "";
+  const saneado = Array.isArray(st.saneado) && st.saneado.length ? `; se quitó lo repetido: ${st.saneado.join(", ")}` : "";
+  const gen = st.generador === "opencode" ? `diseño completo (HTML) por el agente de landings${motor}${saneado}` : "generador por secciones (AIDA con las fotos reales)";
   const familia = st.familia || (l.design as any)?.familia || null;
   return {
     estado: "lista",
@@ -471,7 +473,7 @@ function lanzarGeneracionDeLandingEnSegundoPlano(
         await listo({
           html,
           design: { ...(job.familia ? { familia: job.familia } : r.familia ? { familia: r.familia } : {}) },
-          strategy: { tipo: r.tipo, generador: "opencode", generando: false, listaEn: new Date().toISOString(), instruccion: job.instruccion.slice(0, 500), familia: job.familia || r.familia || null, familiaPorque: r.familiaPorque || null },
+          strategy: { tipo: r.tipo, generador: "opencode", motor: r.proveedor || "puente OpenCode", saneado: r.quitado || [], generando: false, listaEn: new Date().toISOString(), instruccion: job.instruccion.slice(0, 500), familia: job.familia || r.familia || null, familiaPorque: r.familiaPorque || null },
         });
       } catch (e: any) {
         // 2) Respaldo: el generador por secciones, que corre en este mismo

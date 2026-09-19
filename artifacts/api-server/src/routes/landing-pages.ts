@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { fotosDelProducto } from "../lib/fotos-de-producto";
+import { fotosDelProducto, fotosUnicasDelProducto, guardadorDeMetadata } from "../lib/fotos-de-producto";
 import { and, desc, eq } from "drizzle-orm";
 import { db, landingPages, products } from "@workspace/db";
 import type { TenantRequest } from "../lib/tenantManager";
@@ -91,7 +91,10 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
 
     if (row.html) {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
-      return res.send(row.html);
+      // La misma foto bajo varias URLs (local, WordPress, CloudFront) no sale dos veces.
+      const { htmlConFotosUnicas, guardadorDeMetadata } = await import("../lib/fotos-de-producto");
+      const [prod] = row.productId ? await db.select().from(products).where(eq(products.id, Number(row.productId))).limit(1) : [null];
+      return res.send(prod ? await htmlConFotosUnicas(row.html, prod, { guardar: guardadorDeMetadata(prod.id) }) : row.html);
     }
 
     let producto: any = null;
@@ -123,7 +126,7 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
       secciones: (row.sections as any[]) || [],
       familia: (row.design as any)?.familia ?? (req.query.familia as string) ?? null,
       producto: producto && {
-        name: producto.name, description: producto.description, imageUrl: producto.imageUrl, images: fotosDelProducto(producto),
+        name: producto.name, description: producto.description, imageUrl: producto.imageUrl, images: await fotosUnicasDelProducto(producto, { guardar: guardadorDeMetadata(producto.id) }),
         price: producto.price, currency: producto.currency, paymentLink: producto.paymentLink,
         whatsapp: negocio.whatsapp,
         opciones: Array.isArray(producto.opciones) ? producto.opciones : null,
@@ -186,7 +189,7 @@ router.post("/preview", async (req: TenantRequest, res, next) => {
       secciones: Array.isArray(req.body?.sections) ? req.body.sections : [],
       familia: req.body?.familia ?? req.body?.design?.familia ?? null,
       producto: producto && {
-        name: producto.name, description: producto.description, imageUrl: producto.imageUrl, images: fotosDelProducto(producto),
+        name: producto.name, description: producto.description, imageUrl: producto.imageUrl, images: await fotosUnicasDelProducto(producto, { guardar: guardadorDeMetadata(producto.id) }),
         price: producto.price, currency: producto.currency, paymentLink: producto.paymentLink,
         whatsapp: negocio.whatsapp,
         opciones: Array.isArray(producto.opciones) ? producto.opciones : null,

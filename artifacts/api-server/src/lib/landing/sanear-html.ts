@@ -148,11 +148,36 @@ function imagenesRepetidas(html: string): { html: string; quitado: string[] } {
   return { html: quitarRangos(html, sobran), quitado: [`${sobran.length} imagen(es) repetida(s)`] };
 }
 
+/**
+ * <video> sin ninguna fuente real: el modelo arma la sección "Míralo en
+ * acción" con `<source src="">` y de póster la foto de la portada. Es una
+ * foto repetida más y un reproductor que no reproduce nada (landing 21).
+ */
+function videosVacios(html: string): { html: string; quitado: string[] } {
+  const sobran: Array<{ desde: number; hasta: number }> = [];
+  for (const v of bloques(html, "video")) {
+    const tag = html.slice(v.desde, v.hasta);
+    const fuentes = [...tag.matchAll(/\bsrc=["']([^"']*)["']/gi)].map((m) => m[1].trim()).filter((s) => s && !/^data:/i.test(s));
+    // El poster no es una fuente.
+    const poster = tag.match(/\bposter=["']([^"']*)["']/i)?.[1]?.trim();
+    const reales = fuentes.filter((s) => s !== poster);
+    if (!reales.length) sobran.push(v);
+  }
+  if (!sobran.length) return { html, quitado: [] };
+  // Se quita la <section> que lo contiene si es solo el video; si no, el video.
+  const rangos = sobran.map((v) => {
+    const sec = bloques(html, "section").find((s) => s.desde <= v.desde && s.hasta >= v.hasta);
+    if (sec && textoVisible(sec.interior).length < 120) return sec;
+    return v;
+  });
+  return { html: quitarRangos(html, rangos), quitado: [`${sobran.length} video(s) sin fuente`] };
+}
+
 export function sanearHtmlDeLanding(html: string): ResultadoSaneado {
   if (!html || typeof html !== "string") return { html: html || "", quitado: [] };
   const quitado: string[] = [];
   let actual = html;
-  for (const paso of [ultimoDocumento, formulariosRepetidos, seccionesRepetidas, imagenesRepetidas]) {
+  for (const paso of [ultimoDocumento, formulariosRepetidos, seccionesRepetidas, videosVacios, imagenesRepetidas]) {
     const r = paso(actual);
     actual = r.html;
     quitado.push(...r.quitado);

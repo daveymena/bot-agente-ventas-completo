@@ -85,3 +85,17 @@ describe("bitácora de la landing", () => {
     expect(textoDeBitacora([])).toBe("");
   });
 });
+
+describe("video sin fuente", () => {
+  it("se quita la sección del reproductor vacío (y con ella el póster repetido)", () => {
+    const h = `<!doctype html><html><body>${HERO}<section class="video-section"><h2>Míralo en acción</h2><video controls poster="https://cdn.test/corrector-1.jpg"><source src="" type="video/mp4"></video></section>${PRECIO}</body></html>`;
+    const r = sanearHtmlDeLanding(h);
+    expect(r.html).not.toContain("<video");
+    expect((r.html.match(/corrector-1\.jpg/g) || []).length).toBe(1);
+    expect(r.quitado.join(" ")).toMatch(/video/);
+  });
+  it("un video con fuente real se conserva", () => {
+    const h = `<!doctype html><html><body>${HERO}<section><video controls poster="https://cdn.test/p.jpg"><source src="https://cdn.test/demo.mp4" type="video/mp4"></video></section></body></html>`;
+    expect(sanearHtmlDeLanding(h).html).toContain("demo.mp4");
+  });
+});

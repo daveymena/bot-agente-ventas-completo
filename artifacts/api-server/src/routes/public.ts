@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { fotosDelProducto, videosDelProducto } from "../lib/fotos-de-producto";
+import { fotosDelProducto, fotosUnicasDelProducto, guardadorDeMetadata, videosDelProducto } from "../lib/fotos-de-producto";
 import { db, tenants, products, settings as settingsTable, leads } from "@workspace/db";
 import { eq, and, desc, like } from "drizzle-orm";
 import { generateImageBuffer, getProviderConfigFromSettings, getProviderConfig, createAIClient } from "@workspace/integrations-openai-ai-server";
@@ -187,7 +187,7 @@ router.get("/product/:slug/:productId", async (req, res, next) => {
         price: p.price,
         currency: p.currency,
         image: p.imageUrl,
-        images: fotosDelProducto(p),
+        images: await fotosUnicasDelProducto(p, { guardar: guardadorDeMetadata(p.id) }),
         video: videosDelProducto(p).principal,
         category: p.category ?? "General",
         kind: p.kind,

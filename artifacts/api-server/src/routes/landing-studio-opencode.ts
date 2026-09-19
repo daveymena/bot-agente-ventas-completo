@@ -667,7 +667,8 @@ Respetá este estilo en TODA la página: es lo que el admin eligió explícitame
 }
 
 function buildUserPrompt(product: any, tipo: ProductType, existingHtml: string | null, instruction: string, paleta?: Paleta, pago?: DatosDePago, diseno?: Diseno, familia?: string | null): string {
-  const fotos = fotosDelProducto(product);
+  // `__fotosUnicas` lo precalcula generarLandingConOpenCode (deduplicadas por contenido).
+  const fotos: string[] = Array.isArray(product?.__fotosUnicas) ? product.__fotosUnicas : fotosDelProducto(product);
   const videos = videosDelProducto(product);
   const imagenesTxt = fotos.length
     ? fotos.map((f, i) => `  ${i + 1}. ${f}${i === 0 ? " (PRINCIPAL - usar en el HERO)" : ""}`).join("\n")
@@ -787,6 +788,11 @@ export async function generarLandingConOpenCode(opts: {
   const pago = await datosDePagoDelProducto(product);
   const memoria = await contextoLanding(product?.tenantId || 1, { productId: product?.id, tipo });
 
+  // Fotos sin repetidas por contenido (la misma foto bajo 3 URLs, medido 19-09).
+  try {
+    const { fotosUnicasDelProducto, guardadorDeMetadata } = await import("../lib/fotos-de-producto");
+    (product as any).__fotosUnicas = await fotosUnicasDelProducto(product, { guardar: product?.id ? guardadorDeMetadata(Number(product.id)) : undefined });
+  } catch { /* se usan las de siempre */ }
   let userPrompt = buildUserPrompt(product, tipo, existingHtml, instruction, paleta, pago, diseno, familia);
   if (memoria) userPrompt += `\n\n${memoria}`;
   if (opts.bitacora) userPrompt += opts.bitacora;

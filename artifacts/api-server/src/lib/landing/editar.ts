@@ -200,7 +200,7 @@ export function lanzarEdicionDeHtmlEnSegundoPlano(landing: any, instruction: str
       });
       if (r.error || !r.html || !/<html|<!doctype/i.test(r.html)) throw new Error(r.error || "El modelo no devolvió HTML");
       const resultado = r.quitado?.length ? `aplicado (se quitó: ${r.quitado.join(", ")})` : "aplicado";
-      await marcar({ html: r.html, strategy: { ...estrategiaBase, bitacora: (estrategiaBase as any).bitacora, generando: false, editando: undefined, ultimaEdicion: instruction.slice(0, 300), listaEn: new Date().toISOString(), saneado: r.quitado || [] } });
+      await marcar({ html: r.html, strategy: { ...estrategiaBase, bitacora: (estrategiaBase as any).bitacora, generando: false, editando: undefined, ultimaEdicion: instruction.slice(0, 300), listaEn: new Date().toISOString(), saneado: r.quitado || [], motor: r.proveedor || "puente OpenCode" } });
       await anotarEnBitacora(id, instruction, resultado);
     } catch (e: any) {
       await marcar({ strategy: { ...estrategiaBase, generando: false, editando: undefined, error: `No se pudo editar el HTML: ${String(e?.message || e).slice(0, 200)}` } }).catch(() => undefined);

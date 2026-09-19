@@ -8,7 +8,7 @@
  * real de pedidos del negocio: pedido -> validación -> WooCommerce.
  */
 import { Router, type Request, type Response } from "express";
-import { fotosDelProducto } from "../lib/fotos-de-producto";
+import { fotosDelProducto, fotosUnicasDelProducto, guardadorDeMetadata } from "../lib/fotos-de-producto";
 import { and, eq } from "drizzle-orm";
 import { db, landingPages, products, coupons } from "@workspace/db";
 import { logger } from "../lib/logger";
@@ -59,7 +59,9 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
     if ((row as any).html) {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.setHeader("Cache-Control", "public, max-age=60");
-      return res.send((row as any).html);
+      // La misma foto bajo varias URLs (local, WordPress, CloudFront) no sale dos veces.
+      const { htmlConFotosUnicas, guardadorDeMetadata } = await import("../lib/fotos-de-producto");
+      return res.send(producto ? await htmlConFotosUnicas((row as any).html, producto, { guardar: guardadorDeMetadata(producto.id) }) : (row as any).html);
     }
 
     const { htmlDeCopia } = await import("../lib/landing/clonar-html");
@@ -91,7 +93,7 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
         name: producto.name,
         description: producto.description,
         imageUrl: producto.imageUrl,
-        images: fotosDelProducto(producto),
+        images: await fotosUnicasDelProducto(producto, { guardar: guardadorDeMetadata(producto.id) }),
         price: producto.price,
         currency: producto.currency,
         paymentLink: producto.paymentLink,

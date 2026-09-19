@@ -234,18 +234,26 @@ export const TOKENS: Record<FamiliaVisual, TokensDeDiseno> = {
     },
   },
 
+  // ── Medido en tiendas reales de contraentrega en Colombia (19-09-2026) ──
+  // hitcolombia.co (corrector de postura): fondo blanco, texto negro, foto
+  // grande a la izquierda, precio grande, botón AMARILLO-DORADO ancho
+  // "COMPRAR YA Y PAGA CONTRA ENTREGA", secundario negro, fuente Assistant.
+  // distrihome.co (mismo producto): blanco/negro + azul #0071CE, Poppins.
+  // Antes esto era azul #1B6EF3 sobre gris azulado, más "SaaS" que tienda.
+  // El dueño lo dijo claro: "busca lo que de verdad se usa, no cosas
+  // ficticias". Esto es lo que se usa.
   ecommerce: {
     familia: "ecommerce",
     nombre: "Ecommerce",
-    cuando: "Producto físico: foto, beneficios, comparación y prueba social.",
-    tipografia: { display: "'Inter', system-ui, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.05, pesoDisplay: 700, espaciadoTitulo: "-0.02em", interlineado: 1.65 },
-    color: { fondo: "#FFFFFF", superficie: "#F5F7FA", texto: "#14181F", textoSuave: "#5A6472", acento: "#1B6EF3", sobreAcento: "#FFFFFF", borde: "#E1E6ED" },
+    cuando: "Producto físico de contraentrega: foto grande, precio claro, botón imposible de no ver, sellos de confianza.",
+    tipografia: { display: "'Poppins', system-ui, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.1, pesoDisplay: 700, espaciadoTitulo: "-0.02em", interlineado: 1.65 },
+    color: { fondo: "#FFFFFF", superficie: "#F7F7F7", texto: "#111111", textoSuave: "#555B63", acento: "#F2B71B", sobreAcento: "#111111", borde: "#E5E7EB" },
     ritmo: { anchoContenido: "1140px", padSeccionY: "72px", padSeccionX: "24px", separacion: "20px" },
-    forma: { radio: "12px", sombra: "0 2px 10px rgba(20,24,31,.07)", borde: "1px solid #E1E6ED" },
+    forma: { radio: "10px", sombra: "0 2px 10px rgba(17,17,17,.08)", borde: "1px solid #E5E7EB" },
     alineacion: "izquierda",
     fondos: "alterno",
     imagen: "flotante",
-    cta: "solido",
+    cta: "bloque",
     layoutsPreferidos: {
       hero: ["hero_product_focus", "hero_split"],
       benefits: ["benefits_icon_grid", "benefits_cards"],
@@ -276,20 +284,23 @@ export const TOKENS: Record<FamiliaVisual, TokensDeDiseno> = {
     },
   },
 
+  // ── Medido en gymshark.com (19-09-2026): blanco y negro, un solo acento
+  // rojo #BF2E35, fotos a sangre. Antes esto era negro con lima #C8FF3D, un
+  // "gamer" que el dueño describió como colores feos y ficticios.
   fitness: {
     familia: "fitness",
     nombre: "Fitness",
-    cuando: "Transformación: contraste fuerte y energía.",
-    tipografia: { display: "'Archivo', Impact, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.35, pesoDisplay: 800, espaciadoTitulo: "-0.035em", interlineado: 1.55 },
-    color: { fondo: "#0E1114", superficie: "#181D22", texto: "#F6F8FA", textoSuave: "#9AA6B2", acento: "#C8FF3D", sobreAcento: "#0E1114", borde: "#242B32" },
+    cuando: "Deporte y transformación: blanco y negro, fotos a sangre y un solo acento fuerte.",
+    tipografia: { display: "'Archivo', Impact, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.3, pesoDisplay: 800, espaciadoTitulo: "-0.035em", interlineado: 1.55 },
+    color: { fondo: "#FFFFFF", superficie: "#F4F4F5", texto: "#0A0A0A", textoSuave: "#52525B", acento: "#BF2E35", sobreAcento: "#FFFFFF", borde: "#E4E4E7" },
     ritmo: { anchoContenido: "1080px", padSeccionY: "88px", padSeccionX: "22px", separacion: "22px" },
-    forma: { radio: "6px", sombra: "0 8px 28px rgba(0,0,0,.45)", borde: "1px solid #242B32" },
+    forma: { radio: "4px", sombra: "0 2px 12px rgba(10,10,10,.10)", borde: "1px solid #E4E4E7" },
     alineacion: "izquierda",
-    fondos: "oscuro",
+    fondos: "alterno",
     imagen: "a-sangre",
     cta: "bloque",
     layoutsPreferidos: {
-      hero: ["hero_dark", "hero_full_visual"],
+      hero: ["hero_full_visual", "hero_split"],
       benefits: ["benefits_numbered", "benefits_split"],
       offer: ["offer_dark", "offer_urgency"],
       testimonials: ["testimonial_cards", "testimonial_large"],
@@ -541,6 +552,9 @@ const SENALES: Array<{ familia: FamiliaVisual; palabras: string[] }> = [
   { familia: "gourmet", palabras: ["chocolate", "cafe", "comida", "gourmet", "organico", "panaderia", "torta", "postre", "vino", "cerveza", "miel", "te ", "reposteria", "snack", "granola"] },
   { familia: "belleza", palabras: ["belleza", "beauty", "piel", "skin", "cabello", "pelo", "maquillaje", "cosmetic", "crema", "serum", "facial", "perfume", "unas"] },
   { familia: "suplemento", palabras: ["suplemento", "vitamina", "colageno", "proteina", "omega", "magnesio", "creatina", "quemador", "adelgazante", "herbal", "capsula", "gomitas"] },
+  // Salud/ortopedia (corrector de postura, faja, rodillera) NO es fitness:
+  // en las tiendas reales va como cualquier producto de contraentrega.
+  { familia: "ecommerce", palabras: ["corrector de postura", "postura", "ortoped", "faja", "rodillera", "lumbar", "cervical", "masajeador", "terapia", "alivio"] },
   { familia: "fitness", palabras: ["fitness", "gym", "gimnasio", "entrenamiento", "workout", "musculo", "adelgazar", "proteina", "deporte", "yoga", "rutina"] },
   // Tecnología va ANTES que educación a propósito: "curso de inteligencia
   // artificial" es un curso, pero el rubro que manda en la estética es la
