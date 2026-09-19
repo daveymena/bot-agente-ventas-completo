@@ -10,8 +10,8 @@ import { describe, it, expect } from "vitest";
 import { FAMILIAS, TOKENS, tokensDe, esFamilia, elegirFamilia, layoutDe } from "../design-system";
 
 describe("las familias son de verdad distintas", () => {
-  it("están las 13 y cada una se declara a sí misma", () => {
-    expect(FAMILIAS).toHaveLength(13);
+  it("están las 16 y cada una se declara a sí misma", () => {
+    expect(FAMILIAS).toHaveLength(16);
     for (const f of FAMILIAS) expect(TOKENS[f].familia).toBe(f);
   });
 

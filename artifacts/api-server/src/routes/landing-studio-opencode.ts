@@ -369,6 +369,16 @@ REGLAS DE TIPOGRAFIA RESPONSIVE (OBLIGATORIAS):
 10. Verifica que los titulos NO se corten ni desborden en pantallas de 375px.
 
 REGLAS DE COLORES (OBLIGATORIAS):
+0. ESTRUCTURA DE UNA LANDING DE PRODUCTO PROFESIONAL (referencia: las plantillas de producto de Envato Elements, tipo Promix/Hedpro/Suppke/Bensen). En este orden, cada bloque con aire y una sola idea:
+   a) Barra superior fija: marca a la izquierda, botón de compra a la derecha.
+   b) Hero: titular de beneficio (no el nombre del producto), subtítulo de una línea, producto GRANDE (foto real, sin recortar) y dos acciones: comprar + ver más. Debajo, una franja de confianza (entrega, pago seguro, garantía real si existe).
+   c) Beneficios: 3 a 6 tarjetas con ícono, título corto y una línea.
+   d) "Cómo funciona" o "Qué incluye": pasos numerados o grilla de especificaciones/módulos.
+   e) Demo: video del producto si hay, o galería de fotos reales.
+   f) Oferta: tarjeta con precio grande, qué incluye, botón. Para físico contraentrega, el formulario de pedido.
+   g) Preguntas frecuentes (4 a 6) y cierre con el mismo botón.
+   h) Barra inferior pegajosa en móvil con precio + botón.
+   Nada de secciones de relleno (blog, equipo, contacto genérico).
 1. NO uses colores de fondo al azar. Usa la PALETA que te doy en el brief (colores de marca + color dominante del producto).
 2. El color PRIMARIO va en fondos de secciones, encabezados y elementos destacados.
 3. El color de ACENTO va en botones CTA, precios y elementos de urgencia.

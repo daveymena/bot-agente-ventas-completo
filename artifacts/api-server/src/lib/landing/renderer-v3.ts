@@ -184,7 +184,7 @@ function cssFamilia(familia: string): string {
   if (familia === "premium") return CSS_PREMIUM;
   if (familia === "respuesta-directa") return CSS_RESPUESTA_DIRECTA;
   if (familia === "ecommerce") return CSS_ECOMMERCE;
-  if (familia === "oscura") return CSS_OSCURA;
+  if (familia === "oscura" || familia === "electronica") return CSS_OSCURA;
   return "";
 }
 

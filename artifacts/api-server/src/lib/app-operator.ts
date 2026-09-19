@@ -432,7 +432,7 @@ export function estadoDeGeneracion(l: any): { estado: "generando" | "lista" | "f
     estado: "lista",
     texto:
       `✅ La landing [${l.id}] "${l.name}" está LISTA (${gen}${st.motivoRespaldo ? `; el generador premium falló: ${String(st.motivoRespaldo).slice(0, 120)}` : ""}). ` +
-      (familia ? `Estilo visual: "${familia}"${st.familiaPorque ? ` — ${st.familiaPorque}` : ""}. Si el admin quiere otro, landing_editar con "poné estilo X" (premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch). ` : "") +
+      (familia ? `Estilo visual: "${familia}"${st.familiaPorque ? ` — ${st.familiaPorque}` : ""}. Si el admin quiere otro, landing_editar con "poné estilo X" (premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch, electronica, suplemento, gourmet). ` : "") +
       `Vista previa: ${vistaPrevia} . ${l.status === "published" ? "Ya está publicada." : `Está en borrador: para la URL pública, landing_publicar con id ${l.id}.`}`,
     vistaPrevia,
   };
@@ -4375,7 +4375,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       "La generación tarda 1 a 3 minutos y corre EN SEGUNDO PLANO: esta herramienta devuelve al instante el id de la landing NUEVA en estado 'generando'. " +
       "USALA SIEMPRE que el admin pida una landing, página de venta o 'que se vea profesional'. Queda en BORRADOR: para la URL pública, landing_publicar. ⚠️ Va por propose_action. " +
       "⚠️ NUNCA presentes una landing anterior (de landing_listar o de tu memoria) como si fuera la que acabás de pedir: la nueva es la del id que devuelve ESTA herramienta, y hasta que landing_estado diga 'lista' no existe nada para mostrar.",
-    args: '{ "productId": number (req), "instruccion"?: string (opcional), "familia"?: string (estilo visual: premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch) }',
+    args: '{ "productId": number (req), "instruccion"?: string (opcional), "familia"?: string (estilo visual: premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch, electronica, suplemento, gourmet) }',
     run: async (args, ctx) => {
       const id = num(args?.productId);
       if (!id) return { ok: false, summary: "Falta 'productId'." };

@@ -16,16 +16,20 @@ describe("la paleta depende del producto", () => {
     ["Cojín Moto Viajero", "Accesorios", "ecommerce"],
     ["Rutina de entrenamiento en casa", "Fitness", "fitness"],
     ["Organizador de cocina", "Hogar", "familiar"],
+    ["Audífonos Bluetooth inalámbricos", "Tecnología", "electronica"],
+    ["Colágeno hidrolizado con vitamina C", "Salud", "suplemento"],
+    ["Café de origen tostado artesanal", "Alimentos", "gourmet"],
+    ["Vestido largo de verano", "Moda", "minimal"],
   ];
   it.each(casos)("%s → %s", (nombre, categoria, esperada) => {
-    const e = elegirFamilia({ nombre, categoria, descripcion: "", tipo: /coj|organizador/i.test(nombre) ? "physical" : "digital", precio: 60000 });
+    const e = elegirFamilia({ nombre, categoria, descripcion: "", tipo: /coj|organizador|aud|colag|caf|vestido/i.test(nombre) ? "physical" : "digital", precio: 60000 });
     expect(e.familia).toBe(esperada);
     expect(e.porque.length).toBeGreaterThan(10);
   });
 
   it("las familias elegidas para el catálogo no comparten acento: no sale todo del mismo color", () => {
     const acentos = new Set(casos.map(([n, c]) => tokensDe(elegirFamilia({ nombre: n, categoria: c, tipo: "digital" }).familia).color.acento));
-    expect(acentos.size).toBeGreaterThanOrEqual(5);
+    expect(acentos.size).toBeGreaterThanOrEqual(8);
   });
 
   it("la línea tecnológica no es rosa ni pastel", () => {

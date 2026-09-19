@@ -48,11 +48,15 @@ export type FamiliaVisual =
   | "familiar"
   | "creativa"
   | "oscura"
-  | "launch";
+  | "launch"
+  | "electronica"
+  | "suplemento"
+  | "gourmet";
 
 export const FAMILIAS: readonly FamiliaVisual[] = [
   "premium", "respuesta-directa", "minimal", "editorial", "ecommerce", "belleza",
   "fitness", "educacion", "tecnologia", "familiar", "creativa", "oscura", "launch",
+  "electronica", "suplemento", "gourmet",
 ] as const;
 
 /** Cómo se integran las fotos. Cambia la composición, no un filtro. */
@@ -335,6 +339,76 @@ export const TOKENS: Record<FamiliaVisual, TokensDeDiseno> = {
     },
   },
 
+  /**
+   * Las tres siguientes salen de las plantillas de producto de Envato
+   * Elements (elements.envato.com/web-templates/product), que el dueño dio
+   * como referencia el 19-09-2026: Promix / Ex Watch / Targus (electrónica),
+   * Suppke / VIGO / Hisupp (suplementos) y Delicio / Broccoli / Krishok
+   * (comida y orgánico). Se toma el criterio visual, no los archivos.
+   */
+  electronica: {
+    familia: "electronica",
+    nombre: "Electrónica",
+    cuando: "Gadgets y aparatos: fondo azul noche, producto flotando con brillo, ficha técnica en grilla.",
+    tipografia: { display: "'Space Grotesk', system-ui, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.2, pesoDisplay: 700, espaciadoTitulo: "-0.03em", interlineado: 1.65 },
+    color: { fondo: "#0B1220", superficie: "#111B2E", texto: "#F8FAFC", textoSuave: "#94A3B8", acento: "#22D3EE", sobreAcento: "#0B1220", borde: "#1E2A44" },
+    ritmo: { anchoContenido: "1120px", padSeccionY: "100px", padSeccionX: "24px", separacion: "26px" },
+    forma: { radio: "18px", sombra: "0 16px 48px rgba(34,211,238,.12)", borde: "1px solid #1E2A44" },
+    alineacion: "centrado",
+    fondos: "oscuro",
+    imagen: "flotante",
+    cta: "solido",
+    layoutsPreferidos: {
+      hero: ["hero_product_focus", "hero_dark"],
+      benefits: ["benefits_icon_grid", "benefits_split"],
+      offer: ["offer_dark", "offer_card"],
+      testimonials: ["testimonial_cards", "testimonial_slider"],
+      faq: ["faq_accordion", "faq_minimal"],
+    },
+  },
+
+  suplemento: {
+    familia: "suplemento",
+    nombre: "Salud y suplementos",
+    cuando: "Vitaminas, colágeno, proteínas, productos naturales: blanco limpio, verde de confianza, beneficios e ingredientes claros.",
+    tipografia: { display: "'Poppins', system-ui, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.15, pesoDisplay: 700, espaciadoTitulo: "-0.02em", interlineado: 1.7 },
+    color: { fondo: "#FFFFFF", superficie: "#F1F8F2", texto: "#14291A", textoSuave: "#5B6B60", acento: "#16A34A", sobreAcento: "#FFFFFF", borde: "#DCEBDF" },
+    ritmo: { anchoContenido: "1100px", padSeccionY: "88px", padSeccionX: "24px", separacion: "24px" },
+    forma: { radio: "20px", sombra: "0 8px 28px rgba(22,163,74,.10)", borde: "1px solid #DCEBDF" },
+    alineacion: "izquierda",
+    fondos: "plano",
+    imagen: "flotante",
+    cta: "pastilla",
+    layoutsPreferidos: {
+      hero: ["hero_split", "hero_product_focus"],
+      benefits: ["benefits_icon_grid", "benefits_cards"],
+      offer: ["offer_card", "offer_minimal"],
+      testimonials: ["testimonial_cards", "testimonial_quote"],
+      faq: ["faq_accordion", "faq_minimal"],
+    },
+  },
+
+  gourmet: {
+    familia: "gourmet",
+    nombre: "Gourmet",
+    cuando: "Comida, café, chocolate, orgánico: tonos cálidos de cacao y crema, foto grande que dé apetito.",
+    tipografia: { display: "'Playfair Display', Georgia, serif", texto: "'Inter', system-ui, sans-serif", escala: 1.25, pesoDisplay: 700, espaciadoTitulo: "-0.01em", interlineado: 1.7 },
+    color: { fondo: "#FFF9F2", superficie: "#FFFFFF", texto: "#2B1B12", textoSuave: "#7A6558", acento: "#7C3F1D", sobreAcento: "#FFFFFF", borde: "#EFE0D2" },
+    ritmo: { anchoContenido: "1080px", padSeccionY: "96px", padSeccionX: "24px", separacion: "26px" },
+    forma: { radio: "22px", sombra: "0 10px 32px rgba(124,63,29,.10)", borde: "1px solid #EFE0D2" },
+    alineacion: "centrado",
+    fondos: "plano",
+    imagen: "a-sangre",
+    cta: "pastilla",
+    layoutsPreferidos: {
+      hero: ["hero_split", "hero_center"],
+      benefits: ["benefits_cards", "benefits_split"],
+      offer: ["offer_card", "offer_minimal"],
+      testimonials: ["testimonial_quote", "testimonial_cards"],
+      faq: ["faq_minimal", "faq_accordion"],
+    },
+  },
+
   familiar: {
     familia: "familiar",
     nombre: "Familiar",
@@ -461,7 +535,12 @@ export interface PistasDelProducto {
  * reales tienen de las dos, y sin acentos porque se compara normalizado.
  */
 const SENALES: Array<{ familia: FamiliaVisual; palabras: string[] }> = [
+  // Las más específicas primero: "proteína" es suplemento antes que fitness,
+  // "audífonos" es electrónica antes que "oscura".
+  { familia: "electronica", palabras: ["audifono", "auricular", "parlante", "smartwatch", "reloj inteligente", "drone", "dron", "camara", "celular", "smartphone", "laptop", "tablet", "cargador", "gadget", "led", "bluetooth", "consola", "gaming", "gamer", "proyector", "power bank"] },
+  { familia: "gourmet", palabras: ["chocolate", "cafe", "comida", "gourmet", "organico", "panaderia", "torta", "postre", "vino", "cerveza", "miel", "te ", "reposteria", "snack", "granola"] },
   { familia: "belleza", palabras: ["belleza", "beauty", "piel", "skin", "cabello", "pelo", "maquillaje", "cosmetic", "crema", "serum", "facial", "perfume", "unas"] },
+  { familia: "suplemento", palabras: ["suplemento", "vitamina", "colageno", "proteina", "omega", "magnesio", "creatina", "quemador", "adelgazante", "herbal", "capsula", "gomitas"] },
   { familia: "fitness", palabras: ["fitness", "gym", "gimnasio", "entrenamiento", "workout", "musculo", "adelgazar", "proteina", "deporte", "yoga", "rutina"] },
   // Tecnología va ANTES que educación a propósito: "curso de inteligencia
   // artificial" es un curso, pero el rubro que manda en la estética es la
@@ -471,7 +550,8 @@ const SENALES: Array<{ familia: FamiliaVisual; palabras: string[] }> = [
   { familia: "educacion", palabras: ["curso", "clase", "taller", "masterclass", "capacitacion", "diplomado", "aprende", "aprender", "ensena", "tutorial", "academia", "leccion", "idioma", "ingles", "piano", "guitarra", "musica"] },
   { familia: "launch", palabras: ["lanzamiento", "launch", "startup", "preventa", "early access", "beta", "waitlist", "lista de espera"] },
   { familia: "familiar", palabras: ["hogar", "cocina", "familia", "bebe", "nino", "mascota", "casa", "limpieza", "organizador"] },
-  { familia: "oscura", palabras: ["gaming", "gamer", "premium tech", "audio", "auricular", "reloj inteligente", "smartwatch", "drone"] },
+  { familia: "minimal", palabras: ["ropa", "camisa", "vestido", "zapato", "tenis", "moda", "bolso", "chaqueta", "jean"] },
+  { familia: "oscura", palabras: ["premium tech", "audio", "lujo"] },
 ];
 
 /** Quita acentos y baja a minúsculas, para comparar sin sorpresas. */
