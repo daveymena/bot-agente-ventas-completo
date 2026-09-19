@@ -26,6 +26,14 @@ import {
   Heart,
   Wand2,
   ImagePlus,
+  Globe,
+  Megaphone,
+  Package,
+  Receipt,
+  Search,
+  Ticket,
+  Truck,
+  Compass,
 } from "lucide-react";
 
 // ─── Datos ──────────────────────────────────────────────────────────────
@@ -35,41 +43,100 @@ import {
 // no "esto dice fulano que nunca existió".
 const ECOSYSTEM_STEPS = [
   {
+    icon: Megaphone,
+    title: "Atlas trae clientes",
+    desc: "Investiga la competencia, arma la página de venta, escribe el anuncio y lo sube a Meta en pausa. Vos aprobás; él ejecuta.",
+  },
+  {
     icon: MessageCircle,
-    title: "El cliente escribe por WhatsApp",
-    desc: "A cualquier hora. Sofía (tu agente IA) responde en segundos, con la personalidad y el catálogo de tu negocio.",
+    title: "El cliente escribe",
+    desc: "Por WhatsApp, Messenger o un comentario en Facebook. Tu agente IA responde en segundos con el catálogo y el tono de tu negocio.",
   },
   {
     icon: Bot,
     title: "La IA vende de verdad",
-    desc: "Resuelve dudas, recomienda productos, maneja objeciones y agenda el follow-up si el cliente se queda pensando.",
+    desc: "Presenta el producto, da el precio cuando lo piden, resuelve objeciones y pasa a los medios de pago en el momento justo.",
   },
   {
-    icon: Store,
-    title: "Cierra en tu tienda online",
-    desc: "Catálogo propio, carrito y checkout con MercadoPago o PayPal -- sin que el cliente salga de la conversación.",
+    icon: Receipt,
+    title: "Cobra y entrega",
+    desc: "Link de MercadoPago o PayPal, transferencia con comprobante leído por IA, o contraentrega con pedido en Dropi o WooCommerce.",
   },
   {
     icon: LayoutDashboard,
-    title: "Vos ves todo en un panel",
-    desc: "Conversaciones en vivo, prospectos, embudo de ventas y métricas reales -- y podés tomar el control cuando quieras.",
+    title: "Vos dirigís desde el panel",
+    desc: "Conversaciones en vivo, prospectos, campañas y métricas. Tomás el control cuando querés y Atlas te dice qué hacer después.",
+  },
+];
+
+/**
+ * Los cuatro pilares de la plataforma. Cada punto existe en el código
+ * (rutas y herramientas de Atlas verificadas el 2026-09-18); nada aspiracional.
+ */
+const PILARES = [
+  {
+    icon: MessageCircle,
+    color: "bg-emerald-500/10 text-emerald-600",
+    title: "Vender por chat",
+    desc: "Un vendedor IA que atiende WhatsApp, Messenger y comentarios de Facebook con tu catálogo, y aprende lo que le enseñás.",
+    items: [
+      "Presenta, cotiza y cierra con el flujo de un vendedor humano",
+      "Lee comprobantes de pago con visión y los deja listos para aprobar",
+      "Cupones reales, seguimientos automáticos y campañas por WhatsApp o correo",
+      "Hasta 8 agentes con distinta personalidad por negocio",
+    ],
   },
   {
-    icon: Facebook,
-    title: "Facebook Ads alimenta el ciclo",
-    desc: "Generá anuncios y borradores de campaña desde la misma IA para traer más clientes a WhatsApp.",
+    icon: Megaphone,
+    color: "bg-blue-500/10 text-blue-600",
+    title: "Atraer clientes",
+    desc: "Atlas, tu agencia de marketing en un chat: de 'quiero anunciar esto' a una campaña en Meta, en pausa, lista para activar.",
+    items: [
+      "Investiga la competencia en la Biblioteca de Anuncios de Meta",
+      "Escribe el anuncio con los datos reales del producto y lo sube a Facebook e Instagram",
+      "Píxel, atribución y radiografía de cada campaña en lenguaje de dueño",
+      "Plan de contenido orgánico y publicación en tu página",
+    ],
+  },
+  {
+    icon: Globe,
+    color: "bg-amber-500/10 text-amber-600",
+    title: "Vender por la web",
+    desc: "Tienda online propia y páginas de venta generadas por IA con las fotos reales de tus productos.",
+    items: [
+      "Tienda con catálogo, categorías y checkout MercadoPago / PayPal",
+      "Landing pages con estructura AIDA, editables por chat y con URL pública lista para el anuncio",
+      "Dropshipping: importás de Dropi, sincronizás con WooCommerce, pedido contraentrega",
+      "Fichas de producto escritas por IA desde una foto o un Excel",
+    ],
+  },
+  {
+    icon: LayoutDashboard,
+    color: "bg-violet-500/10 text-violet-600",
+    title: "Dirigir el negocio",
+    desc: "Un panel que responde '¿qué está pasando?' y '¿qué hago ahora?', con Atlas revisando tu negocio y proponiendo el siguiente paso.",
+    items: [
+      "Bandeja de conversaciones en vivo con control manual cuando querés",
+      "Prospectos, embudo, tiempo de respuesta y valor generado",
+      "Diagnóstico de qué le falta a tu negocio y ruta guiada paso a paso",
+      "Cada negocio con su WhatsApp, sus datos y su catálogo, aislados",
+    ],
   },
 ];
 
 const TOOLS = [
-  { icon: Bot, title: "Agentes IA multi-personalidad", desc: "Configurá el tono, el nombre y hasta 8 agentes especializados en el plan Pro (2 en Starter, 5 en Growth)." },
+  { icon: Bot, title: "Vendedor IA multicanal", desc: "WhatsApp, Messenger y comentarios de Facebook con el mismo cerebro y tu catálogo." },
+  { icon: Compass, title: "Atlas, tu operador", desc: "Le hablás en tu idioma y él configura, investiga, crea y publica. Pide confirmación antes de gastar." },
+  { icon: Wand2, title: "Landing pages con IA", desc: "Páginas de venta con fotos reales, formulario contraentrega o pago, y edición por chat." },
+  { icon: Facebook, title: "Facebook e Instagram Ads", desc: "Borrador, campaña en pausa, activación, presupuesto, métricas y por qué no entrega." },
   { icon: Store, title: "Tienda online propia", desc: "Catálogo, categorías, importación por Excel con IA y checkout integrado." },
-  { icon: MessageCircle, title: "Bandeja de conversaciones", desc: "Mirá cada charla en vivo y tomá el control manual en cualquier momento." },
-  { icon: Facebook, title: "Facebook Ads con IA", desc: "Borradores de campaña, segmentación sugerida y publicación desde el panel." },
-  { icon: RefreshCw, title: "Recuperación de seguimientos", desc: "La IA programa follow-ups automáticos para no perder prospectos tibios." },
-  { icon: ShieldCheck, title: "Multi-negocio aislado de verdad", desc: "Cada cuenta tiene su propia sesión de WhatsApp, datos y catálogo -- sin mezclas." },
-  { icon: CreditCard, title: "Pagos con MercadoPago y PayPal", desc: "Cobrá suscripciones y ventas con los métodos que tus clientes ya usan." },
-  { icon: BarChart3, title: "Analíticas y embudo de ventas", desc: "Tasa de conversión, tiempo de respuesta y valor generado, en tiempo real." },
+  { icon: Truck, title: "Dropshipping", desc: "Importación desde Dropi, pedidos contraentrega y sincronización con WooCommerce." },
+  { icon: Receipt, title: "Comprobantes con visión", desc: "La IA lee la captura de Nequi o Daviplata y vos aprobás con un clic." },
+  { icon: Ticket, title: "Cupones y seguimientos", desc: "Descuentos reales, follow-ups automáticos y envíos masivos por WhatsApp o correo." },
+  { icon: Search, title: "Investigación real", desc: "Biblioteca de Anuncios de Meta y búsqueda web para decidir con datos, no de memoria." },
+  { icon: CreditCard, title: "MercadoPago y PayPal", desc: "Cobrá ventas y suscripciones con los métodos que tus clientes ya usan." },
+  { icon: BarChart3, title: "Analíticas y atribución", desc: "Embudo, tiempo de respuesta, valor generado y qué campaña trajo cada venta." },
+  { icon: ShieldCheck, title: "Multi-negocio aislado", desc: "Cada cuenta con su propia sesión de WhatsApp, datos y catálogo, sin mezclas." },
 ];
 
 const DEMO_SCRIPT: { from: "user" | "bot"; text: string }[] = [
@@ -591,6 +658,7 @@ export default function LandingPage() {
             <span className="font-bold text-lg">VentasPro</span>
           </Link>
           <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
+            <button onClick={() => scrollTo("pilares")} className="hover:text-foreground transition-colors">Qué hace</button>
             <button onClick={() => scrollTo("ecosistema")} className="hover:text-foreground transition-colors">Cómo funciona</button>
             <button onClick={() => scrollTo("herramientas")} className="hover:text-foreground transition-colors">Herramientas</button>
             <button onClick={() => scrollTo("precios")} className="hover:text-foreground transition-colors">Precios</button>
@@ -612,6 +680,7 @@ export default function LandingPage() {
               className="md:hidden border-t overflow-hidden"
             >
               <div className="px-4 py-4 flex flex-col gap-3">
+                <button onClick={() => scrollTo("pilares")} className="text-left text-sm font-medium py-1.5">Qué hace</button>
                 <button onClick={() => scrollTo("ecosistema")} className="text-left text-sm font-medium py-1.5">Cómo funciona</button>
                 <button onClick={() => scrollTo("herramientas")} className="text-left text-sm font-medium py-1.5">Herramientas</button>
                 <button onClick={() => scrollTo("precios")} className="text-left text-sm font-medium py-1.5">Precios</button>
@@ -634,11 +703,11 @@ export default function LandingPage() {
                 <Sparkles className="h-3.5 w-3.5" /> 7 días gratis · sin tarjeta
               </Badge>
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-[1.05]">
-                Un agente de IA que vende por WhatsApp <span className="text-primary">mientras vos dormís</span>
+                Tu negocio vendiendo solo: <span className="text-primary">ventas, marketing y tienda</span> con IA en un solo lugar
               </h1>
               <p className="mt-6 text-lg text-muted-foreground max-w-xl">
-                VentasPro conecta tu WhatsApp, tu tienda online y tus anuncios de Facebook en un solo ecosistema.
-                Sofía responde, recomienda y cierra ventas -- vos solo mirás el panel.
+                Un vendedor IA que atiende WhatsApp, Messenger y Facebook. Atlas, una agencia de marketing en un chat que
+                investiga, crea tu página de venta y publica tus anuncios. Tienda, landings, dropshipping y cobros, todo en el mismo panel.
               </p>
               <div className="mt-8 flex flex-col sm:flex-row gap-3">
                 <Link href="/auth?tab=register">
@@ -646,8 +715,8 @@ export default function LandingPage() {
                     Comenzar gratis <ArrowRight className="h-4 w-4" />
                   </Button>
                 </Link>
-                <Button size="lg" variant="outline" className="w-full sm:w-auto text-base px-7" onClick={() => scrollTo("ecosistema")}>
-                  Ver cómo funciona
+                <Button size="lg" variant="outline" className="w-full sm:w-auto text-base px-7" onClick={() => scrollTo("pilares")}>
+                  Ver todo lo que hace
                 </Button>
               </div>
               <p className="mt-4 text-xs text-muted-foreground flex items-center gap-1.5">
@@ -684,7 +753,7 @@ export default function LandingPage() {
               justamente lo que el cliente puede contar y desmentir. */}
           <StatCounter value={8} label="Agentes IA en el plan Pro" />
           <StatCounter value={15000} label="Mensajes/mes en el plan Pro" />
-          <StatCounter value={3} label="Canales: WhatsApp, Messenger y tienda" />
+          <StatCounter value={4} label="Canales: WhatsApp, Messenger, Facebook y tienda" />
           <StatCounter value={7} label="Días de prueba gratis" />
         </div>
       </section>
@@ -693,19 +762,21 @@ export default function LandingPage() {
       <section className="max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-28">
         <div className="grid lg:grid-cols-2 gap-12 items-center">
           <Reveal>
-            <Badge variant="outline" className="mb-4 gap-1.5"><Wand2 className="h-3.5 w-3.5" /> Marketing automático</Badge>
+            <Badge variant="outline" className="mb-4 gap-1.5"><Compass className="h-3.5 w-3.5" /> Atlas · tu agencia en un chat</Badge>
             <h2 className="text-3xl sm:text-4xl font-black tracking-tight leading-tight">
-              Un agente de marketing digital trabajando solo, 24/7
+              Decile "quiero anunciar este curso" y Atlas hace el resto
             </h2>
             <p className="mt-4 text-muted-foreground text-lg">
-              Mientras Sofía cierra ventas por WhatsApp, la misma IA arma borradores de campañas de Facebook Ads:
-              copy, imagen y segmentación sugerida -- vos solo revisás y publicás.
+              No es un generador de textos: es un operador que investiga la competencia, arma la página de venta,
+              escribe el anuncio con los datos reales de tu producto y lo sube a Meta en pausa. Vos aprobás cada paso.
             </p>
             <ul className="mt-6 space-y-3">
               {[
-                "Genera el copy y la imagen del anuncio automáticamente",
-                "Sugiere la segmentación según tu catálogo",
-                "Publica directo desde el panel cuando lo aprobás",
+                "Investiga qué anuncia la competencia en la Biblioteca de Anuncios de Meta",
+                "Crea la landing page con tus fotos y la publica con URL lista para el anuncio",
+                "Sube la campaña a Facebook e Instagram en pausa: no gasta hasta que digas",
+                "Te explica en 3 líneas qué está pasando con cada campaña y qué hacer",
+                "Configura y entrena a tu vendedor IA desde la misma conversación",
               ].map(item => (
                 <li key={item} className="flex items-start gap-2.5 text-sm">
                   <div className="h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-0.5">
@@ -728,8 +799,8 @@ export default function LandingPage() {
       <section id="ecosistema" className="max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-28">
         <Reveal className="text-center max-w-2xl mx-auto mb-16">
           <Badge variant="outline" className="mb-4">El ecosistema completo</Badge>
-          <h2 className="text-3xl sm:text-4xl font-black tracking-tight">De un mensaje de WhatsApp a una venta cerrada</h2>
-          <p className="mt-4 text-muted-foreground text-lg">Cada herramienta se conecta con las demás -- no son módulos sueltos.</p>
+          <h2 className="text-3xl sm:text-4xl font-black tracking-tight">Del anuncio a la venta cerrada, sin que se te escape un cliente</h2>
+          <p className="mt-4 text-muted-foreground text-lg">Cada pieza se conecta con las demás: lo que Atlas anuncia lo vende el agente, y lo que el agente vende lo cobrás y lo entregás desde el mismo panel.</p>
         </Reveal>
         <div className="relative">
           <div className="hidden lg:block absolute top-8 left-[10%] right-[10%] h-0.5 bg-gradient-to-r from-primary/10 via-primary/40 to-primary/10" />
@@ -751,11 +822,44 @@ export default function LandingPage() {
       </section>
 
       {/* ── Herramientas ── */}
+      {/* ── Pilares ── */}
+      <section id="pilares" className="max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-28">
+        <Reveal className="text-center max-w-2xl mx-auto mb-14">
+          <Badge variant="outline" className="mb-4">Mucho más que un bot de WhatsApp</Badge>
+          <h2 className="text-3xl sm:text-4xl font-black tracking-tight">Cuatro cosas que hace por tu negocio</h2>
+          <p className="mt-4 text-muted-foreground text-lg">Vender, atraer, vender por la web y dirigir. Cada una funciona sola y todas juntas hacen el ciclo completo.</p>
+        </Reveal>
+        <div className="grid md:grid-cols-2 gap-5">
+          {PILARES.map((p, i) => (
+            <Reveal key={p.title} delay={i * 0.08}>
+              <motion.div whileHover={{ y: -4 }} className="h-full rounded-3xl border bg-card p-6 sm:p-7 shadow-sm hover:shadow-lg hover:border-primary/30 transition-shadow">
+                <div className={`h-11 w-11 rounded-2xl flex items-center justify-center mb-4 ${p.color}`}>
+                  <p.icon className="h-5 w-5" />
+                </div>
+                <h3 className="font-black text-xl tracking-tight">{p.title}</h3>
+                <p className="mt-2 text-sm text-muted-foreground">{p.desc}</p>
+                <ul className="mt-5 space-y-2.5">
+                  {p.items.map((item) => (
+                    <li key={item} className="flex items-start gap-2.5 text-sm">
+                      <div className="h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-0.5">
+                        <Check className="h-3 w-3" />
+                      </div>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </motion.div>
+            </Reveal>
+          ))}
+        </div>
+      </section>
+
       <section id="herramientas" className="bg-muted/30 py-20 sm:py-28">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <Reveal className="text-center max-w-2xl mx-auto mb-14">
             <Badge variant="outline" className="mb-4">Todo en un solo panel</Badge>
-            <h2 className="text-3xl sm:text-4xl font-black tracking-tight">Las herramientas que tu negocio necesita</h2>
+            <h2 className="text-3xl sm:text-4xl font-black tracking-tight">Las herramientas, una por una</h2>
+            <p className="mt-4 text-muted-foreground text-lg">Sin integraciones que armar: ya vienen conectadas entre sí.</p>
           </Reveal>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {TOOLS.map((tool, i) => (
