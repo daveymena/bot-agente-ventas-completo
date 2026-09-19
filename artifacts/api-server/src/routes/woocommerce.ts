@@ -247,6 +247,23 @@ router.get("/estado", async (req, res) => {
   }
 });
 
+/** GET /api/woocommerce/dropify/producto/:wooProductId — ¿qué dice Dropi HOY de este producto? (diagnóstico, solo lectura) */
+router.get("/dropify/producto/:wooProductId", async (req: any, res: any) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(401).json({ error: "No autenticado" });
+    const woo = await getWooCommerceService(tenantId);
+    if (!woo) return res.status(400).json({ error: "WooCommerce no configurado" });
+    const { credencialesDropiDesdeWoo, consultarProductoEnDropi } = await import("../lib/dropi-integracion");
+    const cred = await credencialesDropiDesdeWoo(woo, Number(req.params.wooProductId));
+    if (!cred.dropiProductId || !cred.token) return res.json({ ok: false, error: "El producto no tiene id de Dropi o token de integración", cred: { dropiProductId: cred.dropiProductId, token: !!cred.token } });
+    const r = await consultarProductoEnDropi(cred.dropiProductId, cred.token);
+    res.json({ ok: r.ok, dropiProductId: cred.dropiProductId, status: r.status, error: r.error, data: r.data });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 /** GET /api/woocommerce/dropify/tokens — auditoría (solo lectura). */
 router.get("/dropify/tokens", async (req: any, res: any) => {
   try {
