@@ -50,17 +50,17 @@ const ECOSYSTEM_STEPS = [
   {
     icon: MessageCircle,
     title: "El cliente escribe",
-    desc: "Por WhatsApp, Messenger o un comentario en Facebook. Tu agente IA responde en segundos con el catálogo y el tono de tu negocio.",
+    desc: "Por WhatsApp, Messenger o un comentario en Facebook. Sofía, tu vendedora, responde en segundos con el catálogo y el tono de tu negocio.",
   },
   {
     icon: Bot,
-    title: "La IA vende de verdad",
+    title: "Sofía vende de verdad",
     desc: "Presenta el producto, da el precio cuando lo piden, resuelve objeciones y pasa a los medios de pago en el momento justo.",
   },
   {
     icon: Receipt,
     title: "Cobra y entrega",
-    desc: "Link de MercadoPago o PayPal, transferencia con comprobante leído por IA, o contraentrega con pedido en Dropi o WooCommerce.",
+    desc: "Link de MercadoPago o PayPal, transferencia con comprobante leído automáticamente, o contraentrega con pedido en Dropi o WooCommerce.",
   },
   {
     icon: LayoutDashboard,
@@ -79,12 +79,12 @@ const PILARES = [
     color: "bg-emerald-500/10 text-emerald-600",
     screen: "whatsapp" as const,
     title: "Vender por chat",
-    desc: "Un vendedor IA que atiende WhatsApp, Messenger y comentarios de Facebook con tu catálogo, y aprende lo que le enseñás.",
+    desc: "Sofía, tu vendedora, atiende WhatsApp, Messenger y comentarios de Facebook con tu catálogo, y aprende lo que le enseñás.",
     items: [
       "Presenta, cotiza y cierra con el flujo de un vendedor humano",
       "Lee comprobantes de pago con visión y los deja listos para aprobar",
       "Cupones reales, seguimientos automáticos y campañas por WhatsApp o correo",
-      "Hasta 8 agentes con distinta personalidad por negocio",
+      "Hasta 8 vendedoras con distinta personalidad por negocio",
     ],
   },
   {
@@ -105,12 +105,12 @@ const PILARES = [
     color: "bg-amber-500/10 text-amber-600",
     screen: "landing" as const,
     title: "Vender por la web",
-    desc: "Tienda online propia y páginas de venta generadas por IA con las fotos reales de tus productos.",
+    desc: "Tienda online propia y páginas de venta que Landing Studio arma con las fotos reales de tus productos.",
     items: [
       "Tienda con catálogo, categorías y checkout MercadoPago / PayPal",
       "Landing pages con estructura AIDA, editables por chat y con URL pública lista para el anuncio",
       "Dropshipping: importás de Dropi, sincronizás con WooCommerce, pedido contraentrega",
-      "Fichas de producto escritas por IA desde una foto o un Excel",
+      "Fichas de producto escritas solas desde una foto o un Excel",
     ],
   },
   {
@@ -129,34 +129,18 @@ const PILARES = [
 ];
 
 const TOOLS = [
-  { icon: Bot, title: "Vendedor IA multicanal", desc: "WhatsApp, Messenger y comentarios de Facebook con el mismo cerebro y tu catálogo." },
+  { icon: Bot, title: "Sofía, tu vendedora", desc: "WhatsApp, Messenger y comentarios de Facebook con el mismo cerebro y tu catálogo." },
   { icon: Compass, title: "Atlas, tu operador", desc: "Le hablás en tu idioma y él configura, investiga, crea y publica. Pide confirmación antes de gastar." },
-  { icon: Wand2, title: "Landing pages con IA", desc: "Páginas de venta con fotos reales, formulario contraentrega o pago, y edición por chat." },
+  { icon: Wand2, title: "Landing Studio", desc: "Páginas de venta con fotos reales, formulario contraentrega o pago, y edición por chat." },
   { icon: Facebook, title: "Facebook e Instagram Ads", desc: "Borrador, campaña en pausa, activación, presupuesto, métricas y por qué no entrega." },
-  { icon: Store, title: "Tienda online propia", desc: "Catálogo, categorías, importación por Excel con IA y checkout integrado." },
+  { icon: Store, title: "Tienda online propia", desc: "Catálogo, categorías, importación por Excel y checkout integrado." },
   { icon: Truck, title: "Dropshipping", desc: "Importación desde Dropi, pedidos contraentrega y sincronización con WooCommerce." },
-  { icon: Receipt, title: "Comprobantes con visión", desc: "La IA lee la captura de Nequi o Daviplata y vos aprobás con un clic." },
+  { icon: Receipt, title: "Comprobantes leídos solos", desc: "Sofía lee la captura de Nequi o Daviplata y vos aprobás con un clic." },
   { icon: Ticket, title: "Cupones y seguimientos", desc: "Descuentos reales, follow-ups automáticos y envíos masivos por WhatsApp o correo." },
   { icon: Search, title: "Investigación real", desc: "Biblioteca de Anuncios de Meta y búsqueda web para decidir con datos, no de memoria." },
   { icon: CreditCard, title: "MercadoPago y PayPal", desc: "Cobrá ventas y suscripciones con los métodos que tus clientes ya usan." },
   { icon: BarChart3, title: "Analíticas y atribución", desc: "Embudo, tiempo de respuesta, valor generado y qué campaña trajo cada venta." },
   { icon: ShieldCheck, title: "Multi-negocio aislado", desc: "Cada cuenta con su propia sesión de WhatsApp, datos y catálogo, sin mezclas." },
-];
-
-const DEMO_SCRIPT: { from: "user" | "bot"; text: string }[] = [
-  { from: "user", text: "Hola, ¿tienen el curso de piano?" },
-  { from: "bot", text: "🎹 *Curso de Piano Completo*\nDe cero a avanzado, 19 módulos en video HD, partituras y ejercicios. 100% digital, acceso de por vida.\n\n¿Te gustaría conocer el precio? ⚡" },
-  { from: "user", text: "Sí" },
-  { from: "bot", text: "💰 $60.000 COP (pago único)\n\n¿Te envío los medios de pago para iniciar?" },
-  { from: "user", text: "Dale, por Nequi" },
-  { from: "bot", text: "📲 Nequi: 313 617 4267\nApenas transfieras, mándame el comprobante por aquí y te paso el acceso 🙌" },
-];
-
-const STORE_PRODUCTS = [
-  { emoji: "📚", name: "Pack Idiomas", price: "$20.000" },
-  { emoji: "🎧", name: "Curso Audio", price: "$15.000" },
-  { emoji: "💻", name: "Mentoría 1:1", price: "$45.000" },
-  { emoji: "🎓", name: "Certificación", price: "$30.000" },
 ];
 
 const FLOATING_ITEMS = [
@@ -277,425 +261,22 @@ function useCountUp(target: number, inView: boolean, duration = 1200) {
 }
 
 // ─── Pantalla 1: WhatsApp -- conversación animada en loop.
-function ScreenWhatsApp() {
-  const [visibleCount, setVisibleCount] = useState(0);
-  const [typing, setTyping] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    let step = 0;
-    async function run() {
-      while (!cancelled) {
-        if (step >= DEMO_SCRIPT.length) {
-          await new Promise(r => setTimeout(r, 1600));
-          if (cancelled) return;
-          step = 0;
-          setVisibleCount(0);
-          setTyping(false);
-          await new Promise(r => setTimeout(r, 400));
-          continue;
-        }
-        const msg = DEMO_SCRIPT[step];
-        if (msg.from === "bot") {
-          setTyping(true);
-          await new Promise(r => setTimeout(r, 800));
-          if (cancelled) return;
-          setTyping(false);
-        } else {
-          await new Promise(r => setTimeout(r, 650));
-        }
-        if (cancelled) return;
-        step += 1;
-        setVisibleCount(step);
-        await new Promise(r => setTimeout(r, 500));
-      }
-    }
-    run();
-    return () => { cancelled = true; };
-  }, []);
-
-  return (
-    <div className="h-full bg-[#e5ddd5] dark:bg-[#0b141a] p-3 flex flex-col gap-2 overflow-hidden">
-      <AnimatePresence initial={false}>
-        {DEMO_SCRIPT.slice(0, visibleCount).map((msg, i) => (
-          <motion.div
-            key={i}
-            initial={{ opacity: 0, y: 10, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 0.25 }}
-            className={`max-w-[80%] rounded-2xl px-3 py-2 text-[12px] leading-snug shadow-sm whitespace-pre-line ${
-              msg.from === "user"
-                ? "self-end bg-[#dcf8c6] dark:bg-emerald-900 text-black dark:text-white rounded-br-sm"
-                : "self-start bg-white dark:bg-slate-800 text-black dark:text-white rounded-bl-sm"
-            }`}
-          >
-            {msg.text}
-          </motion.div>
-        ))}
-        {typing && (
-          <motion.div
-            key="typing"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="self-start bg-white dark:bg-slate-800 rounded-2xl rounded-bl-sm px-3 py-2.5 flex gap-1 shadow-sm"
-          >
-            {[0, 1, 2].map(i => (
-              <motion.span
-                key={i}
-                className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60"
-                animate={{ y: [0, -4, 0] }}
-                transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.15 }}
-              />
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-// ─── Pantalla 2: Tienda -- catálogo con un producto "agregándose" al carrito.
-function ScreenStore() {
-  const [cartCount, setCartCount] = useState(0);
-  const [addingIndex, setAddingIndex] = useState<number | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    let i = 0;
-    async function run() {
-      while (!cancelled) {
-        setAddingIndex(i % STORE_PRODUCTS.length);
-        await new Promise(r => setTimeout(r, 900));
-        if (cancelled) return;
-        setCartCount(c => c + 1);
-        setAddingIndex(null);
-        i += 1;
-        await new Promise(r => setTimeout(r, 1100));
-        if (i % STORE_PRODUCTS.length === 0) {
-          await new Promise(r => setTimeout(r, 900));
-          if (cancelled) return;
-          setCartCount(0);
-        }
-      }
-    }
-    run();
-    return () => { cancelled = true; };
-  }, []);
-
-  return (
-    <div className="h-full bg-slate-50 dark:bg-slate-900 p-3 flex flex-col gap-3 overflow-hidden">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-bold">Tu Tienda</p>
-        <div className="relative">
-          <ShoppingCart className="h-4 w-4" />
-          <AnimatePresence>
-            {cartCount > 0 && (
-              <motion.span
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                exit={{ scale: 0 }}
-                className="absolute -top-2 -right-2 h-4 w-4 rounded-full bg-primary text-[9px] text-white flex items-center justify-center font-bold"
-              >
-                {cartCount}
-              </motion.span>
-            )}
-          </AnimatePresence>
-        </div>
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        {STORE_PRODUCTS.map((p, i) => (
-          <motion.div
-            key={p.name}
-            animate={addingIndex === i ? { scale: [1, 1.08, 1], boxShadow: "0 0 0 2px hsl(var(--primary))" } : { scale: 1, boxShadow: "0 0 0 0px transparent" }}
-            transition={{ duration: 0.4 }}
-            className="rounded-xl bg-white dark:bg-slate-800 p-2.5 shadow-sm"
-          >
-            <div className="text-2xl mb-1">{p.emoji}</div>
-            <p className="text-[10px] font-semibold leading-tight">{p.name}</p>
-            <p className="text-[10px] text-primary font-bold">{p.price}</p>
-          </motion.div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─── Pantalla 3: Panel -- métricas que suben solas + una notificación de
-// conversación nueva apareciendo.
-function ScreenDashboard() {
-  const inView = true;
-  const revenue = useCountUp(2450000, inView, 2200);
-  return (
-    <div className="h-full bg-slate-50 dark:bg-slate-900 p-3 flex flex-col gap-3 overflow-hidden">
-      <p className="text-xs font-bold">Panel de Ventas</p>
-      <div className="rounded-xl bg-white dark:bg-slate-800 p-3 shadow-sm">
-        <p className="text-[10px] text-muted-foreground">Ingresos del mes</p>
-        <p className="text-lg font-black text-primary tabular-nums">${revenue.toLocaleString("es-CO")}</p>
-      </div>
-      <div className="rounded-xl bg-white dark:bg-slate-800 p-3 shadow-sm flex-1 flex items-end gap-1.5">
-        {[40, 65, 45, 80, 60, 95, 70].map((h, i) => (
-          <motion.div
-            key={i}
-            initial={{ height: 0 }}
-            animate={{ height: `${h}%` }}
-            transition={{ duration: 0.8, delay: i * 0.08, ease: "easeOut" }}
-            className="flex-1 rounded-t-md bg-gradient-to-t from-primary/60 to-primary"
-          />
-        ))}
-      </div>
-      <motion.div
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ delay: 1.2, duration: 0.4 }}
-        className="rounded-xl bg-emerald-50 dark:bg-emerald-950 border border-emerald-200 dark:border-emerald-900 p-2 flex items-center gap-2"
-      >
-        <div className="h-6 w-6 rounded-full bg-emerald-500 flex items-center justify-center shrink-0">
-          <Bell className="h-3 w-3 text-white" />
-        </div>
-        <p className="text-[10px] text-emerald-800 dark:text-emerald-300 font-medium">Nueva conversación cerrada 🎉</p>
-      </motion.div>
-    </div>
-  );
-}
-
-// ─── Pantalla 4: Facebook Ads -- "la IA generando la campaña", el pedido
-// explícito de mostrar un agente de marketing digital trabajando solo.
-function ScreenAds() {
-  const [stage, setStage] = useState<"generating" | "ready">("generating");
-  useEffect(() => {
-    let cancelled = false;
-    async function run() {
-      while (!cancelled) {
-        setStage("generating");
-        await new Promise(r => setTimeout(r, 1800));
-        if (cancelled) return;
-        setStage("ready");
-        await new Promise(r => setTimeout(r, 2400));
-      }
-    }
-    run();
-    return () => { cancelled = true; };
-  }, []);
-
-  return (
-    <div className="h-full bg-slate-50 dark:bg-slate-900 p-3 flex flex-col gap-3 overflow-hidden">
-      <div className="flex items-center gap-2">
-        <Facebook className="h-4 w-4 text-blue-600" />
-        <p className="text-xs font-bold">Facebook Ads con IA</p>
-      </div>
-      <AnimatePresence mode="wait">
-        {stage === "generating" ? (
-          <motion.div
-            key="gen"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="flex-1 rounded-xl bg-white dark:bg-slate-800 p-4 flex flex-col items-center justify-center gap-3 shadow-sm"
-          >
-            <motion.div
-              animate={{ rotate: 360 }}
-              transition={{ duration: 1.2, repeat: Infinity, ease: "linear" }}
-              className="h-9 w-9 rounded-full border-2 border-primary/20 border-t-primary"
-            />
-            <p className="text-[11px] text-muted-foreground text-center">Generando copy, segmentación<br />e imagen del anuncio...</p>
-          </motion.div>
-        ) : (
-          <motion.div
-            key="ready"
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0 }}
-            className="flex-1 rounded-xl bg-white dark:bg-slate-800 shadow-sm overflow-hidden flex flex-col"
-          >
-            <div className="h-16 bg-gradient-to-br from-primary to-accent flex items-center justify-center">
-              <ImagePlus className="h-6 w-6 text-white/80" />
-            </div>
-            <div className="p-2.5 flex-1 flex flex-col gap-1.5">
-              <p className="text-[10px] font-bold leading-tight">Aprendé inglés en 30 días 🚀</p>
-              <p className="text-[9px] text-muted-foreground leading-tight">Pack completo con certificación. Cupos limitados.</p>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.3 }}
-                className="mt-auto flex items-center gap-1 text-[9px] font-bold text-emerald-600"
-              >
-                <Check className="h-3 w-3" /> Publicado en Facebook
-              </motion.div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
-// ─── Atlas ejecutando la ruta de marketing: es la ruta guiada REAL del
-// producto (producto → competencia → landing → anuncio → Meta en pausa), tal
-// como la corre el servidor. Cada paso aparece como lo ve el dueño en el chat.
-const ATLAS_SCRIPT: { from: "admin" | "atlas"; text: string; paso?: string }[] = [
-  { from: "admin", text: "Quiero anunciar el curso de piano" },
-  { from: "atlas", paso: "Paso 1 de 5 · Producto", text: "🎹 Curso de Piano Completo · $60.000. ¿Arrancamos con este?" },
-  { from: "admin", text: "Sí" },
-  { from: "atlas", paso: "Paso 2 de 5 · Competencia", text: "🔎 Miré la Biblioteca de Anuncios: 3 anuncios activos, todos venden 'aprendé rápido'. Ángulo recomendado: tocá tu primera canción en 7 días." },
-  { from: "atlas", paso: "Paso 3 de 5 · Página de venta", text: "🖥️ Landing creada con tus fotos y pago por MercadoPago. Vista previa lista." },
-  { from: "atlas", paso: "Paso 4 de 5 · Anuncio", text: "📣 Anuncio escrito con los datos reales del curso. ¿Lo subo a Meta con $10.000/día? Queda en pausa: no gasta hasta que lo actives." },
-  { from: "admin", text: "Dale" },
-  { from: "atlas", paso: "Paso 5 de 5 · Listo", text: "✅ Campaña creada en tu cuenta, EN PAUSA. Cuando la actives te cuento en 3 días cuánta gente escribió y cuánto costó cada mensaje." },
-];
-
-function ScreenAtlas() {
-  const [visible, setVisible] = useState(0);
-  const [typing, setTyping] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    let cancelled = false;
-    let step = 0;
-    async function run() {
-      while (!cancelled) {
-        if (step >= ATLAS_SCRIPT.length) {
-          await new Promise(r => setTimeout(r, 2200));
-          if (cancelled) return;
-          step = 0; setVisible(0); setTyping(false);
-          await new Promise(r => setTimeout(r, 400));
-          continue;
-        }
-        const msg = ATLAS_SCRIPT[step];
-        if (msg.from === "atlas") {
-          setTyping(true);
-          await new Promise(r => setTimeout(r, 900));
-          if (cancelled) return;
-          setTyping(false);
-        } else {
-          await new Promise(r => setTimeout(r, 600));
-        }
-        if (cancelled) return;
-        step += 1; setVisible(step);
-        await new Promise(r => setTimeout(r, 700));
-      }
-    }
-    run();
-    return () => { cancelled = true; };
-  }, []);
-  useEffect(() => { scrollRef.current?.scrollTo({ top: 9999, behavior: "smooth" }); }, [visible, typing]);
-
-  return (
-    <div className="h-full bg-slate-50 dark:bg-slate-900 flex flex-col overflow-hidden">
-      <div ref={scrollRef} className="flex-1 p-3 flex flex-col gap-2 overflow-y-auto">
-        <AnimatePresence initial={false}>
-          {ATLAS_SCRIPT.slice(0, visible).map((msg, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, y: 10, scale: 0.97 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              transition={{ duration: 0.25 }}
-              className={`max-w-[88%] rounded-2xl px-3 py-2 text-[11.5px] leading-snug shadow-sm ${
-                msg.from === "admin"
-                  ? "self-end bg-primary text-primary-foreground rounded-br-sm"
-                  : "self-start bg-white dark:bg-slate-800 rounded-bl-sm"
-              }`}
-            >
-              {msg.paso && <p className="text-[9.5px] font-bold text-primary mb-0.5 uppercase tracking-wide">{msg.paso}</p>}
-              {msg.text}
-            </motion.div>
-          ))}
-          {typing && (
-            <motion.div key="t" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="self-start bg-white dark:bg-slate-800 rounded-2xl rounded-bl-sm px-3 py-2 flex items-center gap-2 shadow-sm">
-              <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-                className="h-3 w-3 rounded-full border-2 border-primary/20 border-t-primary" />
-              <span className="text-[10px] text-muted-foreground">Atlas trabajando…</span>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </div>
-  );
-}
-
-// ─── La landing "construyéndose": las secciones que genera de verdad el
-// Landing Studio (hero con foto real, beneficios, oferta, pedido) aparecen
-// una por una, como cuando Atlas la arma.
-const LANDING_BLOQUES = ["hero", "beneficios", "oferta", "cta"] as const;
-function ScreenLanding() {
-  const [n, setN] = useState(0);
-  useEffect(() => {
-    let cancelled = false;
-    async function run() {
-      while (!cancelled) {
-        setN(0);
-        for (let k = 1; k <= LANDING_BLOQUES.length; k++) {
-          await new Promise(r => setTimeout(r, k === 1 ? 700 : 650));
-          if (cancelled) return;
-          setN(k);
-        }
-        await new Promise(r => setTimeout(r, 2600));
-      }
-    }
-    run();
-    return () => { cancelled = true; };
-  }, []);
-  const show = (b: typeof LANDING_BLOQUES[number]) => n >= LANDING_BLOQUES.indexOf(b) + 1;
-  return (
-    <div className="h-full bg-white dark:bg-slate-900 overflow-hidden flex flex-col">
-      <div className="flex items-center gap-1.5 px-3 py-1.5 border-b bg-slate-50 dark:bg-slate-800">
-        <span className="h-2 w-2 rounded-full bg-rose-400" /><span className="h-2 w-2 rounded-full bg-amber-400" /><span className="h-2 w-2 rounded-full bg-emerald-400" />
-        <span className="ml-2 text-[9px] text-muted-foreground truncate">ventasproia.com/l/curso-de-piano</span>
-      </div>
-      <div className="flex-1 p-3 flex flex-col gap-2 overflow-hidden">
-        <AnimatePresence>
-          {show("hero") && (
-            <motion.div key="hero" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl overflow-hidden border">
-              <div className="h-14 bg-gradient-to-br from-primary to-accent flex items-center justify-center text-2xl">🎹</div>
-              <div className="p-2">
-                <p className="text-[11px] font-black leading-tight">Tocá tu primera canción en 7 días</p>
-                <p className="text-[9px] text-muted-foreground leading-tight mt-0.5">De cero a avanzado, a tu ritmo, con partituras y 19 módulos en video.</p>
-              </div>
-            </motion.div>
-          )}
-          {show("beneficios") && (
-            <motion.div key="ben" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-3 gap-1.5">
-              {["🎬 Video HD", "🎼 Partituras", "♾️ De por vida"].map(b => (
-                <div key={b} className="rounded-lg border p-1.5 text-[9px] font-semibold text-center">{b}</div>
-              ))}
-            </motion.div>
-          )}
-          {show("oferta") && (
-            <motion.div key="of" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl border p-2 flex items-center justify-between">
-              <div>
-                <p className="text-[9px] text-muted-foreground">Pago único</p>
-                <p className="text-[13px] font-black">$60.000 <span className="text-[9px] font-normal text-muted-foreground">COP</span></p>
-              </div>
-              <span className="text-[9px] rounded-full bg-emerald-500/10 text-emerald-600 px-2 py-0.5 font-bold">Acceso inmediato</span>
-            </motion.div>
-          )}
-          {show("cta") && (
-            <motion.div key="cta" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
-              className="mt-auto rounded-xl bg-primary text-primary-foreground text-center py-2 text-[11px] font-bold">
-              Quiero mi acceso ahora
-            </motion.div>
-          )}
-        </AnimatePresence>
-        {n < LANDING_BLOQUES.length && (
-          <p className="mt-auto text-[9px] text-muted-foreground text-center">Atlas está armando la página… {n}/{LANDING_BLOQUES.length}</p>
-        )}
-      </div>
-    </div>
-  );
-}
-
+// Capturas REALES del producto (tomadas el 18-09-2026 con la app corriendo:
+// la venta de piano tal como la hace Sofía, Atlas ejecutando la ruta de
+// marketing, la landing que generó el Studio, la tienda y el panel). Nada
+// dibujado a mano: lo que se ve es lo que el cliente va a tener.
 const SHOWCASE_SCREENS = [
-  { id: "whatsapp", label: "Vendedor IA", sub: "WhatsApp · respondiendo", Component: ScreenWhatsApp, bar: "bg-[#075E54]", icon: Bot },
-  { id: "atlas", label: "Atlas", sub: "Tu agencia en un chat", Component: ScreenAtlas, bar: "bg-slate-900 dark:bg-slate-800", icon: Compass },
-  { id: "landing", label: "Landing page", sub: "Generada con IA", Component: ScreenLanding, bar: "bg-amber-600", icon: Wand2 },
-  { id: "tienda", label: "Tu Tienda", sub: "Catálogo en vivo", img: "/store_app.png", bar: "bg-slate-900 dark:bg-slate-800", icon: Store },
-  { id: "ads", label: "Facebook Ads", sub: "Campaña en pausa, lista", Component: ScreenAds, bar: "bg-blue-600", icon: Facebook },
-  { id: "panel", label: "Panel", sub: "Métricas en tiempo real", img: "/dashboard_app.png", bar: "bg-slate-900 dark:bg-slate-800", icon: LayoutDashboard },
+  { id: "whatsapp", label: "Sofía", sub: "Vendiendo por WhatsApp", img: "/screens/m-inbox.jpg", bar: "bg-[#075E54]", icon: Bot },
+  { id: "atlas", label: "Atlas", sub: "Tu agencia de marketing", img: "/screens/m-atlas.jpg", bar: "bg-slate-900 dark:bg-slate-800", icon: Compass },
+  { id: "landing", label: "Landing page", sub: "Hecha por Landing Studio", img: "/screens/m-landing.jpg", bar: "bg-amber-600", icon: Wand2 },
+  { id: "tienda", label: "Tu Tienda", sub: "Catálogo en vivo", img: "/screens/m-tienda.jpg", bar: "bg-slate-900 dark:bg-slate-800", icon: Store },
+  { id: "ads", label: "Facebook Ads", sub: "Campañas desde el panel", img: "/screens/facebook.jpg", bar: "bg-blue-600", icon: Facebook },
+  { id: "panel", label: "Panel", sub: "Métricas en tiempo real", img: "/screens/panel.jpg", bar: "bg-slate-900 dark:bg-slate-800", icon: LayoutDashboard },
 ];
 
-// ─── El "video interactivo" del hero: un mockup de teléfono que va rotando
-// solo entre las 4 pantallas del producto (WhatsApp, tienda, panel, ads) --
-// en vez de una sola captura fija, muestra el ecosistema completo en acción con imágenes fotorealistas.
+// ─── El "video" del hero: una tarjeta tipo teléfono que rota entre capturas
+// reales del producto. Las de escritorio (ads, panel) se muestran recortadas
+// por arriba, que es donde está lo importante.
 function ProductShowcase() {
   const [active, setActive] = useState(0);
   useEffect(() => {
@@ -721,7 +302,7 @@ function ProductShowcase() {
             <p className="text-[11px] text-white/70 leading-tight">{screen.sub}</p>
           </div>
         </div>
-        <div className="h-80 sm:h-96 relative">
+        <div className="h-80 sm:h-96 relative bg-muted/30">
           <AnimatePresence mode="wait">
             <motion.div
               key={screen.id}
@@ -731,11 +312,7 @@ function ProductShowcase() {
               transition={{ duration: 0.35 }}
               className="h-full w-full absolute inset-0"
             >
-              {screen.img ? (
-                <img src={screen.img} alt={screen.label} className="w-full h-full object-cover" />
-              ) : (
-                screen.Component && <screen.Component />
-              )}
+              <img src={screen.img} alt={screen.label} className="w-full h-full object-cover object-top" loading={active === 0 ? "eager" : "lazy"} />
             </motion.div>
           </AnimatePresence>
         </div>
@@ -759,9 +336,7 @@ function PantallaDePilar({ id }: { id: "whatsapp" | "atlas" | "landing" | "panel
   const screen = SHOWCASE_SCREENS.find((x) => x.id === id) || SHOWCASE_SCREENS[0];
   return (
     <div className="h-full w-full">
-      {screen.img
-        ? <img src={screen.img} alt={screen.label} className="w-full h-full object-cover object-top" />
-        : (screen.Component && <screen.Component />)}
+      <img src={screen.img} alt={screen.label} className="w-full h-full object-cover object-top" loading="lazy" />
     </div>
   );
 }
@@ -874,10 +449,10 @@ export default function LandingPage() {
                 <Sparkles className="h-3.5 w-3.5" /> 7 días gratis · sin tarjeta
               </Badge>
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-[1.05]">
-                Tu negocio vendiendo solo: <span className="text-primary">ventas, marketing y tienda</span> con IA en un solo lugar
+                Tu negocio vendiendo solo: <span className="text-primary">ventas, marketing y tienda</span> en un solo lugar
               </h1>
               <p className="mt-6 text-lg text-muted-foreground max-w-xl">
-                Un vendedor IA que atiende WhatsApp, Messenger y Facebook. Atlas, una agencia de marketing en un chat que
+                Sofía atiende y vende por WhatsApp, Messenger y Facebook. Atlas, tu agencia de marketing en un chat, que
                 investiga, crea tu página de venta y publica tus anuncios. Tienda, landings, dropshipping y cobros, todo en el mismo panel.
               </p>
               <div className="mt-8 flex flex-col sm:flex-row gap-3">
@@ -922,7 +497,7 @@ export default function LandingPage() {
               El "+" salio de 15.000 porque el plan da 15.000 EXACTOS: un mas
               sobre una cifra exacta es inventarse lo que no hay, y es
               justamente lo que el cliente puede contar y desmentir. */}
-          <StatCounter value={8} label="Agentes IA en el plan Pro" />
+          <StatCounter value={8} label="Vendedoras en el plan Pro" />
           <StatCounter value={15000} label="Mensajes/mes en el plan Pro" />
           <StatCounter value={4} label="Canales: WhatsApp, Messenger, Facebook y tienda" />
           <StatCounter value={7} label="Días de prueba gratis" />
@@ -947,7 +522,7 @@ export default function LandingPage() {
                 "Crea la landing page con tus fotos y la publica con URL lista para el anuncio",
                 "Sube la campaña a Facebook e Instagram en pausa: no gasta hasta que digas",
                 "Te explica en 3 líneas qué está pasando con cada campaña y qué hacer",
-                "Configura y entrena a tu vendedor IA desde la misma conversación",
+                "Configura y entrena a Sofía desde la misma conversación",
               ].map(item => (
                 <li key={item} className="flex items-start gap-2.5 text-sm">
                   <div className="h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-0.5">
@@ -961,12 +536,12 @@ export default function LandingPage() {
           <Reveal delay={0.15} className="flex justify-center">
             <div className="grid grid-cols-2 gap-3 w-full max-w-lg">
               <div className="rounded-3xl border bg-card shadow-2xl shadow-primary/10 overflow-hidden">
-                <div className="px-3 py-2 bg-slate-900 text-white text-[11px] font-semibold flex items-center gap-1.5"><Compass className="h-3.5 w-3.5" /> Atlas</div>
-                <div className="h-80"><ScreenAtlas /></div>
+                <div className="px-3 py-2 bg-slate-900 text-white text-[11px] font-semibold flex items-center gap-1.5"><Compass className="h-3.5 w-3.5" /> Atlas, paso a paso</div>
+                <div className="h-80 bg-muted/30"><img src="/screens/m-atlas.jpg" alt="Atlas ejecutando la ruta de marketing" className="w-full h-full object-cover object-top" loading="lazy" /></div>
               </div>
               <div className="rounded-3xl border bg-card shadow-2xl shadow-primary/10 overflow-hidden">
-                <div className="px-3 py-2 bg-amber-600 text-white text-[11px] font-semibold flex items-center gap-1.5"><Wand2 className="h-3.5 w-3.5" /> Lo que sale</div>
-                <div className="h-80"><ScreenLanding /></div>
+                <div className="px-3 py-2 bg-amber-600 text-white text-[11px] font-semibold flex items-center gap-1.5"><Wand2 className="h-3.5 w-3.5" /> La página que armó</div>
+                <div className="h-80 bg-muted/30"><img src="/screens/m-landing.jpg" alt="Landing page generada" className="w-full h-full object-cover object-top" loading="lazy" /></div>
               </div>
             </div>
           </Reveal>
@@ -1084,7 +659,7 @@ export default function LandingPage() {
                   </p>
                   <ul className="space-y-2 text-sm text-muted-foreground flex-1">
                     <li className="flex gap-2"><Check className="h-4 w-4 text-primary shrink-0 mt-0.5" /> {plan.monthlyMessages.toLocaleString()} mensajes/mes</li>
-                    <li className="flex gap-2"><Check className="h-4 w-4 text-primary shrink-0 mt-0.5" /> {plan.maxAgents} agente{plan.maxAgents > 1 ? "s" : ""} IA</li>
+                    <li className="flex gap-2"><Check className="h-4 w-4 text-primary shrink-0 mt-0.5" /> {plan.maxAgents} agente{plan.maxAgents > 1 ? "s" : ""}</li>
                     {(plan.features || []).slice(0, 2).map(f => (
                       <li key={f} className="flex gap-2"><Check className="h-4 w-4 text-primary shrink-0 mt-0.5" /> {f}</li>
                     ))}
