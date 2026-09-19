@@ -287,7 +287,7 @@ function ProductShowcase() {
 
   return (
     <div className="relative">
-      <div className="w-full max-w-sm rounded-3xl border bg-card shadow-2xl shadow-primary/20 overflow-hidden">
+      <div className="w-full rounded-[28px] border bg-card/95 shadow-2xl shadow-primary/15 overflow-hidden ring-1 ring-black/5 dark:ring-white/10">
         <div className={`flex items-center gap-3 px-4 py-3 text-white transition-colors duration-500 ${screen.bar}`}>
           <motion.div
             key={screen.id}
@@ -302,7 +302,7 @@ function ProductShowcase() {
             <p className="text-[11px] text-white/70 leading-tight">{screen.sub}</p>
           </div>
         </div>
-        <div className="h-80 sm:h-96 relative bg-muted/30">
+        <div className="h-[390px] sm:h-[470px] relative bg-muted/30">
           <AnimatePresence mode="wait">
             <motion.div
               key={screen.id}
@@ -446,28 +446,30 @@ export default function LandingPage() {
           <div>
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
               <Badge variant="outline" className="mb-5 gap-1.5 border-primary/30 text-primary bg-primary/5 py-1.5 px-3">
-                <Sparkles className="h-3.5 w-3.5" /> 7 días gratis · sin tarjeta
+                <Sparkles className="h-3.5 w-3.5" /> Plataforma comercial con IA
               </Badge>
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-[1.05]">
-                Tu negocio vendiendo solo: <span className="text-primary">ventas, marketing y tienda</span> en un solo lugar
+              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-[-0.04em] leading-[1.02]">
+                El sistema operativo comercial de tu negocio.
+                <span className="block text-primary mt-2">IA + ventas + marketing.</span>
               </h1>
-              <p className="mt-6 text-lg text-muted-foreground max-w-xl">
-                Sofía atiende y vende por WhatsApp, Messenger y Facebook. Atlas, tu agencia de marketing en un chat, que
-                investiga, crea tu página de venta y publica tus anuncios. Tienda, landings, dropshipping y cobros, todo en el mismo panel.
+              <p className="mt-6 text-lg sm:text-xl text-muted-foreground max-w-xl leading-relaxed">
+                VentasPro conecta tus conversaciones, catálogo, agentes IA, campañas, páginas de venta, pagos y métricas
+                en un solo lugar. Menos herramientas separadas. Más control sobre cada venta.
               </p>
               <div className="mt-8 flex flex-col sm:flex-row gap-3">
                 <Link href="/auth?tab=register">
-                  <Button size="lg" className="w-full sm:w-auto gap-2 text-base px-7">
-                    Comenzar gratis <ArrowRight className="h-4 w-4" />
+                  <Button size="lg" className="w-full sm:w-auto gap-2 text-base px-7 shadow-lg shadow-primary/20">
+                    Probar VentasPro <ArrowRight className="h-4 w-4" />
                   </Button>
                 </Link>
-                <Button size="lg" variant="outline" className="w-full sm:w-auto text-base px-7" onClick={() => scrollTo("pilares")}>
-                  Ver todo lo que hace
+                <Button size="lg" variant="outline" className="w-full sm:w-auto text-base px-7 bg-background/70" onClick={() => scrollTo("ecosistema")}>
+                  Ver cómo funciona
                 </Button>
               </div>
-              <p className="mt-4 text-xs text-muted-foreground flex items-center gap-1.5">
-                <ShieldCheck className="h-3.5 w-3.5" /> Cada negocio tiene su propia sesión aislada -- sin mezclas de datos entre clientes.
-              </p>
+              <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
+                <span className="inline-flex items-center gap-1.5"><ShieldCheck className="h-3.5 w-3.5 text-primary" /> Datos aislados por negocio</span>
+                <span className="inline-flex items-center gap-1.5"><Zap className="h-3.5 w-3.5 text-primary" /> Automatización configurable</span>
+              </div>
             </motion.div>
           </div>
           <motion.div
@@ -476,7 +478,11 @@ export default function LandingPage() {
             transition={{ duration: 0.6, delay: 0.15 }}
             className="flex items-center justify-center lg:justify-end gap-2 w-full"
           >
-            <div className="w-full max-w-md">
+            <div className="w-full max-w-xl">
+              <div className="mb-3 flex items-center justify-between px-1 text-xs text-muted-foreground">
+                <span className="font-medium">La plataforma en acción</span>
+                <span>Demo interactiva</span>
+              </div>
               <ProductShowcase />
             </div>
           </motion.div>
@@ -484,7 +490,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── Stats ── */}
-      <section className="border-y bg-muted/30 relative overflow-hidden">
+      <section className="border-y bg-card relative overflow-hidden">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10 grid grid-cols-2 sm:grid-cols-4 gap-8">
           {/* Cada numero sale de SAAS_PLANS (middleware/saasValidation.ts), que
               es el codigo que cobra de verdad. Verificado uno por uno el
@@ -510,11 +516,11 @@ export default function LandingPage() {
           <Reveal>
             <Badge variant="outline" className="mb-4 gap-1.5"><Compass className="h-3.5 w-3.5" /> Atlas · tu agencia en un chat</Badge>
             <h2 className="text-3xl sm:text-4xl font-black tracking-tight leading-tight">
-              Decile "quiero anunciar este curso" y Atlas hace el resto
+              De una idea a una campaña lista para revisar
             </h2>
             <p className="mt-4 text-muted-foreground text-lg">
-              No es un generador de textos: es un operador que investiga la competencia, arma la página de venta,
-              escribe el anuncio con los datos reales de tu producto y lo sube a Meta en pausa. Vos aprobás cada paso.
+              Atlas convierte instrucciones en tareas comerciales: investiga, prepara páginas y campañas con los datos
+              de tu negocio y deja las acciones sensibles listas para revisión antes de ejecutarlas.
             </p>
             <ul className="mt-6 space-y-3">
               {[
@@ -693,9 +699,9 @@ export default function LandingPage() {
               transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
             />
             <Users className="h-10 w-10 mx-auto mb-5 opacity-80" />
-            <h2 className="text-3xl sm:text-4xl font-black tracking-tight">Tu próximo cliente ya te está escribiendo</h2>
+            <h2 className="text-3xl sm:text-4xl font-black tracking-tight">Una sola plataforma para operar tu ciclo comercial</h2>
             <p className="mt-4 text-primary-foreground/80 max-w-lg mx-auto">
-              Conectá tu WhatsApp en minutos y dejá que Sofía se encargue del resto.
+              Conectá tus canales, configura tus agentes y empieza a centralizar ventas, marketing y operación.
             </p>
             <Link href="/auth?tab=register">
               <Button size="lg" variant="secondary" className="mt-8 gap-2 text-base px-8">
