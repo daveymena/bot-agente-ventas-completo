@@ -103,7 +103,10 @@ export async function dropiRequest<T = any>(
       const msg = json?.message || `HTTP ${res.status}`;
 
       // Solo pasa si se configuró un token de INTEGRACIÓN en vez del de
-      // sesión: esos sí filtran por IP. El mensaje trae la IP que Dropi vio,
+      // sesión: esos sí filtran por IP. (No confundir con el 'Access denied'
+      // que Dropify recibe al crear PEDIDOS: eso es un producto de Woo sin
+      // `_dropi_token`, medido el 19-09-2026 sobre 41 de 62 productos; ver
+      // lib/dropify-tokens.ts.) El mensaje trae la IP que Dropi vio,
       // que es justo el dato para resolverlo — se propaga en vez de perderlo.
       const blockedIp = json?.ip;
       if (blockedIp) {
@@ -130,7 +133,7 @@ export async function dropiRequest<T = any>(
         return {
           ok: false,
           error:
-            "El token de Dropi está bien y no venció: es el mismo que usa Dropify, que funciona. Lo que pasa es que api.dropi.co no acepta tokens emitidos por el panel (app.dropi.co) — son dos puertas distintas y Dropi las separa a propósito. No hay token nuevo que lo arregle. La integración real va por WooCommerce: los productos se importan desde Dropify en WordPress y los pedidos se crean en WooCommerce, que es quien los empuja a Dropi.",
+            "El token de Dropi está bien y no venció: es el mismo que usa Dropify, que funciona. Lo que pasa es que api.dropi.co no acepta tokens emitidos por el panel (app.dropi.co) — son dos puertas distintas y Dropi las separa a propósito. No hay token nuevo que lo arregle. La integración real va por WooCommerce: los productos se importan desde Dropify en WordPress y los pedidos se crean en WooCommerce, que es quien los empuja a Dropi. Ese camino FUNCIONA (19-09-2026, orden Dropi #90133857). Si un pedido da 'Access denied', NO es este token: es que ese producto de Woo no tiene `_dropi_token` (Dropify lo manda por producto) → dropify_reparar_tokens.",
         };
       }
 

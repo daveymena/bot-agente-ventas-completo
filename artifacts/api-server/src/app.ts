@@ -83,6 +83,8 @@ registrarOrganico();
 // El equipo de marketing tambien necesita reloj: sin esto, sus catorce
 // especialistas solo trabajan cuando el admin abre el chat y pregunta.
 registrarAgencia();
+// Tokens de Dropify por producto: se auditan y reparan solos (ver lib/dropify-auditoria.ts).
+import("./lib/dropify-auditoria").then((m) => m.iniciarAuditoriaDropify()).catch(() => undefined);
 registrarGuardia();
 iniciarProgramador();
 

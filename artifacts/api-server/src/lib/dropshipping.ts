@@ -847,3 +847,40 @@ export async function reintentarEnDropi(
   }
   return { ok: dropi.estado === "sincronizada", wooOrderId: pedido.wooOrderId, dropi, error: dropi.estado === "sincronizada" ? undefined : dropi.detalle };
 }
+
+// ─── Cancelar un pedido ─────────────────────────────────────────────────────
+
+/**
+ * Cancela un pedido del bot y, si llegó a WooCommerce, también ahí
+ * (status 'cancelled'). Dropify NO reenvía a Dropi al cancelar, así que si
+ * Dropi ya lo había aceptado hay que cancelarlo además en el panel de Dropi;
+ * se avisa en el resultado. Caso de uso real (19-09): los duplicados
+ * #324-#327 de una misma compra de prueba.
+ */
+export async function cancelarPedido(tenantId: number, pedidoId: number, motivo = ""): Promise<{ ok: boolean; wooOrderId?: number | null; aviso?: string; error?: string }> {
+  const { rows } = await pool.query(`SELECT * FROM dropshipping_orders WHERE id = $1 AND tenant_id = $2 LIMIT 1`, [pedidoId, tenantId]);
+  const pedido = rows[0] ? aPedido(rows[0]) : null;
+  if (!pedido) return { ok: false, error: `No existe el pedido #${pedidoId} de este negocio.` };
+  if (pedido.estado === "cancelado") return { ok: true, wooOrderId: pedido.wooOrderId, aviso: "Ya estaba cancelado." };
+
+  let aviso = "";
+  if (pedido.wooOrderId) {
+    try {
+      const { getWooCommerceService } = await import("./woocommerce");
+      const woo = await getWooCommerceService(tenantId);
+      if (woo) await woo.updateOrderStatus(pedido.wooOrderId, "cancelled");
+      else aviso = "WooCommerce no está configurado: se canceló solo acá.";
+    } catch (e: any) {
+      return { ok: false, wooOrderId: pedido.wooOrderId, error: `No se pudo cancelar en WooCommerce: ${e?.message || e}` };
+    }
+    if (pedido.dropiEstado === "sincronizada" && pedido.dropiOrderId) {
+      aviso = `Dropi ya lo tenía como orden #${pedido.dropiOrderId}: cancelalo también en el panel de Dropi, Dropify no lo hace solo.`;
+    }
+  }
+  await pool.query(
+    `UPDATE dropshipping_orders SET estado = 'cancelado', notas = COALESCE(notas, '') || $2, updated_at = now() WHERE id = $1`,
+    [pedidoId, ` | Cancelado${motivo ? `: ${motivo}` : ""} (${new Date().toISOString().slice(0, 16)})`],
+  );
+  logger.info({ pedidoId, wooOrderId: pedido.wooOrderId, motivo }, "[Dropshipping] Pedido cancelado");
+  return { ok: true, wooOrderId: pedido.wooOrderId, aviso: aviso || undefined };
+}

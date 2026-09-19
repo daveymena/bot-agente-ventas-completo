@@ -4655,6 +4655,21 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "pedido_cancelar",
+    description:
+      "Cancela un pedido físico del bot (id del pedido del bot, el de 'pedidosDelBot' en woocommerce_estado) y, si llegó a WooCommerce, también ahí. " +
+      "Úsala para duplicados o pedidos de prueba. Si Dropi ya lo había aceptado, avisa que hay que cancelarlo también en Dropi. Modifica pedidos → requiere confirmación.",
+    args: '{ "pedidoId": number (req), "motivo": string (opcional) }',
+    run: async (args, ctx) => {
+      const id = num(args?.pedidoId);
+      if (!id) return { ok: false, summary: "Falta 'pedidoId'." };
+      const { cancelarPedido } = await import("./dropshipping");
+      const r = await cancelarPedido(ctx.tenantId, id, String(args?.motivo || ""));
+      if (!r.ok) return { ok: false, summary: `No se pudo cancelar el pedido #${id}: ${r.error}` };
+      return { ok: true, summary: `✅ Pedido #${id}${r.wooOrderId ? ` (Woo #${r.wooOrderId})` : ""} cancelado.${r.aviso ? ` ${r.aviso}` : ""}`, data: r };
+    },
+  },
+  {
     name: "dropify_reparar_tokens",
     description:
       "Audita en WooCommerce los productos importados de Dropi y repara los que NO tienen token de integración (`_dropi_token`): es la causa real del 'Access denied' de Dropi " +
@@ -4713,7 +4728,8 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   // ── 📦 DROPI (dropshipping) ────────────────────────────────────────────────
   {
     name: "dropi_status",
-    description: "Verificar la conexión con Dropi (dropshipping). Úsala SIEMPRE antes de buscar o importar: si el token no está o la IP del servidor no está autorizada, te dice exactamente qué falta.",
+    description: "Verificar la conexión DIRECTA con la API de Dropi (solo para buscar/importar catálogo). OJO: los PEDIDOS no van por acá sino por WooCommerce → Dropify → Dropi, y ese camino FUNCIONA (verificado 19-09-2026: orden Dropi #90133857). " +
+      "Si un pedido dice 'Access denied', la causa real es que ese producto de Woo no tiene `_dropi_token` (Dropify manda el token por producto): usá dropify_auditar_tokens / dropify_reparar_tokens, NO esta herramienta ni 'regenerar credenciales'.",
     args: "{}",
     run: async () => {
       const { dropiStatus } = await import("./dropi");
@@ -7109,6 +7125,8 @@ export const DESTRUCTIVE_TOOLS = new Set([
   "dropi_reintentar_pedido",
   // dropify_reparar_tokens escribe metadatos en productos de WooCommerce
   "dropify_reparar_tokens",
+  // pedido_cancelar cancela en WooCommerce
+  "pedido_cancelar",
   // Crear un píxel deja un objeto PERMANENTE en la cuenta de Meta del negocio
   // y duplicarlo parte los datos de conversión en dos -- nunca sin el sí.
   "fb_create_pixel",
