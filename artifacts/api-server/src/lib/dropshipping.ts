@@ -584,11 +584,23 @@ export async function despacharPedido(pedido: PedidoDropshipping): Promise<Resul
     return { ok: dropi?.estado !== "error", wooOrderId: pedido.wooOrderId, dropi, error: dropi?.estado === "error" ? dropi.detalle : undefined };
   }
 
+  // ── Dropi DIRECTO (sin WooCommerce) ────────────────────────────────────
+  // Si el negocio cargó su token de integración y el producto está
+  // vinculado a Dropi, el pedido se crea directo (ver lib/dropi-directo.ts).
+  // WooCommerce queda como respaldo si Dropi rechaza y el producto también
+  // existe allá.
+  try {
+    const directo = await despacharDirectoEnDropi(pedido);
+    if (directo) return directo;
+  } catch (e: any) {
+    logger.warn({ pedidoId: pedido.id, err: e?.message }, "[Dropshipping] Dropi directo falló; se sigue por WooCommerce");
+  }
+
   try {
     const { getWooCommerceService } = await import("./woocommerce");
     const woo = await getWooCommerceService(pedido.tenantId);
     if (!woo) {
-      const e = "WooCommerce no está configurado para este negocio.";
+      const e = "WooCommerce no está configurado para este negocio (y Dropi directo no aplicó: falta el token de Dropi o el producto no está vinculado).";
       await pool.query(`UPDATE dropshipping_orders SET woo_error = $2, updated_at = now() WHERE id = $1`, [pedido.id, e]);
       return { ok: false, error: e };
     }
@@ -883,4 +895,55 @@ export async function cancelarPedido(tenantId: number, pedidoId: number, motivo 
   );
   logger.info({ pedidoId, wooOrderId: pedido.wooOrderId, motivo }, "[Dropshipping] Pedido cancelado");
   return { ok: true, wooOrderId: pedido.wooOrderId, aviso: aviso || undefined };
+}
+
+// ─── Dropi directo ──────────────────────────────────────────────────────────
+
+/**
+ * Crea el pedido directo en Dropi. Devuelve null si no aplica (sin token del
+ * negocio o producto sin `dropiProductId`), para que quien llama siga por
+ * WooCommerce. Si Dropi lo acepta, queda `despachado` con su número; si lo
+ * rechaza por un motivo de negocio (archivado, sin stock), se registra igual
+ * que el veredicto que llega por Woo, con aviso al admin y baja del producto.
+ */
+async function despacharDirectoEnDropi(pedido: PedidoDropshipping): Promise<ResultadoDespacho | null> {
+  const { tokenDropiDelTenant, crearPedidoDropi } = await import("./dropi-directo");
+  const token = await tokenDropiDelTenant(pedido.tenantId);
+  if (!token || !pedido.productId) return null;
+  const [prod] = await db.select().from(products).where(eq(products.id, pedido.productId)).limit(1);
+  if (!prod) return null;
+  let meta: any = {};
+  try { meta = typeof (prod as any).metadata === "string" ? JSON.parse((prod as any).metadata) : ((prod as any).metadata || {}); } catch { /* sin metadata */ }
+  const dropiProductId = Number(meta?.dropiProductId);
+  if (!dropiProductId) return null;
+
+  const r = await crearPedidoDropi(token, {
+    dropiProductId,
+    nombre: String((prod as any).name),
+    supplierId: meta?.dropiSupplierId ?? null,
+    stock: meta?.dropiStock ?? null,
+    variationId: meta?.dropiVariationId ?? null,
+  }, {
+    nombre: String(pedido.nombre), telefono: String(pedido.telefono), documento: pedido.documento,
+    direccion: String(pedido.direccion), barrio: pedido.barrio, ciudad: String(pedido.ciudad), departamento: String(pedido.departamento),
+    notas: [pedido.notas, "Pedido tomado por VentasPro"].filter(Boolean).join(" | "),
+    cantidad: pedido.quantity, precioUnitario: Number(pedido.unitPrice) || 0,
+    contraentrega: pedido.metodoPago === "contraentrega", referencia: `vp-${pedido.id}`,
+  });
+
+  if (r.ok) {
+    const dropiOrderId = r.data?.id != null ? String(r.data.id) : null;
+    await pool.query(
+      `UPDATE dropshipping_orders SET estado = 'despachado', dropi_estado = 'sincronizada', dropi_order_id = $2, dropi_error = NULL, woo_error = NULL, updated_at = now() WHERE id = $1`,
+      [pedido.id, dropiOrderId],
+    );
+    logger.info({ pedidoId: pedido.id, dropiOrderId }, "[Dropshipping] Pedido creado DIRECTO en Dropi");
+    return { ok: true, dropi: { estado: "sincronizada", dropiOrderId, detalle: `Creado directo en Dropi${dropiOrderId ? ` (orden #${dropiOrderId})` : ""}.` } };
+  }
+
+  // Rechazo de Dropi: mismo tratamiento que el veredicto que llega por Woo.
+  const detalle = `Dropi rechazó el pedido directo: ${r.error}`;
+  const veredicto: VeredictoDropi = { estado: "error", dropiOrderId: null, detalle };
+  const productoDesactivado = await registrarVeredicto(pedido, veredicto);
+  return { ok: false, dropi: veredicto, productoDesactivado, error: detalle };
 }

@@ -1,5 +1,5 @@
 import { useLocation } from "wouter";
-import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store, Activity, Crown, Megaphone, HelpCircle, BadgeCheck, LayoutTemplate, LogOut } from "lucide-react";
+import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store, Activity, Crown, Megaphone, HelpCircle, BadgeCheck, LayoutTemplate, LogOut , Truck } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "@/App";
 
@@ -18,6 +18,7 @@ const baseMoreItems = [
   { label: "Agentes IA", href: "/agents", icon: Bot },
   { label: "WhatsApp", href: "/whatsapp", icon: Phone },
   { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
+  { label: "Dropi", href: "/dropi", icon: Truck },
   { label: "Personalización", href: "/branding", icon: Palette },
   { label: "Configuración", href: "/settings", icon: Settings },
   { label: "Ayuda", href: "/ayuda", icon: HelpCircle },

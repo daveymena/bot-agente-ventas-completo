@@ -18,6 +18,7 @@ import {
   HelpCircle,
   Megaphone,
   LayoutTemplate,
+  Truck,
 } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent } from "./ui/sidebar";
 import { Badge as UiBadge } from "@/components/ui/badge";
@@ -53,6 +54,7 @@ export function AppSidebar() {
       { label: "Administrador", href: "/admin/tenants", icon: Crown },
     ] : []),
     { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
+    { label: "Dropi", href: "/dropi", icon: Truck },
     { label: "Atlas VentasPro", href: "/code-agent", icon: Wand2 },
     { label: "Personalización", href: "/branding", icon: Palette },
     { label: "Facebook", href: "/facebook", icon: Facebook },

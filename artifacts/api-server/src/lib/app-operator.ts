@@ -4716,6 +4716,62 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   },
   // ── 📦 DROPI (dropshipping) ────────────────────────────────────────────────
   {
+    name: "dropi_conectar",
+    description: "Guarda y prueba el token de INTEGRACIÓN de Dropi de este negocio (Dropi → Mis Integraciones → token). Con él el bot trae el catálogo y crea los pedidos DIRECTO en Dropi, sin WooCommerce. Requiere confirmación.",
+    args: '{ "token": string (req) }',
+    run: async (args, ctx) => {
+      const token = String(args?.token || "").trim();
+      if (!token) return { ok: false, summary: "Falta el token." };
+      const { probarTokenDropi, guardarTokenDropi } = await import("./dropi-directo");
+      const p = await probarTokenDropi(token);
+      if (!p.ok) return { ok: false, summary: p.detalle };
+      await guardarTokenDropi(ctx.tenantId, token);
+      return { ok: true, summary: `✅ Token de Dropi guardado y verificado.${p.integracion?.tienda ? ` Integración: ${p.integracion.tienda}` : ""}${p.integracion?.vence ? ` (vence ${p.integracion.vence})` : ""}. Ya se pueden importar productos (dropi_importar) y los pedidos van directo a Dropi.` };
+    },
+  },
+  {
+    name: "dropi_buscar",
+    description: "Busca en el catálogo de proveedores de Dropi con el token del negocio (solo lee): nombre, precio sugerido, stock, proveedor. Filtro opcional conStock.",
+    args: '{ "query": string (req), "conStock": boolean (opcional), "limit": number (opcional, máx 50) }',
+    run: async (args, ctx) => {
+      const { tokenDropiDelTenant, buscarProductosDropi } = await import("./dropi-directo");
+      const token = await tokenDropiDelTenant(ctx.tenantId);
+      if (!token) return { ok: false, summary: "Este negocio no tiene token de Dropi: primero dropi_conectar." };
+      const r = await buscarProductosDropi(token, { q: String(args?.query || ""), conStock: !!args?.conStock, porPagina: num(args?.limit) || 20 });
+      if (!r.ok) return { ok: false, summary: `Dropi no respondió: ${r.error}` };
+      const lista = (r.data || []).map((p) => ({ id: p.id, nombre: p.name, precioSugerido: p.suggested_price ?? p.sale_price ?? null, costo: p.sale_price ?? null, stock: p.stock ?? null, proveedor: p.user_id ?? null }));
+      return { ok: true, summary: lista.length ? `📦 ${lista.length} productos en Dropi para "${args?.query || ""}"` : `Sin resultados en Dropi para "${args?.query || ""}"`, data: { productos: lista, text: lista.map((p) => `#${p.id} ${p.nombre} — sugerido $${p.precioSugerido} (costo $${p.costo}, stock ${p.stock})`).join("\n") } };
+    },
+  },
+  {
+    name: "dropi_importar",
+    description: "Importa un producto de Dropi al catálogo del negocio con el token propio (fotos, descripción limpia, stock, proveedor). El precio de venta lo decide el admin; si no lo pasa se usa el sugerido. Crea datos → requiere confirmación.",
+    args: '{ "dropiProductId": number (req), "price": number (opcional), "categoria": string (opcional) }',
+    run: async (args, ctx) => {
+      const { tokenDropiDelTenant, importarProductoDropi } = await import("./dropi-directo");
+      const token = await tokenDropiDelTenant(ctx.tenantId);
+      if (!token) return { ok: false, summary: "Este negocio no tiene token de Dropi: primero dropi_conectar." };
+      const id = num(args?.dropiProductId);
+      if (!id) return { ok: false, summary: "Falta 'dropiProductId'." };
+      const r = await importarProductoDropi(ctx.tenantId, token, id, { precio: num(args?.price) || null, categoria: args?.categoria ? String(args.categoria) : null });
+      if (!r.ok) return { ok: false, summary: r.error || "No se pudo importar." };
+      return { ok: true, summary: r.yaExistia ? `♻️ "${r.nombre}" ya estaba (id ${r.productId}): se actualizó stock, fotos y proveedor.` : `✅ Importado "${r.nombre}" (id ${r.productId}). El bot ya lo vende y los pedidos van directo a Dropi.`, data: r };
+    },
+  },
+  {
+    name: "dropi_verificar_disponibilidad",
+    description: "Revisa en Dropi cada producto importado y desactiva los archivados o sin stock (reactiva los que volvieron). Úsala cuando el admin pregunte qué sigue disponible. Modifica productos → requiere confirmación.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { tokenDropiDelTenant, verificarDisponibilidadDropi, vincularCatalogoDeWoo } = await import("./dropi-directo");
+      const token = await tokenDropiDelTenant(ctx.tenantId);
+      if (!token) return { ok: false, summary: "Este negocio no tiene token de Dropi: primero dropi_conectar." };
+      const v = await vincularCatalogoDeWoo(ctx.tenantId).catch(() => ({ vinculados: 0, sinDato: 0 }));
+      const r = await verificarDisponibilidadDropi(ctx.tenantId, token);
+      return { ok: true, summary: `Revisé ${r.revisados} productos en Dropi${v.vinculados ? ` (vinculé ${v.vinculados} que venían de WooCommerce)` : ""}: ${r.desactivados.length} desactivados (${r.desactivados.map((d) => `${d.nombre}: ${d.motivo}`).join("; ") || "ninguno"}), ${r.reactivados.length} reactivados, ${r.errores} sin respuesta.`, data: r };
+    },
+  },
+  {
     name: "dropi_status",
     description: "Verifica la conexión DIRECTA a la API de Dropi (solo catálogo). Los PEDIDOS van por WooCommerce → Dropify → Dropi y ese camino funciona (verificado 19-09-2026). Un 'Access denied' en un pedido = producto sin `_dropi_token` → dropify_reparar_tokens, no esta herramienta.",
     args: "{}",
@@ -7115,6 +7171,9 @@ export const DESTRUCTIVE_TOOLS = new Set([
   "dropify_reparar_tokens",
   // pedido_cancelar cancela en WooCommerce
   "pedido_cancelar",
+  "dropi_conectar",
+  "dropi_importar",
+  "dropi_verificar_disponibilidad",
   // Crear un píxel deja un objeto PERMANENTE en la cuenta de Meta del negocio
   // y duplicarlo parte los datos de conversión en dos -- nunca sin el sí.
   "fb_create_pixel",

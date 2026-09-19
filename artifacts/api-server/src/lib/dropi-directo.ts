@@ -1,0 +1,373 @@
+/**
+ * ============================================================
+ * DROPI DIRECTO: sin WooCommerce en el medio
+ * ============================================================
+ *
+ * Pedido del dueño (19-09-2026): "que al cliente ingresar el token jale los
+ * productos y realice todo sin WooCommerce". Hasta hoy el pedido iba
+ * bot → WooCommerce → Dropify (plugin de WordPress) → Dropi. Dropify no hace
+ * nada mágico: llama a `https://api.dropi.co/integrations/…` con un token
+ * de integración en la cabecera `dropi-integration-key`. Leído de su código
+ * (ProductsModel.php, OrdersModel.php) y verificado ese día: con ese token
+ * se creó la orden Dropi #90133857 desde nuestro servidor.
+ *
+ * Endpoints (los mismos que usa Dropify, ni uno más):
+ *   POST products/index      catálogo con filtros (keywords, stockmayor, category, paginado)
+ *   GET  products/v2/{id}    detalle + variantes + stock
+ *   GET  categories/         categorías
+ *   POST orders/myorders     crear el pedido (contraentrega = "CON RECAUDO")
+ *
+ * El token es POR CLIENTE del SaaS: se guarda cifrado en `tenants.apiKeys`
+ * bajo el proveedor "dropi", con el mismo mecanismo que las claves de IA.
+ *
+ * ── Diferencia con lib/dropi.ts ─────────────────────────────────────────
+ * `dropi.ts` usa el token de SESIÓN del panel contra `/api/…`: sirve para
+ * mirar catálogo pero `api.dropi.co` rechaza crear pedidos con él ("not
+ * issued to this api"). El de integración va contra `/integrations/…` y sí
+ * crea pedidos. Son dos puertas; esta es la buena para operar.
+ */
+import { db, products } from "@workspace/db";
+import { and, eq } from "drizzle-orm";
+import { logger } from "./logger";
+import { customerProductCopy } from "./dropi";
+
+const BASE = (process.env.DROPI_API_URL || "https://api.dropi.co").replace(/\/+$/, "") + "/integrations/";
+
+// ─── Token por cliente ──────────────────────────────────────────────────────
+
+export async function tokenDropiDelTenant(tenantId: number): Promise<string | null> {
+  try {
+    const { clavesDelTenant } = await import("./ai-keys-tenant");
+    const claves = await clavesDelTenant(tenantId);
+    const t = String(claves?.dropi?.apiKey || "").trim();
+    return t || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function guardarTokenDropi(tenantId: number, token: string): Promise<void> {
+  const { guardarClaveDeTenant } = await import("./ai-keys-tenant");
+  await guardarClaveDeTenant(tenantId, "dropi", { apiKey: token.trim() });
+}
+
+/**
+ * Si el negocio ya tiene WooCommerce con productos de Dropify, el token está
+ * ahí (meta `_dropi_token`). Se ofrece como sugerencia en el panel para que
+ * no haya que ir a buscarlo a Dropi.
+ */
+export async function tokenSugeridoDesdeWoo(tenantId: number): Promise<string | null> {
+  try {
+    const { getWooCommerceService } = await import("./woocommerce");
+    const woo = await getWooCommerceService(tenantId);
+    if (!woo) return null;
+    const { auditarTokensDropify } = await import("./dropify-tokens");
+    const a = await auditarTokensDropify(woo, 3);
+    return a.tokens[0]?.token || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Lo que dice el token de sí mismo (JWT sin verificar firma; solo para mostrar). */
+export function integracionDelToken(token: string): { tienda: string | null; usuario: string | null; vence: string | null } | null {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+    return {
+      tienda: payload.integration_url || null,
+      usuario: payload.user_id != null ? String(payload.user_id) : null,
+      vence: payload.exp ? new Date(Number(payload.exp) * 1000).toISOString().slice(0, 10) : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ─── Llamada base ───────────────────────────────────────────────────────────
+
+export interface RespuestaDropi<T = any> { ok: boolean; status?: number; data?: T; error?: string }
+
+export async function dropiIntegracion<T = any>(token: string, path: string, body?: Record<string, any>, method: "GET" | "POST" = body ? "POST" : "GET", timeoutMs = 25000): Promise<RespuestaDropi<T>> {
+  try {
+    const res = await fetch(BASE + path.replace(/^\/+/, ""), {
+      method,
+      headers: { "Content-Type": "application/json;charset=UTF-8", "dropi-integration-key": token },
+      body: method === "POST" ? JSON.stringify(body || {}) : undefined,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    const raw = await res.text();
+    let json: any = null;
+    try { json = JSON.parse(raw); } catch { /* no-JSON */ }
+    if (!res.ok || json?.isSuccess === false) {
+      const msg = json?.message || json?.status || raw.slice(0, 200) || `HTTP ${res.status}`;
+      return { ok: false, status: res.status, error: String(msg), data: json };
+    }
+    return { ok: true, status: res.status, data: (json?.objects ?? json) as T };
+  } catch (e: any) {
+    return { ok: false, error: e?.name === "TimeoutError" ? `Dropi no respondió en ${Math.round(timeoutMs / 1000)}s` : String(e?.message || e) };
+  }
+}
+
+/** ¿El token sirve? Pide un producto del catálogo. */
+export async function probarTokenDropi(token: string): Promise<{ ok: boolean; detalle: string; integracion?: ReturnType<typeof integracionDelToken> }> {
+  const t = String(token || "").trim();
+  if (!t) return { ok: false, detalle: "Falta el token." };
+  const r = await dropiIntegracion(t, "products/index", { startData: 0, pageSize: 1, active: true, no_count: true, integration: true, get_stock: false });
+  if (!r.ok) return { ok: false, detalle: `Dropi rechazó el token: ${r.error}`, integracion: integracionDelToken(t) };
+  return { ok: true, detalle: "Token válido: Dropi responde el catálogo.", integracion: integracionDelToken(t) };
+}
+
+// ─── Catálogo ───────────────────────────────────────────────────────────────
+
+export interface ProductoDropi {
+  id: number;
+  name: string;
+  description?: string;
+  sale_price?: number;
+  suggested_price?: number;
+  stock?: number;
+  user_id?: number;
+  type?: string;
+  categories?: Array<{ name?: string }>;
+  gallery?: any[];
+  photos?: any[];
+  images?: any[];
+  image?: any;
+  variations?: any[];
+  active?: boolean | number;
+  [k: string]: any;
+}
+
+export async function buscarProductosDropi(token: string, opts: { q?: string; conStock?: boolean; categoria?: string | number; pagina?: number; porPagina?: number } = {}): Promise<RespuestaDropi<ProductoDropi[]>> {
+  const body: Record<string, any> = {
+    startData: Math.max(0, (opts.pagina ?? 1) - 1),
+    pageSize: Math.min(50, opts.porPagina ?? 20),
+    order_type: "desc",
+    order_by: "id",
+    keywords: opts.q || "",
+    active: true,
+    no_count: true,
+    integration: true,
+    get_stock: false,
+  };
+  if (opts.conStock) body.stockmayor = 1;
+  if (opts.categoria) body.category = opts.categoria;
+  const r = await dropiIntegracion<any>(token, "products/index", body);
+  if (!r.ok) return r as RespuestaDropi<ProductoDropi[]>;
+  const lista = Array.isArray(r.data) ? r.data : (r.data?.objects || r.data?.data || []);
+  return { ok: true, data: lista as ProductoDropi[] };
+}
+
+export async function detalleProductoDropi(token: string, dropiId: number): Promise<RespuestaDropi<ProductoDropi>> {
+  const r = await dropiIntegracion<any>(token, `products/v2/${dropiId}`);
+  if (!r.ok) return r as RespuestaDropi<ProductoDropi>;
+  const p = r.data?.product || r.data?.objects || r.data;
+  return { ok: true, data: p as ProductoDropi };
+}
+
+export async function categoriasDropi(token: string): Promise<RespuestaDropi<Array<{ id: number; name: string }>>> {
+  const r = await dropiIntegracion<any>(token, "categories/");
+  if (!r.ok) return r as any;
+  const lista = Array.isArray(r.data) ? r.data : (r.data?.objects || []);
+  return { ok: true, data: lista.map((c: any) => ({ id: Number(c.id), name: String(c.name || "") })) };
+}
+
+function fotosDe(p: ProductoDropi): string[] {
+  const urls: string[] = [];
+  const visit = (v: any) => {
+    if (!v) return;
+    if (typeof v === "string") { if (/^https?:\/\//i.test(v)) urls.push(v); return; }
+    if (Array.isArray(v)) { v.forEach(visit); return; }
+    if (typeof v === "object") [v.urlS3, v.url, v.src, v.thumbnail].forEach(visit);
+  };
+  [p.gallery, p.photos, p.images, p.image].forEach(visit);
+  return [...new Set(urls)];
+}
+
+/** ¿Está disponible para vender? (activo y con stock) */
+export function disponible(p: ProductoDropi | null | undefined): { ok: boolean; motivo?: string; stock: number | null } {
+  if (!p) return { ok: false, motivo: "no existe en Dropi", stock: null };
+  const stock = typeof p.stock === "number" ? p.stock : (p.stock != null ? Number(p.stock) : null);
+  const activo = p.active === undefined ? true : (p.active === true || p.active === 1);
+  if (!activo) return { ok: false, motivo: "archivado/inactivo por el proveedor", stock };
+  if (stock != null && stock <= 0) return { ok: false, motivo: "sin stock", stock };
+  return { ok: true, stock };
+}
+
+// ─── Importar al catálogo del bot ───────────────────────────────────────────
+
+export interface ResultadoImportacion { ok: boolean; productId?: number; yaExistia?: boolean; error?: string; nombre?: string }
+
+/**
+ * Trae un producto de Dropi al catálogo del negocio. Si ya estaba (mismo
+ * dropiProductId), actualiza stock/fotos/proveedor y no duplica. El precio
+ * de venta lo decide el dueño; si no lo pasa, se usa el sugerido por Dropi.
+ */
+export async function importarProductoDropi(tenantId: number, token: string, dropiId: number, opts: { precio?: number | null; categoria?: string | null } = {}): Promise<ResultadoImportacion> {
+  const r = await detalleProductoDropi(token, dropiId);
+  if (!r.ok || !r.data) return { ok: false, error: `No se pudo leer el producto ${dropiId} en Dropi: ${r.error}` };
+  const p = r.data;
+  const precio = Number(opts.precio) || Number(p.suggested_price) || Number(p.sale_price) || 0;
+  if (!precio) return { ok: false, error: "El producto no trae precio sugerido; pasá un precio de venta." };
+  const imageUrls = fotosDe(p);
+  const dropi = {
+    source: "dropi",
+    dropiProductId: Number(p.id),
+    dropiSupplierId: p.user_id ?? null,
+    dropiStock: typeof p.stock === "number" ? p.stock : (p.stock != null ? Number(p.stock) : null),
+    dropiCost: Number(p.sale_price) || null,
+    dropiType: p.type || null,
+    dropiVariations: Array.isArray(p.variations) ? p.variations.map((v: any) => ({ id: v.id, stock: v.stock, attributes: v.attribute_values || v.attributes || v.name })) : [],
+    imageUrls,
+    dropiRevisadoEn: new Date().toISOString(),
+  };
+
+  // ¿Ya estaba? (mismo producto de Dropi en este negocio)
+  const existentes = await db.select().from(products).where(eq(products.tenantId, tenantId));
+  const previo = (existentes as any[]).find((x) => {
+    try { const m = typeof x.metadata === "string" ? JSON.parse(x.metadata) : x.metadata; return Number(m?.dropiProductId) === Number(p.id); } catch { return false; }
+  });
+  if (previo) {
+    const m = (() => { try { return typeof previo.metadata === "string" ? JSON.parse(previo.metadata) : (previo.metadata || {}); } catch { return {}; } })();
+    await db.update(products).set({
+      metadata: JSON.stringify({ ...m, ...dropi }),
+      imageUrl: previo.imageUrl || imageUrls[0] || null,
+      isActive: disponible(p).ok ? previo.isActive : false,
+    } as any).where(eq(products.id, previo.id));
+    return { ok: true, productId: previo.id, yaExistia: true, nombre: previo.name };
+  }
+
+  const [creado] = await db.insert(products).values({
+    tenantId,
+    name: String(p.name || `Producto Dropi ${p.id}`),
+    description: customerProductCopy(p.description, String(p.name || "")),
+    price: String(precio),
+    currency: "COP",
+    category: opts.categoria || p.categories?.[0]?.name || "Dropshipping",
+    kind: "physical",
+    isActive: disponible(p).ok,
+    imageUrl: imageUrls[0] || null,
+    metadata: JSON.stringify(dropi),
+  } as any).returning();
+  logger.info({ tenantId, productId: (creado as any).id, dropiId: p.id }, "[DropiDirecto] Producto importado");
+  return { ok: true, productId: (creado as any).id, nombre: (creado as any).name };
+}
+
+// ─── Crear el pedido directo en Dropi ───────────────────────────────────────
+
+export interface PedidoParaDropi {
+  nombre: string; telefono: string; documento?: string | null;
+  direccion: string; barrio?: string | null; ciudad: string; departamento: string;
+  notas?: string | null; cantidad: number; precioUnitario: number;
+  contraentrega: boolean; referencia: string | number;
+  email?: string | null;
+}
+
+/**
+ * El mismo payload que arma Dropify (OrdersModel.php `save`), porque es el
+ * que Dropi acepta. `rate_type` "CON RECAUDO" = contraentrega.
+ */
+export async function crearPedidoDropi(token: string, producto: { dropiProductId: number; nombre: string; supplierId?: number | null; stock?: number | null; variationId?: number | null }, pedido: PedidoParaDropi): Promise<RespuestaDropi<{ id: number | string; raw: any }>> {
+  const partes = String(pedido.nombre || "").trim().split(/\s+/);
+  const name = partes[0] || pedido.nombre;
+  const surname = partes.slice(1).join(" ") || ".";
+  const total = pedido.precioUnitario * pedido.cantidad;
+  const item: Record<string, any> = {
+    id: producto.dropiProductId,
+    name: producto.nombre,
+    quantity: pedido.cantidad,
+    stock: producto.stock ?? 0,
+    price: pedido.precioUnitario,
+    token,
+    user_id: producto.supplierId ?? undefined,
+  };
+  if (producto.variationId) item.variation_id = producto.variationId;
+  const body = {
+    total_order: total,
+    notes: [pedido.notas, pedido.documento ? `Documento: ${pedido.documento}` : ""].filter(Boolean).join(" | "),
+    name, surname,
+    dir: `${pedido.direccion}${pedido.barrio ? ` ${pedido.barrio}` : ""}`,
+    country: "CO",
+    state: pedido.departamento,
+    city: pedido.ciudad,
+    phone: pedido.telefono,
+    client_email: pedido.email || `${pedido.telefono}@whatsapp.local`,
+    payment_method_id: 1,
+    status: "PENDIENTE CONFIRMACION",
+    type: "FINAL_ORDER",
+    rate_type: pedido.contraentrega ? "CON RECAUDO" : "SIN RECAUDO",
+    products: [item],
+    calculate_costs_and_shiping: true,
+    supplier_id: producto.supplierId ?? undefined,
+    shop_order_id: pedido.referencia,
+    create_product_if_not_exist: false,
+  };
+  const r = await dropiIntegracion<any>(token, "orders/myorders", body, "POST", 60000);
+  if (!r.ok) return r as any;
+  const obj = r.data?.objects ?? r.data;
+  const id = obj?.id ?? obj?.order?.id ?? null;
+  return { ok: true, data: { id, raw: obj } };
+}
+
+// ─── Disponibilidad ─────────────────────────────────────────────────────────
+
+/**
+ * Revisa en Dropi cada producto importado del negocio y desactiva los que ya
+ * no se pueden vender (archivado/sin stock); reactiva los que volvieron.
+ * Dropify tiene su cron de stock apagado, así que esto es lo único que
+ * mantiene el catálogo honesto. Devuelve qué cambió, para avisar.
+ */
+export async function verificarDisponibilidadDropi(tenantId: number, token: string): Promise<{ revisados: number; desactivados: Array<{ id: number; nombre: string; motivo: string }>; reactivados: Array<{ id: number; nombre: string }>; errores: number }> {
+  const lista = await db.select().from(products).where(eq(products.tenantId, tenantId));
+  const out = { revisados: 0, desactivados: [] as Array<{ id: number; nombre: string; motivo: string }>, reactivados: [] as Array<{ id: number; nombre: string }>, errores: 0 };
+  for (const p of lista as any[]) {
+    let m: any = {};
+    try { m = typeof p.metadata === "string" ? JSON.parse(p.metadata) : (p.metadata || {}); } catch { /* sin metadata */ }
+    const dropiId = Number(m?.dropiProductId);
+    if (!dropiId) continue;
+    out.revisados++;
+    const r = await detalleProductoDropi(token, dropiId);
+    if (!r.ok) { out.errores++; continue; }
+    const d = disponible(r.data);
+    const nuevoMeta = { ...m, dropiStock: d.stock, dropiRevisadoEn: new Date().toISOString(), dropiMotivo: d.ok ? null : d.motivo };
+    if (!d.ok && p.isActive) {
+      await db.update(products).set({ isActive: false, metadata: JSON.stringify(nuevoMeta) } as any).where(eq(products.id, p.id));
+      out.desactivados.push({ id: p.id, nombre: p.name, motivo: d.motivo || "no disponible" });
+    } else if (d.ok && !p.isActive && m?.dropiMotivo) {
+      // Solo se reactiva lo que ESTE chequeo desactivó (dropiMotivo), no lo que apagó el dueño.
+      await db.update(products).set({ isActive: true, metadata: JSON.stringify({ ...nuevoMeta, dropiMotivo: null }) } as any).where(eq(products.id, p.id));
+      out.reactivados.push({ id: p.id, nombre: p.name });
+    } else {
+      await db.update(products).set({ metadata: JSON.stringify(nuevoMeta) } as any).where(eq(products.id, p.id));
+    }
+  }
+  return out;
+}
+
+/**
+ * Los productos que vinieron por WooCommerce (metadata.woocommerce) no traen
+ * `dropiProductId`. Se lo busca en Woo (`_dropi_product` trae el id) para
+ * que también puedan ir directo a Dropi. Devuelve cuántos quedaron vinculados.
+ */
+export async function vincularCatalogoDeWoo(tenantId: number): Promise<{ vinculados: number; sinDato: number }> {
+  const out = { vinculados: 0, sinDato: 0 };
+  const { getWooCommerceService } = await import("./woocommerce");
+  const woo = await getWooCommerceService(tenantId);
+  if (!woo) return out;
+  const lista = await db.select().from(products).where(eq(products.tenantId, tenantId));
+  for (const p of lista as any[]) {
+    let m: any = {};
+    try { m = typeof p.metadata === "string" ? JSON.parse(p.metadata) : (p.metadata || {}); } catch { continue; }
+    if (m?.dropiProductId || !m?.woocommerce?.id) continue;
+    try {
+      const wp = await woo.getProduct(Number(m.woocommerce.id));
+      const raw = String((wp.meta_data || []).find((x) => x.key === "_dropi_product")?.value || "");
+      const id = raw.match(/s:2:"id";i:(\d+);/)?.[1] || (() => { try { return JSON.parse(raw)?.id; } catch { return null; } })();
+      const supplier = raw.match(/s:7:"user_id";i:(\d+);/)?.[1] || null;
+      if (!id) { out.sinDato++; continue; }
+      await db.update(products).set({ metadata: JSON.stringify({ ...m, source: m.source || "dropi", dropiProductId: Number(id), dropiSupplierId: supplier ? Number(supplier) : m.dropiSupplierId ?? null }) } as any).where(eq(products.id, p.id));
+      out.vinculados++;
+    } catch { out.sinDato++; }
+  }
+  return out;
+}
