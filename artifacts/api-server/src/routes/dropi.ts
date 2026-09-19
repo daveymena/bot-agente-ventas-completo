@@ -102,6 +102,29 @@ router.get("/buscar", async (req: any, res: any) => {
 });
 
 /** Importar uno o varios productos. */
+/**
+ * Sonda para MEDIR la API de Dropi (solo administrador de la plataforma):
+ * `?path=orders/myorders&method=GET`. Sirve para descubrir qué devuelve un
+ * endpoint antes de escribir código que lo suponga.
+ */
+router.get("/sonda", async (req: any, res: any) => {
+  try {
+    const tenantId = tenantDe(req);
+    if (!tenantId || !req.tenant?.isAdmin) return res.status(403).json({ ok: false, error: "Solo administrador" });
+    const { tokenDropiDelTenant, dropiIntegracion } = await import("../lib/dropi-directo");
+    const token = await tokenDropiDelTenant(tenantId);
+    if (!token) return res.status(400).json({ ok: false, error: "Sin token de Dropi" });
+    const path = String(req.query.path || "").replace(/^\/+/, "");
+    if (!path || /orders\/myorders$/.test(path) && String(req.query.method || "GET").toUpperCase() === "POST") return res.status(400).json({ ok: false, error: "Ruta inválida o no permitida (no se crean pedidos desde acá)" });
+    let body: any = undefined;
+    if (req.query.body) { try { body = JSON.parse(String(req.query.body)); } catch { return res.status(400).json({ ok: false, error: "body no es JSON" }); } }
+    const r = await dropiIntegracion<any>(token, path, body, String(req.query.method || "GET").toUpperCase() as any, 20000);
+    res.json(r);
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 /** Detalle de un producto de Dropi: fotos (todas, sin repetir por contenido), stock, variaciones. `?raw=1` agrega lo crudo. */
 router.get("/producto/:id", async (req: any, res: any) => {
   try {

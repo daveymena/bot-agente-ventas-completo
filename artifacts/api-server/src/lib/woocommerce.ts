@@ -325,6 +325,11 @@ export class WooCommerceService {
             price: finalPrice,
             currency: "COP", // Ajustar según la configuración de la tienda
             category: wooProduct.categories[0]?.name || "General",
+            categoryId: await (await import("./categorias")).asegurarCategoria(
+              this.tenantId,
+              wooProduct.categories[0]?.name || "General",
+              (wooProduct.virtual || wooProduct.downloadable) ? "digital" : "physical",
+            ),
             imageUrl,
             sku: wooSku,
             features: wooProduct.attributes.map(attr => `${attr.name}: ${attr.options.join(", ")}`),

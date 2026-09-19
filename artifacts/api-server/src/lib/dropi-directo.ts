@@ -384,6 +384,7 @@ export async function importarProductoDropi(tenantId: number, token: string, dro
     price: String(precio),
     currency: "COP",
     category: categoriaFinal,
+    categoryId: await (await import("./categorias")).asegurarCategoria(tenantId, categoriaFinal, "physical"),
     kind: "physical",
     isActive: disponible(p).ok,
     imageUrl: imageUrls[0] || null,

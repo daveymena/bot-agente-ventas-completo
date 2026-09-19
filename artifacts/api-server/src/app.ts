@@ -88,6 +88,8 @@ registrarAgencia();
 // Tokens de Dropify por producto: se auditan y reparan solos (ver lib/dropify-auditoria.ts).
 import("./lib/dropify-auditoria").then((m) => m.iniciarAuditoriaDropify()).catch(() => undefined);
 import("./lib/telegram-atlas").then((m) => m.iniciarAtlasEnTelegramParaTodos()).catch(() => undefined);
+// Productos importados (Dropi/Woo) sin categoría real → se enlazan solos (ver lib/categorias.ts).
+import("./lib/categorias").then((m) => m.iniciarVinculoDeCategorias()).catch(() => undefined);
 registrarGuardia();
 iniciarProgramador();
 
