@@ -85,17 +85,14 @@ router.get("/buscar", async (req: any, res: any) => {
     const propios = await db.select({ id: products.id, metadata: products.metadata }).from(products).where(eq(products.tenantId, tenantId));
     const importados = new Map<number, number>();
     for (const p of propios as any[]) { try { const m = typeof p.metadata === "string" ? JSON.parse(p.metadata) : p.metadata; if (m?.dropiProductId) importados.set(Number(m.dropiProductId), p.id); } catch { /* nada */ } }
-    const fotos = (p: any): string | null => {
-      const cands = [p.image, ...(p.gallery || []), ...(p.photos || []), ...(p.images || [])].flat();
-      for (const c of cands) { const u = typeof c === "string" ? c : (c?.urlS3 || c?.url || c?.src); if (u && /^https?:/i.test(u)) return u; }
-      return null;
-    };
+    const { fotosDe, stockDe, proveedorDe } = await import("../lib/dropi-directo");
     res.json({
       ok: true,
       ...(String(req.query.raw || "") === "1" ? { crudo: (r.data || []).slice(0, 2) } : {}),
       productos: (r.data || []).map((p) => ({
-        id: p.id, nombre: p.name, precioSugerido: p.suggested_price ?? null, costo: p.sale_price ?? null, stock: p.stock ?? null,
-        proveedor: p.user_id ?? null, categoria: p.categories?.[0]?.name || null, foto: fotos(p), tipo: p.type || null,
+        id: p.id, nombre: p.name, precioSugerido: p.suggested_price ?? null, costo: p.sale_price ?? null, stock: stockDe(p),
+        proveedor: proveedorDe(p).nombre, categoria: p.categories?.[0]?.name || null, foto: fotosDe(p)[0] || null, tipo: p.type || null,
+        bodega: (p as any).warehouse_product?.[0]?.warehouse?.city?.name || null,
         importadoComo: importados.get(Number(p.id)) || null,
       })),
     });

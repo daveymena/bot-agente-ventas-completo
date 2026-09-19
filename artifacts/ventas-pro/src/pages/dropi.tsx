@@ -29,7 +29,7 @@ interface Config {
 }
 interface ProductoDropi {
   id: number; nombre: string; precioSugerido: number | null; costo: number | null; stock: number | null;
-  proveedor: number | null; categoria: string | null; foto: string | null; tipo: string | null; importadoComo: number | null;
+  proveedor: string | null; categoria: string | null; foto: string | null; tipo: string | null; bodega: string | null; importadoComo: number | null;
 }
 
 const cop = (v: number | null | undefined) => (v == null ? "—" : `$${Math.round(Number(v)).toLocaleString("es-CO")}`);
@@ -196,6 +196,7 @@ export default function DropiPage() {
                         <div className="aspect-[4/3] rounded-lg bg-muted overflow-hidden">{p.foto ? <img src={p.foto} alt={p.nombre} className="w-full h-full object-cover" loading="lazy" /> : null}</div>
                         <div className="text-sm font-semibold leading-snug line-clamp-2">{p.nombre}</div>
                         <div className="text-xs text-muted-foreground">Costo {cop(p.costo)} · sugerido {cop(p.precioSugerido)} · stock {p.stock ?? "—"}{p.categoria ? ` · ${p.categoria}` : ""}</div>
+                        {p.proveedor ? <div className="text-xs text-muted-foreground">Proveedor: {p.proveedor}{p.bodega ? ` · ${p.bodega}` : ""}</div> : null}
                         {p.importadoComo ? (
                           <div className="text-xs text-green-700 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> En tu catálogo (id {p.importadoComo})</div>
                         ) : (

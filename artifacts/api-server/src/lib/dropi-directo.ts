@@ -223,22 +223,46 @@ export async function categoriasDropi(token: string): Promise<RespuestaDropi<Arr
   return { ok: true, data: lista.map((c: any) => ({ id: Number(c.id), name: String(c.name || "") })) };
 }
 
-function fotosDe(p: ProductoDropi): string[] {
+/** CDN donde Dropi guarda las fotos; `gallery[].urlS3` viene relativa (medido 19-09-2026). */
+const CDN_DROPI = (process.env.DROPI_CDN_URL || "https://d39ru7awumhhs2.cloudfront.net").replace(/\/+$/, "");
+
+export function fotosDe(p: ProductoDropi): string[] {
   const urls: string[] = [];
+  const add = (v: string) => {
+    const u = String(v || "").trim();
+    if (!u) return;
+    if (/^https?:\/\//i.test(u)) urls.push(u);
+    else if (/\.(jpe?g|png|webp|gif)$/i.test(u) || /^colombia\//i.test(u)) urls.push(`${CDN_DROPI}/${u.replace(/^\/+/, "")}`);
+  };
   const visit = (v: any) => {
     if (!v) return;
-    if (typeof v === "string") { if (/^https?:\/\//i.test(v)) urls.push(v); return; }
+    if (typeof v === "string") { add(v); return; }
     if (Array.isArray(v)) { v.forEach(visit); return; }
-    if (typeof v === "object") [v.urlS3, v.url, v.src, v.thumbnail].forEach(visit);
+    if (typeof v === "object") [v.urlS3, v.url, v.src, v.thumbnail].forEach((x) => typeof x === "string" && add(x));
   };
-  [p.gallery, p.photos, p.images, p.image].forEach(visit);
+  // La principal primero (gallery[].main).
+  const gal = Array.isArray(p.gallery) ? [...p.gallery].sort((a: any, b: any) => (b?.main ? 1 : 0) - (a?.main ? 1 : 0)) : [];
+  [gal, p.photos, p.images, p.image].forEach(visit);
   return [...new Set(urls)];
+}
+
+/** Stock total sumando bodegas (`warehouse_product[].stock`); si no viene, `stock`. */
+export function stockDe(p: ProductoDropi): number | null {
+  const wp = Array.isArray((p as any).warehouse_product) ? (p as any).warehouse_product : [];
+  if (wp.length) return wp.reduce((acc: number, w: any) => acc + (Number(w?.stock) || 0), 0);
+  return typeof p.stock === "number" ? p.stock : (p.stock != null ? Number(p.stock) : null);
+}
+
+/** Proveedor: `user.id` y su tienda. */
+export function proveedorDe(p: ProductoDropi): { id: number | null; nombre: string | null } {
+  const u = (p as any).user;
+  return { id: Number(u?.id ?? p.user_id) || null, nombre: u?.store_name || u?.name || null };
 }
 
 /** ¿Está disponible para vender? (activo y con stock) */
 export function disponible(p: ProductoDropi | null | undefined): { ok: boolean; motivo?: string; stock: number | null } {
   if (!p) return { ok: false, motivo: "no existe en Dropi", stock: null };
-  const stock = typeof p.stock === "number" ? p.stock : (p.stock != null ? Number(p.stock) : null);
+  const stock = stockDe(p);
   const activo = p.active === undefined ? true : (p.active === true || p.active === 1);
   if (!activo) return { ok: false, motivo: "archivado/inactivo por el proveedor", stock };
   if (stock != null && stock <= 0) return { ok: false, motivo: "sin stock", stock };
@@ -261,11 +285,13 @@ export async function importarProductoDropi(tenantId: number, token: string, dro
   const precio = Number(opts.precio) || Number(p.suggested_price) || Number(p.sale_price) || 0;
   if (!precio) return { ok: false, error: "El producto no trae precio sugerido; pasá un precio de venta." };
   const imageUrls = fotosDe(p);
+  const prov = proveedorDe(p);
   const dropi = {
     source: "dropi",
     dropiProductId: Number(p.id),
-    dropiSupplierId: p.user_id ?? null,
-    dropiStock: typeof p.stock === "number" ? p.stock : (p.stock != null ? Number(p.stock) : null),
+    dropiSupplierId: prov.id,
+    dropiSupplierNombre: prov.nombre,
+    dropiStock: stockDe(p),
     dropiCost: Number(p.sale_price) || null,
     dropiType: p.type || null,
     dropiVariations: Array.isArray(p.variations) ? p.variations.map((v: any) => ({ id: v.id, stock: v.stock, attributes: v.attribute_values || v.attributes || v.name })) : [],
