@@ -41,8 +41,8 @@ export interface RastroDropi {
   estado: "sincronizada" | "error" | "sin_productos_dropi" | "sin_rastro";
   dropiOrderId: string | null;
   detalle: string;
-  /** Por línea: si el producto de Woo tiene la meta `_dropi_product` que Dropify exige. */
-  productos: Array<{ wooProductId: number; nombre: string; esDeDropi: boolean | null }>;
+  /** Por línea: si el producto de Woo tiene la meta `_dropi_product` que Dropify exige, y con qué integración. */
+  productos: Array<{ wooProductId: number; nombre: string; esDeDropi: boolean | null; integracion?: IntegracionDropi | null }>;
 }
 
 export interface EstadoWooCommerce {
@@ -51,6 +51,40 @@ export interface EstadoWooCommerce {
   ultimosPedidosEnWoo: Array<{ id: number; estado: string; total: string; fecha: string; nombre: string; ciudad: string; dropi: RastroDropi }>;
   pedidosDelBot: PedidoDelBot[];
   resumen: string;
+}
+
+/**
+ * Lo que dice el token de integración que Dropify guardó en el producto
+ * (`_dropi_token`). Es un JWT: el payload se lee sin secreto. Trae
+ * `integration_url` (la tienda a la que Dropi le dio el token) e `ip_url`
+ * (la IP que Dropi acepta). "Access denied" (pedidos #324-#328, 19-09) es
+ * exactamente esto: la IP del servidor no coincide con la del token del
+ * producto — y como el token es POR PRODUCTO, dos productos de la misma
+ * tienda pueden tener integraciones distintas (el #323 pasó, el corrector no).
+ */
+export interface IntegracionDropi {
+  tienda: string | null;
+  ipAutorizada: string | null;
+  usuario: string | number | null;
+  vence: string | null;
+  tokenHuella: string;
+}
+
+export function leerIntegracionDropi(token: string | null | undefined): IntegracionDropi | null {
+  const t = String(token || "").trim();
+  if (!t || t.split(".").length < 3) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+    return {
+      tienda: payload.integration_url || payload.store || payload.url || null,
+      ipAutorizada: payload.ip_url || payload.ip || null,
+      usuario: payload.user_id || payload.sub || payload.id || null,
+      vence: payload.exp ? new Date(Number(payload.exp) * 1000).toISOString().slice(0, 10) : null,
+      tokenHuella: t.slice(0, 6) + "…" + t.slice(-6),
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function leerRastroDropi(o: any): Omit<RastroDropi, "productos"> {
@@ -127,15 +161,19 @@ export async function estadoWooCommerce(tenantId: number): Promise<EstadoWooComm
       const orders = await woo.getOrders({ per_page: 5 });
       // ¿Los productos de cada orden son de Dropify? Sin `_dropi_product` el
       // plugin la descarta aunque el auto-sync esté encendido.
-      const cacheProductos = new Map<number, boolean | null>();
-      const esDeDropi = async (id: number): Promise<boolean | null> => {
-        if (!id) return null;
+      const cacheProductos = new Map<number, { esDeDropi: boolean | null; integracion: IntegracionDropi | null }>();
+      const infoDropi = async (id: number) => {
+        if (!id) return { esDeDropi: null, integracion: null };
         if (cacheProductos.has(id)) return cacheProductos.get(id)!;
-        let r: boolean | null = null;
+        let r: { esDeDropi: boolean | null; integracion: IntegracionDropi | null } = { esDeDropi: null, integracion: null };
         try {
           const p = await woo.getProduct(id);
-          r = !!(p.meta_data || []).find((m) => m.key === "_dropi_product" && m.value);
-        } catch { r = null; }
+          const meta = (p.meta_data || []) as Array<{ key: string; value: any }>;
+          r = {
+            esDeDropi: !!meta.find((m) => m.key === "_dropi_product" && m.value),
+            integracion: leerIntegracionDropi(meta.find((m) => m.key === "_dropi_token")?.value),
+          };
+        } catch { /* sin acceso al producto */ }
         cacheProductos.set(id, r);
         return r;
       };
@@ -143,7 +181,8 @@ export async function estadoWooCommerce(tenantId: number): Promise<EstadoWooComm
       for (const o of orders) {
         const productos = [] as RastroDropi["productos"];
         for (const li of (o.line_items || []) as any[]) {
-          productos.push({ wooProductId: Number(li.product_id), nombre: String(li.name || ""), esDeDropi: await esDeDropi(Number(li.product_id)) });
+          const info = await infoDropi(Number(li.product_id));
+          productos.push({ wooProductId: Number(li.product_id), nombre: String(li.name || ""), esDeDropi: info.esDeDropi, integracion: info.integracion });
         }
         ultimosPedidosEnWoo.push({
           id: Number(o.id), estado: String(o.status), total: String(o.total),
@@ -164,7 +203,11 @@ export async function estadoWooCommerce(tenantId: number): Promise<EstadoWooComm
   const resumen = [
     conexion.ok ? "WooCommerce conectado y responde." : `WooCommerce configurado pero NO responde: ${conexion.detalle}.`,
     ultimosPedidosEnWoo.length
-      ? `Últimos pedidos en WooCommerce: ${ultimosPedidosEnWoo.map((o) => `#${o.id} ${o.estado} $${o.total} (${o.ciudad || "sin ciudad"}) → Dropi: ${o.dropi.detalle}`).join(" · ")}.`
+      ? `Últimos pedidos en WooCommerce: ${ultimosPedidosEnWoo.map((o) => {
+          const integ = o.dropi.productos.map((p) => p.integracion).find(Boolean);
+          const conInteg = integ ? ` [token de Dropify del producto: tienda ${integ.tienda || "?"}, IP autorizada ${integ.ipAutorizada || "?"}]` : "";
+          return `#${o.id} ${o.estado} $${o.total} (${o.ciudad || "sin ciudad"}) → Dropi: ${o.dropi.detalle}${/access denied/i.test(o.dropi.detalle) ? conInteg : ""}`;
+        }).join(" · ")}.`
       : conexion.ok ? "WooCommerce no tiene pedidos todavía." : "",
     pedidosDelBot.length
       ? `Pedidos que tomó el bot por WhatsApp: ${pedidosDelBot.length} (${llegaron.length} registrados en Woo, ${fallaron.length} fallaron, ${sinConfirmar.length} sin confirmar por el cliente).`

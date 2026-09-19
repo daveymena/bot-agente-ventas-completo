@@ -61,7 +61,8 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
       res.setHeader("Cache-Control", "public, max-age=60");
       // La misma foto bajo varias URLs (local, WordPress, CloudFront) no sale dos veces.
       const { htmlConFotosUnicas, guardadorDeMetadata } = await import("../lib/fotos-de-producto");
-      return res.send(producto ? await htmlConFotosUnicas((row as any).html, producto, { guardar: guardadorDeMetadata(producto.id) }) : (row as any).html);
+      const { conFormularioQueResponde } = await import("../lib/landing/sanear-html");
+      return res.send(conFormularioQueResponde(producto ? await htmlConFotosUnicas((row as any).html, producto, { guardar: guardadorDeMetadata(producto.id) }) : (row as any).html));
     }
 
     const { htmlDeCopia } = await import("../lib/landing/clonar-html");
@@ -183,6 +184,27 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
       }
     }
 
+    // ── El mismo cliente, el mismo producto, hace un momento: es el MISMO pedido ──
+    // 19-09-2026: el dueño llenó el formulario una vez y le dio "Pedir" cinco
+    // veces porque la página no contestaba nada; salieron los pedidos Woo
+    // #324-#328, todos iguales. Un clic repetido no puede ser otro pedido.
+    {
+      const { pool } = await import("@workspace/db");
+      const { rows: previos } = await pool.query(
+        `SELECT * FROM dropshipping_orders
+          WHERE tenant_id = $1 AND product_id = $2 AND telefono = $3
+            AND created_at > now() - interval '10 minutes'
+            AND estado <> 'cancelado'
+          ORDER BY id DESC LIMIT 1`,
+        [row.tenantId, producto.id, datos.telefono],
+      ).catch(() => ({ rows: [] as any[] }));
+      if (previos[0]) {
+        const prev = previos[0];
+        logger.info({ pedidoId: prev.id, wooOrderId: prev.woo_order_id }, "[LandingPublica] Pedido repetido en 10 min: se devuelve el existente");
+        return responderPedido(req, res, { ok: true, pedidoId: prev.id, registrado: !!prev.woo_order_id, wooOrderId: prev.woo_order_id ?? null, plazo: c.envio.plazo, repetido: true }, producto.name);
+      }
+    }
+
     let pedido = await ds.abrirPedido({
       tenantId: row.tenantId,
       conversationId: null,
@@ -224,11 +246,88 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
       logger.warn({ err: e?.message }, "[LandingPublica] no se pudo avisar al admin del pedido");
     }
 
-    return res.json({ ok: true, pedidoId: pedido.id, registrado: r.ok, wooOrderId: r.wooOrderId ?? null, plazo: c.envio.plazo });
+    return responderPedido(req, res, { ok: true, pedidoId: pedido.id, registrado: r.ok, wooOrderId: r.wooOrderId ?? null, plazo: c.envio.plazo }, producto.name);
   } catch (e: any) {
     logger.error({ err: e?.message }, "[LandingPublica] error creando el pedido");
     return res.status(500).json({ ok: false, error: "No se pudo registrar el pedido" });
   }
+});
+
+/**
+ * Un formulario HTML plano (sin fetch) navega al POST y muestra lo que el
+ * servidor devuelva. Devolver JSON ahí es mostrarle al cliente `{"ok":true}`
+ * o nada: el 19-09 el dueño no vio confirmación y le dio "Pedir" cinco veces.
+ * Si el navegador pide HTML, se le da una página de confirmación de verdad;
+ * si es fetch (Accept: application/json), el JSON de siempre.
+ */
+function responderPedido(req: Request, res: Response, datos: Record<string, any>, _nombreProducto: string) {
+  const slug = String(req.params.slug || "");
+  const gracias = `/l/${encodeURIComponent(slug)}/gracias?pedido=${encodeURIComponent(String(datos.pedidoId ?? ""))}${datos.repetido ? "&repetido=1" : ""}`;
+  const quiereHtml = !req.is("application/json") && /text\/html/i.test(String(req.headers.accept || ""));
+  if (quiereHtml) return res.redirect(303, gracias);
+  return res.json({ ...datos, gracias });
+}
+
+/**
+ * GET /l/:slug/gracias — la pantalla de felicitación después del pedido.
+ *
+ * Pedido del dueño (19-09-2026): "al darle enviar debería haber una pantalla
+ * de felicidades, tu pedido ha sido registrado y pronto estaremos en contacto,
+ * así no se queda en la misma página". Antes el formulario mostraba JSON
+ * crudo o nada, y el cliente volvía a dar clic.
+ */
+landingPublicaRouter.get("/l/:slug/gracias", async (req: Request, res: Response) => {
+  const encontrada = await landingPorSlug(String(req.params.slug || "")).catch(() => null);
+  const producto: any = encontrada?.producto || null;
+  const negocio = encontrada ? await getBusinessContext(encontrada.row.tenantId).catch(() => null) : null;
+  const { negocioParaRender } = await import("../lib/landing/negocio-para-render");
+  const render: any = encontrada ? await negocioParaRender(encontrada.row.tenantId, producto).catch(() => null) : null;
+  const esc = (v: any) => String(v ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch] as string));
+  const pedido = String(req.query.pedido || "").replace(/[^0-9]/g, "");
+  const repetido = String(req.query.repetido || "") === "1";
+  const wa = String(render?.whatsapp || producto?.whatsapp || "").replace(/[^0-9]/g, "");
+  const nombreNegocio = render?.nombre || (negocio as any)?.businessName || "";
+  const plazo = (negocio as any)?.condiciones?.envio?.plazo || (negocio as any)?.entrega?.plazo || "";
+  const volver = encontrada ? `/l/${encodeURIComponent(encontrada.row.slug)}` : "/";
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
+  return res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>¡Pedido registrado!</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Poppins:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Inter,system-ui,sans-serif;background:#F7F7F7;color:#111;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+  .card{background:#fff;border:1px solid #E5E7EB;border-radius:20px;padding:44px 32px;max-width:560px;width:100%;text-align:center;box-shadow:0 20px 50px rgba(17,17,17,.10)}
+  .check{width:84px;height:84px;border-radius:50%;background:#F2B71B;color:#111;display:flex;align-items:center;justify-content:center;font-size:44px;margin:0 auto 18px;box-shadow:0 8px 24px rgba(242,183,27,.35)}
+  h1{font-family:Poppins,sans-serif;font-size:30px;line-height:1.15;margin-bottom:10px}
+  p{color:#555B63;line-height:1.65;font-size:16px}
+  .prod{margin:18px 0 6px;font-weight:700;color:#111}
+  .num{display:inline-block;background:#F7F7F7;border:1px solid #E5E7EB;border-radius:10px;padding:8px 16px;font-weight:700;margin-top:8px}
+  .pasos{text-align:left;margin:26px auto 0;max-width:420px;list-style:none}
+  .pasos li{display:flex;gap:12px;align-items:flex-start;padding:10px 0;border-bottom:1px solid #E5E7EB;font-size:15px;color:#111}
+  .pasos li:last-child{border-bottom:none}
+  .pasos .n{flex-shrink:0;width:26px;height:26px;border-radius:50%;background:#F2B71B;color:#111;font-weight:800;font-size:13px;display:flex;align-items:center;justify-content:center;margin-top:1px}
+  .acciones{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-top:28px}
+  a.btn{display:inline-flex;align-items:center;justify-content:center;background:#F2B71B;color:#111;font-weight:700;text-decoration:none;padding:14px 26px;border-radius:10px;min-height:50px}
+  a.btn.wa{background:#25D366;color:#fff}
+  a.ghost{display:inline-flex;align-items:center;justify-content:center;color:#111;text-decoration:none;padding:14px 22px;border-radius:10px;border:1px solid #E5E7EB;font-weight:600;min-height:50px}
+  @media (max-width:520px){h1{font-size:24px}.card{padding:32px 20px}}
+</style></head>
+<body><div class="card">
+  <div class="check">✓</div>
+  <h1>${repetido ? "Tu pedido ya estaba registrado" : "¡Felicidades! Tu pedido quedó registrado"}</h1>
+  <p>${repetido ? "Lo recibimos hace un momento y no se creó otro. " : ""}Pronto estaremos en contacto contigo para confirmar la entrega${plazo ? ` (${esc(plazo)})` : ""}. Pagas al recibir.</p>
+  ${producto ? `<p class="prod">${esc(producto.name)}</p>` : ""}
+  ${pedido ? `<div class="num">Pedido #${esc(pedido)}</div>` : ""}
+  <ul class="pasos">
+    <li><span class="n">1</span><span>Te escribimos${wa ? " por WhatsApp" : ""} para confirmar tus datos y la dirección.</span></li>
+    <li><span class="n">2</span><span>Despachamos tu pedido y te compartimos la guía de envío.</span></li>
+    <li><span class="n">3</span><span>Recibes en tu casa y pagas en ese momento.</span></li>
+  </ul>
+  <div class="acciones">
+    ${wa ? `<a class="btn wa" href="https://wa.me/${wa}?text=${encodeURIComponent(`Hola${nombreNegocio ? ` ${nombreNegocio}` : ""}, acabo de hacer el pedido${pedido ? ` #${pedido}` : ""}${producto ? ` de ${producto.name}` : ""}`)}">Escribir por WhatsApp</a>` : ""}
+    <a class="ghost" href="${esc(volver)}">Volver a la página</a>
+  </div>
+</div></body></html>`);
 });
 
 /**

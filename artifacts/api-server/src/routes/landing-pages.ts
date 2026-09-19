@@ -94,7 +94,8 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
       // La misma foto bajo varias URLs (local, WordPress, CloudFront) no sale dos veces.
       const { htmlConFotosUnicas, guardadorDeMetadata } = await import("../lib/fotos-de-producto");
       const [prod] = row.productId ? await db.select().from(products).where(eq(products.id, Number(row.productId))).limit(1) : [null];
-      return res.send(prod ? await htmlConFotosUnicas(row.html, prod, { guardar: guardadorDeMetadata(prod.id) }) : row.html);
+      const { conFormularioQueResponde } = await import("../lib/landing/sanear-html");
+      return res.send(conFormularioQueResponde(prod ? await htmlConFotosUnicas(row.html, prod, { guardar: guardadorDeMetadata(prod.id) }) : row.html));
     }
 
     let producto: any = null;

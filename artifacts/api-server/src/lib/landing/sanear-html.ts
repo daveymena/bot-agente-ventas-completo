@@ -226,3 +226,55 @@ export function sinGarantiaInventada(html: string): { html: string; quitado: str
   );
   return { html: n ? sinContenedoresVacios(out) : out, quitado: n ? [`${n} promesa(s) de garantía sin definir`] : [] };
 }
+
+// ─── Formulario de pedido con respuesta ──────────────────────────────────────
+
+/**
+ * El formulario que escribe el modelo es un POST plano: al enviarlo el
+ * navegador navega al endpoint y el cliente no ve nada. Este script (que se
+ * inyecta al servir cualquier landing con formulario de pedido) bloquea el
+ * botón, muestra "Registrando…", manda el pedido por fetch y pinta la
+ * confirmación en la misma página. Si JS falla, el POST plano sigue
+ * funcionando y el servidor contesta una página de confirmación.
+ */
+export const SCRIPT_FORMULARIO_DE_PEDIDO = `<script>(function(){
+  var forms = document.querySelectorAll('form[action*="/pedido"]');
+  Array.prototype.forEach.call(forms, function (f) {
+    if (f.__vp) return; f.__vp = true;
+    var enviando = false;
+    f.addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (enviando) return;
+      enviando = true;
+      var btn = f.querySelector('button[type="submit"], button:not([type]), input[type="submit"]');
+      var txt = btn ? (btn.tagName === 'INPUT' ? btn.value : btn.textContent) : '';
+      if (btn) { btn.disabled = true; if (btn.tagName === 'INPUT') btn.value = 'Registrando tu pedido…'; else btn.textContent = 'Registrando tu pedido…'; }
+      var d = {}; new FormData(f).forEach(function (v, k) { d[k] = v; });
+      fetch(f.action, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' }, body: JSON.stringify(d) })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+        .then(function (x) {
+          if (x.ok && x.j && x.j.ok) {
+            if (x.j.gracias) { window.location.href = x.j.gracias; return; }
+            f.innerHTML = '<div style="text-align:center;padding:28px 12px"><div style="font-size:44px">✅</div><h3 style="margin:8px 0">¡Felicidades! Tu pedido quedó registrado</h3><p style="color:#555">Pronto estaremos en contacto para confirmar la entrega.</p><p style="font-weight:700">Pedido #' + (x.j.pedidoId || '') + '</p></div>';
+          } else {
+            throw new Error((x.j && x.j.error) || 'No se pudo registrar el pedido');
+          }
+        })
+        .catch(function (err) {
+          enviando = false;
+          if (btn) { btn.disabled = false; if (btn.tagName === 'INPUT') btn.value = txt; else btn.textContent = txt; }
+          var p = f.querySelector('.vp-error');
+          if (!p) { p = document.createElement('p'); p.className = 'vp-error'; p.style.cssText = 'color:#B91C1C;font-weight:600;margin-top:10px'; f.appendChild(p); }
+          p.textContent = err.message || 'No se pudo registrar el pedido';
+        });
+    });
+  });
+})();</script>`;
+
+/** Inyecta el script una sola vez, antes de </body>, solo si hay formulario de pedido. */
+export function conFormularioQueResponde(html: string): string {
+  const h = String(html || "");
+  if (!/<form\b[^>]*action=["'][^"']*\/pedido["']/i.test(h)) return h;
+  if (h.includes("f.__vp")) return h;
+  return /<\/body>/i.test(h) ? h.replace(/<\/body>/i, `${SCRIPT_FORMULARIO_DE_PEDIDO}</body>`) : h + SCRIPT_FORMULARIO_DE_PEDIDO;
+}
