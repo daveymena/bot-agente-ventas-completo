@@ -1018,8 +1018,22 @@ function metaDeTienda(rutaUrl: string): Promise<string | null> | null {
       const nombre = String(tienda.name || "Tienda");
       const desc = `Cursos y productos digitales de ${nombre}. Acceso inmediato después de la compra.`;
 
+      // ── Icono de la pestaña: el del NEGOCIO, no el de VentasPro ────────
+      // La tienda es la marca del cliente. Si cargó logo, ese es el icono;
+      // si no, se genera uno con su color y su inicial. Antes no había
+      // ningún icono (index.html no enlazaba favicon) y la pestaña salía con
+      // el globo gris del navegador.
+      const { iconoDeTienda } = await import("./lib/icono-de-tienda");
+      const { tenants } = await import("@workspace/db");
+      const [negocio] = await db.select({ brandLogo: tenants.brandLogo, brandColors: tenants.brandColors }).from(tenants).where(eq(tenants.slug, slug)).limit(1);
+      const icono = iconoDeTienda({ nombre, logo: (negocio as any)?.brandLogo || null, color: (negocio as any)?.brandColors?.primary || null, appUrl });
+      html = html.replace(/<link rel="icon"[^>]*>\s*/i, "").replace(/<meta name="theme-color"[^>]*>\s*/i, "");
+
       const tags = [
         `<title>${esc(nombre)}</title>`,
+        `<link rel="icon" href="${esc(icono.href)}"${icono.tipo ? ` type="${icono.tipo}"` : ""}>`,
+        `<link rel="apple-touch-icon" href="${esc(icono.href)}">`,
+        `<meta name="theme-color" content="${esc(icono.color)}">`,
         `<meta name="description" content="${esc(desc)}">`,
         `<meta property="og:type" content="website">`,
         `<meta property="og:site_name" content="${esc(nombre)}">`,
@@ -1070,8 +1084,17 @@ function metaDeProducto(rutaUrl: string): Promise<string | null> | null {
       const imagen = abs(String(p.imageUrl || ""));
       const url = `${appUrl}${rutaUrl}`;
 
+      // Misma regla que la portada: el icono de la pestaña es el del negocio.
+      const { tenants } = await import("@workspace/db");
+      const [negocio] = await db.select({ name: tenants.name, brandName: tenants.brandName, brandLogo: tenants.brandLogo, brandColors: tenants.brandColors }).from(tenants).where(eq(tenants.id, Number((p as any).tenantId))).limit(1);
+      const { iconoDeTienda } = await import("./lib/icono-de-tienda");
+      const icono = iconoDeTienda({ nombre: String((negocio as any)?.brandName || (negocio as any)?.name || "Tienda"), logo: (negocio as any)?.brandLogo || null, color: (negocio as any)?.brandColors?.primary || null, appUrl });
+      html = html.replace(/<link rel="icon"[^>]*>\s*/i, "").replace(/<meta name="theme-color"[^>]*>\s*/i, "");
+
       const tags = [
         `<title>${esc(titulo)}</title>`,
+        `<link rel="icon" href="${esc(icono.href)}"${icono.tipo ? ` type="${icono.tipo}"` : ""}>`,
+        `<meta name="theme-color" content="${esc(icono.color)}">`,
         `<meta name="description" content="${esc(descripcion)}">`,
         `<meta property="og:type" content="product">`,
         `<meta property="og:title" content="${esc(titulo)}">`,
