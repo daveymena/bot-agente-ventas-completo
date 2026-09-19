@@ -77,6 +77,7 @@ const PILARES = [
   {
     icon: MessageCircle,
     color: "bg-emerald-500/10 text-emerald-600",
+    screen: "whatsapp" as const,
     title: "Vender por chat",
     desc: "Un vendedor IA que atiende WhatsApp, Messenger y comentarios de Facebook con tu catálogo, y aprende lo que le enseñás.",
     items: [
@@ -89,6 +90,7 @@ const PILARES = [
   {
     icon: Megaphone,
     color: "bg-blue-500/10 text-blue-600",
+    screen: "atlas" as const,
     title: "Atraer clientes",
     desc: "Atlas, tu agencia de marketing en un chat: de 'quiero anunciar esto' a una campaña en Meta, en pausa, lista para activar.",
     items: [
@@ -101,6 +103,7 @@ const PILARES = [
   {
     icon: Globe,
     color: "bg-amber-500/10 text-amber-600",
+    screen: "landing" as const,
     title: "Vender por la web",
     desc: "Tienda online propia y páginas de venta generadas por IA con las fotos reales de tus productos.",
     items: [
@@ -113,6 +116,7 @@ const PILARES = [
   {
     icon: LayoutDashboard,
     color: "bg-violet-500/10 text-violet-600",
+    screen: "panel" as const,
     title: "Dirigir el negocio",
     desc: "Un panel que responde '¿qué está pasando?' y '¿qué hago ahora?', con Atlas revisando tu negocio y proponiendo el siguiente paso.",
     items: [
@@ -140,12 +144,12 @@ const TOOLS = [
 ];
 
 const DEMO_SCRIPT: { from: "user" | "bot"; text: string }[] = [
-  { from: "user", text: "Hola, ¿tienen el combo de cursos de inglés?" },
-  { from: "bot", text: "¡Hola! 👋 Sí, tenemos el Pack Idiomas completo. Incluye inglés, francés y alemán por $20.000 COP." },
-  { from: "user", text: "¿Y si solo quiero inglés?" },
-  { from: "bot", text: "Puedo armarte ese combo individual. ¿Querés que te pase el link de pago para cerrarlo ahora?" },
-  { from: "user", text: "Dale, cerremos" },
-  { from: "bot", text: "Listo ✅ Te dejo el link de MercadoPago. En cuanto pagues te llega el acceso al instante." },
+  { from: "user", text: "Hola, ¿tienen el curso de piano?" },
+  { from: "bot", text: "🎹 *Curso de Piano Completo*\nDe cero a avanzado, 19 módulos en video HD, partituras y ejercicios. 100% digital, acceso de por vida.\n\n¿Te gustaría conocer el precio? ⚡" },
+  { from: "user", text: "Sí" },
+  { from: "bot", text: "💰 $60.000 COP (pago único)\n\n¿Te envío los medios de pago para iniciar?" },
+  { from: "user", text: "Dale, por Nequi" },
+  { from: "bot", text: "📲 Nequi: 313 617 4267\nApenas transfieras, mándame el comprobante por aquí y te paso el acceso 🙌" },
 ];
 
 const STORE_PRODUCTS = [
@@ -319,7 +323,7 @@ function ScreenWhatsApp() {
             initial={{ opacity: 0, y: 10, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: 0.25 }}
-            className={`max-w-[80%] rounded-2xl px-3 py-2 text-[13px] leading-snug shadow-sm ${
+            className={`max-w-[80%] rounded-2xl px-3 py-2 text-[12px] leading-snug shadow-sm whitespace-pre-line ${
               msg.from === "user"
                 ? "self-end bg-[#dcf8c6] dark:bg-emerald-900 text-black dark:text-white rounded-br-sm"
                 : "self-start bg-white dark:bg-slate-800 text-black dark:text-white rounded-bl-sm"
@@ -526,11 +530,167 @@ function ScreenAds() {
   );
 }
 
+// ─── Atlas ejecutando la ruta de marketing: es la ruta guiada REAL del
+// producto (producto → competencia → landing → anuncio → Meta en pausa), tal
+// como la corre el servidor. Cada paso aparece como lo ve el dueño en el chat.
+const ATLAS_SCRIPT: { from: "admin" | "atlas"; text: string; paso?: string }[] = [
+  { from: "admin", text: "Quiero anunciar el curso de piano" },
+  { from: "atlas", paso: "Paso 1 de 5 · Producto", text: "🎹 Curso de Piano Completo · $60.000. ¿Arrancamos con este?" },
+  { from: "admin", text: "Sí" },
+  { from: "atlas", paso: "Paso 2 de 5 · Competencia", text: "🔎 Miré la Biblioteca de Anuncios: 3 anuncios activos, todos venden 'aprendé rápido'. Ángulo recomendado: tocá tu primera canción en 7 días." },
+  { from: "atlas", paso: "Paso 3 de 5 · Página de venta", text: "🖥️ Landing creada con tus fotos y pago por MercadoPago. Vista previa lista." },
+  { from: "atlas", paso: "Paso 4 de 5 · Anuncio", text: "📣 Anuncio escrito con los datos reales del curso. ¿Lo subo a Meta con $10.000/día? Queda en pausa: no gasta hasta que lo actives." },
+  { from: "admin", text: "Dale" },
+  { from: "atlas", paso: "Paso 5 de 5 · Listo", text: "✅ Campaña creada en tu cuenta, EN PAUSA. Cuando la actives te cuento en 3 días cuánta gente escribió y cuánto costó cada mensaje." },
+];
+
+function ScreenAtlas() {
+  const [visible, setVisible] = useState(0);
+  const [typing, setTyping] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let cancelled = false;
+    let step = 0;
+    async function run() {
+      while (!cancelled) {
+        if (step >= ATLAS_SCRIPT.length) {
+          await new Promise(r => setTimeout(r, 2200));
+          if (cancelled) return;
+          step = 0; setVisible(0); setTyping(false);
+          await new Promise(r => setTimeout(r, 400));
+          continue;
+        }
+        const msg = ATLAS_SCRIPT[step];
+        if (msg.from === "atlas") {
+          setTyping(true);
+          await new Promise(r => setTimeout(r, 900));
+          if (cancelled) return;
+          setTyping(false);
+        } else {
+          await new Promise(r => setTimeout(r, 600));
+        }
+        if (cancelled) return;
+        step += 1; setVisible(step);
+        await new Promise(r => setTimeout(r, 700));
+      }
+    }
+    run();
+    return () => { cancelled = true; };
+  }, []);
+  useEffect(() => { scrollRef.current?.scrollTo({ top: 9999, behavior: "smooth" }); }, [visible, typing]);
+
+  return (
+    <div className="h-full bg-slate-50 dark:bg-slate-900 flex flex-col overflow-hidden">
+      <div ref={scrollRef} className="flex-1 p-3 flex flex-col gap-2 overflow-y-auto">
+        <AnimatePresence initial={false}>
+          {ATLAS_SCRIPT.slice(0, visible).map((msg, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, y: 10, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              transition={{ duration: 0.25 }}
+              className={`max-w-[88%] rounded-2xl px-3 py-2 text-[11.5px] leading-snug shadow-sm ${
+                msg.from === "admin"
+                  ? "self-end bg-primary text-primary-foreground rounded-br-sm"
+                  : "self-start bg-white dark:bg-slate-800 rounded-bl-sm"
+              }`}
+            >
+              {msg.paso && <p className="text-[9.5px] font-bold text-primary mb-0.5 uppercase tracking-wide">{msg.paso}</p>}
+              {msg.text}
+            </motion.div>
+          ))}
+          {typing && (
+            <motion.div key="t" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="self-start bg-white dark:bg-slate-800 rounded-2xl rounded-bl-sm px-3 py-2 flex items-center gap-2 shadow-sm">
+              <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                className="h-3 w-3 rounded-full border-2 border-primary/20 border-t-primary" />
+              <span className="text-[10px] text-muted-foreground">Atlas trabajando…</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
+// ─── La landing "construyéndose": las secciones que genera de verdad el
+// Landing Studio (hero con foto real, beneficios, oferta, pedido) aparecen
+// una por una, como cuando Atlas la arma.
+const LANDING_BLOQUES = ["hero", "beneficios", "oferta", "cta"] as const;
+function ScreenLanding() {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      while (!cancelled) {
+        setN(0);
+        for (let k = 1; k <= LANDING_BLOQUES.length; k++) {
+          await new Promise(r => setTimeout(r, k === 1 ? 700 : 650));
+          if (cancelled) return;
+          setN(k);
+        }
+        await new Promise(r => setTimeout(r, 2600));
+      }
+    }
+    run();
+    return () => { cancelled = true; };
+  }, []);
+  const show = (b: typeof LANDING_BLOQUES[number]) => n >= LANDING_BLOQUES.indexOf(b) + 1;
+  return (
+    <div className="h-full bg-white dark:bg-slate-900 overflow-hidden flex flex-col">
+      <div className="flex items-center gap-1.5 px-3 py-1.5 border-b bg-slate-50 dark:bg-slate-800">
+        <span className="h-2 w-2 rounded-full bg-rose-400" /><span className="h-2 w-2 rounded-full bg-amber-400" /><span className="h-2 w-2 rounded-full bg-emerald-400" />
+        <span className="ml-2 text-[9px] text-muted-foreground truncate">ventasproia.com/l/curso-de-piano</span>
+      </div>
+      <div className="flex-1 p-3 flex flex-col gap-2 overflow-hidden">
+        <AnimatePresence>
+          {show("hero") && (
+            <motion.div key="hero" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl overflow-hidden border">
+              <div className="h-14 bg-gradient-to-br from-primary to-accent flex items-center justify-center text-2xl">🎹</div>
+              <div className="p-2">
+                <p className="text-[11px] font-black leading-tight">Tocá tu primera canción en 7 días</p>
+                <p className="text-[9px] text-muted-foreground leading-tight mt-0.5">De cero a avanzado, a tu ritmo, con partituras y 19 módulos en video.</p>
+              </div>
+            </motion.div>
+          )}
+          {show("beneficios") && (
+            <motion.div key="ben" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="grid grid-cols-3 gap-1.5">
+              {["🎬 Video HD", "🎼 Partituras", "♾️ De por vida"].map(b => (
+                <div key={b} className="rounded-lg border p-1.5 text-[9px] font-semibold text-center">{b}</div>
+              ))}
+            </motion.div>
+          )}
+          {show("oferta") && (
+            <motion.div key="of" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl border p-2 flex items-center justify-between">
+              <div>
+                <p className="text-[9px] text-muted-foreground">Pago único</p>
+                <p className="text-[13px] font-black">$60.000 <span className="text-[9px] font-normal text-muted-foreground">COP</span></p>
+              </div>
+              <span className="text-[9px] rounded-full bg-emerald-500/10 text-emerald-600 px-2 py-0.5 font-bold">Acceso inmediato</span>
+            </motion.div>
+          )}
+          {show("cta") && (
+            <motion.div key="cta" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+              className="mt-auto rounded-xl bg-primary text-primary-foreground text-center py-2 text-[11px] font-bold">
+              Quiero mi acceso ahora
+            </motion.div>
+          )}
+        </AnimatePresence>
+        {n < LANDING_BLOQUES.length && (
+          <p className="mt-auto text-[9px] text-muted-foreground text-center">Atlas está armando la página… {n}/{LANDING_BLOQUES.length}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 const SHOWCASE_SCREENS = [
-  { id: "whatsapp", label: "WhatsApp", sub: "Sofía · en línea", img: "/whatsapp_app.png", bar: "bg-[#075E54]", icon: Bot },
+  { id: "whatsapp", label: "Vendedor IA", sub: "WhatsApp · respondiendo", Component: ScreenWhatsApp, bar: "bg-[#075E54]", icon: Bot },
+  { id: "atlas", label: "Atlas", sub: "Tu agencia en un chat", Component: ScreenAtlas, bar: "bg-slate-900 dark:bg-slate-800", icon: Compass },
+  { id: "landing", label: "Landing page", sub: "Generada con IA", Component: ScreenLanding, bar: "bg-amber-600", icon: Wand2 },
   { id: "tienda", label: "Tu Tienda", sub: "Catálogo en vivo", img: "/store_app.png", bar: "bg-slate-900 dark:bg-slate-800", icon: Store },
-  { id: "panel", label: "Panel de Ventas", sub: "Métricas en tiempo real", img: "/dashboard_app.png", bar: "bg-slate-900 dark:bg-slate-800", icon: LayoutDashboard },
-  { id: "ads", label: "Marketing IA", sub: "Facebook Ads automático", Component: ScreenAds, bar: "bg-blue-600", icon: Wand2 },
+  { id: "ads", label: "Facebook Ads", sub: "Campaña en pausa, lista", Component: ScreenAds, bar: "bg-blue-600", icon: Facebook },
+  { id: "panel", label: "Panel", sub: "Métricas en tiempo real", img: "/dashboard_app.png", bar: "bg-slate-900 dark:bg-slate-800", icon: LayoutDashboard },
 ];
 
 // ─── El "video interactivo" del hero: un mockup de teléfono que va rotando
@@ -591,6 +751,17 @@ function ProductShowcase() {
           />
         ))}
       </div>
+    </div>
+  );
+}
+
+function PantallaDePilar({ id }: { id: "whatsapp" | "atlas" | "landing" | "panel" }) {
+  const screen = SHOWCASE_SCREENS.find((x) => x.id === id) || SHOWCASE_SCREENS[0];
+  return (
+    <div className="h-full w-full">
+      {screen.img
+        ? <img src={screen.img} alt={screen.label} className="w-full h-full object-cover object-top" />
+        : (screen.Component && <screen.Component />)}
     </div>
   );
 }
@@ -788,8 +959,15 @@ export default function LandingPage() {
             </ul>
           </Reveal>
           <Reveal delay={0.15} className="flex justify-center">
-            <div className="w-full max-w-sm rounded-3xl border bg-card shadow-2xl shadow-primary/10 overflow-hidden">
-              <div className="h-72"><ScreenAds /></div>
+            <div className="grid grid-cols-2 gap-3 w-full max-w-lg">
+              <div className="rounded-3xl border bg-card shadow-2xl shadow-primary/10 overflow-hidden">
+                <div className="px-3 py-2 bg-slate-900 text-white text-[11px] font-semibold flex items-center gap-1.5"><Compass className="h-3.5 w-3.5" /> Atlas</div>
+                <div className="h-80"><ScreenAtlas /></div>
+              </div>
+              <div className="rounded-3xl border bg-card shadow-2xl shadow-primary/10 overflow-hidden">
+                <div className="px-3 py-2 bg-amber-600 text-white text-[11px] font-semibold flex items-center gap-1.5"><Wand2 className="h-3.5 w-3.5" /> Lo que sale</div>
+                <div className="h-80"><ScreenLanding /></div>
+              </div>
             </div>
           </Reveal>
         </div>
@@ -832,22 +1010,28 @@ export default function LandingPage() {
         <div className="grid md:grid-cols-2 gap-5">
           {PILARES.map((p, i) => (
             <Reveal key={p.title} delay={i * 0.08}>
-              <motion.div whileHover={{ y: -4 }} className="h-full rounded-3xl border bg-card p-6 sm:p-7 shadow-sm hover:shadow-lg hover:border-primary/30 transition-shadow">
-                <div className={`h-11 w-11 rounded-2xl flex items-center justify-center mb-4 ${p.color}`}>
-                  <p.icon className="h-5 w-5" />
+              <motion.div whileHover={{ y: -4 }} className="h-full rounded-3xl border bg-card shadow-sm hover:shadow-lg hover:border-primary/30 transition-shadow overflow-hidden flex flex-col sm:flex-row">
+                <div className="p-6 sm:p-7 flex-1">
+                  <div className={`h-11 w-11 rounded-2xl flex items-center justify-center mb-4 ${p.color}`}>
+                    <p.icon className="h-5 w-5" />
+                  </div>
+                  <h3 className="font-black text-xl tracking-tight">{p.title}</h3>
+                  <p className="mt-2 text-sm text-muted-foreground">{p.desc}</p>
+                  <ul className="mt-5 space-y-2.5">
+                    {p.items.map((item) => (
+                      <li key={item} className="flex items-start gap-2.5 text-sm">
+                        <div className="h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-0.5">
+                          <Check className="h-3 w-3" />
+                        </div>
+                        {item}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-                <h3 className="font-black text-xl tracking-tight">{p.title}</h3>
-                <p className="mt-2 text-sm text-muted-foreground">{p.desc}</p>
-                <ul className="mt-5 space-y-2.5">
-                  {p.items.map((item) => (
-                    <li key={item} className="flex items-start gap-2.5 text-sm">
-                      <div className="h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-0.5">
-                        <Check className="h-3 w-3" />
-                      </div>
-                      {item}
-                    </li>
-                  ))}
-                </ul>
+                {/* La pantalla de ese pilar, en vivo: que se VEA lo que hace, no solo leerlo. */}
+                <div className="sm:w-56 shrink-0 border-t sm:border-t-0 sm:border-l bg-muted/30 h-64 sm:h-auto">
+                  <PantallaDePilar id={p.screen} />
+                </div>
               </motion.div>
             </Reveal>
           ))}
