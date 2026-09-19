@@ -299,12 +299,27 @@ export default function CodeAgent() {
 
         if (data.history[data.history.length - 1]?.role !== "user") return;
 
+        // ── El último mensaje es del admin y NO hay turno corriendo ───────
+        //
+        // Pasa cuando el servidor se reinició (deploy) a mitad de un turno:
+        // el pedido quedó guardado y nadie lo está atendiendo. Antes la
+        // página se quedaba 10 minutos en "Retomando…" sin dejar escribir ni
+        // detener (19-09-2026 18:07). Ahora se avisa y se suelta el campo.
+        if (data.turnoEnCurso === false) {
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: "Ese último pedido se cortó (el servidor se reinició mientras lo atendía) y no llegué a responderlo. Escribímelo de nuevo y lo retomo.", at: Date.now() },
+          ]);
+          return;
+        }
+
         // Se reusa `loading` a propósito: prende el mismo indicador de
         // "escribiendo" con su cronómetro y bloquea el campo de escribir, que
         // es lo correcto -- mandar otro pedido encima del que está corriendo
         // los cruza.
         setLoading(true);
         setProgreso("Retomando lo que Atlas estaba haciendo");
+        detenidoRef.current = false;
 
         // Un turno pesado puede encadenar hasta 4 continuaciones de ~150s, así
         // que el techo son ~10 min. Pasado eso se suelta el campo en vez de
@@ -315,6 +330,13 @@ export default function CodeAgent() {
         for (let i = 0; i < INTENTOS && !cancelled; i++) {
           await new Promise((r) => setTimeout(r, CADA));
           if (cancelled) return;
+          // El botón de Detener también vale acá: antes solo ponía
+          // "Deteniendo…" y esta espera seguía otros 10 minutos.
+          if (detenidoRef.current) {
+            setLoading(false);
+            setProgreso("");
+            return;
+          }
           let ahora: any;
           try {
             ahora = await leerHistorial();
@@ -328,6 +350,18 @@ export default function CodeAgent() {
             pintarHistorial(h);
             setLoading(false);
             setProgreso("");
+            return;
+          }
+          // El servidor ya no tiene turno en esta charla y no dejó respuesta:
+          // se murió en el camino. No hay nada más que esperar.
+          if (ahora?.turnoEnCurso === false) {
+            if (cancelled) return;
+            setLoading(false);
+            setProgreso("");
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: "Ese pedido se cortó a mitad de camino y no llegué a responderlo. Escribímelo de nuevo y lo retomo.", at: Date.now() },
+            ]);
             return;
           }
         }

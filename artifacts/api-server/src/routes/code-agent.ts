@@ -2222,10 +2222,18 @@ router.get("/history", async (req: TenantRequest, res, next) => {
     // -- el encadenado de continuaciones vive en la página, así que si el
     // admin se fue, murió con ella.
     const ultimo = history[history.length - 1];
+    // `turnoEnCurso`: si el servidor está de verdad trabajando en esta charla.
+    // Medido 19-09-2026 18:07: un deploy reinició el servidor a mitad de un
+    // turno; el pedido del admin quedó guardado sin respuesta y la página,
+    // al ver "último = user", se bloqueó 10 minutos en "Retomando…" sin
+    // dejar escribir ni detener. Con esto la página sabe que no hay nada
+    // que esperar.
+    const { claveDeTurno, hayTurnoEnVuelo } = await import("../lib/turnos-en-vuelo");
     return res.json({
       history,
       awaitingConfirmation: !!pending,
       hayAlgoPendiente: ultimo?.role === "assistant" && ultimo?.parcial === true,
+      turnoEnCurso: hayTurnoEnVuelo(claveDeTurno(String(tenantId), sessionId)),
     });
   } catch (e) {
     return next(e);
