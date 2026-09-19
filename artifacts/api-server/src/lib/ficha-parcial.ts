@@ -798,8 +798,20 @@ export function queOfrecioElBot(mensajeDelBot: string): LoOfrecido {
   if (hayPregunta) {
     // Se mira SOLO la ultima pregunta: el mensaje puede hablar de varias
     // cosas y la que el cliente contesta es la que quedo al final.
+    //
+    // ⚠️ Partir solo por "?" no alcanza: con UNA pregunta al final, el trozo
+    // era el mensaje ENTERO. Medido el 18-09-2026: la respuesta de
+    // conocimiento del piano ("19 módulos en video HD ... ¿Te gustaría
+    // empezar hoy mismo?") se leía como oferta de VIDEO, y al "Sí" el bot
+    // contestaba "todavía no tengo video". Se toma la última oración que
+    // pregunta (última línea, y dentro de ella lo que sigue al último
+    // punto o salto), no todo lo de antes.
     const partes = t.split(/(?<=[?？])/);
-    ultima = partes.filter((p) => /[?？]/.test(p)).pop() || t;
+    const trozo = partes.filter((p) => /[?？]/.test(p)).pop() || t;
+    const lineas = trozo.split(/\r?\n+/).map((l) => l.trim()).filter(Boolean);
+    const ultimaLinea = [...lineas].reverse().find((l) => /[?？]/.test(l)) || trozo;
+    const oraciones = ultimaLinea.split(/(?<=[.!])\s+/).map((o) => o.trim()).filter(Boolean);
+    ultima = [...oraciones].reverse().find((o) => /[?？]/.test(o)) || ultimaLinea;
   } else {
     // Sin pregunta, la oferta tiene que estar dicha con todas las letras. Se
     // mira el ÚLTIMO renglón con texto, que es lo que el cliente contesta.
@@ -812,7 +824,9 @@ export function queOfrecioElBot(mensajeDelBot: string): LoOfrecido {
 
   // El orden importa: si ofrecio pagar, gana el pago aunque nombre otra cosa
   // ("¿te paso el precio y los datos de pago?").
-  if (/\b(datos de pago|medios de pago|formas de pago|link de pago|enlace de pago|como pagar|lo pedimos|lo llevas|te lo dejo listo|arrancamos)\b/.test(m)) return "pago";
+  // "¿Te gustaría empezar hoy mismo?" (el cierre del agente de Meta y de las
+  // respuestas de conocimiento) también ofrece pasar a la compra.
+  if (/\b(datos de pago|medios de pago|formas de pago|link de pago|enlace de pago|como pagar|lo pedimos|lo llevas|te lo dejo listo|arrancamos|empezamos|iniciamos|(empezar|arrancar|iniciar|comenzar) (hoy|ya|ahora))\b/.test(m)) return "pago";
   if (/\bvideo|clase de muestra|como es por dentro|como se ve en uso|un pedacito\b/.test(m)) return "video";
   if (/\b(tienda|catalogo|pagina web|sitio web)\b/.test(m)) return "tienda";
   // Informacion, modulos, contenido, la ficha entera: todo eso es contenido.

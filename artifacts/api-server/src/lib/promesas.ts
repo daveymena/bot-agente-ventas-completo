@@ -80,8 +80,20 @@ const SEÑALA_ABAJO = /(mir[aá]|ac[aá]|aqu[ií]|abajo|te dejo)[^.!?\n]{0,20}�
 export function promesasDe(texto: string): Promesa[] {
   const t = String(texto || "");
   if (!t.trim()) return [];
+  // Una PREGUNTA ofrece, no promete: "¿Te envío el precio y los medios de
+  // pago?" es la puerta al paso siguiente (así vende el agente de Meta), y
+  // acá se borraba como promesa incumplida -- medido el 18-09-2026: el
+  // cliente dijo "Sí" y recibió "👍 Listo para avanzar" a secas, sin la
+  // pregunta. Con el "sí" siguiente, queOfrecioElBot la lee y el servidor
+  // manda lo ofrecido. (Se mira por frase: una afirmación seguida de una
+  // pregunta en el mismo texto conserva su promesa.)
+  // La excepción es el VIDEO: ofrecer "¿te muestro el video?" de un curso que
+  // no lo tiene sigue siendo prometer algo que no existe (ver el test de
+  // promesas), así que esa oferta se sigue tratando como promesa.
+  const esPregunta = /^\s*[¿]?[^.!\n]*\?\s*(?:\p{Extended_Pictographic}️?\s*)*$/u.test(t.trim());
   const out = new Set<Promesa>();
-  for (const { promesa, re } of PATRONES) if (re.test(t)) out.add(promesa);
+  for (const { promesa, re } of PATRONES) if (re.test(t) && (!esPregunta || promesa === "video")) out.add(promesa);
+  if (esPregunta) return [...out];
   // La flecha sola promete "algo debajo"; se trata como ficha, que es lo que
   // el bot manda debajo el 99% de las veces.
   if (!out.size && SEÑALA_ABAJO.test(t)) out.add("ficha");

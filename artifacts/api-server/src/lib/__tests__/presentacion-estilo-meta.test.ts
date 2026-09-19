@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { construirSeccion, vinetasDeLoQueIncluye } from "../whatsapp";
+import { queOfrecioElBot } from "../ficha-parcial";
 
 /**
  * La presentación del producto, copiada del agente de Meta Business que el
@@ -40,8 +41,8 @@ describe("presentación al estilo Meta", () => {
     expect(m).toContain("Curso completo de piano de cero a avanzado.");
     expect(m).not.toContain("…");
     expect(m).toContain("✅ *Lo que incluye:*");
-    expect(m).toContain("• 19 módulos en video HD 🎬");
-    expect(m.split(/\r?\n/).filter((l) => l.startsWith("• "))).toHaveLength(4);
+    expect(m).toContain("🎬 19 módulos en video HD");
+    expect(m.split(/\r?\n/).filter((l) => /^\p{Extended_Pictographic}\uFE0F? .+/u.test(l) && !l.includes("*"))).toHaveLength(4);
     expect(m).toMatch(/100% digital, sin suscripciones/);
     // Sin precio: el precio es la pregunta siguiente.
     expect(m).not.toMatch(/60\.000|\$/);
@@ -49,7 +50,7 @@ describe("presentación al estilo Meta", () => {
     expect(m).toMatch(/precio|cuánto está/i);
   });
 
-  it("máximo 4 viñetas, sin repetidas, con el emoji al final", () => {
+  it("máximo 4 viñetas, sin repetidas, con el emoji adelante", () => {
     const v = vinetasDeLoQueIncluye(
       ["19 módulos en video HD", "De cero a avanzado"],
       [{ emoji: "🎼", texto: "Partituras y ejercicios" }, { emoji: "", texto: "19 módulos en video HD" }],
@@ -57,8 +58,8 @@ describe("presentación al estilo Meta", () => {
       "CURSO DE PIANO COMPLETO",
     );
     expect(v).toHaveLength(4);
-    expect(v[0]).toBe("• 19 módulos en video HD 🎬");
-    expect(v[2]).toBe("• Partituras y ejercicios 🎼");
+    expect(v[0]).toBe("🎬 19 módulos en video HD");
+    expect(v[2]).toBe("🎼 Partituras y ejercicios");
     expect(v.filter((x) => /19 módulos/.test(x))).toHaveLength(1);
   });
 
@@ -79,5 +80,25 @@ describe("presentación al estilo Meta", () => {
     expect(m).toMatch(/2\. Me envías el comprobante/);
     expect(m).toMatch(/3\. Apenas se confirme/);
     expect(m).not.toMatch(/inmediato|minutos|al instante/i);
+  });
+
+  it("un 'sí' a '¿Te gustaría empezar hoy mismo?' no se lee como pedido de VIDEO aunque arriba diga 'video HD'", () => {
+    const texto = ["De una 😊", "", "🎹 *CONTENIDO DEL CURSO DE PIANO*", "", "Son 19 módulos en video HD (283 clases), en 4 bloques:", "", "🎼 Formación musical.", "", "¿Te gustaría empezar hoy mismo? ⚡"].join("\n");
+    expect(queOfrecioElBot(texto)).not.toBe("video");
+    expect(queOfrecioElBot(["Trae 19 módulos en video HD.", "", "¿Te cuento cuánto vale? 💰"].join("\n"))).toBe("precio");
+    expect(queOfrecioElBot(["Lo recibes por Drive.", "", "¿Te paso los datos de pago? 💳"].join("\n"))).toBe("pago");
+  });
+
+  it("'¿Te gustaría empezar hoy mismo?' ofrece pasar a la compra (un 'sí' trae el pago)", () => {
+    expect(queOfrecioElBot("Acceso de por vida.\n\n¿Te gustaría empezar hoy mismo? ⚡")).toBe("pago");
+    expect(queOfrecioElBot("¿Arrancamos? 🚀")).toBe("pago");
+  });
+
+  it("una pregunta que OFRECE no es una promesa incumplida: no se borra", async () => {
+    const { promesasDe } = await import("../promesas");
+    expect(promesasDe("👍 Listo para avanzar 💳 ¿Te envío el precio y los medios de pago?")).toEqual([]);
+    expect(promesasDe("¿Te paso los datos de pago? 💳")).toEqual([]);
+    // Afirmado sí promete (y si no sale la ficha, se quita).
+    expect(promesasDe("Te paso el precio aquí abajo.")).toContain("precio");
   });
 });

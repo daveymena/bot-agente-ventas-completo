@@ -4083,7 +4083,14 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         .filter((p: any) => !(p.kind === "text" && !String(p.content || "").trim()))
         .map((p: any) => {
           if (p.kind === "text" && p._beforeCard && String(p.content || "").length > MAX_INTRO_LENGTH) {
-            p.content = String(p.content || "").substring(0, MAX_INTRO_LENGTH).trim() + "...";
+            // Se corta en un fin de oración o de línea, nunca a mitad de
+            // palabra: medido el 18-09-2026, al cliente le llegó "¿Te gustaría
+            // empezar h..." porque el corte era un substring seco.
+            const entero = String(p.content || "");
+            const cabeza = entero.slice(0, MAX_INTRO_LENGTH);
+            const fin = Math.max(cabeza.lastIndexOf("\n"), cabeza.search(/[.!?][^.!?]*$/) + 1);
+            const corte = fin > 40 ? fin : cabeza.lastIndexOf(" ");
+            p.content = cabeza.slice(0, corte > 40 ? corte : MAX_INTRO_LENGTH).trim();
           }
           delete p._beforeCard;
           return p;
@@ -4548,6 +4555,35 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       // a su primera frase y se le quitan los montos, que los pone la ficha.
       const seccionAdjunta = (finalParts.find((p: any) => p.kind === "card") as any)?.seccion;
       const SE_BASTA_SOLA = new Set(["precio", "pago", "pago_link", "pago_transferencia", "entrega", "video", "tienda"]);
+      // ── La presentación también se basta sola ─────────────────────────
+      //
+      // Desde el 18-09-2026 la ficha "completa" es la presentación entera al
+      // estilo del agente de Meta (título, frase, "Lo que incluye", entrega y
+      // la pregunta de cierre). Medido ese día con el prompt reentrenado: el
+      // modelo escribió SU propia ficha (con "Material PDF" y "Entrega
+      // inmediata" inventados) y el cliente recibió las dos, una atrás de la
+      // otra. Lo que Meta hace es un saludo de una línea y después la ficha:
+      // del texto del modelo queda solo la primera frase que no sea una
+      // viñeta ni una pregunta.
+      const esPresentacion = seccionAdjunta === "completa"
+        || (seccionAdjunta === "info" && !(finalParts.find((p: any) => p.kind === "card") as any)?.yaVioContenido);
+      if (esPresentacion) {
+        for (const parte of finalParts) {
+          if (parte.kind !== "text" || !(parte as any).content) continue;
+          const lineas = String((parte as any).content).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+          const saludo = lineas
+            // Ni viñetas (emoji o • al inicio), ni títulos en negrita, ni preguntas: eso lo trae la ficha.
+            .filter((l) => !/^(?:[•\-*]|\p{Extended_Pictographic})/u.test(l) && !/^\*[^*]+\*$/.test(l) && !/[?¿]/.test(l))
+            .map((l) => sinElMontoQueVaEnLaFicha(l).trim())
+            .filter(Boolean)[0] || "";
+          const primeraFrase = saludo.split(/(?<=[.!])\s+/)[0] || "";
+          (parte as any).content = primeraFrase.length <= 160 ? primeraFrase : "";
+        }
+        for (let i = finalParts.length - 1; i >= 0; i--) {
+          if (finalParts[i].kind === "text" && !(finalParts[i] as any).content) finalParts.splice(i, 1);
+        }
+        console.log(`✂️ [DESBORDE] Presentación: del texto del modelo queda solo el saludo - ${ts()}`);
+      }
       if (seccionAdjunta && SE_BASTA_SOLA.has(String(seccionAdjunta))) {
         for (const parte of finalParts) {
           if (parte.kind !== "text" || !(parte as any).content) continue;

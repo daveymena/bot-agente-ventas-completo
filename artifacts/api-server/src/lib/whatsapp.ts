@@ -813,8 +813,12 @@ export function vinetasDeLoQueIncluye(
     const k = clave(texto);
     if (!k || vistos.has(k) || out.length >= 4) return;
     vistos.add(k);
+    // Emoji ADELANTE, como todo lo demás que manda el sistema: la capa de
+    // presentación (presentarParaWhatsApp) reescribe los "•" por emojis y
+    // dejaba "📦 19 módulos… 🎬" con dos emojis. Meta lo pone atrás, pero lo
+    // que el dueño pidió es "decorado y con espacio", y así queda parejo.
     const e = emoji && emoji !== "•" ? emoji : emojiDeCaracteristica(texto, nombreProducto);
-    out.push(`• ${corta(texto)}${e !== "•" ? ` ${e}` : ""}`);
+    out.push(`${e !== "•" ? e : "✅"} ${corta(texto)}`);
   };
   for (const f of propias) agregar(f);
   for (const pt of puntos) agregar(pt.texto, pt.emoji);
