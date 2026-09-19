@@ -87,25 +87,62 @@ export function integracionDelToken(token: string): { tienda: string | null; usu
 
 export interface RespuestaDropi<T = any> { ok: boolean; status?: number; data?: T; error?: string }
 
-export async function dropiIntegracion<T = any>(token: string, path: string, body?: Record<string, any>, method: "GET" | "POST" = body ? "POST" : "GET", timeoutMs = 25000): Promise<RespuestaDropi<T>> {
-  try {
-    const res = await fetch(BASE + path.replace(/^\/+/, ""), {
-      method,
-      headers: { "Content-Type": "application/json;charset=UTF-8", "dropi-integration-key": token },
-      body: method === "POST" ? JSON.stringify(body || {}) : undefined,
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    const raw = await res.text();
-    let json: any = null;
-    try { json = JSON.parse(raw); } catch { /* no-JSON */ }
-    if (!res.ok || json?.isSuccess === false) {
-      const msg = json?.message || json?.status || raw.slice(0, 200) || `HTTP ${res.status}`;
-      return { ok: false, status: res.status, error: String(msg), data: json };
-    }
-    return { ok: true, status: res.status, data: (json?.objects ?? json) as T };
-  } catch (e: any) {
-    return { ok: false, error: e?.name === "TimeoutError" ? `Dropi no respondió en ${Math.round(timeoutMs / 1000)}s` : String(e?.message || e) };
+/**
+ * Cabeceras con las que Dropi acepta el token. Medido 19-09-2026: con el
+ * MISMO token, `products/index` desde nuestro servidor daba "Access denied"
+ * mientras Dropify (WordPress) creaba órdenes sin problema. Lo único que
+ * WordPress manda distinto es su User-Agent, que lleva la URL del sitio
+ * (`WordPress/6.x; https://tienda…`), o sea la `integration_url` del token.
+ * Se prueban las variantes en orden y se recuerda la que sirvió.
+ */
+type Variante = "plana" | "wordpress";
+const varianteQueSirve = new Map<string, Variante>();
+
+function cabeceras(token: string, variante: Variante): Record<string, string> {
+  const base: Record<string, string> = { "Content-Type": "application/json;charset=UTF-8", "dropi-integration-key": token };
+  if (variante === "wordpress") {
+    const tienda = integracionDelToken(token)?.tienda || "https://tienda.ventasproia.com/";
+    base["User-Agent"] = `WordPress/6.6; ${tienda}`;
+    base["Referer"] = tienda;
+    base["Origin"] = tienda.replace(/\/+$/, "");
   }
+  return base;
+}
+
+export async function dropiIntegracion<T = any>(token: string, path: string, body?: Record<string, any>, method: "GET" | "POST" = body ? "POST" : "GET", timeoutMs = 25000): Promise<RespuestaDropi<T>> {
+  const huella = token.slice(-12);
+  const preferida = varianteQueSirve.get(huella);
+  const orden: Variante[] = preferida ? [preferida, preferida === "plana" ? "wordpress" : "plana"] : ["wordpress", "plana"];
+  let ultima: RespuestaDropi<T> = { ok: false, error: "sin intento" };
+  for (const variante of orden) {
+    try {
+      const res = await fetch(BASE + path.replace(/^\/+/, ""), {
+        method,
+        headers: cabeceras(token, variante),
+        body: method === "POST" ? JSON.stringify(body || {}) : undefined,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      const raw = await res.text();
+      let json: any = null;
+      try { json = JSON.parse(raw); } catch { /* no-JSON */ }
+      if (!res.ok || json?.isSuccess === false) {
+        const msg = String(json?.message || json?.status || raw.slice(0, 200) || `HTTP ${res.status}`);
+        ultima = { ok: false, status: res.status, error: msg, data: json };
+        // Solo un rechazo de acceso justifica probar la otra variante.
+        if (/access denied|unauthor|forbidden|401|403/i.test(msg) || res.status === 401 || res.status === 403) {
+          logger.info({ path, variante, status: res.status, msg }, "[DropiDirecto] rechazo de acceso; se prueba otra variante de cabeceras");
+          continue;
+        }
+        return ultima;
+      }
+      if (preferida !== variante) { varianteQueSirve.set(huella, variante); console.log(`🔑 [DROPI] Dropi acepta el token con cabeceras "${variante}" (${path})`); }
+      return { ok: true, status: res.status, data: (json?.objects ?? json) as T };
+    } catch (e: any) {
+      ultima = { ok: false, error: e?.name === "TimeoutError" ? `Dropi no respondió en ${Math.round(timeoutMs / 1000)}s` : String(e?.message || e) };
+      return ultima;
+    }
+  }
+  return ultima;
 }
 
 /** ¿El token sirve? Pide un producto del catálogo. */
