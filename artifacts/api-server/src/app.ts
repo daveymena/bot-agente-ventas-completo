@@ -87,6 +87,7 @@ registrarOrganico();
 registrarAgencia();
 // Tokens de Dropify por producto: se auditan y reparan solos (ver lib/dropify-auditoria.ts).
 import("./lib/dropify-auditoria").then((m) => m.iniciarAuditoriaDropify()).catch(() => undefined);
+import("./lib/telegram-atlas").then((m) => m.iniciarAtlasEnTelegramParaTodos()).catch(() => undefined);
 registrarGuardia();
 iniciarProgramador();
 
@@ -359,6 +360,8 @@ if (!cookieSecret) {
     "variables de entorno para una sesión estable."
   );
 }
+// El bucle local de Telegram→Atlas firma su propia cookie con este secreto.
+process.env.COOKIE_SECRET = cookieSecret;
 app.use(cookieParser(cookieSecret));
 // Capturar el cuerpo crudo para poder verificar la firma de webhooks de Facebook (X-Hub-Signature-256)
 // limit 12mb: las imágenes se suben como data URL base64 (≈+33% sobre el original),

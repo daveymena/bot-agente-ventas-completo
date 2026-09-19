@@ -13,7 +13,8 @@ router.get("/config", async (req: any, res: any) => {
     const cfg = await configTelegramDelTenant(tenantId);
     if (!cfg) return res.json({ conectado: false });
     const bot = await probarBotTelegram(cfg.botToken).catch(() => ({ ok: false } as any));
-    res.json({ conectado: true, bot: bot.ok ? bot.nombre : null, chatId: cfg.chatId });
+    const { atlasEscuchaEnTelegram } = await import("../lib/telegram-atlas");
+    res.json({ conectado: true, bot: bot.ok ? bot.nombre : null, chatId: cfg.chatId, atlasEscucha: atlasEscuchaEnTelegram(tenantId) });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -48,7 +49,9 @@ router.put("/config", async (req: any, res: any) => {
     if (!envio.ok) return res.status(400).json({ error: `El bot ${bot.nombre} no pudo escribir a ese chat: ${envio.error}. Escribile "hola" al bot primero.` });
     await guardarConfigTelegram(tenantId, token, chatId);
     logger.info({ tenantId, bot: bot.nombre }, "[Telegram] canal de avisos conectado");
-    res.json({ ok: true, detalle: `Conectado con ${bot.nombre}. Te mandé un mensaje de prueba.` });
+    const { iniciarAtlasEnTelegram } = await import("../lib/telegram-atlas");
+    await iniciarAtlasEnTelegram(tenantId);
+    res.json({ ok: true, detalle: `Conectado con ${bot.nombre}. Te mandé un mensaje de prueba. Escribile al bot y Atlas te contesta.` });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -70,6 +73,8 @@ router.delete("/config", async (req: any, res: any) => {
   try {
     const tenantId = tenantDe(req);
     if (!tenantId) return res.status(401).json({ error: "No autenticado" });
+    const { detenerAtlasEnTelegram } = await import("../lib/telegram-atlas");
+    detenerAtlasEnTelegram(tenantId);
     const { guardarClaveDeTenant } = await import("../lib/ai-keys-tenant");
     await guardarClaveDeTenant(tenantId, "telegram", { apiKey: "" });
     // `model` (chat id) se borra al quedar la clave vacía: guardarClaveDeTenant elimina el proveedor sin apiKey y sin model… lo forzamos:

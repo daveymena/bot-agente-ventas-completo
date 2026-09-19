@@ -20,7 +20,7 @@ const api = async (endpoint: string, options: RequestInit = {}) => {
 
 export function TelegramCredentials() {
   const { toast } = useToast();
-  const [cfg, setCfg] = useState<{ conectado: boolean; bot?: string | null; chatId?: string | null } | null>(null);
+  const [cfg, setCfg] = useState<{ conectado: boolean; bot?: string | null; chatId?: string | null; atlasEscucha?: boolean } | null>(null);
   const [token, setToken] = useState("");
   const [chatId, setChatId] = useState("");
   const [chats, setChats] = useState<Array<{ chatId: string; nombre: string; ultimoTexto: string }>>([]);
@@ -67,14 +67,14 @@ export function TelegramCredentials() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base"><Send className="h-4 w-4" /> Telegram (avisos)</CardTitle>
-        <CardDescription>Pedidos, rechazos de Dropi, lanzamientos, auditorías e informes te llegan también por Telegram. Creá un bot con @BotFather, pegá el token, escribile "hola" al bot y elegí tu chat.</CardDescription>
+        <CardDescription>Pedidos, rechazos de Dropi, lanzamientos, auditorías e informes te llegan también por Telegram, y si le escribís al bot (texto o nota de voz) te contesta Atlas. Creá un bot con @BotFather, pegá el token, escribile "hola" al bot y elegí tu chat.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {cfg?.conectado ? (
           <Alert>
             <CheckCircle2 className="h-4 w-4" />
             <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
-              <span><b>Conectado</b>{cfg.bot ? ` · ${cfg.bot}` : ""}{cfg.chatId ? ` · chat ${cfg.chatId}` : ""}</span>
+              <span><b>Conectado</b>{cfg.bot ? ` · ${cfg.bot}` : ""}{cfg.chatId ? ` · chat ${cfg.chatId}` : ""}{cfg.atlasEscucha ? " · Atlas responde por acá 💬" : ""}</span>
               <span className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={probar} disabled={ocupado === "probar"}>{ocupado === "probar" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enviar prueba"}</Button>
                 <Button size="sm" variant="outline" onClick={quitar}>Quitar</Button>
