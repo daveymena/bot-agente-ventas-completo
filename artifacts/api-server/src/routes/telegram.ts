@@ -13,7 +13,10 @@ router.get("/config", async (req: any, res: any) => {
     const cfg = await configTelegramDelTenant(tenantId);
     if (!cfg) return res.json({ conectado: false });
     const bot = await probarBotTelegram(cfg.botToken).catch(() => ({ ok: false } as any));
-    const { atlasEscuchaEnTelegram } = await import("../lib/telegram-atlas");
+    const { atlasEscuchaEnTelegram, iniciarAtlasEnTelegram } = await import("../lib/telegram-atlas");
+    // Si por lo que sea el sondeo no está corriendo (arranque fallido), se
+    // levanta acá mismo: abrir la página lo repara.
+    if (!atlasEscuchaEnTelegram(tenantId)) await iniciarAtlasEnTelegram(tenantId).catch(() => false);
     res.json({ conectado: true, bot: bot.ok ? bot.nombre : null, chatId: cfg.chatId, atlasEscucha: atlasEscuchaEnTelegram(tenantId) });
   } catch (error: any) {
     res.status(500).json({ error: error.message });

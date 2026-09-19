@@ -225,24 +225,43 @@ export async function categoriasDropi(token: string): Promise<RespuestaDropi<Arr
 
 /** CDN donde Dropi guarda las fotos; `gallery[].urlS3` viene relativa (medido 19-09-2026). */
 const CDN_DROPI = (process.env.DROPI_CDN_URL || "https://d39ru7awumhhs2.cloudfront.net").replace(/\/+$/, "");
+const ES_FOTO = /\.(jpe?g|png|webp|gif|avif)(\?.*)?$/i;
 
 export function fotosDe(p: ProductoDropi): string[] {
   const urls: string[] = [];
   const add = (v: string) => {
     const u = String(v || "").trim();
     if (!u) return;
+    if (!ES_FOTO.test(u)) return;
     if (/^https?:\/\//i.test(u)) urls.push(u);
-    else if (/\.(jpe?g|png|webp|gif)$/i.test(u) || /^colombia\//i.test(u)) urls.push(`${CDN_DROPI}/${u.replace(/^\/+/, "")}`);
+    else urls.push(`${CDN_DROPI}/${u.replace(/^\/+/, "")}`);
   };
   const visit = (v: any) => {
     if (!v) return;
     if (typeof v === "string") { add(v); return; }
     if (Array.isArray(v)) { v.forEach(visit); return; }
-    if (typeof v === "object") [v.urlS3, v.url, v.src, v.thumbnail].forEach((x) => typeof x === "string" && add(x));
+    if (typeof v === "object") [v.urlS3, v.url, v.src, v.thumbnail, v.image, v.photo].forEach((x) => (typeof x === "string" ? add(x) : visit(x)));
   };
-  // La principal primero (gallery[].main).
+  // 1. La galería, principal primero (gallery[].main).
   const gal = Array.isArray(p.gallery) ? [...p.gallery].sort((a: any, b: any) => (b?.main ? 1 : 0) - (a?.main ? 1 : 0)) : [];
   [gal, p.photos, p.images, p.image].forEach(visit);
+  // 2. Las fotos de cada variación (color/talla): en los VARIABLE la galería
+  //    del padre suele traer una sola foto y el resto vive acá.
+  for (const v of Array.isArray(p.variations) ? p.variations : []) {
+    [v?.gallery, v?.photos, v?.images, v?.image, v?.urlS3, v?.url].forEach(visit);
+    for (const av of Array.isArray(v?.attribute_values) ? v.attribute_values : []) [av?.image, av?.urlS3, av?.url].forEach(visit);
+  }
+  // 3. Cualquier otra foto en el objeto (claves que no conocíamos), sin
+  //    meterse en la descripción ni en el proveedor.
+  const barrer = (v: any, prof = 0) => {
+    if (!v || prof > 6) return;
+    if (typeof v === "string") { if (ES_FOTO.test(v) && (/^https?:\/\//i.test(v) || /^colombia\//i.test(v))) add(v); return; }
+    if (Array.isArray(v)) { v.forEach((x) => barrer(x, prof + 1)); return; }
+    if (typeof v === "object") for (const [k, x] of Object.entries(v)) { if (k === "description" || k === "user" || k === "plan" || k === "warehouse" || k === "city") continue; barrer(x, prof + 1); }
+  };
+  barrer(p);
+  // 4. Las imágenes que el proveedor pegó en la descripción, al final.
+  for (const m of String(p.description || "").matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) add(m[1]);
   return [...new Set(urls)];
 }
 
@@ -297,7 +316,7 @@ export async function importarProductoDropi(tenantId: number, token: string, dro
   let imageUrls = fotosDe(p);
   try {
     const { fotosUnicasDelProducto } = await import("./fotos-de-producto");
-    imageUrls = await fotosUnicasDelProducto({ imageUrl: imageUrls[0] || null, metadata: { imagenes: imageUrls } }, { max: 12, timeoutMs: 6000 });
+    imageUrls = await fotosUnicasDelProducto({ imageUrl: imageUrls[0] || null, metadata: { imagenes: imageUrls } }, { max: 20, timeoutMs: 6000 });
   } catch { /* se usan tal cual */ }
 
   // ── Curación con IA (gratuitos primero; DeepSeek al final) ─────────────

@@ -102,6 +102,34 @@ router.get("/buscar", async (req: any, res: any) => {
 });
 
 /** Importar uno o varios productos. */
+/** Detalle de un producto de Dropi: fotos (todas, sin repetir por contenido), stock, variaciones. `?raw=1` agrega lo crudo. */
+router.get("/producto/:id", async (req: any, res: any) => {
+  try {
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ ok: false, error: "No autenticado" });
+    const { tokenDropiDelTenant, detalleProductoDropi, fotosDe, stockDe, proveedorDe, bodegaDe } = await import("../lib/dropi-directo");
+    const token = await tokenDropiDelTenant(tenantId);
+    if (!token) return res.status(400).json({ ok: false, error: "Sin token de Dropi" });
+    const r = await detalleProductoDropi(token, Number(req.params.id));
+    if (!r.ok || !r.data) return res.status(200).json({ ok: false, error: r.error });
+    const p = r.data;
+    const todas = fotosDe(p);
+    let unicas = todas;
+    try {
+      const { fotosUnicasDelProducto } = await import("../lib/fotos-de-producto");
+      unicas = await fotosUnicasDelProducto({ imageUrl: todas[0] || null, metadata: { imagenes: todas } }, { max: 20, timeoutMs: 6000 });
+    } catch { /* se muestran tal cual */ }
+    res.json({
+      ok: true,
+      producto: { id: p.id, nombre: p.name, tipo: p.type || null, precioSugerido: p.suggested_price ?? null, costo: p.sale_price ?? null, stock: stockDe(p), proveedor: proveedorDe(p).nombre, bodega: bodegaDe(p), categoria: p.categories?.[0]?.name || null, variaciones: (p.variations || []).length },
+      fotos: { encontradas: todas.length, unicas: unicas.length, urls: unicas, repetidas: todas.filter((u) => !unicas.includes(u)) },
+      ...(String(req.query.raw || "") === "1" ? { crudo: p } : {}),
+    });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 router.post("/importar", async (req: any, res: any) => {
   try {
     const tenantId = tenantDe(req);

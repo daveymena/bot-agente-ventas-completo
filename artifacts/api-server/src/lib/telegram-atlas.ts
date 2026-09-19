@@ -184,9 +184,21 @@ export function atlasEscuchaEnTelegram(tenantId: number): boolean {
   return sondeos.has(tenantId);
 }
 
-/** Al arrancar: un sondeo por cada negocio con Telegram configurado. */
-export async function iniciarAtlasEnTelegramParaTodos(): Promise<void> {
+/**
+ * Al arrancar: un sondeo por cada negocio con Telegram configurado.
+ *
+ * Medido 19-09 21:25: la primera versión corría en el instante en que se
+ * cargaba app.ts, antes de que la base estuviera lista, y el error se tragaba
+ * en silencio → `atlasEscucha:false` con Telegram conectado. Ahora espera
+ * unos segundos y, si la base todavía no responde, reintenta con pausa.
+ */
+export function iniciarAtlasEnTelegramParaTodos(): void {
   if (process.env.TELEGRAM_ATLAS === "off") return;
+  const primeraMs = Number(process.env.TELEGRAM_ATLAS_PRIMERA_MS || 15000);
+  setTimeout(() => { void arrancarTodosConReintentos(); }, primeraMs).unref?.();
+}
+
+async function arrancarTodosConReintentos(intento = 1): Promise<void> {
   try {
     const filas = await db.select().from(tenants);
     const conClave = (filas as any[]).filter((f) => f?.apiKeys?.telegram?.apiKey);
@@ -194,7 +206,10 @@ export async function iniciarAtlasEnTelegramParaTodos(): Promise<void> {
     // instalación de un solo cliente; escucha el negocio administrador.
     const objetivo = conClave.length ? conClave : (process.env.TELEGRAM_BOT_TOKEN ? (filas as any[]).filter((f) => f.isAdmin).slice(0, 1) : []);
     for (const f of objetivo) await iniciarAtlasEnTelegram(Number(f.id)).catch((e: any) => logger.warn({ tenantId: f.id, err: e?.message }, "[TelegramAtlas] no arrancó"));
+    logger.info({ negocios: objetivo.length }, "[TelegramAtlas] arranque completo");
   } catch (e: any) {
-    logger.warn({ err: e?.message }, "[TelegramAtlas] no se pudo listar los negocios");
+    if (intento >= 6) { logger.error({ err: e?.message }, "[TelegramAtlas] no se pudo listar los negocios tras 6 intentos"); return; }
+    logger.warn({ err: e?.message, intento }, "[TelegramAtlas] la base no respondió; se reintenta en 20s");
+    setTimeout(() => { void arrancarTodosConReintentos(intento + 1); }, 20000).unref?.();
   }
 }

@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="VentasPro">
   <title>VentasPro</title>
   <!--
-  VentasPro: la V que sube en flecha (ventas que crecen) sobre el índigo→violeta
+  VentasPro: la V con dos destellos (la IA que vende) sobre el índigo→violeta
   del panel. Trazo grueso y redondeado para que aguante 16 px (la pestaña).
   Fuente única: scratch icon/apply.mjs genera favicon, marcas, logos y PNG.
 -->
@@ -26,6 +26,7 @@
   <rect width="512" height="512" rx="118" fill="url(#brillo)"/>
   <rect width="512" height="512" rx="118" fill="url(#sombra)"/>
   <rect x="6" y="6" width="500" height="500" rx="112" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="6"/>
-  <path d="M136 172 L256 376 L390 130" fill="none" stroke="#FFFFFF" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M312 130 H390 V208" fill="none" stroke="#FFFFFF" stroke-width="64" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M132 160 L256 380 L380 160" fill="none" stroke="#FFFFFF" stroke-width="66" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M392 96 l10 26 26 10 -26 10 -10 26 -10 -26 -26 -10 26 -10 z" fill="#FDE68A"/>
+  <path d="M356 52 l6 15 15 6 -15 6 -6 15 -6 -15 -15 -6 15 -6 z" fill="#FDE68A" opacity="0.9"/>
 </svg>
