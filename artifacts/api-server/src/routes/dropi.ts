@@ -114,9 +114,16 @@ router.post("/importar", async (req: any, res: any) => {
     for (const it of items.slice(0, 50)) {
       const id = Number(it?.dropiProductId);
       if (!id) continue;
-      resultados.push({ dropiProductId: id, ...(await importarProductoDropi(tenantId, token, id, { precio: Number(it?.precio) || null, curar: req.body?.curar !== false })) });
+      const r = await importarProductoDropi(tenantId, token, id, { precio: Number(it?.precio) || null, curar: req.body?.curar !== false });
+      resultados.push({ dropiProductId: id, ...r });
+      // Automatización total (pedido del dueño 19-09): cada producto nuevo
+      // sale con su paquete de lanzamiento en borrador, sin pedirlo.
+      if (r.ok && r.productId && !r.yaExistia && req.body?.lanzar !== false) {
+        const pid = r.productId;
+        import("../lib/lanzamiento").then(({ lanzarProducto }) => lanzarProducto(tenantId, pid, { conAnuncio: true })).catch((e) => logger.warn({ productId: pid, err: e?.message }, "[Lanzamiento] automático falló"));
+      }
     }
-    res.json({ ok: resultados.every((r) => r.ok), resultados });
+    res.json({ ok: resultados.every((r) => r.ok), resultados, lanzamientoAutomatico: req.body?.lanzar !== false });
   } catch (error: any) {
     res.status(500).json({ ok: false, error: error.message });
   }

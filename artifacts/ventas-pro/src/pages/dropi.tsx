@@ -100,10 +100,20 @@ export default function DropiPage() {
       const r = await api("/dropi/importar", { method: "POST", body: JSON.stringify({ items: [{ dropiProductId: p.id, precio }] }) });
       const it = r.resultados?.[0];
       if (!it?.ok) throw new Error(it?.error || "No se pudo importar");
-      toast({ title: it.yaExistia ? "Producto actualizado" : "Producto importado", description: `${it.nombre} · el bot ya lo vende y el pedido va directo a Dropi.` });
+      toast({ title: it.yaExistia ? "Producto actualizado" : "Producto importado", description: `${it.nombre}${it.curadoPor ? ` · ficha organizada por ${it.curadoPor}` : ""}${!it.yaExistia ? " · lanzamiento automático en marcha (landing, copies y anuncio en borrador; resumen por WhatsApp)" : ""}` });
       setResultados((prev) => prev.map((x) => (x.id === p.id ? { ...x, importadoComo: it.productId } : x)));
     } catch (e: any) { toast({ title: "No se pudo importar", description: e.message, variant: "destructive" }); }
     finally { setImportando(null); }
+  };
+
+  const [lanzando, setLanzando] = useState<number | null>(null);
+  const lanzar = async (productId: number) => {
+    setLanzando(productId);
+    try {
+      const r = await api(`/dropi/lanzar/${productId}`, { method: "POST", body: JSON.stringify({ forzar: true }) });
+      toast({ title: "Lanzamiento en marcha", description: r.mensaje || "Ficha → landing → copies → anuncio en borrador. Te llega el resumen por WhatsApp en 2-5 minutos." });
+    } catch (e: any) { toast({ title: "No se pudo lanzar", description: e.message, variant: "destructive" }); }
+    finally { setTimeout(() => setLanzando(null), 3000); }
   };
 
   const verificar = async () => {
@@ -198,7 +208,10 @@ export default function DropiPage() {
                         <div className="text-xs text-muted-foreground">Costo {cop(p.costo)} · sugerido {cop(p.precioSugerido)} · stock {p.stock ?? "—"}{p.categoria ? ` · ${p.categoria}` : ""}</div>
                         {p.proveedor ? <div className="text-xs text-muted-foreground">Proveedor: {p.proveedor}{p.bodega ? ` · ${p.bodega}` : ""}</div> : null}
                         {p.importadoComo ? (
-                          <div className="text-xs text-green-700 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> En tu catálogo (id {p.importadoComo})</div>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-xs text-green-700 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> En tu catálogo (id {p.importadoComo})</div>
+                            <Button size="sm" variant="outline" onClick={() => lanzar(p.importadoComo!)} disabled={lanzando === p.importadoComo}>{lanzando === p.importadoComo ? <Loader2 className="h-4 w-4 animate-spin" /> : "🚀 Lanzar"}</Button>
+                          </div>
                         ) : (
                           <div className="flex gap-2 items-center">
                             <Input type="number" inputMode="numeric" placeholder={p.precioSugerido ? String(Math.round(p.precioSugerido)) : "Precio de venta"} value={precios[p.id] ?? ""} onChange={(e) => setPrecios((prev) => ({ ...prev, [p.id]: e.target.value }))} className="h-8 text-sm" />
