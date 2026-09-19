@@ -46,3 +46,10 @@ describe("taxonomía: nombre real de categoría para cada producto físico", () 
     expect(categoriaReal({ nombre: "Faja reductora", categoriaSugerida: "Dropshipping" })).toBe("Salud y bienestar");
   });
 });
+
+describe("'Otro(s)' del proveedor nunca manda", () => {
+  it("Cojín Moto Viajero 3d con categoría 'Otro' → Herramientas y automotor", () => {
+    expect(categoriaReal({ nombre: "Cojín Moto Viajero 3d", categoriaProveedor: "Otro" })).toBe("Herramientas y automotor");
+    expect(categoriaReal({ nombre: "Cojín Moto Viajero 3d", categoriaSugerida: "Otros" })).toBe("Herramientas y automotor");
+  });
+});

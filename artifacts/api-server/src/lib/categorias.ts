@@ -57,8 +57,9 @@ export async function vincularCategoriasSueltas(): Promise<{ revisados: number; 
       let nombre = texto;
       if (kind === "physical") {
         const canon = categoriaCanonica(texto);
-        if (canon === texto && p.categoryId) continue; // ya está bien
-        nombre = canon || categoriaReal({ nombre: String(p.name || ""), categoriaProveedor: texto, descripcion: p.description });
+        if (canon === texto && canon !== "Otros" && p.categoryId) continue; // ya está bien
+        nombre = (canon && canon !== "Otros") ? canon : categoriaReal({ nombre: String(p.name || ""), categoriaProveedor: texto, descripcion: p.description });
+        if (nombre === texto && p.categoryId) continue;
       } else if (p.categoryId || !texto) continue;
       revisados++;
       const id = await asegurarCategoria(Number(p.tenantId), nombre, kind);

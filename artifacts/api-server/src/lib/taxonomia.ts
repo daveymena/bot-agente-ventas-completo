@@ -82,7 +82,15 @@ export function clasificarPorClaves(e: { nombre: string; categoriaProveedor?: st
 
 /** Categoría final con nombre real: canónica > claves > "Otros". */
 export function categoriaReal(e: { nombre: string; categoriaSugerida?: string | null; categoriaProveedor?: string | null; descripcion?: string | null }): string {
-  return categoriaCanonica(e.categoriaSugerida) || clasificarPorClaves(e) || categoriaCanonica(e.categoriaProveedor) || "Otros";
+  // "Otros" nunca manda: si el curador o el proveedor dicen "Otro(s)", primero
+  // se intenta por palabras clave (medido: "Cojín Moto Viajero" venía como
+  // "Otro" del proveedor y quedaba en Otros teniendo "moto" en el nombre).
+  const sugerida = categoriaCanonica(e.categoriaSugerida);
+  if (sugerida && sugerida !== "Otros") return sugerida;
+  const porClaves = clasificarPorClaves(e);
+  if (porClaves) return porClaves;
+  const deProveedor = categoriaCanonica(e.categoriaProveedor);
+  return deProveedor || sugerida || "Otros";
 }
 
 export function iconoDeCategoria(nombre: string): string {
