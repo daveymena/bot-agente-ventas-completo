@@ -212,7 +212,7 @@ export default function LandingStudioV2() {
 
     setBusy(true);
     const esNueva = /genera|crea|construye|haz una landing|nueva landing/i.test(text);
-    setMsgs(m => [...m, { role: "assistant", content: esNueva ? "Generando landing con OpenCode... esto puede tardar 30-60 segundos." : "Aplicando cambios...", loading: true }]);
+    setMsgs(m => [...m, { role: "assistant", content: esNueva ? "El agente de landings está generando la página con los datos reales del producto... 30-90 segundos." : "El agente está aplicando el cambio (recuerda lo que ya pediste antes)...", loading: true }]);
 
     try {
       const controller = new AbortController();
@@ -238,9 +238,11 @@ export default function LandingStudioV2() {
       });
       setMsgs(m => [
         ...m.filter(x => !(x as any).loading),
-        { role: "assistant", content: esNueva
+        { role: "assistant", content: (esNueva
           ? `**Landing generada** (${data.elapsed || "?"})\n\nID: ${data.landingId}\n\nPuedes pedirme ajustes como:\n> *"Haz el hero más agresivo"*\n> *"Cambia los colores a oscuro"*\n> *"Agrega una sección de testimonios"`
-          : `**Landing actualizada** (ID: ${data.landingId})\n\nPreview actualizada. Que más ajustamos?` },
+          : `**Landing actualizada** (ID: ${data.landingId})\n\nPreview actualizada. Que más ajustamos?`)
+          + (data.motor ? `\n\n_Redactada por: ${data.motor}_` : "")
+          + (Array.isArray(data.saneado) && data.saneado.length ? `\n_Se quitó lo repetido: ${data.saneado.join(", ")}_` : "") },
       ]);
       toast.success(esNueva ? "¡Landing generada!" : "¡Landing actualizada!");
     } catch (e: any) {

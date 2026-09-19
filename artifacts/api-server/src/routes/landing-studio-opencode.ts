@@ -912,9 +912,14 @@ router.post("/chat", async (req, res) => {
     };
     if (!message?.trim()) return res.status(400).json({ message: "Falta el mensaje" });
 
-    const config = opencodeConfig();
-    if (!config) return res.status(503).json({ message: "OpenCode no configurado" });
-
+    // ── El Studio pasa por el MISMO agente que Atlas ──────────────────────
+    //
+    // Hasta el 19-09-2026 esta ruta abría su propia sesión con OpenCode: sin
+    // las reglas de landing, sin la bitácora, sin fotos únicas ni saneado.
+    // Medido por el dueño ese día: "cuando la genero con Atlas la genera
+    // bien; desde el generador hace lo que se le da la gana". Una sola
+    // puerta: generarLandingConOpenCode (agente propio en cadena; el puente
+    // de OpenCode solo si el negocio no tiene ningún proveedor).
     let product: any = null;
     if (productId) {
       try {
@@ -936,50 +941,45 @@ router.post("/chat", async (req, res) => {
         logger.error({ err: dbErr?.message }, "[LandingStudio] Error consultando landing");
       }
     }
+    // Editando una landing sin elegir producto: el producto es el de la landing.
+    if (!product && existingLanding?.productId) {
+      try {
+        const rows = await db.select().from(products).where(eq(products.id, Number(existingLanding.productId)));
+        product = rows[0] || null;
+      } catch { /* sigue sin producto */ }
+    }
+    if (!product) return res.status(400).json({ message: "Elegí un producto: el agente de landings trabaja sobre los datos reales del producto." });
 
-    const tipo = product ? detectarTipo(product) : "digital";
-    const paleta = product ? await paletaDelProducto(product) : undefined;
-    const pago = product ? await datosDePagoDelProducto(product) : undefined;
+    const tipo = detectarTipo(product);
 
     // Diseño efectivo: el que manda el cliente ahora, o el guardado en la landing.
     const disenoGuardado = (existingLanding?.design && typeof existingLanding.design === "object") ? existingLanding.design : {};
     const disenoFinal: Diseno = { ...disenoGuardado, ...(diseno || {}) };
     // Familia visual (estilo): la que manda el cliente ahora, o la guardada.
     const familiaElegida = (familia ?? (disenoGuardado as any)?.familia ?? null) as string | null;
-    // El diseño que se persiste incluye la familia, para que el selector del
-    // panel la recuerde al recargar.
     const designGuardado: any = { ...disenoFinal, ...(familiaElegida ? { familia: familiaElegida } : {}) };
 
-    const memoria = await contextoLanding(product?.tenantId || existingLanding?.tenantId || 1, { productId: product?.id ?? productId, tipo });
-    let userPrompt = product
-      ? buildUserPrompt(product, tipo, existingHtml, message, paleta, pago, disenoFinal, familiaElegida)
-      : existingHtml
-        ? `MODO EDICIÓN — NO regeneres la página. Aplicá SOLO lo que pide el admin y conservá TODO lo demás EXACTO (secciones, formulario, imágenes, colores). Nunca borres lo que no te pidieron tocar.\n\nHTML ACTUAL:\n${existingHtml}\n\nINSTRUCCION: ${message}`
-        : `INSTRUCCION: ${message}`;
-    if (memoria) userPrompt += `\n\n${memoria}`;
-
+    const { bitacoraDe, textoDeBitacora, anotarEnBitacora } = await import("../lib/landing/agente-landing");
     const startTime = Date.now();
-    const result = await conCandado(async () => {
-      const sessionId = await createSession(config.host, config.authHeader);
-      return await sendMessage(config.host, config.authHeader, sessionId, {
-        system: getSystemPrompt(tipo),
-        text: userPrompt,
-        timeoutMs: 45_000,
-      });
+    const r = await generarLandingConOpenCode({
+      product,
+      instruction: existingHtml
+        ? `EDITÁ la página existente (viene abajo como HTML). Aplicá SOLO este cambio y devolvé el HTML completo actualizado: ${message}`
+        : message,
+      existingHtml,
+      diseno: disenoFinal,
+      familia: familiaElegida,
+      timeoutMs: 120_000,
+      bitacora: existingLanding ? textoDeBitacora(bitacoraDe(existingLanding)) : "",
     });
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-
-    if (result.error) {
-      logger.error({ error: result.error }, "[LandingStudio] OpenCode error");
-      return res.status(500).json({ message: `Error de OpenCode: ${result.error}` });
+    if (r.error || !r.html) {
+      logger.error({ error: r.error }, "[LandingStudio] el agente no devolvió HTML");
+      return res.status(500).json({ message: `El agente de landings no pudo generar la página: ${r.error || "sin HTML"}` });
     }
-
-    let html = result.text.trim();
-    const codeBlockMatch = html.match(/```(?:html)?\s*\n?([\s\S]*?)\n?```/);
-    if (codeBlockMatch) html = codeBlockMatch[1].trim();
-    if (!html.includes("<!DOCTYPE") && !html.includes("<html")) {
-      html = result.text;
-    }
+    let html = r.html;
+    const motor = r.proveedor || "puente OpenCode";
+    const saneado = r.quitado || [];
 
     let savedLandingId = landingId;
     let slug = existingLanding?.slug || "";
@@ -1028,7 +1028,15 @@ router.post("/chat", async (req, res) => {
       summary: `Landing ${savedLandingId ? `[${savedLandingId}]` : ""} ${product?.name || ""} (${tipo}).`,
     });
 
-    return res.json({ html, landingId: savedLandingId, elapsed: `${elapsed}s`, tipo, design: designGuardado });
+    if (savedLandingId != null) {
+      await anotarEnBitacora(Number(savedLandingId), message, saneado.length ? `aplicado (se quitó: ${saneado.join(", ")})` : "aplicado");
+      try {
+        const [fila] = await db.select().from(landingPages).where(eq(landingPages.id, Number(savedLandingId))).limit(1);
+        await db.update(landingPages).set({ strategy: { ...((fila?.strategy as any) || {}), tipo, generador: "opencode", motor, saneado, listaEn: new Date().toISOString() } } as any).where(eq(landingPages.id, Number(savedLandingId)));
+      } catch { /* la landing ya quedó guardada */ }
+    }
+
+    return res.json({ html, landingId: savedLandingId, elapsed: `${elapsed}s`, tipo, design: designGuardado, motor, saneado });
   } catch (e: any) {
     logger.error({ err: e?.message }, "[LandingStudio] error general");
     return res.status(500).json({ message: e?.message || "Error interno" });
