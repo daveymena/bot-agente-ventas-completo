@@ -22,6 +22,7 @@
  * de Dropi, deduplicadas por contenido; nunca de otras tiendas.
  */
 import { logger } from "./logger";
+import { NOMBRES_CANONICOS, categoriaReal } from "./taxonomia";
 import { ORDEN_GRATUITOS_PRIMERO, redactarConProveedores } from "./landing/agente-landing";
 import { esLineaDeProveedor } from "./dropi";
 
@@ -59,7 +60,7 @@ Reglas:
 - nombre: comercial, en mayúsculas y minúsculas normales, sin códigos internos (nada de "KZ", "CN", "x 200ml" salvo que sea la presentación real).
 - descripcion: 3 a 5 líneas cortas para el COMPRADOR: qué es, para qué sirve, cómo se usa. Sin HTML, sin emojis, sin frases de proveedor ("carga tus pedidos", "precio sugerido", teléfonos, "dropshipping").
 - caracteristicas: 4 a 8, cada una empieza con UN emoji y dice algo concreto (material, medidas, capacidad, qué incluye, para quién). Solo lo que esté en los datos o en las fuentes.
-- categoria: una de: Salud y bienestar, Hogar, Cocina, Belleza, Deporte, Tecnología, Mascotas, Bebés y niños, Moda, Vehículos, Herramientas, Otros.
+- categoria: EXACTAMENTE una de: " + NOMBRES_CANONICOS.join(", ") + ".
 - beneficioPrincipal: una frase con el resultado que busca el comprador.
 - copyWhatsapp: 2-3 líneas cálidas para presentar el producto por WhatsApp, sin precio.
 - preguntasFrecuentes: 3, con respuestas basadas SOLO en los datos (si algo no está, no lo preguntes).
@@ -146,7 +147,7 @@ export async function curarProducto(tenantId: number, p: ProductoCrudo, opts: { 
     nombre: String(j.nombre).trim().slice(0, 120),
     descripcion: String(j.descripcion).trim().slice(0, 1200),
     caracteristicas: j.caracteristicas.map((c: any) => String(c).trim()).filter(Boolean).slice(0, 8),
-    categoria: String(j.categoria || p.categoria || "Otros").trim().slice(0, 60),
+    categoria: categoriaReal({ nombre: String(j.nombre || p.nombre || ""), categoriaSugerida: j.categoria, categoriaProveedor: p.categoria, descripcion: p.descripcionHtml }),
     beneficioPrincipal: String(j.beneficioPrincipal || "").trim().slice(0, 200),
     copyWhatsapp: String(j.copyWhatsapp || "").trim().slice(0, 500),
     preguntasFrecuentes: Array.isArray(j.preguntasFrecuentes) ? j.preguntasFrecuentes.filter((x: any) => x?.p && x?.r).slice(0, 3).map((x: any) => ({ p: String(x.p).slice(0, 160), r: String(x.r).slice(0, 300) })) : [],

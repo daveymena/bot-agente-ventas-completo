@@ -31,7 +31,9 @@ export async function asegurarCategoria(tenantId: number, nombre: string, kind: 
     const misma = existentes.find((c: any) => String(c.name).trim().toLowerCase() === nombreLimpio.toLowerCase() && String(c.kind || "digital") === kind);
     if (misma) return Number((misma as any).id);
     const color = COLORES[existentes.length % COLORES.length]!;
-    const [creada] = await db.insert(productCategories).values({ tenantId, name: nombreLimpio, kind, icon: ICONO_POR_KIND[kind], color } as any).returning();
+    const { iconoDeCategoria } = await import("./taxonomia");
+    const icon = kind === "physical" ? iconoDeCategoria(nombreLimpio) : ICONO_POR_KIND[kind];
+    const [creada] = await db.insert(productCategories).values({ tenantId, name: nombreLimpio, kind, icon, color } as any).returning();
     logger.info({ tenantId, categoria: nombreLimpio, kind, id: (creada as any)?.id }, "[Categorias] categoría creada desde una importación");
     return Number((creada as any)?.id) || null;
   } catch (e: any) {
@@ -44,17 +46,35 @@ export async function asegurarCategoria(tenantId: number, nombre: string, kind: 
 export async function vincularCategoriasSueltas(): Promise<{ revisados: number; enlazados: number }> {
   let revisados = 0, enlazados = 0;
   try {
-    const sueltos = await db.select({ id: products.id, tenantId: products.tenantId, category: products.category, kind: products.kind })
-      .from(products).where(and(isNull(products.categoryId), sql`${products.category} is not null and ${products.category} <> ''`));
-    for (const p of sueltos as any[]) {
-      revisados++;
+    const { categoriaCanonica, categoriaReal } = await import("./taxonomia");
+    // Sueltos (sin id) y además físicos con categoría que NO es un nombre
+    // real (la del proveedor tal cual): se reclasifican.
+    const todos = await db.select({ id: products.id, tenantId: products.tenantId, name: products.name, description: products.description, category: products.category, categoryId: products.categoryId, kind: products.kind })
+      .from(products).where(sql`${products.categoryId} is null or (${products.kind} = 'physical')`);
+    for (const p of todos as any[]) {
       const kind = (["digital", "physical", "service"].includes(String(p.kind)) ? String(p.kind) : "digital") as Kind;
-      const id = await asegurarCategoria(Number(p.tenantId), String(p.category), kind);
+      const texto = String(p.category || "").trim();
+      let nombre = texto;
+      if (kind === "physical") {
+        const canon = categoriaCanonica(texto);
+        if (canon === texto && p.categoryId) continue; // ya está bien
+        nombre = canon || categoriaReal({ nombre: String(p.name || ""), categoriaProveedor: texto, descripcion: p.description });
+      } else if (p.categoryId || !texto) continue;
+      revisados++;
+      const id = await asegurarCategoria(Number(p.tenantId), nombre, kind);
       if (!id) continue;
-      await db.update(products).set({ categoryId: id } as any).where(eq(products.id, Number(p.id)));
+      await db.update(products).set({ categoryId: id, category: nombre } as any).where(eq(products.id, Number(p.id)));
       enlazados++;
     }
     if (revisados) logger.info({ revisados, enlazados }, "[Categorias] productos sueltos enlazados a su categoría");
+    // Las categorías físicas con nombre de proveedor que quedaron vacías se borran.
+    const { NOMBRES_CANONICOS } = await import("./taxonomia");
+    const cats = await db.select().from(productCategories).where(sql`${productCategories}.kind = 'physical'`);
+    for (const c of cats as any[]) {
+      if (NOMBRES_CANONICOS.includes(String(c.name))) continue;
+      const [{ n }] = await db.select({ n: sql<number>`count(*)` }).from(products).where(eq(products.categoryId, Number(c.id))) as any[];
+      if (Number(n) === 0) { await db.delete(productCategories).where(eq(productCategories.id, Number(c.id))); logger.info({ categoria: c.name }, "[Categorias] categoría de proveedor vacía borrada"); }
+    }
   } catch (e: any) {
     logger.warn({ err: e?.message }, "[Categorias] no se pudieron enlazar los productos sueltos");
   }

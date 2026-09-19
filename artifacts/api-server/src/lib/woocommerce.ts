@@ -315,6 +315,11 @@ export class WooCommerceService {
             .where(and(eq(products.tenantId, this.tenantId), eq(products.sku, wooSku)))
             .limit(1);
 
+          const esDigital = !!(wooProduct.virtual || wooProduct.downloadable);
+          // Físicos: categoría con nombre real (lib/taxonomia.ts), no la de Woo/proveedor tal cual.
+          const categoriaWoo = esDigital
+            ? (wooProduct.categories[0]?.name || "General")
+            : (await import("./taxonomia")).categoriaReal({ nombre: wooProduct.name, categoriaProveedor: wooProduct.categories[0]?.name || null, descripcion: wooProduct.short_description || wooProduct.description || null });
           const productData = {
             tenantId: this.tenantId,
             name: wooProduct.name,
@@ -324,12 +329,8 @@ export class WooCommerceService {
             ),
             price: finalPrice,
             currency: "COP", // Ajustar según la configuración de la tienda
-            category: wooProduct.categories[0]?.name || "General",
-            categoryId: await (await import("./categorias")).asegurarCategoria(
-              this.tenantId,
-              wooProduct.categories[0]?.name || "General",
-              (wooProduct.virtual || wooProduct.downloadable) ? "digital" : "physical",
-            ),
+            category: categoriaWoo,
+            categoryId: await (await import("./categorias")).asegurarCategoria(this.tenantId, categoriaWoo, esDigital ? "digital" : "physical"),
             imageUrl,
             sku: wooSku,
             features: wooProduct.attributes.map(attr => `${attr.name}: ${attr.options.join(", ")}`),

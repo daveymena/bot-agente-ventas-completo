@@ -357,7 +357,9 @@ export async function importarProductoDropi(tenantId: number, token: string, dro
   const nombreFinal = ficha?.nombre || String(p.name || `Producto Dropi ${p.id}`);
   const descripcionFinal = ficha?.descripcion || customerProductCopy(p.description, String(p.name || ""));
   const featuresFinal = ficha?.caracteristicas || [];
-  const categoriaFinal = opts.categoria || ficha?.categoria || p.categories?.[0]?.name || "Dropshipping";
+  // Nombre real de categoría, nunca el del proveedor tal cual (ver lib/taxonomia.ts).
+  const { categoriaReal } = await import("./taxonomia");
+  const categoriaFinal = categoriaReal({ nombre: String(ficha?.nombre || p.name || ""), categoriaSugerida: opts.categoria || ficha?.categoria, categoriaProveedor: p.categories?.[0]?.name || null, descripcion: p.description || null });
 
   // ¿Ya estaba? (mismo producto de Dropi en este negocio)
   const existentes = await db.select().from(products).where(eq(products.tenantId, tenantId));
