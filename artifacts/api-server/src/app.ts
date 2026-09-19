@@ -13,6 +13,7 @@ import { landingPublicaRouter } from "./routes/landing-publica";
 import healthRouter from "./health";
 import woocommerceRouter from "./routes/woocommerce";
 import dropiRouter from "./routes/dropi";
+import telegramRouter from "./routes/telegram";
 import subscriptionWebhooksRouter from "./routes/subscription-webhooks";
 import activationRouter from "./routes/activation";
 import aiCatalogRouter from "./routes/ai-catalog";
@@ -888,6 +889,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 app.use("/api/woocommerce", woocommerceRouter);
 app.use("/api/dropi", dropiRouter);
+app.use("/api/telegram", telegramRouter);
 app.use("/api/webhooks/subscription", subscriptionWebhooksRouter);
 app.use("/api/activation", activationRouter);
 // El catálogo de IA por proveedor (claves, modelos disponibles, prueba de

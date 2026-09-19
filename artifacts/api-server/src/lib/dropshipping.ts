@@ -773,12 +773,7 @@ async function registrarVeredicto(pedido: PedidoDropshipping, dropi: VeredictoDr
 /** Aviso por WhatsApp al dueño: el mismo canal por el que le llegan los comprobantes. */
 async function avisarAlAdmin(pedido: PedidoDropshipping, dropi: VeredictoDropi, productoDesactivado: boolean): Promise<void> {
   try {
-    const { telefonoDelAdmin } = await import("./verificacion-pago");
-    const { getWhatsAppForTenant } = await import("./whatsapp-factory");
-    const phone = await telefonoDelAdmin(pedido.tenantId);
-    if (!phone) return;
-    const wa = getWhatsAppForTenant(pedido.tenantId);
-    if (!wa.isConnected()) return;
+    const { avisarAlDueno } = await import("./avisos");
     const texto = [
       dropi.estado === "error" ? "⚠️ *Dropi RECHAZÓ un pedido*" : "⚠️ *Pedido sin confirmar en Dropi*",
       `Pedido #${pedido.id} · Woo #${pedido.wooOrderId} · ${pedido.productName}`,
@@ -787,7 +782,7 @@ async function avisarAlAdmin(pedido: PedidoDropshipping, dropi: VeredictoDropi, 
       productoDesactivado ? "Saqué el producto del catálogo para que el bot no lo siga ofreciendo." : "",
       "El cliente ya sabe que hubo un problema; hay que contactarlo o cargar el pedido a mano en Dropi.",
     ].filter(Boolean).join("\n");
-    await wa.sendText(phone, texto);
+    await avisarAlDueno(pedido.tenantId, texto);
   } catch (e: any) {
     logger.error({ err: e?.message, pedidoId: pedido.id }, "[Dropshipping] No se pudo avisar al admin del rechazo de Dropi");
   }

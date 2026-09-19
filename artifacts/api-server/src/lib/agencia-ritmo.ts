@@ -69,19 +69,12 @@ async function telefonoDelNegocio(tenantId: number): Promise<string | null> {
 }
 
 async function avisar(tenantId: number, texto: string): Promise<boolean> {
-  const phone = await telefonoDelNegocio(tenantId);
-  if (!phone) {
-    logger.warn({ tenantId }, "[Agencia] sin teléfono configurado: el informe quedó solo en el registro");
-    return false;
-  }
-  const wa = getWhatsAppForTenant(tenantId);
-  if (!wa.isConnected()) {
-    logger.warn({ tenantId }, "[Agencia] WhatsApp desconectado: el informe quedó solo en el registro");
-    return false;
-  }
+  // WhatsApp y Telegram, por el mismo lugar que el resto de los avisos.
   try {
-    await wa.sendText(phone, texto);
-    return true;
+    const { avisarAlDueno } = await import("./avisos");
+    const r = await avisarAlDueno(tenantId, texto);
+    if (!r.whatsapp && !r.telegram) logger.warn({ tenantId }, "[Agencia] sin canal: el informe quedó solo en el registro");
+    return r.whatsapp || r.telegram;
   } catch (err: any) {
     logger.error({ err: err?.message, tenantId }, "[Agencia] no se pudo enviar el informe");
     return false;

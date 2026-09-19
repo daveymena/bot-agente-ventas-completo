@@ -222,11 +222,8 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
     const r = await ds.despacharPedido(pedido);
 
     try {
-      const { telefonoDelAdmin } = await import("../lib/verificacion-pago");
-      const { getWhatsAppForTenant } = await import("../lib/whatsapp-factory");
-      const admin = await telefonoDelAdmin(row.tenantId);
-      if (admin) {
-        const mgr: any = getWhatsAppForTenant(row.tenantId);
+      const { avisarAlDueno } = await import("../lib/avisos");
+      {
         const texto = [
           `🛒 *Pedido nuevo desde la landing* (${row.name})`,
           `📦 ${producto.name} × ${cantidad} · $${Number(producto.price || 0).toLocaleString("es-CO")}`,
@@ -240,7 +237,7 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
               ? `⚠️ Quedó en WooCommerce como #${r.wooOrderId} pero Dropi lo RECHAZÓ: ${r.dropi?.detalle || r.error}`
               : `⚠️ NO se pudo registrar en WooCommerce: ${r.error}`,
         ].filter(Boolean).join("\n");
-        await mgr?.sendText?.(admin, texto);
+        await avisarAlDueno(row.tenantId, texto);
       }
     } catch (e: any) {
       logger.warn({ err: e?.message }, "[LandingPublica] no se pudo avisar al admin del pedido");

@@ -139,7 +139,7 @@ export async function generarCopies(tenantId: number, p: any, meta: any, negocio
     const j = extraerJson(r.text);
     const c: Copies = {
       whatsapp: String(j.whatsapp).trim(), ganchos: j.ganchos.map((g: any) => String(g).trim()).slice(0, 3),
-      meta: { primaryText: String(j.meta.primaryText).trim(), headlines: j.meta.headlines.map((h: any) => String(h).trim()).slice(0, 3), description: String(j.meta.description || "").trim() },
+      meta: { primaryText: String(j.meta.primaryText).trim().split("\n").map((l: string) => l.replace(/^(\s*)(\p{L})/u, (_m, sp, ch) => sp + ch.toUpperCase())).join("\n"), headlines: j.meta.headlines.map((h: any) => String(h).trim()).slice(0, 3), description: String(j.meta.description || "").trim() },
       guionVideo: String(j.guionVideo || "").trim(), revisadoPor: r.proveedor ? `${r.proveedor}/${r.modelo}` : undefined,
     };
     ultimo = c;
@@ -264,11 +264,8 @@ export async function lanzarProducto(tenantId: number, productId: number, opts: 
 
   if (opts.notificar !== false) {
     try {
-      const { telefonoDelAdmin } = await import("./verificacion-pago");
-      const { getWhatsAppForTenant } = await import("./whatsapp-factory");
-      const phone = await telefonoDelAdmin(tenantId);
-      const wa = phone ? getWhatsAppForTenant(tenantId) : null;
-      if (phone && wa?.isConnected()) await wa.sendText(phone, resumen);
+      const { avisarAlDueno } = await import("./avisos");
+      await avisarAlDueno(tenantId, resumen);
     } catch (e: any) { logger.warn({ productId, err: e?.message }, "[Lanzamiento] no se pudo avisar al admin"); }
   }
   logger.info({ tenantId, productId, modelo, landing: landing.estado, anuncio: anuncio.estado }, "[Lanzamiento] paquete generado");

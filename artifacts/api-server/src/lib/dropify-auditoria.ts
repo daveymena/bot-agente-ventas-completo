@@ -19,13 +19,8 @@ let timer: NodeJS.Timeout | null = null;
 
 async function avisar(tenantId: number, texto: string): Promise<void> {
   try {
-    const { telefonoDelAdmin } = await import("./verificacion-pago");
-    const { getWhatsAppForTenant } = await import("./whatsapp-factory");
-    const phone = await telefonoDelAdmin(tenantId);
-    if (!phone) return;
-    const wa = getWhatsAppForTenant(tenantId);
-    if (!wa.isConnected()) return;
-    await wa.sendText(phone, texto);
+    const { avisarAlDueno } = await import("./avisos");
+    await avisarAlDueno(tenantId, texto);
   } catch (e: any) {
     logger.warn({ tenantId, err: e?.message }, "[DropifyAuditoria] no se pudo avisar al admin");
   }
