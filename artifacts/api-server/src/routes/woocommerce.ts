@@ -248,6 +248,24 @@ router.get("/estado", async (req, res) => {
 });
 
 /**
+ * POST /api/woocommerce/reintentar-dropi/:pedidoId
+ * Reenvía a Dropi un pedido del bot que ya está en Woo (ver reintentarEnDropi).
+ */
+router.post("/reintentar-dropi/:pedidoId", async (req, res) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(401).json({ error: "No autenticado" });
+    const pedidoId = Number(req.params.pedidoId);
+    if (!pedidoId) return res.status(400).json({ error: "pedidoId inválido" });
+    const { reintentarEnDropi } = await import("../lib/dropshipping");
+    res.json(await reintentarEnDropi(tenantId, pedidoId, { conProductoId: Number(req.body?.productoId) || null }));
+  } catch (error: any) {
+    logger.error({ error: error.message }, "[WooCommerce] Error reintentando en Dropi");
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+/**
  * POST /api/woocommerce/create-order
  * Crear orden en WooCommerce
  */

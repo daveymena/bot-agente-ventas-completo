@@ -780,3 +780,70 @@ async function avisarAlAdmin(pedido: PedidoDropshipping, dropi: VeredictoDropi, 
     logger.error({ err: e?.message, pedidoId: pedido.id }, "[Dropshipping] No se pudo avisar al admin del rechazo de Dropi");
   }
 }
+
+// ─── Reintentar en Dropi ────────────────────────────────────────────────────
+
+/**
+ * Vuelve a mandar a Dropi un pedido que YA está en WooCommerce.
+ *
+ * Dropify envía la orden cada vez que pasa a "processing" (gancho
+ * woocommerce_order_status_changed). Se la pasa por "on-hold" y de vuelta a
+ * "processing", y se relee el veredicto. Sirve cuando el proveedor reactivó
+ * el producto o el rechazo fue transitorio; si el motivo sigue (producto
+ * archivado), Dropi contesta lo mismo y acá queda registrado.
+ */
+export async function reintentarEnDropi(
+  tenantId: number,
+  pedidoId: number,
+  opts: { conProductoId?: number | null } = {},
+): Promise<ResultadoDespacho & { pedidoId?: number }> {
+  const { rows } = await pool.query(`SELECT * FROM dropshipping_orders WHERE id = $1 AND tenant_id = $2 LIMIT 1`, [pedidoId, tenantId]);
+  const pedido = rows[0] ? aPedido(rows[0]) : null;
+  if (!pedido) return { ok: false, error: `No existe el pedido #${pedidoId} de este negocio.` };
+
+  // Mismo cliente, otro producto: pasa cuando el original quedó archivado
+  // (el #323 del 15-09). A una orden ya enviada Dropify no le relee los
+  // productos, así que se clona el pedido con los mismos datos de envío y se
+  // despacha como uno nuevo. El original queda como estaba, con su rechazo.
+  if (opts.conProductoId && opts.conProductoId !== pedido.productId) {
+    const [prod] = await db.select().from(products).where(eq(products.id, opts.conProductoId)).limit(1);
+    if (!prod || (prod as any).tenantId !== tenantId) return { ok: false, error: `El producto ${opts.conProductoId} no existe en este negocio.` };
+    const { rows: nuevos } = await pool.query(
+      `INSERT INTO dropshipping_orders
+         (tenant_id, conversation_id, lead_id, product_id, product_name, quantity, unit_price, total,
+          nombre, telefono, documento, departamento, ciudad, direccion, barrio, notas, metodo_pago, estado)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'confirmado') RETURNING *`,
+      [tenantId, pedido.conversationId, (rows[0] as any).lead_id ?? null, (prod as any).id, (prod as any).name, pedido.quantity,
+       String((prod as any).price ?? 0), String(Number((prod as any).price ?? 0) * pedido.quantity),
+       pedido.nombre, pedido.telefono, pedido.documento, pedido.departamento, pedido.ciudad, pedido.direccion, pedido.barrio,
+       [pedido.notas, `Reintento del pedido #${pedido.id} con otro producto`].filter(Boolean).join(" | "), pedido.metodoPago],
+    );
+    const clon = aPedido(nuevos[0]);
+    logger.info({ de: pedido.id, a: clon.id, productoId: (prod as any).id }, "[Dropshipping] Pedido clonado con otro producto para reintentar en Dropi");
+    const r = await despacharPedido(clon);
+    return { ...r, pedidoId: clon.id };
+  }
+  if (!pedido.wooOrderId) return { ok: false, error: `El pedido #${pedidoId} nunca llegó a WooCommerce: no hay nada que reintentar en Dropi (use despacharPedido).` };
+  if (pedido.dropiEstado === "sincronizada") {
+    return { ok: true, wooOrderId: pedido.wooOrderId, dropi: { estado: "sincronizada", dropiOrderId: pedido.dropiOrderId ?? null, detalle: "Ya estaba en Dropi." } };
+  }
+
+  const { getWooCommerceService } = await import("./woocommerce");
+  const woo = await getWooCommerceService(tenantId);
+  if (!woo) return { ok: false, wooOrderId: pedido.wooOrderId, error: "WooCommerce no está configurado para este negocio." };
+
+  try {
+    await woo.updateOrderStatus(pedido.wooOrderId, "on-hold");
+    await woo.updateOrderStatus(pedido.wooOrderId, "processing");
+  } catch (e: any) {
+    return { ok: false, wooOrderId: pedido.wooOrderId, error: `No se pudo reenviar desde WooCommerce: ${e?.message || e}` };
+  }
+  logger.info({ pedidoId, wooOrderId: pedido.wooOrderId }, "[Dropshipping] Reintento en Dropi (on-hold → processing)");
+
+  const dropi = await leerVeredictoDeDropi(woo, pedido.wooOrderId);
+  const productoDesactivado = await registrarVeredicto(pedido, dropi);
+  if (dropi.estado === "error") {
+    return { ok: false, wooOrderId: pedido.wooOrderId, dropi, productoDesactivado, error: `Dropi volvió a rechazarlo: ${dropi.detalle}` };
+  }
+  return { ok: dropi.estado === "sincronizada", wooOrderId: pedido.wooOrderId, dropi, error: dropi.estado === "sincronizada" ? undefined : dropi.detalle };
+}

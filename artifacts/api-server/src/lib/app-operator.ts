@@ -4652,6 +4652,25 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       return { ok: r.configurada && r.conexion.ok, summary: r.resumen, data: r };
     },
   },
+  {
+    name: "dropi_reintentar_pedido",
+    description:
+      "Vuelve a enviar a Dropi un pedido que YA está en WooCommerce pero Dropi rechazó (o no confirmó): lo pasa por 'en espera' y de vuelta a 'procesando' " +
+      "para que Dropify lo reenvíe, y relee el veredicto. Úsala cuando el admin diga 'reintenta/reenvía el pedido N a Dropi' o cuando el proveedor haya reactivado el producto. " +
+      "El N es el id del pedido del bot (el que muestra woocommerce_estado en 'pedidosDelBot'). Si Dropi lo acepta se crea una orden REAL contraentrega → requiere confirmación.",
+    args: '{ "pedidoId": number (req, id del pedido del bot), "productoId": number (opcional: reintentar con OTRO producto del catálogo, mismos datos de envío; crea un pedido nuevo) }',
+    run: async (args, ctx) => {
+      const id = num(args?.pedidoId);
+      if (!id) return { ok: false, summary: "Falta 'pedidoId' (el id del pedido del bot)." };
+      const { reintentarEnDropi } = await import("./dropshipping");
+      const r = await reintentarEnDropi(ctx.tenantId, id, { conProductoId: num(args?.productoId) || null });
+      const ref = `Pedido #${r.pedidoId || id}${r.wooOrderId ? ` (Woo #${r.wooOrderId})` : ""}`;
+      if (r.ok && r.dropi?.estado === "sincronizada") {
+        return { ok: true, summary: `✅ ${ref} aceptado por Dropi${r.dropi.dropiOrderId ? ` como orden #${r.dropi.dropiOrderId}` : ""}. El proveedor despacha.`, data: r };
+      }
+      return { ok: false, summary: `${ref}: ${r.error || r.dropi?.detalle || "sin veredicto"}${r.productoDesactivado ? " · El producto quedó fuera del catálogo." : ""}`, data: r };
+    },
+  },
   // ── 📦 DROPI (dropshipping) ────────────────────────────────────────────────
   {
     name: "dropi_status",
@@ -7047,6 +7066,8 @@ export const DESTRUCTIVE_TOOLS = new Set([
   // dropi_create_order dispara un despacho real del proveedor con cobro
   // contra entrega: es dinero de verdad moviéndose, nunca sin el sí del admin.
   "dropi_create_order",
+  // dropi_reintentar_pedido puede terminar en una orden real en Dropi (contraentrega)
+  "dropi_reintentar_pedido",
   // Crear un píxel deja un objeto PERMANENTE en la cuenta de Meta del negocio
   // y duplicarlo parte los datos de conversión en dos -- nunca sin el sí.
   "fb_create_pixel",
