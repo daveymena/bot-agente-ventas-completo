@@ -4656,9 +4656,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   },
   {
     name: "pedido_cancelar",
-    description:
-      "Cancela un pedido físico del bot (id del pedido del bot, el de 'pedidosDelBot' en woocommerce_estado) y, si llegó a WooCommerce, también ahí. " +
-      "Úsala para duplicados o pedidos de prueba. Si Dropi ya lo había aceptado, avisa que hay que cancelarlo también en Dropi. Modifica pedidos → requiere confirmación.",
+    description: "Cancela un pedido físico del bot (id de pedidosDelBot) y en WooCommerce. Para duplicados o pruebas. Si Dropi ya lo aceptó, avisa que hay que cancelarlo también allá. Requiere confirmación.",
     args: '{ "pedidoId": number (req), "motivo": string (opcional) }',
     run: async (args, ctx) => {
       const id = num(args?.pedidoId);
@@ -4671,11 +4669,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   },
   {
     name: "dropify_reparar_tokens",
-    description:
-      "Audita en WooCommerce los productos importados de Dropi y repara los que NO tienen token de integración (`_dropi_token`): es la causa real del 'Access denied' de Dropi " +
-      "(19-09-2026: el Corrector de Postura, Woo #139, se importó sin token; Dropify manda ese token por producto en cada pedido). Copia el token que ya usan los demás productos. " +
-      "Úsala cuando un pedido diga 'Access denied' o cuando el admin pregunte por qué no llegan los pedidos a Dropi. Modifica productos en WooCommerce → requiere confirmación. " +
-      "Después hay que reintentar los pedidos rechazados con dropi_reintentar_pedido.",
+    description: "Repara en WooCommerce los productos de Dropi sin `_dropi_token` (causa real del 'Access denied': Dropify manda ese token por producto). Copia el token que usan los demás. Requiere confirmación; después reintentar con dropi_reintentar_pedido.",
     args: '{ "wooProductId": number (opcional: reparar solo ese producto de Woo; sin él repara todos los que falten) }',
     run: async (args, ctx) => {
       const { getWooCommerceService } = await import("./woocommerce");
@@ -4688,9 +4682,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   },
   {
     name: "dropify_auditar_tokens",
-    description:
-      "Solo LEE: lista qué productos de Dropify en WooCommerce tienen token de integración y cuáles no, y qué integración (tienda, IP autorizada, vencimiento) trae cada token. " +
-      "Úsala para diagnosticar 'Access denied' antes de reparar.",
+    description: "Solo lee: qué productos de Dropi en WooCommerce tienen token de integración y cuáles no (esos dan 'Access denied'). Úsala para diagnosticar antes de reparar.",
     args: "{}",
     run: async (_args, ctx) => {
       const { getWooCommerceService } = await import("./woocommerce");
@@ -4708,10 +4700,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   },
   {
     name: "dropi_reintentar_pedido",
-    description:
-      "Vuelve a enviar a Dropi un pedido que YA está en WooCommerce pero Dropi rechazó (o no confirmó): lo pasa por 'en espera' y de vuelta a 'procesando' " +
-      "para que Dropify lo reenvíe, y relee el veredicto. Úsala cuando el admin diga 'reintenta/reenvía el pedido N a Dropi' o cuando el proveedor haya reactivado el producto. " +
-      "El N es el id del pedido del bot (el que muestra woocommerce_estado en 'pedidosDelBot'). Si Dropi lo acepta se crea una orden REAL contraentrega → requiere confirmación.",
+    description: "Reenvía a Dropi un pedido que ya está en WooCommerce pero fue rechazado (lo pasa por en espera → procesando y relee el veredicto). Con productoId clona el pedido con otro producto. Puede crear una orden REAL → requiere confirmación.",
     args: '{ "pedidoId": number (req, id del pedido del bot), "productoId": number (opcional: reintentar con OTRO producto del catálogo, mismos datos de envío; crea un pedido nuevo) }',
     run: async (args, ctx) => {
       const id = num(args?.pedidoId);
@@ -4728,8 +4717,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   // ── 📦 DROPI (dropshipping) ────────────────────────────────────────────────
   {
     name: "dropi_status",
-    description: "Verificar la conexión DIRECTA con la API de Dropi (solo para buscar/importar catálogo). OJO: los PEDIDOS no van por acá sino por WooCommerce → Dropify → Dropi, y ese camino FUNCIONA (verificado 19-09-2026: orden Dropi #90133857). " +
-      "Si un pedido dice 'Access denied', la causa real es que ese producto de Woo no tiene `_dropi_token` (Dropify manda el token por producto): usá dropify_auditar_tokens / dropify_reparar_tokens, NO esta herramienta ni 'regenerar credenciales'.",
+    description: "Verifica la conexión DIRECTA a la API de Dropi (solo catálogo). Los PEDIDOS van por WooCommerce → Dropify → Dropi y ese camino funciona (verificado 19-09-2026). Un 'Access denied' en un pedido = producto sin `_dropi_token` → dropify_reparar_tokens, no esta herramienta.",
     args: "{}",
     run: async () => {
       const { dropiStatus } = await import("./dropi");

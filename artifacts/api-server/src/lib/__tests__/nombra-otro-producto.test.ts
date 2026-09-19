@@ -229,3 +229,19 @@ describe("'¿con qué viene?' es sobre el foco", () => {
     expect(nombraOtraCosaQueElFoco("Curso de Piano Completo", "Con que viene?")).toBe(false);
   });
 });
+
+describe("pedir 'toda la info' del producto en foco no es nombrar otro (19-09-2026)", () => {
+  const foco = "CURSO MECÁNICA DE BICICLETAS DESDE CERO";
+  it.each([
+    "sí, mándame toda la info",
+    "dame toda la información completa",
+    "pásame el resto de los detalles",
+    "envíame la info completa otra vez",
+    "quiero saber todo",
+  ])("%s → sigue siendo el producto en foco", (msg) => {
+    expect(nombraOtraCosaQueElFoco(foco, msg)).toBe(false);
+  });
+  it("un producto distinto sí se detecta", () => {
+    expect(nombraOtraCosaQueElFoco(foco, "tienes curso de soldadura?")).toBe(true);
+  });
+});

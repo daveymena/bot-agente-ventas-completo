@@ -1558,6 +1558,11 @@ const VOCABULARIO_DE_PREGUNTA = new Set([
   "valor", "costo", "cuesta", "vale", "sale", "cobran", "cobras", "esta", "estan",
   "pago", "pagos", "envio", "envios", "entrega", "video", "videos", "producto", "productos",
   "info", "informacion", "saber", "dame", "pasame", "mandame", "envia", "muestrame", "cuentame",
+  // "sí, mándame TODA la info" contaba "toda" como OTRO producto y el bot decía
+  // "aquí tienes la ficha" sin adjuntarla (medido 19-09-2026 con el pipeline
+  // entero). Cuantificadores de la petición, no nombres de nada.
+  "toda", "todo", "todos", "todas", "completa", "completo", "entera", "entero", "detallada", "detallado",
+  "detalle", "detalles", "resto", "demas", "mas", "otra", "otro", "vez", "enviame", "enviame", "mandeme", "envieme", "pasa", "manda",
   "puedo", "puede", "pueden", "quisiera", "seria", "total", "suma", "ambos", "juntos", "cada",
   "uno", "dos", "tres", "gracias", "hola", "buenas", "porfa", "favor", "aun", "todavia",
   // "¿Tienes disponible?" contaba "disponible" como OTRO producto y el agente
