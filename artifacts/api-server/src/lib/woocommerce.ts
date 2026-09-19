@@ -184,6 +184,22 @@ export class WooCommerceService {
   }
 
   /**
+   * Escribe metadatos en un producto (p. ej. el `_dropi_token` que Dropify
+   * necesita para empujar el pedido a Dropi). WooCommerce acepta claves con
+   * guion bajo por REST: `_dropi_product` ya se lee por acá.
+   */
+  async updateProductMeta(productId: number, meta: Array<{ key: string; value: any }>): Promise<any> {
+    try {
+      const response = await this.client.put(`/products/${productId}`, { meta_data: meta });
+      logger.info({ tenantId: this.tenantId, productId, keys: meta.map((m) => m.key) }, "[WooCommerce] Meta de producto actualizada");
+      return response.data;
+    } catch (error: any) {
+      logger.error({ tenantId: this.tenantId, productId, error: error.message }, "[WooCommerce] Error actualizando meta del producto");
+      throw new Error(`Error actualizando el producto ${productId}: ${error.message}`);
+    }
+  }
+
+  /**
    * Obtener un producto específico por ID
    */
   async getProduct(productId: number): Promise<WooCommerceProduct> {

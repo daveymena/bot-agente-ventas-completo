@@ -247,6 +247,36 @@ router.get("/estado", async (req, res) => {
   }
 });
 
+/** GET /api/woocommerce/dropify/tokens — auditoría (solo lectura). */
+router.get("/dropify/tokens", async (req: any, res: any) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(401).json({ error: "No autenticado" });
+    const woo = await getWooCommerceService(tenantId);
+    if (!woo) return res.status(400).json({ error: "WooCommerce no configurado" });
+    const { auditarTokensDropify } = await import("../lib/dropify-tokens");
+    const a = await auditarTokensDropify(woo);
+    res.json({ revisados: a.revisados, deDropi: a.deDropi.length, sinToken: a.sinToken.map((p) => ({ id: p.wooProductId, nombre: p.nombre })), tokens: a.tokens.map((t) => ({ usos: t.usos, integracion: t.integracion })) });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+/** POST /api/woocommerce/dropify/reparar-tokens — copia el token válido a los productos sin token. */
+router.post("/dropify/reparar-tokens", async (req: any, res: any) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return res.status(401).json({ error: "No autenticado" });
+    const woo = await getWooCommerceService(tenantId);
+    if (!woo) return res.status(400).json({ error: "WooCommerce no configurado" });
+    const { repararTokensDropify } = await import("../lib/dropify-tokens");
+    const r = await repararTokensDropify(woo, { soloProductoId: Number(req.body?.wooProductId) || null });
+    res.json({ ok: r.errores.length === 0, resumen: r.resumen, reparados: r.reparados, errores: r.errores });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 /**
  * POST /api/woocommerce/reintentar-dropi/:pedidoId
  * Reenvía a Dropi un pedido del bot que ya está en Woo (ver reintentarEnDropi).

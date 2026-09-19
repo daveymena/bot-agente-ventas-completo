@@ -4655,6 +4655,43 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "dropify_reparar_tokens",
+    description:
+      "Audita en WooCommerce los productos importados de Dropi y repara los que NO tienen token de integración (`_dropi_token`): es la causa real del 'Access denied' de Dropi " +
+      "(19-09-2026: el Corrector de Postura, Woo #139, se importó sin token; Dropify manda ese token por producto en cada pedido). Copia el token que ya usan los demás productos. " +
+      "Úsala cuando un pedido diga 'Access denied' o cuando el admin pregunte por qué no llegan los pedidos a Dropi. Modifica productos en WooCommerce → requiere confirmación. " +
+      "Después hay que reintentar los pedidos rechazados con dropi_reintentar_pedido.",
+    args: '{ "wooProductId": number (opcional: reparar solo ese producto de Woo; sin él repara todos los que falten) }',
+    run: async (args, ctx) => {
+      const { getWooCommerceService } = await import("./woocommerce");
+      const woo = await getWooCommerceService(ctx.tenantId);
+      if (!woo) return { ok: false, summary: "WooCommerce no está configurado para este negocio." };
+      const { repararTokensDropify } = await import("./dropify-tokens");
+      const r = await repararTokensDropify(woo, { soloProductoId: num(args?.wooProductId) || null });
+      return { ok: r.errores.length === 0, summary: r.resumen, data: { reparados: r.reparados, errores: r.errores, sinToken: r.auditoria.sinToken.map((p) => ({ id: p.wooProductId, nombre: p.nombre })), tokens: r.auditoria.tokens.map((t) => ({ usos: t.usos, integracion: t.integracion })) } };
+    },
+  },
+  {
+    name: "dropify_auditar_tokens",
+    description:
+      "Solo LEE: lista qué productos de Dropify en WooCommerce tienen token de integración y cuáles no, y qué integración (tienda, IP autorizada, vencimiento) trae cada token. " +
+      "Úsala para diagnosticar 'Access denied' antes de reparar.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { getWooCommerceService } = await import("./woocommerce");
+      const woo = await getWooCommerceService(ctx.tenantId);
+      if (!woo) return { ok: false, summary: "WooCommerce no está configurado para este negocio." };
+      const { auditarTokensDropify } = await import("./dropify-tokens");
+      const a = await auditarTokensDropify(woo);
+      const sin = a.sinToken.map((p) => `#${p.wooProductId} ${p.nombre}`).join(", ") || "ninguno";
+      return {
+        ok: true,
+        summary: `Revisé ${a.revisados} productos: ${a.deDropi.length} de Dropify. Sin token (van a dar 'Access denied'): ${sin}. Tokens distintos en uso: ${a.tokens.length}${a.tokens[0]?.integracion ? ` (el principal: tienda ${a.tokens[0].integracion.tienda || "?"}, IP ${a.tokens[0].integracion.ipAutorizada || "?"})` : ""}.`,
+        data: { sinToken: a.sinToken.map((p) => ({ id: p.wooProductId, nombre: p.nombre })), tokens: a.tokens.map((t) => ({ usos: t.usos, integracion: t.integracion })) },
+      };
+    },
+  },
+  {
     name: "dropi_reintentar_pedido",
     description:
       "Vuelve a enviar a Dropi un pedido que YA está en WooCommerce pero Dropi rechazó (o no confirmó): lo pasa por 'en espera' y de vuelta a 'procesando' " +
@@ -7070,6 +7107,8 @@ export const DESTRUCTIVE_TOOLS = new Set([
   "dropi_create_order",
   // dropi_reintentar_pedido puede terminar en una orden real en Dropi (contraentrega)
   "dropi_reintentar_pedido",
+  // dropify_reparar_tokens escribe metadatos en productos de WooCommerce
+  "dropify_reparar_tokens",
   // Crear un píxel deja un objeto PERMANENTE en la cuenta de Meta del negocio
   // y duplicarlo parte los datos de conversión en dos -- nunca sin el sí.
   "fb_create_pixel",
