@@ -463,9 +463,13 @@ export interface PistasDelProducto {
 const SENALES: Array<{ familia: FamiliaVisual; palabras: string[] }> = [
   { familia: "belleza", palabras: ["belleza", "beauty", "piel", "skin", "cabello", "pelo", "maquillaje", "cosmetic", "crema", "serum", "facial", "perfume", "unas"] },
   { familia: "fitness", palabras: ["fitness", "gym", "gimnasio", "entrenamiento", "workout", "musculo", "adelgazar", "proteina", "deporte", "yoga", "rutina"] },
-  { familia: "educacion", palabras: ["curso", "clase", "taller", "masterclass", "capacitacion", "diplomado", "aprende", "aprender", "ensena", "tutorial", "academia", "leccion"] },
+  // Tecnología va ANTES que educación a propósito: "curso de inteligencia
+  // artificial" es un curso, pero el rubro que manda en la estética es la
+  // tecnología (el dueño lo dijo el 18-09: la landing del curso de IA "se ve
+  // muy femenina"; le correspondía la línea tecnológica, no la de formación).
+  { familia: "tecnologia", palabras: ["software", "app", "saas", "plataforma", "automatizacion", "inteligencia artificial", "ia ", " ia", "chatgpt", "claude", "agentes", "bot", "api", "digital tool", "sistema", "programacion", "excel", "power bi", "python", "n8n", "web"] },
+  { familia: "educacion", palabras: ["curso", "clase", "taller", "masterclass", "capacitacion", "diplomado", "aprende", "aprender", "ensena", "tutorial", "academia", "leccion", "idioma", "ingles", "piano", "guitarra", "musica"] },
   { familia: "launch", palabras: ["lanzamiento", "launch", "startup", "preventa", "early access", "beta", "waitlist", "lista de espera"] },
-  { familia: "tecnologia", palabras: ["software", "app", "saas", "plataforma", "automatizacion", "inteligencia artificial", "ia ", "bot", "api", "digital tool", "sistema"] },
   { familia: "familiar", palabras: ["hogar", "cocina", "familia", "bebe", "nino", "mascota", "casa", "limpieza", "organizador"] },
   { familia: "oscura", palabras: ["gaming", "gamer", "premium tech", "audio", "auricular", "reloj inteligente", "smartwatch", "drone"] },
 ];

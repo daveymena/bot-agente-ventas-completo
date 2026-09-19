@@ -427,11 +427,13 @@ export function estadoDeGeneracion(l: any): { estado: "generando" | "lista" | "f
     return { estado: "fallo", texto: `❌ La landing [${l.id}] no se pudo generar: ${String(st.error).slice(0, 300)}. Decíselo al admin y ofrecé reintentar.`, vistaPrevia: null };
   }
   const gen = st.generador === "opencode" ? "diseño completo (HTML) por el agente especializado" : "generador por secciones (AIDA con las fotos reales)";
+  const familia = st.familia || (l.design as any)?.familia || null;
   return {
     estado: "lista",
     texto:
       `✅ La landing [${l.id}] "${l.name}" está LISTA (${gen}${st.motivoRespaldo ? `; el generador premium falló: ${String(st.motivoRespaldo).slice(0, 120)}` : ""}). ` +
-      `Vista previa: ${vistaPrevia} . Está en borrador: para la URL pública, landing_publicar con id ${l.id}.`,
+      (familia ? `Estilo visual: "${familia}"${st.familiaPorque ? ` — ${st.familiaPorque}` : ""}. Si el admin quiere otro, landing_editar con "poné estilo X" (premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch). ` : "") +
+      `Vista previa: ${vistaPrevia} . ${l.status === "published" ? "Ya está publicada." : `Está en borrador: para la URL pública, landing_publicar con id ${l.id}.`}`,
     vistaPrevia,
   };
 }
@@ -466,7 +468,11 @@ function lanzarGeneracionDeLandingEnSegundoPlano(
         if (r.tipo === "dropshipping" && html.includes("__FORM_ACTION__")) {
           html = html.split("__FORM_ACTION__").join(`/api/landing-publica/${encodeURIComponent(job.slug)}/pedido`);
         }
-        await listo({ html, strategy: { tipo: r.tipo, generador: "opencode", generando: false, listaEn: new Date().toISOString(), instruccion: job.instruccion.slice(0, 500) } });
+        await listo({
+          html,
+          design: { ...(job.familia ? { familia: job.familia } : r.familia ? { familia: r.familia } : {}) },
+          strategy: { tipo: r.tipo, generador: "opencode", generando: false, listaEn: new Date().toISOString(), instruccion: job.instruccion.slice(0, 500), familia: job.familia || r.familia || null, familiaPorque: r.familiaPorque || null },
+        });
       } catch (e: any) {
         // 2) Respaldo: el generador por secciones, que corre en este mismo
         //    proceso con el proveedor de IA del negocio y NO depende de
@@ -475,6 +481,9 @@ function lanzarGeneracionDeLandingEnSegundoPlano(
         motivoRespaldo = String(e?.message || e).slice(0, 300);
         logger.warn({ landingId: job.landingId, motivo: motivoRespaldo }, "[AppOperator] OpenCode no generó la landing; se usa el generador por secciones");
         const { generarLandingLocal } = await import("../routes/landing-pages-ai");
+        const { elegirFamilia } = await import("./landing/design-system");
+        const eleccion = job.familia ? null : elegirFamilia({ nombre: job.product?.name, categoria: job.product?.category, descripcion: job.product?.description, tipo: job.product?.kind, precio: Number(job.product?.price) || null });
+        const familiaFinal = job.familia || eleccion?.familia || null;
         const tenant = await tenantManager.getTenantById(ctx.tenantId).catch(() => null);
         const g: any = await generarLandingLocal({
           tenantId: ctx.tenantId, product: job.product, brandName: (tenant as any)?.brandName || null,
@@ -483,8 +492,8 @@ function lanzarGeneracionDeLandingEnSegundoPlano(
         await listo({
           name: String(g?.name || `Landing · ${job.product.name}`).slice(0, 200),
           sections: g?.sections || [],
-          design: { ...(g?.design || {}), ...(job.familia ? { familia: job.familia } : {}) },
-          strategy: { ...(g?.strategy || {}), tipo, generador: "plantilla", generadoPor: g?.generatedBy, motivoRespaldo, generando: false, listaEn: new Date().toISOString(), instruccion: job.instruccion.slice(0, 500) },
+          design: { ...(g?.design || {}), ...(familiaFinal ? { familia: familiaFinal } : {}) },
+          strategy: { ...(g?.strategy || {}), tipo, generador: "plantilla", generadoPor: g?.generatedBy, motivoRespaldo, generando: false, listaEn: new Date().toISOString(), instruccion: job.instruccion.slice(0, 500), familia: familiaFinal, familiaPorque: eleccion?.porque || null },
           html: null,
         });
       }

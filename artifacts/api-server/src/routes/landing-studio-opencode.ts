@@ -700,10 +700,13 @@ CONTEXTO DEL NEGOCIO:
 - Pais objetivo: Colombia (usar COP si es precio colombiano, USD si es dolar)
 
 PALETA DE COLORES (USALA - NO inventes colores al azar):
-${paleta?.primary ? `- Color primario (marca): ${paleta.primary}` : "- Color primario: derivalo del color dominante del producto"}
-${paleta?.secondary ? `- Color secundario: ${paleta.secondary}` : ""}
-${paleta?.accent ? `- Color de acento (CTAs/botones): ${paleta.accent}` : ""}
-${paleta?.dominante ? `- Color dominante de la imagen del producto: ${paleta.dominante}` : ""}
+${familia
+  ? `- MANDA la paleta del ESTILO VISUAL de abajo (fondo, superficies, texto y acento). Los colores de marca del negocio son solo para el logo/encabezado o un detalle menor: NO tiñas la página con ellos, y NO uses rosas, lilas ni degradados pastel salvo que el estilo lo indique.`
+  : (paleta?.primary ? `- Color primario (marca): ${paleta.primary}` : "- Color primario: derivalo del color dominante del producto")}
+${paleta?.primary && familia ? `- Color de marca (solo logo/detalles): ${paleta.primary}` : ""}
+${paleta?.secondary && !familia ? `- Color secundario: ${paleta.secondary}` : ""}
+${paleta?.accent && !familia ? `- Color de acento (CTAs/botones): ${paleta.accent}` : ""}
+${paleta?.dominante ? `- Color dominante de la imagen del producto: ${paleta.dominante} (podés usarlo como acento secundario si combina con el estilo)` : ""}
 Regla: el fondo y los acentos de la landing deben combinar con estos colores. Nada de colores de fondo al azar.
 ${diseno?.fondo ? `- Fondo elegido por el cliente: ${diseno.fondo}` : ""}
 ${diseno?.botones ? `- Estilo de botones elegido por el cliente: ${diseno.botones}` : ""}
@@ -739,15 +742,30 @@ export async function generarLandingConOpenCode(opts: {
   familia?: string | null;
   /** Por modelo. Los 45s de siempre valen dentro de un request; en segundo plano se puede esperar más. */
   timeoutMs?: number;
-}): Promise<{ html: string; tipo: ProductType; error?: string }> {
+}): Promise<{ html: string; tipo: ProductType; error?: string; familia?: string; familiaPorque?: string }> {
   const config = opencodeConfig();
   if (!config) return { html: "", tipo: "digital", error: "OpenCode no configurado" };
 
   const { product, instruction } = opts;
   const existingHtml = opts.existingHtml ?? null;
   const diseno = opts.diseno ?? {};
-  const familia = opts.familia ?? null;
   const tipo = detectarTipo(product);
+  // ── Sin familia elegida, se elige por el producto ───────────────────────
+  //
+  // Medido el 18-09-2026: todas las landings salían con la misma paleta
+  // (rosa/violeta) porque, sin familia, OpenCode recibía solo el color de
+  // marca del negocio --el mismo para todos los productos-- y rellenaba el
+  // resto con su gusto. Las 13 familias de design-system.ts YA tienen paleta
+  // por rubro; solo faltaba usarlas cuando el admin no elige una. En modo
+  // edición NO se cambia la familia: se respeta la que la página ya tiene.
+  let familia = opts.familia ?? null;
+  let familiaPorque = "";
+  if (!familia && !existingHtml) {
+    const { elegirFamilia } = await import("../lib/landing/design-system");
+    const e = elegirFamilia({ nombre: product?.name, categoria: product?.category, descripcion: product?.description, tipo: product?.kind, precio: Number(product?.price) || null });
+    familia = e.familia;
+    familiaPorque = e.porque;
+  }
   const paleta = await paletaDelProducto(product);
   const pago = await datosDePagoDelProducto(product);
   const memoria = await contextoLanding(product?.tenantId || 1, { productId: product?.id, tipo });
@@ -772,7 +790,7 @@ export async function generarLandingConOpenCode(opts: {
   if (!html.includes("<!DOCTYPE") && !html.includes("<html")) html = result.text;
   if (tipo === "dropshipping") html = asegurarFormularioDropshipping(html);
 
-  return { html, tipo };
+  return { html, tipo, familia: familia || undefined, familiaPorque: familiaPorque || undefined };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
