@@ -4797,6 +4797,38 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "dropi_margen",
+    description: "Ganancia REAL de un producto de Dropi: precio de venta − costo del proveedor (leído de Dropi) − flete con recaudo (promedio de los pedidos reales del negocio). Úsala cuando el admin pregunte cuánto le sale, cuánto gana, el margen o cuánto puede pagar por venta. Solo lee.",
+    args: '{ "productId": number (id del catálogo, opcional), "dropiProductId": number (opcional), "precio": number (opcional, para simular otro precio de venta) }',
+    run: async (args, ctx) => {
+      const { tokenDropiDelTenant, margenDeProductoDropi } = await import("./dropi-directo");
+      const token = await tokenDropiDelTenant(ctx.tenantId);
+      if (!token) return { ok: false, summary: "Este negocio no tiene token de Dropi: primero dropi_conectar." };
+      const r = await margenDeProductoDropi(ctx.tenantId, token, { productId: num(args?.productId) || null, dropiId: num(args?.dropiProductId) || null, precio: num(args?.precio) || null });
+      if (!r.ok || !r.data) return { ok: false, summary: r.error || "No se pudo calcular el margen." };
+      return { ok: true, summary: r.data.texto, data: r.data };
+    },
+  },
+  {
+    name: "dropi_pedidos",
+    description: "Lista los pedidos REALES en Dropi del negocio (estado, ciudad, total cobrado, flete, transportadora, guía, producto y costo del proveedor). Úsala para ver qué pasó con un pedido, qué flete cobró Dropi o cuánto se ganó. Solo lee.",
+    args: '{ "limit": number (opcional, máx 100) }',
+    run: async (args, ctx) => {
+      const { tokenDropiDelTenant, listarPedidosDropi } = await import("./dropi-directo");
+      const token = await tokenDropiDelTenant(ctx.tenantId);
+      if (!token) return { ok: false, summary: "Este negocio no tiene token de Dropi: primero dropi_conectar." };
+      const r = await listarPedidosDropi(token, num(args?.limit) || 20);
+      if (!r.ok) return { ok: false, summary: `Dropi no respondió: ${r.error}` };
+      const f = (v: number | null) => (v == null ? "—" : `$${Math.round(v).toLocaleString("es-CO")}`);
+      const lineas = (r.data || []).map((o) => {
+        const p = o.productos[0];
+        const gan = p?.costo != null && o.flete != null ? o.total - p.costo * (p.cantidad || 1) - o.flete : null;
+        return `#${o.id} · ${o.estado} · ${o.ciudad} · ${p?.nombre || "?"} · cobrado ${f(o.total)} · costo ${f(p?.costo ?? null)} · flete ${f(o.flete)} (${o.transportadora || "?"}) · ganancia ${f(gan)}${o.guia ? ` · guía ${o.guia}` : ""}`;
+      });
+      return { ok: true, summary: lineas.length ? `📦 ${lineas.length} pedidos en Dropi:\n${lineas.join("\n")}` : "No hay pedidos en Dropi.", data: { pedidos: r.data } };
+    },
+  },
+  {
     name: "dropi_status",
     description: "Verifica la conexión DIRECTA a la API de Dropi (solo catálogo). Los PEDIDOS van por WooCommerce → Dropify → Dropi y ese camino funciona (verificado 19-09-2026). Un 'Access denied' en un pedido = producto sin `_dropi_token` → dropify_reparar_tokens, no esta herramienta.",
     args: "{}",
@@ -7132,7 +7164,7 @@ export const READ_ONLY_TOOLS = new Set([
   // propósito: mueven dinero real y tienen que pasar por confirmación.
   "fb_list_adsets", "fb_radiografia_campana", "anuncio_datos_expertos",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
-  "dropi_status", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
+  "dropi_status", "dropi_margen", "dropi_pedidos", "dropi_buscar", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
   "dropi_verificar_producto",
   // Leer el estado de una landing en generación y simular el reentrenamiento no cambian nada.
   "landing_estado", "agente_reentrenar_ver",

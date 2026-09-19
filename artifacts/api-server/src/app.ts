@@ -90,6 +90,8 @@ import("./lib/dropify-auditoria").then((m) => m.iniciarAuditoriaDropify()).catch
 import("./lib/telegram-atlas").then((m) => m.iniciarAtlasEnTelegramParaTodos()).catch(() => undefined);
 // Productos importados (Dropi/Woo) sin categoría real → se enlazan solos (ver lib/categorias.ts).
 import("./lib/categorias").then((m) => m.iniciarVinculoDeCategorias()).catch(() => undefined);
+// Atlas arrastraba "Dropi rechaza el token del panel" de sesiones viejas (ver lib/dropi-memoria.ts).
+import("./lib/dropi-memoria").then((m) => m.iniciarCorreccionDeMemoriaDropi()).catch(() => undefined);
 registrarGuardia();
 iniciarProgramador();
 

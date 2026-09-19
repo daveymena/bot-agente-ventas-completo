@@ -514,3 +514,93 @@ export async function vincularCatalogoDeWoo(tenantId: number): Promise<{ vincula
   }
   return out;
 }
+
+// ─── Pedidos reales y margen ────────────────────────────────────────────────
+//
+// Medido el 19-09-2026 con `GET orders/myorders?result_number=N`: cada pedido
+// trae `total_order` (lo que paga el cliente), `shipping_amount` (el flete
+// que Dropi cobra, con recaudo si rate_type = CON RECAUDO), la transportadora
+// y en `orderdetails[].product` el `sale_price` = costo del proveedor. Con eso
+// la ganancia por pedido es total − costo − flete, sin suponer nada.
+
+export interface PedidoDropi {
+  id: number; estado: string; fecha: string; ciudad: string; departamento: string;
+  total: number; flete: number | null; transportadora: string | null; conRecaudo: boolean;
+  guia: string | null; referenciaTienda: string | null;
+  productos: Array<{ dropiId: number; nombre: string; cantidad: number; costo: number | null; sugerido: number | null }>;
+}
+
+export async function listarPedidosDropi(token: string, n = 20): Promise<RespuestaDropi<PedidoDropi[]>> {
+  const r = await dropiIntegracion<any>(token, `orders/myorders?result_number=${Math.min(100, Math.max(1, n))}&start=0&orderBy=id&orderDirection=desc`, undefined, "GET", 20000);
+  if (!r.ok) return r as any;
+  const lista = Array.isArray(r.data) ? r.data : (r.data?.objects || []);
+  const pedidos: PedidoDropi[] = lista.map((o: any) => ({
+    id: Number(o.id), estado: String(o.status || ""), fecha: String(o.created_at || ""), ciudad: String(o.city || ""), departamento: String(o.state || ""),
+    total: Number(o.total_order) || 0, flete: o.shipping_amount != null ? Number(o.shipping_amount) : null,
+    transportadora: o.shipping_company || o.distribution_company?.name || null, conRecaudo: String(o.rate_type || "").toUpperCase() === "CON RECAUDO",
+    guia: o.shipping_guide || null, referenciaTienda: o.shop_order_id != null ? String(o.shop_order_id) : null,
+    productos: (Array.isArray(o.orderdetails) ? o.orderdetails : []).map((d: any) => ({
+      dropiId: Number(d.product_id ?? d.product?.id), nombre: String(d.product?.name || ""), cantidad: Number(d.quantity) || 1,
+      costo: d.product?.sale_price != null ? Number(d.product.sale_price) : null, sugerido: d.product?.suggested_price != null ? Number(d.product.suggested_price) : null,
+    })),
+  }));
+  return { ok: true, data: pedidos };
+}
+
+export interface MargenDropi {
+  producto: { id: number | null; nombre: string; dropiId: number };
+  precioVenta: number; costoProveedor: number | null; precioSugerido: number | null; stock: number | null;
+  flete: { estimado: number | null; base: string; minimo: number | null; maximo: number | null; pedidos: number };
+  ganancia: number | null; margenPct: number | null; texto: string;
+}
+
+/**
+ * Margen real de un producto: precio de venta (el del catálogo o el que pase
+ * el admin) − costo del proveedor (Dropi, `sale_price`) − flete. El flete se
+ * estima con los pedidos REALES del negocio: primero los de ese mismo
+ * producto, si no hay, el promedio de todos los pedidos con recaudo.
+ */
+export async function margenDeProductoDropi(tenantId: number, token: string, ref: { productId?: number | null; dropiId?: number | null; precio?: number | null }): Promise<{ ok: boolean; error?: string; data?: MargenDropi }> {
+  let productId: number | null = ref.productId ? Number(ref.productId) : null;
+  let dropiId: number | null = ref.dropiId ? Number(ref.dropiId) : null;
+  let nombre = "";
+  let precioCatalogo: number | null = null;
+  if (productId) {
+    const [p] = await db.select().from(products).where(and(eq(products.id, productId), eq(products.tenantId, tenantId))).limit(1);
+    if (!p) return { ok: false, error: `No hay producto ${productId} en el catálogo.` };
+    let m: any = {}; try { m = typeof (p as any).metadata === "string" ? JSON.parse((p as any).metadata) : ((p as any).metadata || {}); } catch { /* sin metadata */ }
+    dropiId = dropiId || Number(m?.dropiProductId) || null;
+    nombre = String((p as any).name || ""); precioCatalogo = Number((p as any).price) || null;
+    if (!dropiId) return { ok: false, error: `"${nombre}" no está vinculado a Dropi (sin dropiProductId).` };
+  }
+  if (!dropiId) return { ok: false, error: "Falta productId o dropiId." };
+  const det = await detalleProductoDropi(token, dropiId);
+  if (!det.ok || !det.data) return { ok: false, error: `Dropi no devolvió el producto ${dropiId}: ${det.error}` };
+  const d = det.data;
+  nombre = nombre || String(d.name || "");
+  const costo = d.sale_price != null ? Number(d.sale_price) : null;
+  const sugerido = d.suggested_price != null ? Number(d.suggested_price) : null;
+  const precio = Number(ref.precio) || precioCatalogo || sugerido || 0;
+
+  // Flete medido sobre pedidos reales.
+  const ped = await listarPedidosDropi(token, 50);
+  const conFlete = (ped.ok ? ped.data || [] : []).filter((o) => o.flete != null && o.flete > 0);
+  const delProducto = conFlete.filter((o) => o.productos.some((x) => x.dropiId === dropiId));
+  const base = delProducto.length ? delProducto : conFlete.filter((o) => o.conRecaudo);
+  const fletes = base.map((o) => o.flete as number);
+  const flete = fletes.length ? Math.round(fletes.reduce((a, b) => a + b, 0) / fletes.length) : null;
+  const ganancia = flete != null && costo != null && precio ? Math.round(precio - costo - flete) : null;
+  const margenPct = ganancia != null && precio ? Math.round((ganancia / precio) * 100) : null;
+  const f = (v: number | null) => (v == null ? "—" : `$${Math.round(v).toLocaleString("es-CO")}`);
+  const baseTxt = !fletes.length ? "sin pedidos reales para estimar el flete" : delProducto.length ? `promedio de ${delProducto.length} pedido(s) reales de este producto` : `promedio de ${fletes.length} pedido(s) reales del negocio con recaudo`;
+  const texto = [
+    `💰 *${nombre}* (Dropi #${dropiId})`,
+    `• Precio de venta: ${f(precio)}${precioCatalogo && precio === precioCatalogo ? " (catálogo)" : ""}${sugerido ? ` · sugerido por Dropi ${f(sugerido)}` : ""}`,
+    `• Costo del proveedor: ${f(costo)}`,
+    `• Flete con recaudo: ${f(flete)} (${baseTxt}${fletes.length ? `, rango ${f(Math.min(...fletes))}–${f(Math.max(...fletes))}` : ""})`,
+    ganancia != null ? `• *Ganancia por pedido entregado: ${f(ganancia)}* (${margenPct}% del precio)` : "• Ganancia: falta un dato (flete o costo) para calcularla",
+    stockDe(d) != null ? `• Stock en Dropi: ${stockDe(d)}` : "",
+    "_No incluye devoluciones ni el costo del anuncio: con eso se calcula cuánto podés pagar por venta._",
+  ].filter(Boolean).join("\n");
+  return { ok: true, data: { producto: { id: productId, nombre, dropiId }, precioVenta: precio, costoProveedor: costo, precioSugerido: sugerido, stock: stockDe(d), flete: { estimado: flete, base: baseTxt, minimo: fletes.length ? Math.min(...fletes) : null, maximo: fletes.length ? Math.max(...fletes) : null, pedidos: fletes.length }, ganancia, margenPct, texto } };
+}
