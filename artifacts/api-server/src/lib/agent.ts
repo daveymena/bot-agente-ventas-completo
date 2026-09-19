@@ -4622,6 +4622,21 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       if (seccionAdjunta && SE_BASTA_SOLA.has(String(seccionAdjunta))) {
         for (const parte of finalParts) {
           if (parte.kind !== "text" || !(parte as any).content) continue;
+          // El dato VA en la tarjeta adjunta: el texto no puede decir que no lo
+          // tiene ni que lo va a confirmar. Chat real 19-09 15:14: "El precio
+          // exacto te lo confirmo con el equipo, no lo tengo a mano" + tarjeta
+          // con $60.000 en el mismo turno; y lo repitió al "Sí" con los medios
+          // de pago. Se reemplaza por una frase de acompañamiento.
+          if (/no lo tengo|no la tengo|te lo confirmo|te confirmo|lo confirmo con|con el equipo|no quiero pasarte|no tengo (?:el|ese) (?:dato|precio|valor)|en un momento te (?:paso|confirmo|digo)/i.test(String((parte as any).content))) {
+            const sec = String(seccionAdjunta);
+            const nombre = (() => { const c: any = finalParts.find((x: any) => x.kind === "card"); const pr = c?.productId ? (productList as any[]).find((x: any) => x.id === c.productId) : null; return pr?.name ? ` del ${pr.name}` : ""; })();
+            (parte as any).content = sec === "precio"
+              ? `Acá va el precio${nombre} 👇`
+              : sec === "pago" || sec === "pago_link" || sec === "pago_transferencia"
+                ? "Te dejo los medios de pago 👇 Apenas hagas el pago, mándame el comprobante y activo el acceso."
+                : "Acá te lo dejo 👇";
+            console.log(`🧹 [SERVIDOR] El texto decía que no tenía el dato que va en la tarjeta (${sec}): se reemplazó por una frase de acompañamiento - ${ts()}`);
+          }
           // Sin viñetas ni títulos: a "Precio" el modelo mandaba la ficha entera
           // otra vez (título, 5 viñetas) y encima salía la sección con el
           // precio (reproducido en producción el 19-09-2026). Las líneas de

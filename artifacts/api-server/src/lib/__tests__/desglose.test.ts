@@ -194,3 +194,12 @@ describe("garantía: también cae la que promete sin números", () => {
     expect(garantiaInventada("No manejamos devoluciones en productos digitales.", curso, null)).toBe(false);
   });
 });
+
+describe("precio y pago NUNCA son desglose (chat real 19-09 15:14)", () => {
+  it.each(["Que vale ?", "cuánto cuesta", "cómo pago", "mándame el link", "sí"])("%s", (msg) => {
+    expect(puntoQueQuiereEntender({ mensaje: msg, entendimiento: entendido({ subintencion: "general_question" }), productoConFichaEnviada: curso, negocio: null })).toBeNull();
+  });
+  it("pide ['precio'] tampoco, aunque el texto no lo diga", () => {
+    expect(puntoQueQuiereEntender({ mensaje: "y eso?", entendimiento: entendido({ pide: ["precio"] }), productoConFichaEnviada: curso, negocio: null })).toBeNull();
+  });
+});

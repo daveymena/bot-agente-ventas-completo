@@ -81,7 +81,7 @@ const PIDE_EXPLICACION =
 
 export interface EntradaDesglose {
   mensaje: string;
-  entendimiento: Pick<Entendimiento, "sobreElFoco" | "productoId" | "pide" | "subintencion" | "preguntas" | "pideAlgoQueNoHay"> | null | undefined;
+  entendimiento: (Pick<Entendimiento, "sobreElFoco" | "productoId" | "pide" | "subintencion" | "preguntas" | "pideAlgoQueNoHay"> & { dicePago?: boolean }) | null | undefined;
   /** El producto en foco, si su ficha YA se le envió a este cliente. */
   productoConFichaEnviada: ProductoParaDesglose | null | undefined;
   negocio: NegocioParaDesglose | null | undefined;
@@ -105,14 +105,24 @@ export function puntoQueQuiereEntender(e: EntradaDesglose): PuntoDeDesglose | nu
     : true;
   if (!esSobreElProducto) return null;
 
+  // "¿Qué vale?", "¿cómo pago?", "mándame el link": eso lo resuelven la
+  // tarjeta de precio y el flujo de pago, NUNCA este bloque. Medido en el
+  // chat real del 19-09 15:14: "Que vale ?" cayó acá como pregunta general y
+  // el modelo dijo "te lo confirmo con el equipo" mientras el servidor
+  // adjuntaba el precio en el mismo turno.
+  const msg = String(e.mensaje || "");
+  if (/\b(vale|cuesta|precio|cu[aá]nto|pago|pagar|link|enlace|transferencia|nequi|daviplata|paypal|tarjeta)\b/i.test(msg)) return null;
+  const pideDePago = (en?.pide || []).some((x) => ["precio", "pago", "transferencia", "link_pago"].includes(x));
+  if (pideDePago || en?.subintencion === "price_question" || en?.subintencion === "payment_method_question" || en?.subintencion === "payment_execution" || en?.dicePago) return null;
+
   const porSub = en?.subintencion ? PUNTO_POR_SUBINTENCION[en.subintencion] : undefined;
   const porPedido = (en?.pide || []).map((x) => PUNTO_POR_PEDIDO[x]).find(Boolean);
-  const pideExplicar = PIDE_EXPLICACION.test(String(e.mensaje || ""));
+  const pideExplicar = PIDE_EXPLICACION.test(msg);
 
-  // "cuánto vale" o "cómo pago" no son desglose: eso ya lo resuelven la ficha
-  // y el flujo de pago. Solo entra lo que pide ENTENDER algo.
-  if (!porSub && !porPedido && !pideExplicar) return null;
-  return porPedido || porSub || "general";
+  // Solo entra lo que pide ENTENDER algo. Una "pregunta general" sin pedido
+  // explícito de explicación no alcanza.
+  if (!porPedido && (!porSub || porSub === "general") && !pideExplicar) return null;
+  return porPedido || (porSub && porSub !== "general" ? porSub : null) || "general";
 }
 
 const TITULO: Record<PuntoDeDesglose, string> = {
