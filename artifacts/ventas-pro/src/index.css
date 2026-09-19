@@ -379,3 +379,28 @@
     inset: -1px;
   }
 }
+
+
+/* Landing page polish: quieter motion, smoother navigation and premium text rendering. */
+html {
+  scroll-behavior: smooth;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: hsl(var(--primary) / .16);
+  color: hsl(var(--foreground));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

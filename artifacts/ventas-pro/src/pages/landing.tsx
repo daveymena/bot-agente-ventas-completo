@@ -1,724 +1,341 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
-import { motion, useInView, AnimatePresence } from "framer-motion";
-import { Button } from "@/components/ui/button";
+import { AnimatePresence, motion, useInView } from "framer-motion";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
-  Bot,
-  MessageCircle,
-  Store,
-  LayoutDashboard,
-  Facebook,
-  BarChart3,
-  ShieldCheck,
-  Zap,
-  Check,
-  ArrowRight,
-  Users,
-  RefreshCw,
-  CreditCard,
-  Sparkles,
-  Menu,
-  X,
-  ShoppingCart,
-  TrendingUp,
-  Bell,
-  Heart,
-  Wand2,
-  ImagePlus,
-  Globe,
-  Megaphone,
-  Package,
-  Receipt,
-  Search,
-  Ticket,
-  Truck,
-  Compass,
+  ArrowRight, BarChart3, Bot, Check, ChevronDown, Compass, CreditCard,
+  Facebook, Globe, LayoutDashboard, Menu, MessageCircle, Package, Receipt,
+  Search, ShieldCheck, Sparkles, Store, Ticket, Truck, Wand2, X, Zap,
 } from "lucide-react";
 
-// ─── Datos ──────────────────────────────────────────────────────────────
-// Solo afirmaciones que el producto realmente cumple hoy (verificadas en el
-// código esta misma sesión) -- nada de cifras de clientes o testimonios
-// inventados. La prueba social acá es "esto es lo que la plataforma hace",
-// no "esto dice fulano que nunca existió".
-const ECOSYSTEM_STEPS = [
+const SHOWCASE = [
+  { id: "inbox", label: "Sofía", eyebrow: "VENTAS POR CHAT", title: "Conversaciones que avanzan hacia la compra.", image: "/screens/m-inbox.jpg", icon: MessageCircle },
+  { id: "atlas", label: "Atlas", eyebrow: "OPERACIÓN CON IA", title: "Convierte una instrucción en trabajo comercial.", image: "/screens/m-atlas.jpg", icon: Compass },
+  { id: "landing", label: "Landing Studio", eyebrow: "PÁGINAS DE VENTA", title: "Páginas listas para mostrar tu oferta.", image: "/screens/m-landing.jpg", icon: Wand2 },
+  { id: "store", label: "Tienda", eyebrow: "ECOMMERCE", title: "Catálogo, checkout y operación en el mismo sistema.", image: "/screens/m-tienda.jpg", icon: Store },
+  { id: "ads", label: "Meta Ads", eyebrow: "ADQUISICIÓN", title: "Campañas conectadas a tu operación comercial.", image: "/screens/facebook.jpg", icon: Facebook },
+  { id: "analytics", label: "Panel", eyebrow: "CONTROL", title: "Una vista para saber qué ocurre y qué hacer después.", image: "/screens/panel.jpg", icon: LayoutDashboard },
+] as const;
+
+const PILLARS = [
   {
-    icon: Megaphone,
-    title: "Atlas trae clientes",
-    desc: "Investiga la competencia, arma la página de venta, escribe el anuncio y lo sube a Meta en pausa. Vos aprobás; él ejecuta.",
+    number: "01", icon: MessageCircle, title: "Vende por conversación",
+    description: "Sofía atiende tus canales con el contexto de tu negocio, tus productos y tus reglas.",
+    points: ["WhatsApp, Messenger y comentarios de Facebook", "Catálogo y precios conectados", "Seguimientos y cupones", "Escalamiento al equipo humano"], screen: "inbox",
   },
   {
-    icon: MessageCircle,
-    title: "El cliente escribe",
-    desc: "Por WhatsApp, Messenger o un comentario en Facebook. Sofía, tu vendedora, responde en segundos con el catálogo y el tono de tu negocio.",
+    number: "02", icon: Compass, title: "Opera marketing con IA",
+    description: "Atlas convierte instrucciones en tareas: investigar, preparar, revisar y ejecutar.",
+    points: ["Investigación de competencia", "Preparación de anuncios y páginas", "Acciones sensibles con revisión previa", "Explicaciones en lenguaje de negocio"], screen: "atlas",
   },
   {
-    icon: Bot,
-    title: "Sofía vende de verdad",
-    desc: "Presenta el producto, da el precio cuando lo piden, resuelve objeciones y pasa a los medios de pago en el momento justo.",
+    number: "03", icon: Globe, title: "Vende también por la web",
+    description: "Conecta páginas, catálogo, pagos y operación sin repartir el proceso entre varias herramientas.",
+    points: ["Tienda online y categorías", "Landing pages editables", "MercadoPago y PayPal", "Dropshipping y contraentrega"], screen: "landing",
   },
   {
-    icon: Receipt,
-    title: "Cobra y entrega",
-    desc: "Link de MercadoPago o PayPal, transferencia con comprobante leído automáticamente, o contraentrega con pedido en Dropi o WooCommerce.",
+    number: "04", icon: BarChart3, title: "Dirige con datos",
+    description: "Centraliza conversaciones, prospectos, campañas y métricas para entender tu operación.",
+    points: ["Bandeja y control manual", "Prospectos y embudo", "Métricas y atribución", "Datos aislados por negocio"], screen: "analytics",
   },
-  {
-    icon: LayoutDashboard,
-    title: "Vos dirigís desde el panel",
-    desc: "Conversaciones en vivo, prospectos, campañas y métricas. Tomás el control cuando querés y Atlas te dice qué hacer después.",
-  },
+] as const;
+
+const USE_CASES = [
+  { icon: Store, title: "Ecommerce", text: "Catálogo, atención, cobros, seguimiento y campañas en un mismo flujo." },
+  { icon: Package, title: "Productos digitales", text: "Presenta la oferta, responde dudas y lleva al cliente al pago." },
+  { icon: Truck, title: "Dropshipping", text: "Conecta productos, páginas, contraentrega y operación del pedido." },
+  { icon: CreditCard, title: "Servicios", text: "Convierte conversaciones en oportunidades y organiza el seguimiento." },
 ];
 
-/**
- * Los cuatro pilares de la plataforma. Cada punto existe en el código
- * (rutas y herramientas de Atlas verificadas el 2026-09-18); nada aspiracional.
- */
-const PILARES = [
-  {
-    icon: MessageCircle,
-    color: "bg-emerald-500/10 text-emerald-600",
-    screen: "whatsapp" as const,
-    title: "Vender por chat",
-    desc: "Sofía, tu vendedora, atiende WhatsApp, Messenger y comentarios de Facebook con tu catálogo, y aprende lo que le enseñás.",
-    items: [
-      "Presenta, cotiza y cierra con el flujo de un vendedor humano",
-      "Lee comprobantes de pago con visión y los deja listos para aprobar",
-      "Cupones reales, seguimientos automáticos y campañas por WhatsApp o correo",
-      "Hasta 8 vendedoras con distinta personalidad por negocio",
-    ],
-  },
-  {
-    icon: Megaphone,
-    color: "bg-blue-500/10 text-blue-600",
-    screen: "atlas" as const,
-    title: "Atraer clientes",
-    desc: "Atlas, tu agencia de marketing en un chat: de 'quiero anunciar esto' a una campaña en Meta, en pausa, lista para activar.",
-    items: [
-      "Investiga la competencia en la Biblioteca de Anuncios de Meta",
-      "Escribe el anuncio con los datos reales del producto y lo sube a Facebook e Instagram",
-      "Píxel, atribución y radiografía de cada campaña en lenguaje de dueño",
-      "Plan de contenido orgánico y publicación en tu página",
-    ],
-  },
-  {
-    icon: Globe,
-    color: "bg-amber-500/10 text-amber-600",
-    screen: "landing" as const,
-    title: "Vender por la web",
-    desc: "Tienda online propia y páginas de venta que Landing Studio arma con las fotos reales de tus productos.",
-    items: [
-      "Tienda con catálogo, categorías y checkout MercadoPago / PayPal",
-      "Landing pages con estructura AIDA, editables por chat y con URL pública lista para el anuncio",
-      "Dropshipping: importás de Dropi, sincronizás con WooCommerce, pedido contraentrega",
-      "Fichas de producto escritas solas desde una foto o un Excel",
-    ],
-  },
-  {
-    icon: LayoutDashboard,
-    color: "bg-violet-500/10 text-violet-600",
-    screen: "panel" as const,
-    title: "Dirigir el negocio",
-    desc: "Un panel que responde '¿qué está pasando?' y '¿qué hago ahora?', con Atlas revisando tu negocio y proponiendo el siguiente paso.",
-    items: [
-      "Bandeja de conversaciones en vivo con control manual cuando querés",
-      "Prospectos, embudo, tiempo de respuesta y valor generado",
-      "Diagnóstico de qué le falta a tu negocio y ruta guiada paso a paso",
-      "Cada negocio con su WhatsApp, sus datos y su catálogo, aislados",
-    ],
-  },
-];
+const FAQS = [
+  ["¿VentasPro es solamente un bot de WhatsApp?", "No. WhatsApp es una parte del sistema. VentasPro reúne agentes IA, conversaciones, catálogo, tienda, páginas de venta, campañas, pagos y analítica."],
+  ["¿Puedo mantener el control sobre lo que hace la IA?", "Sí. Las automatizaciones pueden dejar acciones sensibles preparadas para revisión antes de ejecutarlas."],
+  ["¿Puedo usarlo con productos físicos y digitales?", "Sí. El ecosistema contempla productos digitales, físicos, ecommerce y flujos de dropshipping y contraentrega."],
+  ["¿Cómo empiezo?", "Creas tu cuenta, configuras tu negocio y conectas los canales y herramientas que quieras utilizar."],
+] as const;
 
-const TOOLS = [
-  { icon: Bot, title: "Sofía, tu vendedora", desc: "WhatsApp, Messenger y comentarios de Facebook con el mismo cerebro y tu catálogo." },
-  { icon: Compass, title: "Atlas, tu operador", desc: "Le hablás en tu idioma y él configura, investiga, crea y publica. Pide confirmación antes de gastar." },
-  { icon: Wand2, title: "Landing Studio", desc: "Páginas de venta con fotos reales, formulario contraentrega o pago, y edición por chat." },
-  { icon: Facebook, title: "Facebook e Instagram Ads", desc: "Borrador, campaña en pausa, activación, presupuesto, métricas y por qué no entrega." },
-  { icon: Store, title: "Tienda online propia", desc: "Catálogo, categorías, importación por Excel y checkout integrado." },
-  { icon: Truck, title: "Dropshipping", desc: "Importación desde Dropi, pedidos contraentrega y sincronización con WooCommerce." },
-  { icon: Receipt, title: "Comprobantes leídos solos", desc: "Sofía lee la captura de Nequi o Daviplata y vos aprobás con un clic." },
-  { icon: Ticket, title: "Cupones y seguimientos", desc: "Descuentos reales, follow-ups automáticos y envíos masivos por WhatsApp o correo." },
-  { icon: Search, title: "Investigación real", desc: "Biblioteca de Anuncios de Meta y búsqueda web para decidir con datos, no de memoria." },
-  { icon: CreditCard, title: "MercadoPago y PayPal", desc: "Cobrá ventas y suscripciones con los métodos que tus clientes ya usan." },
-  { icon: BarChart3, title: "Analíticas y atribución", desc: "Embudo, tiempo de respuesta, valor generado y qué campaña trajo cada venta." },
-  { icon: ShieldCheck, title: "Multi-negocio aislado", desc: "Cada cuenta con su propia sesión de WhatsApp, datos y catálogo, sin mezclas." },
-];
-
-const FLOATING_ITEMS = [
-  { icon: MessageCircle, color: "bg-emerald-500", top: "8%", left: "4%", duration: 5 },
-  { icon: ShoppingCart, color: "bg-amber-500", top: "18%", left: "88%", duration: 6 },
-  { icon: TrendingUp, color: "bg-blue-500", top: "68%", left: "2%", duration: 4.5 },
-  { icon: Bell, color: "bg-rose-500", top: "78%", left: "90%", duration: 5.5 },
-  { icon: Heart, color: "bg-pink-500", top: "40%", left: "94%", duration: 4 },
-  { icon: Sparkles, color: "bg-violet-500", top: "4%", left: "45%", duration: 6.5 },
-];
-
-// ─── Fondo de manchas de color en movimiento -- reemplaza los dos círculos
-// estáticos de blur por 4 masas de color (violeta, rosa, cian, ámbar) que
-// se desplazan solas en loop. Es lo que da la sensación de "vivo" en vez de
-// una página estática, sin depender de video real.
-function GradientMesh() {
-  const blobs = [
-    { className: "bg-primary/30", size: 420, x: ["-10%", "10%", "-10%"], y: ["0%", "15%", "0%"], top: "-10%", left: "0%", duration: 14 },
-    { className: "bg-rose-400/25 dark:bg-rose-500/20", size: 380, x: ["0%", "-15%", "0%"], y: ["0%", "10%", "0%"], top: "5%", left: "60%", duration: 17 },
-    { className: "bg-cyan-400/25 dark:bg-cyan-500/20", size: 360, x: ["0%", "12%", "0%"], y: ["-10%", "5%", "-10%"], top: "55%", left: "-5%", duration: 15 },
-    { className: "bg-amber-300/25 dark:bg-amber-400/15", size: 320, x: ["-8%", "8%", "-8%"], y: ["0%", "-12%", "0%"], top: "60%", left: "70%", duration: 19 },
-  ];
+function Reveal({ children, className = "", delay = 0 }: { children: React.ReactNode; className?: string; delay?: number }) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const visible = useInView(ref, { once: true, margin: "-70px" });
   return (
-    <div className="absolute inset-0 -z-10 overflow-hidden">
-      {blobs.map((b, i) => (
-        <motion.div
-          key={i}
-          className={`absolute rounded-full blur-3xl ${b.className}`}
-          style={{ width: b.size, height: b.size, top: b.top, left: b.left }}
-          animate={{ x: b.x, y: b.y }}
-          transition={{ duration: b.duration, repeat: Infinity, ease: "easeInOut" }}
-        />
-      ))}
+    <motion.div ref={ref} initial={{ opacity: 0, y: 26 }} animate={visible ? { opacity: 1, y: 0 } : undefined}
+      transition={{ duration: 0.55, delay, ease: [0.22, 1, 0.36, 1] }} className={className}>
+      {children}
+    </motion.div>
+  );
+}
+
+function BrowserFrame({ image, alt }: { image: string; alt: string }) {
+  return (
+    <div className="overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-[0_30px_90px_-35px_rgba(15,23,42,.30)] dark:border-white/10 dark:bg-slate-950">
+      <div className="flex h-10 items-center gap-2 border-b border-slate-200 bg-slate-50 px-4 dark:border-white/10 dark:bg-slate-900">
+        <span className="h-2.5 w-2.5 rounded-full bg-slate-300 dark:bg-slate-700" />
+        <span className="h-2.5 w-2.5 rounded-full bg-slate-300 dark:bg-slate-700" />
+        <span className="h-2.5 w-2.5 rounded-full bg-slate-300 dark:bg-slate-700" />
+        <div className="mx-auto h-5 w-2/3 rounded-md border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-950" />
+      </div>
+      <img src={image} alt={alt} className="block h-auto w-full bg-slate-100 dark:bg-slate-900" loading="lazy" />
     </div>
   );
 }
 
-// ─── Iconos flotantes -- pequeños chips que derivan suavemente alrededor
-// del hero, para dar sensación de actividad ("bastantes cosas flotantes").
-function FloatingIcons() {
-  return (
-    <div className="absolute inset-0 -z-10 pointer-events-none hidden sm:block">
-      {FLOATING_ITEMS.map((item, i) => (
-        <motion.div
-          key={i}
-          className={`absolute h-11 w-11 rounded-2xl ${item.color} text-white shadow-lg flex items-center justify-center opacity-90`}
-          style={{ top: item.top, left: item.left }}
-          animate={{ y: [0, -16, 0], rotate: [0, 6, -6, 0] }}
-          transition={{ duration: item.duration, repeat: Infinity, ease: "easeInOut", delay: i * 0.4 }}
-        >
-          <item.icon className="h-5 w-5" />
-        </motion.div>
-      ))}
-    </div>
-  );
-}
-
-// ─── Mascota ilustrada -- un personaje simple y abstracto (no una foto real
-// de nadie) sosteniendo el teléfono, para el pedido de "animaciones
-// personas". Bob suave + brillo pulsante en el teléfono simulando que le
-// está por llegar un mensaje.
-function PersonWithPhone({ className = "" }: { className?: string }) {
-  return (
-    <motion.svg
-      viewBox="0 0 200 220"
-      className={className}
-      animate={{ y: [0, -10, 0] }}
-      transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-    >
-      <ellipse cx="100" cy="205" rx="55" ry="10" className="fill-primary/10" />
-      {/* cuerpo */}
-      <rect x="55" y="95" width="90" height="100" rx="38" className="fill-primary" />
-      {/* cabeza */}
-      <circle cx="100" cy="60" r="42" className="fill-[#ffd8b8] dark:fill-[#e8b98e]" />
-      {/* pelo */}
-      <path d="M60 55 Q60 15 100 15 Q140 15 140 55 Q140 35 100 32 Q60 35 60 55 Z" className="fill-slate-800 dark:fill-slate-200" />
-      {/* cara */}
-      <circle cx="84" cy="62" r="4.5" className="fill-slate-800 dark:fill-slate-900" />
-      <circle cx="116" cy="62" r="4.5" className="fill-slate-800 dark:fill-slate-900" />
-      <path d="M85 78 Q100 90 115 78" strokeWidth="4" strokeLinecap="round" fill="none" className="stroke-slate-800 dark:stroke-slate-900" />
-      {/* brazo sosteniendo el telefono */}
-      <rect x="118" y="110" width="20" height="55" rx="10" className="fill-primary" transform="rotate(18 118 110)" />
-      {/* telefono */}
-      <motion.g
-        animate={{ scale: [1, 1.06, 1] }}
-        transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
-      >
-        <rect x="132" y="150" width="34" height="54" rx="7" className="fill-slate-900 dark:fill-slate-100" />
-        <rect x="136" y="156" width="26" height="38" rx="2" className="fill-emerald-400" />
-        <circle cx="149" cy="199" r="2.5" className="fill-slate-600 dark:fill-slate-400" />
-      </motion.g>
-      {/* corazon de notificacion */}
-      <motion.g
-        animate={{ opacity: [0, 1, 0], y: [0, -14, -22] }}
-        transition={{ duration: 2.2, repeat: Infinity, ease: "easeOut", delay: 0.5 }}
-      >
-        <path d="M178 140 c-4 -6 -13 -3 -13 4 c0 6 13 14 13 14 s13 -8 13 -14 c0 -7 -9 -10 -13 -4Z" className="fill-rose-500" />
-      </motion.g>
-    </motion.svg>
-  );
-}
-
-function useCountUp(target: number, inView: boolean, duration = 1200) {
-  const [value, setValue] = useState(0);
-  useEffect(() => {
-    if (!inView) return;
-    let raf: number;
-    const start = performance.now();
-    const tick = (now: number) => {
-      const progress = Math.min((now - start) / duration, 1);
-      setValue(Math.round(target * (1 - Math.pow(1 - progress, 3))));
-      if (progress < 1) raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [inView, target, duration]);
-  return value;
-}
-
-// ─── Pantalla 1: WhatsApp -- conversación animada en loop.
-// Capturas REALES del producto (tomadas el 18-09-2026 con la app corriendo:
-// la venta de piano tal como la hace Sofía, Atlas ejecutando la ruta de
-// marketing, la landing que generó el Studio, la tienda y el panel). Nada
-// dibujado a mano: lo que se ve es lo que el cliente va a tener.
-const SHOWCASE_SCREENS = [
-  { id: "whatsapp", label: "Sofía", sub: "Vendiendo por WhatsApp", img: "/screens/m-inbox.jpg", bar: "bg-[#075E54]", icon: Bot },
-  { id: "atlas", label: "Atlas", sub: "Tu agencia de marketing", img: "/screens/m-atlas.jpg", bar: "bg-slate-900 dark:bg-slate-800", icon: Compass },
-  { id: "landing", label: "Landing page", sub: "Hecha por Landing Studio", img: "/screens/m-landing.jpg", bar: "bg-amber-600", icon: Wand2 },
-  { id: "tienda", label: "Tu Tienda", sub: "Catálogo en vivo", img: "/screens/m-tienda.jpg", bar: "bg-slate-900 dark:bg-slate-800", icon: Store },
-  { id: "ads", label: "Facebook Ads", sub: "Campañas desde el panel", img: "/screens/facebook.jpg", bar: "bg-blue-600", icon: Facebook },
-  { id: "panel", label: "Panel", sub: "Métricas en tiempo real", img: "/screens/panel.jpg", bar: "bg-slate-900 dark:bg-slate-800", icon: LayoutDashboard },
-];
-
-// ─── El "video" del hero: una tarjeta tipo teléfono que rota entre capturas
-// reales del producto. Las de escritorio (ads, panel) se muestran recortadas
-// por arriba, que es donde está lo importante.
-function ProductShowcase() {
+function HeroProduct() {
   const [active, setActive] = useState(0);
+  const current = SHOWCASE[active];
+  const Icon = current.icon;
+
   useEffect(() => {
-    const id = setInterval(() => setActive(a => (a + 1) % SHOWCASE_SCREENS.length), 5200);
-    return () => clearInterval(id);
+    const timer = window.setInterval(() => setActive((value) => (value + 1) % SHOWCASE.length), 5000);
+    return () => window.clearInterval(timer);
   }, []);
-  const screen = SHOWCASE_SCREENS[active];
 
   return (
-    <div className="relative">
-      <div className="w-full max-w-sm rounded-3xl border bg-card shadow-2xl shadow-primary/20 overflow-hidden">
-        <div className={`flex items-center gap-3 px-4 py-3 text-white transition-colors duration-500 ${screen.bar}`}>
-          <motion.div
-            key={screen.id}
-            initial={{ scale: 0.6, rotate: -10 }}
-            animate={{ scale: 1, rotate: 0 }}
-            className="h-9 w-9 rounded-full bg-white/20 flex items-center justify-center"
-          >
-            <screen.icon className="h-5 w-5" />
-          </motion.div>
-          <div>
-            <p className="text-sm font-semibold leading-tight">{screen.label}</p>
-            <p className="text-[11px] text-white/70 leading-tight">{screen.sub}</p>
-          </div>
+    <div className="relative mx-auto w-full max-w-[690px]">
+      <div className="absolute -inset-12 -z-10 bg-[radial-gradient(circle,rgba(99,102,241,.18),transparent_62%)] blur-2xl" />
+      <div className="mb-3 flex items-center justify-between text-[10px] font-semibold uppercase tracking-[.18em] text-slate-400">
+        <span>Producto real</span>
+        <span className="flex items-center gap-2"><span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Demo interactiva</span>
+      </div>
+      <div className="overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-2xl shadow-indigo-950/10 dark:border-white/10 dark:bg-slate-950">
+        <div className="flex items-center gap-3 border-b border-slate-200 px-4 py-3.5 dark:border-white/10">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300"><Icon className="h-4 w-4" /></div>
+          <div><div className="text-sm font-semibold">{current.label}</div><div className="text-[10px] text-slate-400">{current.eyebrow}</div></div>
         </div>
-        <div className="h-80 sm:h-96 relative bg-muted/30">
+        <div className="relative h-[420px] overflow-hidden bg-slate-100 sm:h-[520px] dark:bg-slate-900">
           <AnimatePresence mode="wait">
-            <motion.div
-              key={screen.id}
-              initial={{ opacity: 0, x: 24 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -24 }}
-              transition={{ duration: 0.35 }}
-              className="h-full w-full absolute inset-0"
-            >
-              <img src={screen.img} alt={screen.label} className="w-full h-full object-cover object-top" loading={active === 0 ? "eager" : "lazy"} />
+            <motion.div key={current.id} initial={{ opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -24 }}
+              transition={{ duration: .35 }} className="absolute inset-0">
+              <img src={current.image} alt={current.title} className="h-full w-full object-cover object-top" />
             </motion.div>
           </AnimatePresence>
+          <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950/55 to-transparent p-5">
+            <p className="max-w-lg text-sm font-semibold text-white sm:text-base">{current.title}</p>
+          </div>
         </div>
       </div>
-      {/* indicadores de pantalla, como un carrusel de "video" */}
-      <div className="flex justify-center gap-2 mt-4">
-        {SHOWCASE_SCREENS.map((s, i) => (
-          <button
-            key={s.id}
-            onClick={() => setActive(i)}
-            aria-label={s.label}
-            className={`h-1.5 rounded-full transition-all duration-300 ${i === active ? "w-7 bg-primary" : "w-1.5 bg-muted-foreground/30"}`}
-          />
+      <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-6">
+        {SHOWCASE.map((item, index) => (
+          <button key={item.id} onClick={() => setActive(index)}
+            className={"rounded-xl border px-2.5 py-2.5 text-left transition-all " + (
+              active === index
+                ? "border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-400/30 dark:bg-indigo-500/10 dark:text-indigo-200"
+                : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-800 dark:border-white/10 dark:bg-slate-950 dark:hover:border-white/20 dark:hover:text-white"
+            )}>
+            <div className="truncate text-[9px] font-bold uppercase tracking-[.08em]">{item.label}</div>
+            <div className="mt-0.5 truncate text-[8px] text-current/60">{item.eyebrow}</div>
+          </button>
         ))}
       </div>
     </div>
   );
 }
 
-function PantallaDePilar({ id }: { id: "whatsapp" | "atlas" | "landing" | "panel" }) {
-  const screen = SHOWCASE_SCREENS.find((x) => x.id === id) || SHOWCASE_SCREENS[0];
+function PillarCard({ pillar, index }: { pillar: typeof PILLARS[number]; index: number }) {
+  const screen = SHOWCASE.find((item) => item.id === pillar.screen)!;
+  const Icon = pillar.icon;
   return (
-    <div className="h-full w-full">
-      <img src={screen.img} alt={screen.label} className="w-full h-full object-cover object-top" loading="lazy" />
-    </div>
+    <Reveal delay={index * .05}>
+      <motion.article whileHover={{ y: -5 }} transition={{ duration: .2 }}
+        className="group h-full overflow-hidden rounded-[26px] border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-xl hover:shadow-slate-900/5 dark:border-white/10 dark:bg-slate-950">
+        <div className="grid h-full lg:grid-cols-[1.02fr_.98fr]">
+          <div className="p-7 sm:p-8">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold tracking-[.22em] text-slate-400">{pillar.number}</span>
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300"><Icon className="h-5 w-5" /></div>
+            </div>
+            <h3 className="mt-7 text-2xl font-bold tracking-tight">{pillar.title}</h3>
+            <p className="mt-3 text-sm leading-6 text-slate-500 dark:text-slate-400">{pillar.description}</p>
+            <div className="mt-6 space-y-3">
+              {pillar.points.map((point) => (
+                <div key={point} className="flex gap-3 text-sm text-slate-700 dark:text-slate-300">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300"><Check className="h-3 w-3" /></span>
+                  <span>{point}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="relative min-h-[320px] overflow-hidden border-t border-slate-200 bg-slate-50 lg:border-l lg:border-t-0 dark:border-white/10 dark:bg-slate-900">
+            <img src={screen.image} alt={screen.title} className="h-full w-full object-cover object-top transition-transform duration-700 group-hover:scale-[1.025]" loading="lazy" />
+            <div className="absolute left-4 top-4 rounded-full border border-white/60 bg-white/90 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[.1em] text-slate-700 shadow-sm backdrop-blur dark:border-white/10 dark:bg-slate-950/80 dark:text-slate-200">{screen.label}</div>
+          </div>
+        </div>
+      </motion.article>
+    </Reveal>
   );
-}
-
-function Reveal({ children, delay = 0, className = "" }: { children: React.ReactNode; delay?: number; className?: string }) {
-  const ref = useRef(null);
-  const inView = useInView(ref, { once: true, margin: "-60px" });
-  return (
-    <motion.div
-      ref={ref}
-      initial={{ opacity: 0, y: 24 }}
-      animate={inView ? { opacity: 1, y: 0 } : {}}
-      transition={{ duration: 0.5, delay, ease: "easeOut" }}
-      className={className}
-    >
-      {children}
-    </motion.div>
-  );
-}
-
-function StatCounter({ value, suffix = "", label }: { value: number; suffix?: string; label: string }) {
-  const ref = useRef(null);
-  const inView = useInView(ref, { once: true });
-  const count = useCountUp(value, inView);
-  return (
-    <div ref={ref} className="text-center">
-      <p className="text-3xl sm:text-4xl font-black text-primary tabular-nums">{count}{suffix}</p>
-      <p className="text-sm text-muted-foreground mt-1">{label}</p>
-    </div>
-  );
-}
-
-interface Plan {
-  id: string;
-  name: string;
-  price: number;
-  monthlyMessages: number;
-  maxAgents: number;
-  features: string[];
 }
 
 export default function LandingPage() {
-  const [plans, setPlans] = useState<Plan[]>([]);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [plans, setPlans] = useState<Array<{ id: string; name: string; price: number; monthlyMessages: number; maxAgents: number; features: string[] }>>([]);
 
   useEffect(() => {
-    fetch("/api/pricing")
-      .then(r => r.json())
-      .then(d => setPlans((d.plans || []).filter((p: Plan) => p.id !== "basic").slice(0, 3)))
-      .catch(() => {});
+    fetch("/api/pricing").then((res) => res.json()).then((data) => setPlans((data.plans || []).filter((p: any) => p.id !== "basic").slice(0, 3))).catch(() => {});
   }, []);
 
   const scrollTo = (id: string) => {
-    setMobileMenuOpen(false);
+    setMobileOpen(false);
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   return (
-    <div className="min-h-screen bg-background text-foreground overflow-x-hidden">
-      {/* ── Nav ── */}
-      <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
+    <div className="min-h-screen overflow-x-hidden bg-[#fbfcfe] text-slate-950 dark:bg-slate-950 dark:text-white">
+      <header className="sticky top-0 z-50 border-b border-slate-200/80 bg-[#fbfcfe]/85 backdrop-blur-xl dark:border-white/10 dark:bg-slate-950/80">
+        <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-4 sm:px-6">
+          <Link href="/" className="flex items-center gap-2.5">
             <img src="/logo-mark.svg" alt="VentasPro" className="h-8 w-8" />
-            <span className="font-bold text-lg">VentasPro</span>
+            <div><div className="text-[15px] font-bold tracking-tight">VentasPro</div><div className="hidden text-[9px] uppercase tracking-[.18em] text-slate-400 sm:block">Commercial OS</div></div>
           </Link>
-          <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-muted-foreground">
-            <button onClick={() => scrollTo("pilares")} className="hover:text-foreground transition-colors">Qué hace</button>
-            <button onClick={() => scrollTo("ecosistema")} className="hover:text-foreground transition-colors">Cómo funciona</button>
-            <button onClick={() => scrollTo("herramientas")} className="hover:text-foreground transition-colors">Herramientas</button>
-            <button onClick={() => scrollTo("precios")} className="hover:text-foreground transition-colors">Precios</button>
+          <nav className="hidden items-center gap-8 text-sm font-medium text-slate-500 md:flex dark:text-slate-400">
+            <button onClick={() => scrollTo("producto")} className="hover:text-slate-950 dark:hover:text-white">Producto</button>
+            <button onClick={() => scrollTo("como-funciona")} className="hover:text-slate-950 dark:hover:text-white">Cómo funciona</button>
+            <button onClick={() => scrollTo("soluciones")} className="hover:text-slate-950 dark:hover:text-white">Soluciones</button>
+            <button onClick={() => scrollTo("precios")} className="hover:text-slate-950 dark:hover:text-white">Precios</button>
           </nav>
-          <div className="hidden md:flex items-center gap-3">
+          <div className="hidden items-center gap-2 md:flex">
             <Button asChild variant="ghost"><Link href="/auth">Iniciar sesión</Link></Button>
-            <Button asChild className="gap-1.5"><Link href="/auth?tab=register">Comenzar gratis <ArrowRight className="h-3.5 w-3.5" /></Link></Button>
+            <Button asChild className="gap-2 rounded-xl px-4 shadow-lg shadow-indigo-500/20"><Link href="/auth?tab=register">Probar gratis <ArrowRight className="h-3.5 w-3.5" /></Link></Button>
           </div>
-          <button className="md:hidden p-2" onClick={() => setMobileMenuOpen(v => !v)} aria-label="Menú">
-            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          <button className="rounded-xl border border-slate-200 p-2.5 md:hidden dark:border-white/10" onClick={() => setMobileOpen((v) => !v)} aria-label="Menú">
+            {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
         </div>
         <AnimatePresence>
-          {mobileMenuOpen && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="md:hidden border-t overflow-hidden"
-            >
-              <div className="px-4 py-4 flex flex-col gap-3">
-                <button onClick={() => scrollTo("pilares")} className="text-left text-sm font-medium py-1.5">Qué hace</button>
-                <button onClick={() => scrollTo("ecosistema")} className="text-left text-sm font-medium py-1.5">Cómo funciona</button>
-                <button onClick={() => scrollTo("herramientas")} className="text-left text-sm font-medium py-1.5">Herramientas</button>
-                <button onClick={() => scrollTo("precios")} className="text-left text-sm font-medium py-1.5">Precios</button>
-                <Button asChild variant="outline" className="w-full mt-1"><Link href="/auth">Iniciar sesión</Link></Button>
-                <Button asChild className="w-full"><Link href="/auth?tab=register">Comenzar gratis</Link></Button>
+          {mobileOpen && (
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }}
+              className="overflow-hidden border-t border-slate-200 bg-white md:hidden dark:border-white/10 dark:bg-slate-950">
+              <div className="space-y-2 px-4 py-4">
+                {([["producto","Producto"],["como-funciona","Cómo funciona"],["soluciones","Soluciones"],["precios","Precios"]] as const).map(([id,label]) =>
+                  <button key={id} onClick={() => scrollTo(id)} className="block w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-slate-600 dark:text-slate-300">{label}</button>
+                )}
+                <div className="grid grid-cols-2 gap-2 pt-2"><Button asChild variant="outline"><Link href="/auth">Iniciar sesión</Link></Button><Button asChild><Link href="/auth?tab=register">Probar gratis</Link></Button></div>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </header>
 
-      {/* ── Hero ── */}
-      <section className="relative">
-        <GradientMesh />
-        <FloatingIcons />
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-14 sm:pt-20 pb-16 grid lg:grid-cols-2 gap-12 items-center">
-          <div>
-            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
-              <Badge variant="outline" className="mb-5 gap-1.5 border-primary/30 text-primary bg-primary/5 py-1.5 px-3">
-                <Sparkles className="h-3.5 w-3.5" /> 7 días gratis · sin tarjeta
-              </Badge>
-              <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black tracking-tight leading-[1.05]">
-                Tu negocio vendiendo solo: <span className="text-primary">ventas, marketing y tienda</span> en un solo lugar
-              </h1>
-              <p className="mt-6 text-lg text-muted-foreground max-w-xl">
-                Sofía atiende y vende por WhatsApp, Messenger y Facebook. Atlas, tu agencia de marketing en un chat, que
-                investiga, crea tu página de venta y publica tus anuncios. Tienda, landings, dropshipping y cobros, todo en el mismo panel.
-              </p>
-              <div className="mt-8 flex flex-col sm:flex-row gap-3">
-                <Link href="/auth?tab=register">
-                  <Button size="lg" className="w-full sm:w-auto gap-2 text-base px-7">
-                    Comenzar gratis <ArrowRight className="h-4 w-4" />
-                  </Button>
-                </Link>
-                <Button size="lg" variant="outline" className="w-full sm:w-auto text-base px-7" onClick={() => scrollTo("pilares")}>
-                  Ver todo lo que hace
-                </Button>
-              </div>
-              <p className="mt-4 text-xs text-muted-foreground flex items-center gap-1.5">
-                <ShieldCheck className="h-3.5 w-3.5" /> Cada negocio tiene su propia sesión aislada -- sin mezclas de datos entre clientes.
-              </p>
-            </motion.div>
-          </div>
-          <motion.div
-            initial={{ opacity: 0, scale: 0.92, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.15 }}
-            className="flex items-center justify-center lg:justify-end gap-2 w-full"
-          >
-            <div className="w-full max-w-md">
-              <ProductShowcase />
-            </div>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* ── Stats ── */}
-      <section className="border-y bg-muted/30 relative overflow-hidden">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-10 grid grid-cols-2 sm:grid-cols-4 gap-8">
-          {/* Cada numero sale de SAAS_PLANS (middleware/saasValidation.ts), que
-              es el codigo que cobra de verdad. Verificado uno por uno el
-              2026-08-22:
-                Pro = 8 agentes, 15.000 mensajes/mes
-                Prueba gratis = 7 dias, 30 mensajes
-                Canales donde el cliente puede comprar: WhatsApp, Messenger y
-                la tienda web (los dos primeros los atiende el agente, ver
-                lib/channel-manager.ts).
-              El "+" salio de 15.000 porque el plan da 15.000 EXACTOS: un mas
-              sobre una cifra exacta es inventarse lo que no hay, y es
-              justamente lo que el cliente puede contar y desmentir. */}
-          <StatCounter value={8} label="Vendedoras en el plan Pro" />
-          <StatCounter value={15000} label="Mensajes/mes en el plan Pro" />
-          <StatCounter value={4} label="Canales: WhatsApp, Messenger, Facebook y tienda" />
-          <StatCounter value={7} label="Días de prueba gratis" />
-        </div>
-      </section>
-
-      {/* ── Marketing IA ── */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-28">
-        <div className="grid lg:grid-cols-2 gap-12 items-center">
-          <Reveal>
-            <Badge variant="outline" className="mb-4 gap-1.5"><Compass className="h-3.5 w-3.5" /> Atlas · tu agencia en un chat</Badge>
-            <h2 className="text-3xl sm:text-4xl font-black tracking-tight leading-tight">
-              Decile "quiero anunciar este curso" y Atlas hace el resto
-            </h2>
-            <p className="mt-4 text-muted-foreground text-lg">
-              No es un generador de textos: es un operador que investiga la competencia, arma la página de venta,
-              escribe el anuncio con los datos reales de tu producto y lo sube a Meta en pausa. Vos aprobás cada paso.
-            </p>
-            <ul className="mt-6 space-y-3">
-              {[
-                "Investiga qué anuncia la competencia en la Biblioteca de Anuncios de Meta",
-                "Crea la landing page con tus fotos y la publica con URL lista para el anuncio",
-                "Sube la campaña a Facebook e Instagram en pausa: no gasta hasta que digas",
-                "Te explica en 3 líneas qué está pasando con cada campaña y qué hacer",
-                "Configura y entrena a Sofía desde la misma conversación",
-              ].map(item => (
-                <li key={item} className="flex items-start gap-2.5 text-sm">
-                  <div className="h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-0.5">
-                    <Check className="h-3 w-3" />
-                  </div>
-                  {item}
-                </li>
-              ))}
-            </ul>
-          </Reveal>
-          <Reveal delay={0.15} className="flex justify-center">
-            <div className="grid grid-cols-2 gap-3 w-full max-w-lg">
-              <div className="rounded-3xl border bg-card shadow-2xl shadow-primary/10 overflow-hidden">
-                <div className="px-3 py-2 bg-slate-900 text-white text-[11px] font-semibold flex items-center gap-1.5"><Compass className="h-3.5 w-3.5" /> Atlas, paso a paso</div>
-                <div className="h-80 bg-muted/30"><img src="/screens/m-atlas.jpg" alt="Atlas ejecutando la ruta de marketing" className="w-full h-full object-cover object-top" loading="lazy" /></div>
-              </div>
-              <div className="rounded-3xl border bg-card shadow-2xl shadow-primary/10 overflow-hidden">
-                <div className="px-3 py-2 bg-amber-600 text-white text-[11px] font-semibold flex items-center gap-1.5"><Wand2 className="h-3.5 w-3.5" /> La página que armó</div>
-                <div className="h-80 bg-muted/30"><img src="/screens/m-landing.jpg" alt="Landing page generada" className="w-full h-full object-cover object-top" loading="lazy" /></div>
-              </div>
-            </div>
-          </Reveal>
-        </div>
-      </section>
-
-      {/* ── Ecosistema ── */}
-      <section id="ecosistema" className="max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-28">
-        <Reveal className="text-center max-w-2xl mx-auto mb-16">
-          <Badge variant="outline" className="mb-4">El ecosistema completo</Badge>
-          <h2 className="text-3xl sm:text-4xl font-black tracking-tight">Del anuncio a la venta cerrada, sin que se te escape un cliente</h2>
-          <p className="mt-4 text-muted-foreground text-lg">Cada pieza se conecta con las demás: lo que Atlas anuncia lo vende el agente, y lo que el agente vende lo cobrás y lo entregás desde el mismo panel.</p>
-        </Reveal>
-        <div className="relative">
-          <div className="hidden lg:block absolute top-8 left-[10%] right-[10%] h-0.5 bg-gradient-to-r from-primary/10 via-primary/40 to-primary/10" />
-          <div className="grid lg:grid-cols-5 gap-8 lg:gap-4">
-            {ECOSYSTEM_STEPS.map((step, i) => (
-              <Reveal key={step.title} delay={i * 0.08} className="relative flex flex-col items-center text-center">
-                <motion.div
-                  whileHover={{ scale: 1.08, rotate: 3 }}
-                  className="relative z-10 h-16 w-16 rounded-2xl bg-primary text-primary-foreground flex items-center justify-center shadow-lg shadow-primary/30 mb-4"
-                >
-                  <step.icon className="h-7 w-7" />
-                </motion.div>
-                <h3 className="font-bold text-sm mb-1.5">{step.title}</h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">{step.desc}</p>
-              </Reveal>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Herramientas ── */}
-      {/* ── Pilares ── */}
-      <section id="pilares" className="max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-28">
-        <Reveal className="text-center max-w-2xl mx-auto mb-14">
-          <Badge variant="outline" className="mb-4">Mucho más que un bot de WhatsApp</Badge>
-          <h2 className="text-3xl sm:text-4xl font-black tracking-tight">Cuatro cosas que hace por tu negocio</h2>
-          <p className="mt-4 text-muted-foreground text-lg">Vender, atraer, vender por la web y dirigir. Cada una funciona sola y todas juntas hacen el ciclo completo.</p>
-        </Reveal>
-        <div className="grid md:grid-cols-2 gap-5">
-          {PILARES.map((p, i) => (
-            <Reveal key={p.title} delay={i * 0.08}>
-              <motion.div whileHover={{ y: -4 }} className="h-full rounded-3xl border bg-card shadow-sm hover:shadow-lg hover:border-primary/30 transition-shadow overflow-hidden flex flex-col sm:flex-row">
-                <div className="p-6 sm:p-7 flex-1">
-                  <div className={`h-11 w-11 rounded-2xl flex items-center justify-center mb-4 ${p.color}`}>
-                    <p.icon className="h-5 w-5" />
-                  </div>
-                  <h3 className="font-black text-xl tracking-tight">{p.title}</h3>
-                  <p className="mt-2 text-sm text-muted-foreground">{p.desc}</p>
-                  <ul className="mt-5 space-y-2.5">
-                    {p.items.map((item) => (
-                      <li key={item} className="flex items-start gap-2.5 text-sm">
-                        <div className="h-5 w-5 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0 mt-0.5">
-                          <Check className="h-3 w-3" />
-                        </div>
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
+      <main>
+        <section className="relative overflow-hidden">
+          <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_12%_10%,rgba(99,102,241,.10),transparent_28%),radial-gradient(circle_at_88%_15%,rgba(56,189,248,.08),transparent_25%)]" />
+          <div className="mx-auto grid max-w-7xl gap-12 px-4 pb-16 pt-16 sm:px-6 sm:pb-24 sm:pt-20 lg:grid-cols-[.9fr_1.1fr] lg:items-center lg:gap-16 lg:pt-24">
+            <div>
+              <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .45 }}>
+                <Badge variant="outline" className="mb-6 gap-1.5 rounded-full border-indigo-200 bg-indigo-50 px-3 py-1.5 text-indigo-700 dark:border-indigo-400/20 dark:bg-indigo-500/10 dark:text-indigo-200">
+                  <Sparkles className="h-3.5 w-3.5" /> Plataforma comercial con IA
+                </Badge>
+                <h1 className="max-w-2xl text-4xl font-black leading-[.98] tracking-[-.045em] sm:text-5xl lg:text-[4.35rem]">
+                  El sistema que conecta
+                  <span className="block text-indigo-600 dark:text-indigo-400">tu proceso comercial.</span>
+                </h1>
+                <p className="mt-6 max-w-xl text-base leading-7 text-slate-500 sm:text-lg dark:text-slate-400">
+                  VentasPro reúne conversaciones, agentes IA, catálogo, páginas de venta, campañas, pagos y métricas para que puedas operar tu negocio desde un solo lugar.
+                </p>
+                <div className="mt-8 flex flex-col gap-3 sm:flex-row">
+                  <Button asChild size="lg" className="h-12 rounded-xl px-6 text-base shadow-xl shadow-indigo-500/20"><Link href="/auth?tab=register">Probar VentasPro <ArrowRight className="ml-1 h-4 w-4" /></Link></Button>
+                  <Button size="lg" variant="outline" className="h-12 rounded-xl bg-white/80 px-6 text-base dark:bg-slate-950/70" onClick={() => scrollTo("como-funciona")}>Ver cómo funciona</Button>
                 </div>
-                {/* La pantalla de ese pilar, en vivo: que se VEA lo que hace, no solo leerlo. */}
-                <div className="sm:w-56 shrink-0 border-t sm:border-t-0 sm:border-l bg-muted/30 h-64 sm:h-auto">
-                  <PantallaDePilar id={p.screen} />
+                <div className="mt-6 grid max-w-xl grid-cols-1 gap-2.5 text-xs text-slate-500 sm:grid-cols-2 dark:text-slate-400">
+                  <span className="flex items-center gap-2"><ShieldCheck className="h-3.5 w-3.5 text-indigo-500" /> Datos aislados por negocio</span>
+                  <span className="flex items-center gap-2"><Zap className="h-3.5 w-3.5 text-indigo-500" /> Automatización configurable</span>
                 </div>
               </motion.div>
+            </div>
+            <motion.div initial={{ opacity: 0, scale: .96, y: 18 }} animate={{ opacity: 1, scale: 1, y: 0 }} transition={{ duration: .65, delay: .1 }}>
+              <HeroProduct />
+            </motion.div>
+          </div>
+        </section>
+
+        <section className="border-y border-slate-200 bg-white dark:border-white/10 dark:bg-slate-950">
+          <div className="mx-auto grid max-w-6xl grid-cols-2 sm:grid-cols-4 sm:divide-x sm:divide-slate-200 dark:sm:divide-white/10">
+            {[
+              ["8","agentes en el plan Pro"],["15.000","mensajes / mes en Pro"],["7","días de prueba"],["1","panel para dirigir la operación"]
+            ].map(([value,label]) => <div key={label} className="border-b border-slate-200 px-4 py-7 text-center last:border-b-0 sm:border-b-0 dark:border-white/10"><div className="text-2xl font-black tracking-tight sm:text-3xl">{value}</div><div className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">{label}</div></div>)}
+          </div>
+        </section>
+
+        <section id="producto" className="mx-auto max-w-7xl px-4 py-24 sm:px-6 sm:py-28">
+          <Reveal className="mx-auto max-w-3xl text-center">
+            <p className="text-[11px] font-bold uppercase tracking-[.22em] text-indigo-600 dark:text-indigo-300">Una sola capa operativa</p>
+            <h2 className="mt-4 text-3xl font-black tracking-[-.03em] sm:text-4xl lg:text-5xl">No necesitas más herramientas.<span className="block text-slate-400 dark:text-slate-600">Necesitas que trabajen juntas.</span></h2>
+            <p className="mt-5 text-base leading-7 text-slate-500 sm:text-lg dark:text-slate-400">VentasPro conecta las piezas que normalmente están separadas y las convierte en un flujo comercial continuo.</p>
+          </Reveal>
+          <div className="mt-14 grid gap-5 md:grid-cols-2">{PILLARS.map((pillar,index) => <PillarCard key={pillar.number} pillar={pillar} index={index} />)}</div>
+        </section>
+
+        <section id="como-funciona" className="border-y border-slate-200 bg-white dark:border-white/10 dark:bg-slate-950">
+          <div className="mx-auto grid max-w-7xl gap-14 px-4 py-24 sm:px-6 sm:py-28 lg:grid-cols-[.8fr_1.2fr] lg:items-center">
+            <Reveal>
+              <p className="text-[11px] font-bold uppercase tracking-[.22em] text-indigo-600 dark:text-indigo-300">Cómo funciona</p>
+              <h2 className="mt-4 text-3xl font-black tracking-[-.03em] sm:text-4xl">De la primera visita a la operación diaria.</h2>
+              <p className="mt-5 max-w-lg text-base leading-7 text-slate-500 dark:text-slate-400">La automatización no tiene que ser una caja negra: conectas, configuras, revisas y escalas.</p>
+              <div className="mt-8 space-y-6">
+                {[
+                  ["01","Conecta","Integra tus canales, catálogo y métodos de pago."],
+                  ["02","Configura","Define agentes, personalidad, reglas y objetivos."],
+                  ["03","Automatiza","Deja que la IA ejecute tareas repetitivas y prepare acciones."],
+                  ["04","Dirige","Revisa conversaciones, campañas y métricas desde el panel."],
+                ].map(([num,title,text]) => <div key={num} className="flex gap-4"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-slate-100 text-[11px] font-bold text-slate-600 dark:bg-white/5 dark:text-slate-300">{num}</span><div><h3 className="text-sm font-bold">{title}</h3><p className="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">{text}</p></div></div>)}
+              </div>
             </Reveal>
-          ))}
-        </div>
-      </section>
+            <Reveal delay={.1}><BrowserFrame image="/screens/panel.jpg" alt="Panel de VentasPro" /></Reveal>
+          </div>
+        </section>
 
-      <section id="herramientas" className="bg-muted/30 py-20 sm:py-28">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6">
-          <Reveal className="text-center max-w-2xl mx-auto mb-14">
-            <Badge variant="outline" className="mb-4">Todo en un solo panel</Badge>
-            <h2 className="text-3xl sm:text-4xl font-black tracking-tight">Las herramientas, una por una</h2>
-            <p className="mt-4 text-muted-foreground text-lg">Sin integraciones que armar: ya vienen conectadas entre sí.</p>
+        <section className="mx-auto max-w-7xl px-4 py-24 sm:px-6 sm:py-28">
+          <Reveal className="text-center">
+            <p className="text-[11px] font-bold uppercase tracking-[.22em] text-indigo-600 dark:text-indigo-300">Operación con IA</p>
+            <h2 className="mt-4 text-3xl font-black tracking-[-.03em] sm:text-4xl lg:text-5xl">Atlas convierte instrucciones en trabajo.</h2>
+            <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-500 sm:text-lg dark:text-slate-400">Investigación, páginas, campañas y configuración de tu operación comercial en un flujo guiado por IA.</p>
           </Reveal>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {TOOLS.map((tool, i) => (
-              <Reveal key={tool.title} delay={(i % 4) * 0.06}>
-                <motion.div
-                  whileHover={{ y: -4 }}
-                  className="h-full rounded-2xl border bg-card p-5 shadow-sm hover:shadow-lg hover:border-primary/30 transition-shadow"
-                >
-                  <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center mb-4">
-                    <tool.icon className="h-5 w-5" />
-                  </div>
-                  <h3 className="font-bold text-sm mb-1.5">{tool.title}</h3>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{tool.desc}</p>
-                </motion.div>
-              </Reveal>
-            ))}
+          <div className="mt-12 grid gap-8 lg:grid-cols-2 lg:items-center">
+            <Reveal><div className="rounded-[28px] border border-white/10 bg-slate-950 p-5 shadow-2xl shadow-slate-900/20"><div className="flex items-center gap-3 border-b border-white/10 pb-4"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/10 text-indigo-300"><Compass className="h-4 w-4" /></div><div><div className="text-sm font-semibold text-white">Atlas</div><div className="text-[10px] text-white/50">Operación con IA</div></div><span className="ml-auto rounded-full bg-emerald-400/10 px-2.5 py-1 text-[10px] font-medium text-emerald-300">Listo para revisar</span></div><div className="space-y-3 pt-5">{[["01","Investigar","Analizar mercado y competencia."],["02","Preparar","Construir página y mensaje comercial."],["03","Configurar","Dejar campaña y automatizaciones listas."],["04","Revisar","Confirmar antes de acciones sensibles."]].map(([n,t,d]) => <div key={n} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/[.035] p-3"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-500/15 text-[10px] font-bold text-indigo-300">{n}</span><div><div className="text-xs font-semibold text-white">{t}</div><div className="text-[11px] leading-5 text-white/50">{d}</div></div><Check className="ml-auto h-4 w-4 text-emerald-400" /></div>)}</div></div></Reveal>
+            <Reveal delay={.1}><BrowserFrame image="/screens/m-atlas.jpg" alt="Atlas en VentasPro" /></Reveal>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ── Precios ── */}
-      <section id="precios" className="max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-28">
-        <Reveal className="text-center max-w-2xl mx-auto mb-14">
-          <Badge variant="outline" className="mb-4">Planes simples</Badge>
-          <h2 className="text-3xl sm:text-4xl font-black tracking-tight">Empezá gratis, crecé cuando lo necesites</h2>
-          <p className="mt-4 text-muted-foreground text-lg">7 días de prueba con 30 mensajes. Sin tarjeta.</p>
-        </Reveal>
-        {plans.length > 0 && (
-          <div className="grid sm:grid-cols-3 gap-6 max-w-4xl mx-auto">
-            {plans.map((plan, i) => (
-              <Reveal key={plan.id} delay={i * 0.1}>
-                <div className={`h-full rounded-2xl border p-6 flex flex-col ${i === 1 ? "border-primary shadow-lg shadow-primary/10 scale-[1.03]" : ""}`}>
-                  {i === 1 && <Badge className="w-fit mb-3">Más elegido</Badge>}
-                  <h3 className="font-bold text-lg">{plan.name}</h3>
-                  <p className="mt-2 mb-4">
-                    <span className="text-3xl font-black">${plan.price}</span>
-                    <span className="text-muted-foreground text-sm"> USD/mes</span>
-                  </p>
-                  <ul className="space-y-2 text-sm text-muted-foreground flex-1">
-                    <li className="flex gap-2"><Check className="h-4 w-4 text-primary shrink-0 mt-0.5" /> {plan.monthlyMessages.toLocaleString()} mensajes/mes</li>
-                    <li className="flex gap-2"><Check className="h-4 w-4 text-primary shrink-0 mt-0.5" /> {plan.maxAgents} agente{plan.maxAgents > 1 ? "s" : ""}</li>
-                    {(plan.features || []).slice(0, 2).map(f => (
-                      <li key={f} className="flex gap-2"><Check className="h-4 w-4 text-primary shrink-0 mt-0.5" /> {f}</li>
-                    ))}
-                  </ul>
-                </div>
-              </Reveal>
-            ))}
+        <section id="soluciones" className="border-y border-slate-200 bg-slate-50/80 dark:border-white/10 dark:bg-white/[.02]">
+          <div className="mx-auto max-w-7xl px-4 py-24 sm:px-6 sm:py-28">
+            <Reveal className="max-w-2xl"><p className="text-[11px] font-bold uppercase tracking-[.22em] text-indigo-600 dark:text-indigo-300">Para distintos modelos de negocio</p><h2 className="mt-4 text-3xl font-black tracking-[-.03em] sm:text-4xl">Una base tecnológica. Diferentes formas de vender.</h2></Reveal>
+            <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">{USE_CASES.map((item,index) => { const Icon=item.icon; return <Reveal key={item.title} delay={index*.05}><div className="h-full rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-white/10 dark:bg-slate-950"><div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300"><Icon className="h-5 w-5" /></div><h3 className="mt-5 font-bold">{item.title}</h3><p className="mt-2 text-sm leading-6 text-slate-500 dark:text-slate-400">{item.text}</p></div></Reveal> })}</div>
           </div>
-        )}
-        <div className="text-center mt-10">
-          <Link href="/pricing">
-            <Button variant="outline" size="lg" className="gap-2">
-              Ver todos los planes y comparar <ArrowRight className="h-4 w-4" />
-            </Button>
-          </Link>
-        </div>
-      </section>
+        </section>
 
-      {/* ── CTA final ── */}
-      <section className="relative overflow-hidden">
-        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-20">
-          <Reveal className="relative rounded-3xl bg-primary text-primary-foreground px-8 py-14 sm:py-16 text-center overflow-hidden">
-            <motion.div
-              className="absolute -top-20 -right-20 h-64 w-64 rounded-full bg-white/10 blur-3xl"
-              animate={{ x: [0, 20, 0], y: [0, 15, 0] }}
-              transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
-            />
-            <motion.div
-              className="absolute -bottom-24 -left-16 h-72 w-72 rounded-full bg-white/10 blur-3xl"
-              animate={{ x: [0, -15, 0], y: [0, -10, 0] }}
-              transition={{ duration: 12, repeat: Infinity, ease: "easeInOut" }}
-            />
-            <Users className="h-10 w-10 mx-auto mb-5 opacity-80" />
-            <h2 className="text-3xl sm:text-4xl font-black tracking-tight">Tu próximo cliente ya te está escribiendo</h2>
-            <p className="mt-4 text-primary-foreground/80 max-w-lg mx-auto">
-              Conectá tu WhatsApp en minutos y dejá que Sofía se encargue del resto.
-            </p>
-            <Link href="/auth?tab=register">
-              <Button size="lg" variant="secondary" className="mt-8 gap-2 text-base px-8">
-                <Zap className="h-4 w-4" /> Comenzar gratis ahora
-              </Button>
-            </Link>
+        <section className="mx-auto max-w-7xl px-4 py-24 sm:px-6 sm:py-28">
+          <Reveal className="text-center"><p className="text-[11px] font-bold uppercase tracking-[.22em] text-indigo-600 dark:text-indigo-300">Producto en detalle</p><h2 className="mt-4 text-3xl font-black tracking-[-.03em] sm:text-4xl">Todo lo que ocurre, visible.</h2><p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-500 sm:text-lg dark:text-slate-400">Una interfaz pensada para que las funciones complejas se sientan simples.</p></Reveal>
+          <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">{SHOWCASE.map((item,index) => { const Icon=item.icon; return <Reveal key={item.id} delay={(index%3)*.05}><div className="overflow-hidden rounded-2xl border border-slate-200 bg-white dark:border-white/10 dark:bg-slate-950"><div className="flex items-center gap-2 border-b border-slate-200 px-4 py-3 dark:border-white/10"><div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-100 text-slate-600 dark:bg-white/5 dark:text-slate-300"><Icon className="h-4 w-4" /></div><div><div className="text-xs font-bold">{item.label}</div><div className="text-[10px] text-slate-400">{item.eyebrow}</div></div></div><div className="h-64 overflow-hidden bg-slate-100 dark:bg-slate-900"><img src={item.image} alt={item.title} className="h-full w-full object-cover object-top transition-transform duration-700 hover:scale-[1.025]" loading="lazy" /></div></div></Reveal> })}</div>
+        </section>
+
+        <section id="precios" className="border-y border-slate-200 bg-white dark:border-white/10 dark:bg-slate-950">
+          <div className="mx-auto max-w-7xl px-4 py-24 sm:px-6 sm:py-28">
+            <Reveal className="mx-auto max-w-2xl text-center"><p className="text-[11px] font-bold uppercase tracking-[.22em] text-indigo-600 dark:text-indigo-300">Precios</p><h2 className="mt-4 text-3xl font-black tracking-[-.03em] sm:text-4xl">Empieza simple. Escala cuando lo necesites.</h2><p className="mt-5 text-base leading-7 text-slate-500 dark:text-slate-400">7 días de prueba, sin tarjeta.</p></Reveal>
+            {plans.length>0 && <div className="mx-auto mt-12 grid max-w-5xl gap-5 md:grid-cols-3">{plans.map((plan,index) => <Reveal key={plan.id} delay={index*.06}><div className={"relative flex h-full flex-col rounded-[24px] border p-7 " + (index===1 ? "border-indigo-300 bg-indigo-50/70 shadow-xl shadow-indigo-500/10 dark:border-indigo-400/30 dark:bg-indigo-500/[.07]" : "border-slate-200 bg-white dark:border-white/10 dark:bg-slate-950")}><h3 className="text-lg font-bold">{plan.name}</h3><div className="mt-4"><span className="text-4xl font-black tracking-tight">{"$"}{plan.price}</span><span className="text-sm text-slate-500"> USD/mes</span></div><div className="mt-6 space-y-3 text-sm text-slate-600 dark:text-slate-300"><div className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600" /> {plan.monthlyMessages.toLocaleString()} mensajes/mes</div><div className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600" /> {plan.maxAgents} agente{plan.maxAgents>1 ? "s" : ""}</div>{(plan.features||[]).slice(0,3).map((feature)=><div key={feature} className="flex gap-2"><Check className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600" /> {feature}</div>)}</div><Button asChild variant={index===1 ? "default" : "outline"} className="mt-8 w-full rounded-xl"><Link href="/auth?tab=register">Elegir {plan.name}</Link></Button></div></Reveal>)}</div>}
+            <div className="mt-7 text-center"><Button asChild variant="ghost" className="gap-2 text-slate-500"><Link href="/pricing">Ver todos los planes <ArrowRight className="h-3.5 w-3.5" /></Link></Button></div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-4xl px-4 py-24 sm:px-6 sm:py-28">
+          <Reveal className="mx-auto max-w-2xl text-center"><p className="text-[11px] font-bold uppercase tracking-[.22em] text-indigo-600 dark:text-indigo-300">Preguntas frecuentes</p><h2 className="mt-4 text-3xl font-black tracking-[-.03em] sm:text-4xl">Lo importante antes de empezar.</h2></Reveal>
+          <div className="mx-auto mt-10 divide-y divide-slate-200 rounded-[24px] border border-slate-200 bg-white px-6 dark:divide-white/10 dark:border-white/10 dark:bg-slate-950">{FAQS.map(([q,a],index)=><div key={q}><button onClick={()=>setOpenFaq(openFaq===index?null:index)} className="flex w-full items-center justify-between gap-6 py-5 text-left"><span className="text-sm font-semibold sm:text-base">{q}</span><ChevronDown className={"h-4 w-4 shrink-0 text-slate-400 transition-transform " + (openFaq===index ? "rotate-180":"")} /></button><AnimatePresence initial={false}>{openFaq===index && <motion.div initial={{height:0,opacity:0}} animate={{height:"auto",opacity:1}} exit={{height:0,opacity:0}} className="overflow-hidden"><p className="pb-5 pr-8 text-sm leading-6 text-slate-500 dark:text-slate-400">{a}</p></motion.div>}</AnimatePresence></div>)}</div>
+        </section>
+
+        <section className="px-4 pb-24 sm:px-6 sm:pb-28">
+          <Reveal className="mx-auto max-w-6xl">
+            <div className="relative overflow-hidden rounded-[32px] bg-slate-950 px-7 py-14 text-center shadow-2xl sm:px-12 sm:py-20">
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(99,102,241,.28),transparent_32%),radial-gradient(circle_at_80%_80%,rgba(56,189,248,.18),transparent_30%)]" />
+              <div className="relative"><div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-indigo-300"><Bot className="h-6 w-6" /></div><h2 className="mx-auto mt-6 max-w-3xl text-3xl font-black tracking-tight text-white sm:text-4xl lg:text-5xl">Convierte tu operación comercial en un sistema.</h2><p className="mx-auto mt-5 max-w-xl text-sm leading-6 text-white/55 sm:text-base">Centraliza tus canales, configura tus agentes y empieza a trabajar con una plataforma construida alrededor de tus ventas.</p><div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row"><Button asChild size="lg" className="h-12 rounded-xl bg-white px-6 text-slate-950 hover:bg-white/90"><Link href="/auth?tab=register">Probar gratis <ArrowRight className="ml-1 h-4 w-4" /></Link></Button><Button size="lg" variant="outline" className="h-12 rounded-xl border-white/15 bg-transparent px-6 text-white hover:bg-white/10" onClick={()=>scrollTo("producto")}>Explorar el producto</Button></div></div>
+            </div>
           </Reveal>
-        </div>
-      </section>
+        </section>
+      </main>
 
-      {/* ── Footer ── */}
-      <footer className="border-t">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <img src="/logo-mark.svg" alt="VentasPro" className="h-6 w-6" />
-            <span className="font-bold text-sm">VentasPro</span>
-          </div>
-          <nav className="flex items-center gap-6 text-sm text-muted-foreground">
-            <Link href="/pricing" className="hover:text-foreground transition-colors">Precios</Link>
-            <Link href="/privacidad" className="hover:text-foreground transition-colors">Privacidad</Link>
-            <Link href="/auth" className="hover:text-foreground transition-colors">Iniciar sesión</Link>
-          </nav>
-          <p className="text-xs text-muted-foreground">© {new Date().getFullYear()} VentasPro</p>
+      <footer className="border-t border-slate-200 dark:border-white/10">
+        <div className="mx-auto flex max-w-7xl flex-col gap-6 px-4 py-10 sm:px-6 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-2.5"><img src="/logo-mark.svg" alt="VentasPro" className="h-7 w-7" /><div><div className="text-sm font-bold">VentasPro</div><div className="text-[10px] text-slate-400">Commercial OS</div></div></div>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-slate-500 dark:text-slate-400"><Link href="/pricing">Precios</Link><Link href="/privacidad">Privacidad</Link><Link href="/auth">Iniciar sesión</Link></div>
+          <div className="text-xs text-slate-400">© {new Date().getFullYear()} VentasPro</div>
         </div>
       </footer>
     </div>
