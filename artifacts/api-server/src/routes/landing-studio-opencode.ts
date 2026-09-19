@@ -752,11 +752,18 @@ export async function generarLandingConOpenCode(opts: {
   familia?: string | null;
   /** Por modelo. Los 45s de siempre valen dentro de un request; en segundo plano se puede esperar más. */
   timeoutMs?: number;
-}): Promise<{ html: string; tipo: ProductType; error?: string; familia?: string; familiaPorque?: string }> {
-  const config = opencodeConfig();
-  if (!config) return { html: "", tipo: "digital", error: "OpenCode no configurado" };
-
+  /** Bitácora de la landing en edición: lo que ya se le pidió antes (ver agente-landing.ts). */
+  bitacora?: string;
+}): Promise<{ html: string; tipo: ProductType; error?: string; familia?: string; familiaPorque?: string; quitado?: string[]; proveedor?: string }> {
   const { product, instruction } = opts;
+  const tenantIdDelProducto = Number(product?.tenantId) || 1;
+  // El agente propio (DeepSeek/Groq del negocio) va primero; el puente de
+  // OpenCode queda solo para negocios sin ninguna clave. Ver agente-landing.ts.
+  const { hayProveedorPropio, redactarConProveedores, REGLAS_DEL_AGENTE_DE_LANDINGS, htmlDesdeRespuesta } = await import("../lib/landing/agente-landing");
+  const usaAgentePropio = await hayProveedorPropio(tenantIdDelProducto);
+  const config = usaAgentePropio ? null : opencodeConfig();
+  if (!usaAgentePropio && !config) return { html: "", tipo: "digital", error: "Sin proveedor de IA: el negocio no tiene claves cargadas y OpenCode no está configurado" };
+
   const existingHtml = opts.existingHtml ?? null;
   const diseno = opts.diseno ?? {};
   const tipo = detectarTipo(product);
@@ -782,25 +789,30 @@ export async function generarLandingConOpenCode(opts: {
 
   let userPrompt = buildUserPrompt(product, tipo, existingHtml, instruction, paleta, pago, diseno, familia);
   if (memoria) userPrompt += `\n\n${memoria}`;
+  if (opts.bitacora) userPrompt += opts.bitacora;
+  const system = `${getSystemPrompt(tipo)}\n\n${REGLAS_DEL_AGENTE_DE_LANDINGS}`;
 
-  const result = await conCandado(async () => {
-    const sessionId = await createSession(config.host, config.authHeader);
-    return await sendMessage(config.host, config.authHeader, sessionId, {
-      system: getSystemPrompt(tipo),
-      text: userPrompt,
-      timeoutMs: opts.timeoutMs ?? 45_000,
+  let result: { text: string; error?: string; proveedor?: string };
+  if (usaAgentePropio) {
+    result = await redactarConProveedores({ tenantId: tenantIdDelProducto, system, user: userPrompt, timeoutMs: opts.timeoutMs ?? 150_000 });
+  } else {
+    result = await conCandado(async () => {
+      const sessionId = await createSession(config!.host, config!.authHeader);
+      return await sendMessage(config!.host, config!.authHeader, sessionId, { system, text: userPrompt, timeoutMs: opts.timeoutMs ?? 45_000 });
     });
-  });
+  }
 
   if (result.error) return { html: "", tipo, error: result.error };
 
-  let html = result.text.trim();
-  const codeBlockMatch = html.match(/```(?:html)?\s*\n?([\s\S]*?)\n?```/);
-  if (codeBlockMatch) html = codeBlockMatch[1].trim();
-  if (!html.includes("<!DOCTYPE") && !html.includes("<html")) html = result.text;
+  // Saneado a la salida: el modelo devolvió portada, formulario y fotos por
+  // duplicado al editar (landing 4, 19-09). Se quita lo repetido y se cuenta.
+  const saneado = htmlDesdeRespuesta(result.text);
+  let html = saneado.html;
+  if (!html.includes("<!DOCTYPE") && !html.includes("<!doctype") && !html.includes("<html")) html = result.text;
   if (tipo === "dropshipping") html = asegurarFormularioDropshipping(html);
+  if (saneado.quitado.length) console.log(`🧹 [LANDING] Saneado del HTML: ${saneado.quitado.join(", ")}`);
 
-  return { html, tipo, familia: familia || undefined, familiaPorque: familiaPorque || undefined };
+  return { html, tipo, familia: familia || undefined, familiaPorque: familiaPorque || undefined, quitado: saneado.quitado, proveedor: result.proveedor };
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

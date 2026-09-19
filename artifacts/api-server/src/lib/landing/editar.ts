@@ -187,6 +187,7 @@ export function lanzarEdicionDeHtmlEnSegundoPlano(landing: any, instruction: str
       const { products } = await import("@workspace/db");
       const [product] = landing.productId ? await db.select().from(products).where(eq(products.id, Number(landing.productId))).limit(1) : [null];
       const { generarLandingConOpenCode } = await import("../../routes/landing-studio-opencode");
+      const { bitacoraDe, textoDeBitacora, anotarEnBitacora } = await import("./agente-landing");
       const r = await generarLandingConOpenCode({
         product: product || { id: landing.productId, name: landing.name, tenantId: landing.tenantId },
         instruction:
@@ -195,9 +196,12 @@ export function lanzarEdicionDeHtmlEnSegundoPlano(landing: any, instruction: str
         existingHtml: landing.html,
         familia: (landing.design as any)?.familia ?? null,
         timeoutMs: 150_000,
+        bitacora: textoDeBitacora(bitacoraDe(landing)),
       });
-      if (r.error || !r.html || !/<html|<!doctype/i.test(r.html)) throw new Error(r.error || "OpenCode no devolvió HTML");
-      await marcar({ html: r.html, strategy: { ...estrategiaBase, generando: false, editando: undefined, ultimaEdicion: instruction.slice(0, 300), listaEn: new Date().toISOString() } });
+      if (r.error || !r.html || !/<html|<!doctype/i.test(r.html)) throw new Error(r.error || "El modelo no devolvió HTML");
+      const resultado = r.quitado?.length ? `aplicado (se quitó: ${r.quitado.join(", ")})` : "aplicado";
+      await marcar({ html: r.html, strategy: { ...estrategiaBase, bitacora: (estrategiaBase as any).bitacora, generando: false, editando: undefined, ultimaEdicion: instruction.slice(0, 300), listaEn: new Date().toISOString(), saneado: r.quitado || [] } });
+      await anotarEnBitacora(id, instruction, resultado);
     } catch (e: any) {
       await marcar({ strategy: { ...estrategiaBase, generando: false, editando: undefined, error: `No se pudo editar el HTML: ${String(e?.message || e).slice(0, 200)}` } }).catch(() => undefined);
     } finally {
