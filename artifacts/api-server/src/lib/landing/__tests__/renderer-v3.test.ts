@@ -182,4 +182,51 @@ describe("tituloLegible", () => {
     expect(tituloLegible("Curso de Piano Completo")).toBe("Curso de Piano Completo");
     expect(tituloLegible("GH07")).toBe("GH07");
   });
+
+  it("ninguna foto sale dos veces en la página, ni siquiera en la galería", () => {
+    // Reportado el 19-09-2026: con pocas fotos, la de la portada volvía a
+    // aparecer en la oferta y otra vez en "Míralo de cerca".
+    const fotos = ["https://cdn.test/f1.jpg", "https://cdn.test/f2.jpg", "https://cdn.test/f3.jpg"];
+    const html = renderizarLanding({
+      nombre: "Demo",
+      familia: "ecommerce",
+      producto: { ...product, imageUrl: fotos[0], images: fotos },
+      negocio: { nombre: "Tienda Demo", modelo: "fisico" },
+      secciones: [
+        { id: "hero", type: "hero", title: "Título", subtitle: "Sub", cta: "Pedir", image: fotos[0] },
+        { id: "o", type: "offer", title: "Oferta", body: "Texto", image: fotos[0] },
+        { id: "h", type: "how-it-works", title: "Cómo funciona", body: "Pasos", image: fotos[0] },
+        { id: "g", type: "gallery", title: "Míralo de cerca", images: fotos },
+        { id: "g2", type: "gallery", title: "Otra galería", images: fotos },
+      ],
+    });
+    for (const f of fotos) {
+      const veces = html.split(`src="${f}"`).length - 1;
+      expect(veces, `${f} aparece ${veces} veces`).toBeLessThanOrEqual(1);
+    }
+    // Las tres fotos se usan (hero, oferta, cómo funciona) y la galería, sin fotos libres, no se dibuja.
+    expect(html).toContain(`src="${fotos[1]}"`);
+    expect(html).toContain(`src="${fotos[2]}"`);
+    expect(html).not.toContain("Otra galería");
+  });
+
+  it("la galería muestra solo las fotos que sobraron", () => {
+    const fotos = ["https://cdn.test/a.jpg", "https://cdn.test/b.jpg", "https://cdn.test/c.jpg", "https://cdn.test/d.jpg"];
+    const html = renderizarLanding({
+      nombre: "Demo",
+      familia: "ecommerce",
+      producto: { ...product, imageUrl: fotos[0], images: fotos },
+      negocio: { modelo: "fisico" },
+      secciones: [
+        { id: "hero", type: "hero", title: "Título", cta: "Pedir", image: fotos[0] },
+        { id: "o", type: "offer", title: "Oferta", body: "Texto" },
+        { id: "g", type: "gallery", title: "Míralo de cerca", images: fotos },
+      ],
+    });
+    expect(html).toContain("Míralo de cerca");
+    expect(html.split(`src="${fotos[0]}"`).length - 1).toBe(1);
+    expect(html.split(`src="${fotos[1]}"`).length - 1).toBe(1);
+    expect(html).toContain(`src="${fotos[2]}"`);
+    expect(html).toContain(`src="${fotos[3]}"`);
+  });
 });

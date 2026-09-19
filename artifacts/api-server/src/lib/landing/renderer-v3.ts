@@ -488,11 +488,17 @@ function renderFaq(section: SeccionParaRenderizar): string {
   return `<div class="head"><p class="eyebrow">Preguntas frecuentes</p><h2>${esc(section.title || "Antes de comprar")}</h2>${section.subtitle ? `<p class="lead">${esc(section.subtitle)}</p>` : ""}</div><div class="faq">${rows.map((row) => `<details><summary>${esc(row.q)}</summary><p class="muted">${esc(row.a || "Escribinos y te ayudamos.")}</p></details>`).join("")}</div>`;
 }
 
-function renderGallery(section: SeccionParaRenderizar, producto: ProductoParaRenderizar | null | undefined): string {
-  const urls = (Array.isArray(section.images) ? section.images : []).map(safeImage).filter(Boolean).slice(0, 5);
-  if (!urls.length && section.image) urls.push(safeImage(section.image));
-  if (!urls.length && producto?.images?.length) urls.push(...producto.images.map(safeImage).filter(Boolean).slice(0, 5));
-  if (!urls.length && producto?.imageUrl) urls.push(safeImage(producto.imageUrl));
+/**
+ * La galería solo muestra fotos que NO salieron en ninguna otra sección.
+ *
+ * Antes tomaba `section.images` o todas las del producto tal cual, así que
+ * con 3 fotos la landing repetía la del hero y la de la oferta otra vez en
+ * "Míralo de cerca" (reportado el 19-09-2026: "repite las imágenes y no es
+ * nada bonito"). `disponibles` es lo que quedó del presupuesto global de la
+ * página; si no quedó nada, la galería no se dibuja.
+ */
+function renderGallery(section: SeccionParaRenderizar, producto: ProductoParaRenderizar | null | undefined, disponibles: string[]): string {
+  const urls = [...new Set(disponibles)].slice(0, 5);
   if (!urls.length) return "";
   return `<div class="head"><p class="eyebrow">Galería</p><h2>${esc(section.title || "Míralo de cerca")}</h2>${section.subtitle ? `<p class="lead">${esc(section.subtitle)}</p>` : ""}</div><div class="gallery">${urls.map((url, i) => `<img src="${esc(url)}" alt="${esc(producto?.name || "Producto")} · vista ${i + 1}" loading="lazy" decoding="async">`).join("")}</div>`;
 }
@@ -580,18 +586,35 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
     return tomarFoto();
   };
 
-  const sectionHtml = secciones.filter((s) => s.type !== "hero").map((section) => {
+  // La galería se resuelve al FINAL, con lo que sobró del presupuesto: si se
+  // dibujara en su orden, se comería fotos que las secciones de abajo
+  // necesitan, o repetiría las que ya se usaron arriba.
+  const galerias = new Map<string, SeccionParaRenderizar>();
+  const partes = secciones.filter((s) => s.type !== "hero").map((section, idx) => {
     const type = String(section.type || "").toLowerCase();
     const vacia = !section.title && !section.subtitle && !section.body && !(Array.isArray(section.images) && section.images.length);
     if (vacia && !type.includes("gallery")) return "";
     if (type.includes("faq")) return `<section class="sec"><div class="shell narrow">${renderFaq(section)}</div></section>`;
-    if (type.includes("gallery") || type.includes("visual")) return `<section class="sec"><div class="shell">${renderGallery(section, producto)}</div></section>`;
+    if (type.includes("gallery") || type.includes("visual")) { const marca = `@@GALERIA:${idx}@@`; galerias.set(marca, section); return marca; }
     if (type.includes("benefit") || type.includes("feature")) return `<section class="sec"><div class="shell">${renderBenefits(section)}</div></section>`;
     if (["how-it-works", "how_it_works", "steps", "como-funciona", "comparison", "before-after"].some((k) => type.includes(k))) return `<section class="sec"><div class="shell">${renderFeature(section, producto, featureIndex++, fotoPara(section))}</div></section>`;
     if (type.includes("logistic")) return `<section class="sec"><div class="shell">${renderLogistica(section)}</div></section>`;
     if (type === "cta" || type.endsWith("-cta") || type.includes("cierre")) return `<section class="sec"><div class="shell">${renderCierre(section, destino)}</div></section>`;
     if (["offer", "authority", "bundle", "guarantee"].some((k) => type.includes(k))) return `<section class="sec">${renderOferta(section, producto, destino, fotoPara(section), heroTitle)}</section>`;
     return `<section class="sec"><div class="shell narrow"><div class="head"><p class="eyebrow">${rotulo(type)}</p><h2>${esc(section.title || "Más información")}</h2>${section.subtitle ? `<p class="lead">${esc(acotar(section.subtitle, 240))}</p>` : ""}${cuerpo(section.body)}</div></div></section>`;
+  });
+  // Una sola galería por página, con lo que quedó libre; las demás marcas
+  // se borran (dos galerías con las mismas fotos es justo lo que se evita).
+  let galeriaDibujada = false;
+  const sectionHtml = partes.map((parte) => {
+    const gal = galerias.get(parte);
+    if (!gal) return parte;
+    if (galeriaDibujada) return "";
+    const html = renderGallery(gal, producto, fotosLibres);
+    if (!html) return "";
+    galeriaDibujada = true;
+    fotosLibres.length = 0;
+    return `<section class="sec"><div class="shell">${html}</div></section>`;
   }).join("");
 
   const checkoutHtml = opts.cierre ? `<section class="sec"><div class="shell narrow">${renderCheckout(opts.cierre, producto, negocio)}</div></section>` : "";
