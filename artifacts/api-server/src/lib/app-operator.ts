@@ -6200,6 +6200,58 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "dropi_verificar_producto",
+    description:
+      "Pregunta a Dropi (API de integraciones, con el token que Dropify dejó en Woo) si un producto sigue disponible para despacho: disponible, archivado por el proveedor, sin stock, o desconocido. " +
+      "Usala antes de prometer un despacho o cuando el admin pregunte 'por qué Dropi rechazó el pedido'. Devuelve también la respuesta cruda de Dropi. Lectura pura.",
+    args: '{ "productId"?: number (id del producto en ESTA tienda), "wooProductId"?: number (id del producto en WooCommerce; uno de los dos) }',
+    run: async (args, ctx) => {
+      const { getWooCommerceService } = await import("./woocommerce");
+      const woo = await getWooCommerceService(ctx.tenantId).catch(() => null);
+      if (!woo) return { ok: false, summary: "WooCommerce no está configurado para este negocio." };
+      let wooId = num(args?.wooProductId);
+      let nombre = "";
+      if (!wooId) {
+        const id = num(args?.productId);
+        if (!id) return { ok: false, summary: "Falta 'productId' o 'wooProductId'." };
+        const [p] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
+        if (!p) return { ok: false, summary: `No encontré el producto ${id}.` };
+        nombre = String(p.name);
+        const meta: any = typeof p.metadata === "string" ? JSON.parse(p.metadata) : p.metadata;
+        wooId = Number(meta?.woocommerce?.id) || 0;
+        if (!wooId) return { ok: false, summary: `"${nombre}" no está sincronizado con WooCommerce, así que no viene de Dropi.` };
+      }
+      const { disponibilidadEnDropi } = await import("./dropi-disponibilidad");
+      const d = await disponibilidadEnDropi(woo, wooId);
+      const icono = d.estado === "disponible" ? "✅" : d.estado === "desconocido" || d.estado === "sin_dropi" ? "❓" : "❌";
+      return {
+        ok: d.estado !== "error",
+        summary: `${icono} ${nombre ? `"${nombre}" ` : ""}(Woo #${wooId}${d.dropiProductId ? `, Dropi #${d.dropiProductId}` : ""}): ${d.estado.toUpperCase()} — ${d.detalle}${d.stock != null ? ` Stock: ${d.stock}.` : ""}`,
+        data: { wooProductId: wooId, ...d, crudo: d.crudo ? JSON.stringify(d.crudo).slice(0, 1500) : null },
+      };
+    },
+  },
+  {
+    name: "dropi_revisar_catalogo",
+    description:
+      "Revisa en Dropi TODOS los productos del catálogo que vienen de Dropi y DESACTIVA los que el proveedor archivó o agotó (y reactiva los que esta misma revisión apagó si volvieron). " +
+      "Es lo que corre solo cada 6 horas; usala cuando el admin quiera revisarlo ya. ⚠️ Cambia el catálogo: va por propose_action.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { sincronizarDisponibilidadDropi } = await import("./dropi-disponibilidad");
+      const r = await sincronizarDisponibilidadDropi(ctx.tenantId);
+      if (!r.revisados) return { ok: true, summary: "No hay productos de Dropi sincronizados con WooCommerce (o WooCommerce no está configurado)." };
+      return {
+        ok: true,
+        summary:
+          `Revisados ${r.revisados} productos de Dropi. ` +
+          `Desactivados ${r.desactivados.length}${r.desactivados.length ? ` (${r.desactivados.map((d) => `${d.nombre}: ${d.motivo}`).join("; ").slice(0, 600)})` : ""}. ` +
+          `Reactivados ${r.reactivados.length}. Sin dato claro: ${r.desconocidos}. Errores: ${r.errores.length}${r.errores.length ? ` (${r.errores.map((e) => `${e.nombre}: ${e.detalle}`).join("; ").slice(0, 300)})` : ""}.`,
+        data: r,
+      };
+    },
+  },
+  {
     name: "dropi_create_order",
     description: "Crear una orden REAL en Dropi para que el proveedor despache al cliente (pago contra entrega). Úsala solo cuando una venta ya esté cerrada y tengas los datos de envío completos. GENERA UN PEDIDO REAL con costo → requiere confirmación explícita.",
     args: '{ "productId": number (req, id del producto en ESTA tienda), "quantity": number (req), "clientName": string (req), "clientPhone": string (req), "clientAddress": string (req), "clientCity": string (opcional), "clientDepartment": string (opcional), "notes": string (opcional) }',
@@ -6943,6 +6995,7 @@ export const READ_ONLY_TOOLS = new Set([
   "fb_list_adsets", "fb_radiografia_campana", "anuncio_datos_expertos",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
   "dropi_status", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
+  "dropi_verificar_producto",
   // Leer el estado de una landing en generación y simular el reentrenamiento no cambian nada.
   "landing_estado", "agente_reentrenar_ver",
   // Probar al vendedor crea una conversación de PRUEBA y no le escribe a nadie: es lectura.

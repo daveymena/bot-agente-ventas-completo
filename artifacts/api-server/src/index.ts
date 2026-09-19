@@ -95,6 +95,18 @@ async function start() {
 
     logger.info({ port, host: "0.0.0.0", authDir: process.env.WA_AUTH_DIR || "data/.baileys-auth" }, "Server listening — WhatsApp auth persistente");
 
+    // Revisión periódica de disponibilidad en Dropi (cada DROPI_REVISION_HORAS,
+    // 6 por defecto; 0 la apaga). Dropify no sincroniza stock: si el
+    // proveedor archiva un producto, nadie se entera hasta que un cliente lo
+    // pide (#323). Ver lib/dropi-disponibilidad.ts.
+    import("./lib/dropi-disponibilidad").then(({ programarRevisionDeDropi }) => {
+      programarRevisionDeDropi(async () => {
+        const { db, tenants } = await import("@workspace/db");
+        const filas = await db.select({ id: tenants.id }).from(tenants);
+        return filas.map((t: any) => Number(t.id));
+      });
+    }).catch((err) => logger.warn({ err }, "[Dropi] No se pudo programar la revisión de disponibilidad"));
+
     // Cerrar el socket de WhatsApp ANTES de morir. Sin esto, un deploy mata
     // el proceso con la sesión a medio cerrar y WhatsApp entrega los mensajes
     // de esa ventana a un socket muerto: no se encolan y no se reenvían.

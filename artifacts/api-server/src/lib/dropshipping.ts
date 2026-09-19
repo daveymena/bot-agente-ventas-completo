@@ -562,6 +562,11 @@ export interface ResultadoDespacho {
   ok: boolean;
   wooOrderId?: number;
   error?: string;
+  /**
+   * El pedido NO se creó porque Dropi dijo de antemano que el producto está
+   * archivado o sin stock. Distinto de `dropi` (veredicto DESPUÉS de crear).
+   */
+  noDisponible?: { estado: "archivado" | "sin_stock"; detalle: string; mensajeAlCliente: string };
   /** Qué hizo Dropi con el pedido. Solo falta cuando ni siquiera llegó a Woo. */
   dropi?: VeredictoDropi;
   /** true cuando el rechazo dejó el producto fuera del catálogo. */
@@ -596,6 +601,45 @@ export async function despacharPedido(pedido: PedidoDropshipping): Promise<Resul
       const e = `El producto "${pedido.productName}" no está sincronizado con WooCommerce.`;
       await pool.query(`UPDATE dropshipping_orders SET woo_error = $2, updated_at = now() WHERE id = $1`, [pedido.id, e]);
       return { ok: false, error: e };
+    }
+
+    // ── Preguntarle a Dropi ANTES de crear la orden ───────────────────────
+    //
+    // El #323 se creó en Woo, Dropify lo mandó a Dropi y Dropi lo rechazó
+    // (producto archivado). Con el chequeo previo, un producto que el
+    // proveedor archivó o agotó no genera orden: se le dice al cliente, se
+    // saca del catálogo y se avisa al admin. Si Dropi no contesta o el
+    // formato no se entiende, NO se bloquea: se sigue y decide el veredicto
+    // de después, como hasta ahora.
+    try {
+      const { disponibilidadEnDropi, mensajeAlClienteSinDisponibilidad } = await import("./dropi-disponibilidad");
+      const disp = await disponibilidadEnDropi(woo, wooProductId);
+      console.log(`📦 [DROPSHIPPING] Dropi dice del producto Woo #${wooProductId}: ${disp.estado} — ${disp.detalle}`);
+      if (disp.estado === "archivado" || disp.estado === "sin_stock") {
+        const detalle = `Verificado en Dropi antes de crear la orden: ${disp.detalle}`;
+        await pool.query(
+          `UPDATE dropshipping_orders SET estado = 'rechazado_dropi', dropi_estado = 'error', dropi_error = $2, updated_at = now() WHERE id = $1`,
+          [pedido.id, detalle],
+        );
+        let productoDesactivado = false;
+        if (pedido.productId) {
+          try {
+            await db.update(products).set({ isActive: false } as any).where(eq(products.id, pedido.productId));
+            productoDesactivado = true;
+          } catch (e: any) {
+            logger.error({ err: e?.message, productId: pedido.productId }, "[Dropshipping] No se pudo desactivar el producto no disponible");
+          }
+        }
+        await avisarAlAdmin(pedido, { estado: "error", dropiOrderId: null, detalle }, productoDesactivado);
+        return {
+          ok: false,
+          error: detalle,
+          productoDesactivado,
+          noDisponible: { estado: disp.estado, detalle: disp.detalle, mensajeAlCliente: mensajeAlClienteSinDisponibilidad(String(pedido.productName || "el producto"), disp) },
+        };
+      }
+    } catch (e: any) {
+      logger.warn({ err: e?.message, pedidoId: pedido.id }, "[Dropshipping] No se pudo verificar disponibilidad en Dropi; se sigue con la orden");
     }
 
     const partes = String(pedido.nombre).trim().split(/\s+/);

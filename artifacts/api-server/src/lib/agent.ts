@@ -1716,7 +1716,14 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           // o ni siquiera llegó a Woo. En el segundo el cliente ya dio todos
           // sus datos y NO va a recibir nada: hay que decírselo, no "en un
           // momento te confirmo" (pasó con el #323, tres días en silencio).
-          if (!r.ok && r.wooOrderId && r.dropi?.estado === "error") {
+          if (!r.ok && r.noDisponible) {
+            // Dropi lo dijo ANTES de crear la orden: no hay pedido que confirmar.
+            bloqueDropshipping =
+              `\n\n❌ NO SE TOMÓ EL PEDIDO: el proveedor no puede despachar este producto (${r.noDisponible.detalle}). ` +
+              `El producto quedó fuera del catálogo. Decile al cliente, con estas palabras o parecidas: "${r.noDisponible.mensajeAlCliente}". ` +
+              `NO le pidas más datos, NO le prometas despacho ni número de pedido, y ofrecele una alternativa del catálogo si la hay.`;
+            console.log(`📦 [DROPSHIPPING] Pedido NO creado: Dropi dice ${r.noDisponible.estado} - ${ts()}`);
+          } else if (!r.ok && r.wooOrderId && r.dropi?.estado === "error") {
             bloqueDropshipping =
               `\n\n❌ EL PROVEEDOR NO PUEDE DESPACHAR ESTE PEDIDO. Motivo real: ${r.dropi.detalle}\n`
               + (r.productoDesactivado
