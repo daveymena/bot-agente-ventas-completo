@@ -255,8 +255,14 @@ export function stockDe(p: ProductoDropi): number | null {
 
 /** Proveedor: `user.id` y su tienda. */
 export function proveedorDe(p: ProductoDropi): { id: number | null; nombre: string | null } {
-  const u = (p as any).user;
-  return { id: Number(u?.id ?? p.user_id) || null, nombre: u?.store_name || u?.name || null };
+  const u = (p as any).user || (p as any).supplier || (p as any).owner || null;
+  return { id: Number(u?.id ?? p.user_id ?? (p as any).supplier_id) || null, nombre: u?.store_name || u?.name || (p as any).supplier_name || (p as any).store_name || null };
+}
+
+/** Ciudad de la bodega que despacha (el detalle y el listado la traen distinto). */
+export function bodegaDe(p: ProductoDropi): string | null {
+  const wp = (p as any).warehouse_product?.[0] || (p as any).warehouses?.[0] || (p as any).warehouse || null;
+  return wp?.warehouse?.city?.name || wp?.city?.name || wp?.city || (p as any).city?.name || null;
 }
 
 /** ¿Está disponible para vender? (activo y con stock) */
@@ -301,7 +307,7 @@ export async function importarProductoDropi(tenantId: number, token: string, dro
   if (opts.curar !== false) {
     try {
       const { curarProducto } = await import("./curador-de-producto");
-      const bodega = (p as any).warehouse_product?.[0]?.warehouse?.city?.name || null;
+      const bodega = bodegaDe(p);
       ficha = await curarProducto(tenantId, {
         id: Number(p.id), nombre: String(p.name || ""), descripcionHtml: p.description || "",
         atributos: (p as any).attributes || [], categoria: p.categories?.[0]?.name || null,
@@ -323,7 +329,7 @@ export async function importarProductoDropi(tenantId: number, token: string, dro
     dropiCost: Number(p.sale_price) || null,
     dropiType: p.type || null,
     dropiVariations: Array.isArray(p.variations) ? p.variations.map((v: any) => ({ id: v.id, stock: v.stock, attributes: v.attribute_values || v.attributes || v.name })) : [],
-    dropiBodega: (p as any).warehouse_product?.[0]?.warehouse?.city?.name || null,
+    dropiBodega: bodegaDe(p),
     imageUrls,
     imagenes: imageUrls,
     dropiRevisadoEn: new Date().toISOString(),

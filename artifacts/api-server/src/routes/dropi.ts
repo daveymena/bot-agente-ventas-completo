@@ -85,14 +85,14 @@ router.get("/buscar", async (req: any, res: any) => {
     const propios = await db.select({ id: products.id, metadata: products.metadata }).from(products).where(eq(products.tenantId, tenantId));
     const importados = new Map<number, number>();
     for (const p of propios as any[]) { try { const m = typeof p.metadata === "string" ? JSON.parse(p.metadata) : p.metadata; if (m?.dropiProductId) importados.set(Number(m.dropiProductId), p.id); } catch { /* nada */ } }
-    const { fotosDe, stockDe, proveedorDe } = await import("../lib/dropi-directo");
+    const { fotosDe, stockDe, proveedorDe, bodegaDe } = await import("../lib/dropi-directo");
     res.json({
       ok: true,
       ...(String(req.query.raw || "") === "1" ? { crudo: (r.data || []).slice(0, 2) } : {}),
       productos: (r.data || []).map((p) => ({
         id: p.id, nombre: p.name, precioSugerido: p.suggested_price ?? null, costo: p.sale_price ?? null, stock: stockDe(p),
         proveedor: proveedorDe(p).nombre, categoria: p.categories?.[0]?.name || null, foto: fotosDe(p)[0] || null, tipo: p.type || null,
-        bodega: (p as any).warehouse_product?.[0]?.warehouse?.city?.name || null,
+        bodega: bodegaDe(p),
         importadoComo: importados.get(Number(p.id)) || null,
       })),
     });
@@ -133,6 +133,37 @@ router.post("/verificar", async (req: any, res: any) => {
     const vinculo = await vincularCatalogoDeWoo(tenantId).catch(() => ({ vinculados: 0, sinDato: 0 }));
     const r = await verificarDisponibilidadDropi(tenantId, token);
     res.json({ ok: true, vinculo, ...r });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+/** POST /api/dropi/lanzar/:productId — paquete de lanzamiento (corre en segundo plano). */
+router.post("/lanzar/:productId", async (req: any, res: any) => {
+  try {
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ error: "No autenticado" });
+    const productId = Number(req.params.productId);
+    if (!productId) return res.status(400).json({ ok: false, error: "productId inválido" });
+    const { lanzarProducto } = await import("../lib/lanzamiento");
+    void lanzarProducto(tenantId, productId, { presupuestoDiario: Number(req.body?.presupuestoDiario) || null, conAnuncio: req.body?.conAnuncio !== false, forzar: !!req.body?.forzar })
+      .catch((e) => logger.error({ productId, err: e?.message }, "[Lanzamiento] falló"));
+    res.json({ ok: true, enMarcha: true, mensaje: "Lanzamiento en marcha (2-5 min). El resumen llega por WhatsApp; también se ve en GET /api/dropi/lanzamiento/:productId." });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+router.get("/lanzamiento/:productId", async (req: any, res: any) => {
+  try {
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ error: "No autenticado" });
+    const { db, products } = await import("@workspace/db");
+    const { and, eq } = await import("drizzle-orm");
+    const [p] = await db.select().from(products).where(and(eq(products.id, Number(req.params.productId)), eq(products.tenantId, tenantId))).limit(1);
+    if (!p) return res.status(404).json({ ok: false, error: "Producto no encontrado" });
+    let m: any = {}; try { m = typeof (p as any).metadata === "string" ? JSON.parse((p as any).metadata) : ((p as any).metadata || {}); } catch { /* nada */ }
+    res.json({ ok: true, lanzamiento: m?.lanzamiento || null, curado: m?.curado || null });
   } catch (error: any) {
     res.status(500).json({ ok: false, error: error.message });
   }

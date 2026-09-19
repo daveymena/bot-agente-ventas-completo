@@ -440,7 +440,7 @@ export function estadoDeGeneracion(l: any): { estado: "generando" | "lista" | "f
   };
 }
 
-function lanzarGeneracionDeLandingEnSegundoPlano(
+export function lanzarGeneracionDeLandingEnSegundoPlano(
   ctx: OperatorContext,
   job: { landingId: number; slug: string; product: any; instruccion: string; familia: string | null },
 ): void {
@@ -4709,6 +4709,37 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   },
   // ── 📦 DROPI (dropshipping) ────────────────────────────────────────────────
   {
+    name: "lanzar_producto",
+    description:
+      "PAQUETE DE LANZAMIENTO completo de un producto, automático: cura la ficha si vino de Dropi, crea y publica la landing con el brief del modelo (dropshipping/digital/servicio), " +
+      "redacta copies revisados (WhatsApp, 3 ganchos, Meta, guion de video) y deja el anuncio en BORRADOR (nada sale a Meta ni gasta sin aprobación). Tarda 2-5 minutos; avisa por WhatsApp al terminar. " +
+      "Úsala cuando el admin diga 'lanza/promociona/vende X' o pida landing+copy+anuncio de un producto. Crea datos → requiere confirmación.",
+    args: '{ "productId": number (req), "presupuestoDiario": number (opcional, COP), "conAnuncio": boolean (opcional, por defecto true), "forzar": boolean (opcional: regenerar aunque exista) }',
+    run: async (args, ctx) => {
+      const id = num(args?.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'." };
+      const { lanzarProducto } = await import("./lanzamiento");
+      // Corre en segundo plano: el turno del operador no puede esperar 4 minutos.
+      void lanzarProducto(ctx.tenantId, id, { presupuestoDiario: num(args?.presupuestoDiario) || null, conAnuncio: args?.conAnuncio !== false, forzar: !!args?.forzar, sessionId: ctx.sessionId })
+        .catch((e) => logger.error({ productId: id, err: e?.message }, "[Lanzamiento] falló"));
+      return { ok: true, summary: `🚀 Lanzamiento del producto ${id} en marcha: ficha → landing → copies → anuncio en borrador. Tarda 2-5 minutos; el resumen con enlaces llega por WhatsApp. Para consultarlo: lanzamiento_estado con productId ${id}.` };
+    },
+  },
+  {
+    name: "lanzamiento_estado",
+    description: "Lee el paquete de lanzamiento de un producto (landing, copies, anuncio, pendientes). Lectura pura.",
+    args: '{ "productId": number (req) }',
+    run: async (args, ctx) => {
+      const id = num(args?.productId) || 0;
+      if (!id) return { ok: false, summary: "Falta 'productId'." };
+      const [p] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
+      if (!p) return { ok: false, summary: `No existe el producto ${id}.` };
+      let m: any = {}; try { m = typeof (p as any).metadata === "string" ? JSON.parse((p as any).metadata) : ((p as any).metadata || {}); } catch { /* nada */ }
+      if (!m?.lanzamiento) return { ok: false, summary: `El producto ${id} todavía no tiene paquete de lanzamiento (lanzar_producto).` };
+      return { ok: true, summary: m.lanzamiento.resumen, data: m.lanzamiento };
+    },
+  },
+  {
     name: "dropi_conectar",
     description: "Guarda y prueba el token de INTEGRACIÓN de Dropi de este negocio (Dropi → Mis Integraciones → token). Con él el bot trae el catálogo y crea los pedidos DIRECTO en Dropi, sin WooCommerce. Requiere confirmación.",
     args: '{ "token": string (req) }',
@@ -7162,6 +7193,7 @@ export const DESTRUCTIVE_TOOLS = new Set([
   "pedido_cancelar",
   "dropi_conectar",
   "dropi_importar",
+  "lanzar_producto",
   "dropi_verificar_disponibilidad",
   // Crear un píxel deja un objeto PERMANENTE en la cuenta de Meta del negocio
   // y duplicarlo parte los datos de conversión en dos -- nunca sin el sí.
