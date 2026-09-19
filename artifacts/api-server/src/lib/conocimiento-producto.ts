@@ -365,12 +365,17 @@ export function tieneConocimiento(productId: number | null): boolean {
   return !!productId && CATALOGO.some((c) => c.productId === productId);
 }
 
+// Sin 👇: la aduana de promesas (promesas.ts, SEÑALA_ABAJO) lee "Te cuento 👇"
+// como "viene una ficha abajo", y como el conocimiento sale sin ficha la
+// daba por incumplida: borraba la apertura y aplanaba la respuesta entera a
+// una línea (medido el 18-09-2026). La respuesta ya viene abajo en el mismo
+// mensaje; no hace falta señalarla.
 const APERTURAS = [
   "Claro que sí 😊",
   "Con gusto 😊",
-  "Te cuento 👇",
-  "Mira 👇",
-  "Claro 👇",
+  "Te cuento:",
+  "Claro, mira:",
+  "Sí, te cuento 😊",
   "De una 😊",
 ];
 

@@ -101,4 +101,14 @@ describe("presentación al estilo Meta", () => {
     // Afirmado sí promete (y si no sale la ficha, se quita).
     expect(promesasDe("Te paso el precio aquí abajo.")).toContain("precio");
   });
+
+  it("quitar una promesa no aplana la respuesta: los renglones se conservan", async () => {
+    const { sinLaPromesa } = await import("../promesas");
+    const texto = ["Mira 👇", "", "🎹 *CONTENIDO DEL CURSO DE PIANO*", "", "Son 19 módulos en video HD, en 4 bloques:", "", "🎼 Formación musical: escalas y acordes.", "🎵 Música actual: pop y jazz.", "", "¿Te gustaría empezar hoy mismo? ⚡"].join("\n");
+    const limpio = sinLaPromesa(texto, ["ficha"]);
+    expect(limpio).not.toContain("👇");
+    expect(limpio.split("\n").length).toBeGreaterThanOrEqual(7);
+    expect(limpio).toContain("🎼 Formación musical: escalas y acordes.\n🎵 Música actual: pop y jazz.");
+    expect(limpio.startsWith("🎹 *CONTENIDO DEL CURSO DE PIANO*")).toBe(true);
+  });
 });

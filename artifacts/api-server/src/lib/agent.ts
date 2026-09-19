@@ -4577,7 +4577,12 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             .map((l) => sinElMontoQueVaEnLaFicha(l).trim())
             .filter(Boolean)[0] || "";
           const primeraFrase = saludo.split(/(?<=[.!])\s+/)[0] || "";
-          (parte as any).content = primeraFrase.length <= 160 ? primeraFrase : "";
+          // Un saludo no trae cifras ni datos del producto. "Ideal para
+          // aprender desde cero, 30 lecciones en video HD" (medido 18-09,
+          // con 30 lecciones inventadas) no es un saludo: es la ficha del
+          // modelo colada, y la ficha real viene debajo. Se descarta.
+          const pareceDato = /\d|\b(m[oó]dulos?|lecciones?|clases?|horas?|video|acceso|drive|entrega|descarg\w*|incluye|partituras?)\b/i.test(primeraFrase);
+          (parte as any).content = primeraFrase.length <= 160 && !pareceDato ? primeraFrase : "";
         }
         for (let i = finalParts.length - 1; i >= 0; i--) {
           if (finalParts[i].kind === "text" && !(finalParts[i] as any).content) finalParts.splice(i, 1);

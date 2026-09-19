@@ -180,21 +180,31 @@ export function sinLaPromesa(texto: string, incumplidas: Promesa[]): string {
   // roto, y es lo primero que el cliente lee" -- reaparecido por otra puerta.
   // El corte exige que tras el punto NO venga un dígito: "$60.000" se partía
   // en "$60." + "000" y salía "$60. 000" (medido 13-09-2026, curso de inglés).
-  const frases = String(texto).split(/(?<=[.!?])(?!\d)\s*|\n+/);
-  const quedan = frases.filter((f) => {
-    if (!f || !f.trim()) return false;
-    const p = promesasDe(f);
-    return !p.some((x) => incumplidas.includes(x));
+  //
+  // ── Se conservan los saltos de línea ──────────────────────────────────
+  //
+  // Esto partía por frase Y por salto, y volvía a unir todo con un espacio:
+  // una respuesta de conocimiento de doce renglones (título, bloques con
+  // emoji, cierre) salía como UN párrafo corrido por culpa de una apertura
+  // "Te cuento 👇" que se leía como promesa. Medido el 18-09-2026 en 2 de 4
+  // corridas del guion de Meta. Se filtra frase por frase DENTRO de cada
+  // línea, y las líneas se vuelven a unir como estaban.
+  const sinPromesa = (f: string) => !promesasDe(f).some((x) => incumplidas.includes(x));
+  const lineas = String(texto).split(/\r?\n/).map((linea) => {
+    if (!linea.trim()) return "";
+    const frases = linea.split(/(?<=[.!?])(?!\d)\s*/).filter((f) => f && f.trim());
+    return frases
+      .filter(sinPromesa)
+      .join(" ")
+      .replace(/[ \t]+/g, " ")
+      // Por si el texto original ya traía el signo separado, o queda un signo de
+      // apertura huérfano al descartar la frase que lo seguía.
+      .replace(/([¡¿])\s+/g, "$1")
+      .replace(/\s+([,.;:!?])/g, "$1")
+      .replace(/[¡¿]\s*$/g, "")
+      .trim();
   });
-  return quedan
-    .join(" ")
-    .replace(/\s+/g, " ")
-    // Por si el texto original ya traía el signo separado, o queda un signo de
-    // apertura huérfano al descartar la frase que lo seguía.
-    .replace(/([¡¿])\s+/g, "$1")
-    .replace(/\s+([,.;:!?])/g, "$1")
-    .replace(/[¡¿]\s*$/g, "")
-    .trim();
+  return lineas.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
 /**
