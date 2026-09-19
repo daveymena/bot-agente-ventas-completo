@@ -47,6 +47,14 @@ import { sanearHtmlDeLanding } from "./sanear-html";
  *   ollama_cloud → ollama.com (OLLAMA_CLOUD_API_KEY)
  */
 const PROVEEDORES = ["deepseek", "opencode", "groq", "openrouter", "ollama_local", "ollama_cloud"] as const;
+/**
+ * Orden "gratuitos primero" para trabajos que no ameritan gastar DeepSeek
+ * (curar fichas de producto, clasificar, resumir). DeepSeek queda al final
+ * como red. Pedido del dueño (19-09): "iniciado por el de GitHub Copilot /
+ * OpenCode y los demás free, para no gastar el de DeepSeek que es el del
+ * sistema".
+ */
+export const ORDEN_GRATUITOS_PRIMERO = ["opencode", "github_copilot_internal", "groq", "openrouter", "cerebras", "ollama_local", "ollama_cloud", "deepseek"] as const;
 /** Cuántos modelos distintos se prueban por proveedor gratuito antes de pasar al siguiente. */
 const MODELOS_POR_PROVEEDOR = 2;
 
@@ -72,12 +80,12 @@ async function modelosDelProveedor(proveedor: string, config: any): Promise<stri
   }
 }
 
-async function candidatos(tenantId: number): Promise<Candidato[]> {
+async function candidatos(tenantId: number, orden: readonly string[] = PROVEEDORES): Promise<Candidato[]> {
   const { getProviderConfig } = await import("@workspace/integrations-openai-ai-server");
   const { clavesDelTenant, configDelTenant } = await import("../ai-keys-tenant");
   const claves = await clavesDelTenant(tenantId).catch(() => null);
   const out: Candidato[] = [];
-  for (const proveedor of PROVEEDORES) {
+  for (const proveedor of orden) {
     let config: any = null;
     try { config = (await configDelTenant(tenantId, proveedor, claves || undefined))?.config || null; } catch { /* sigue */ }
     if (!config?.apiKey) { try { config = getProviderConfig(proveedor as any); } catch { config = null; } }
@@ -96,6 +104,12 @@ export interface EntradaRedaccion {
   user: string;
   timeoutMs?: number;
   maxTokens?: number;
+  /** Orden de proveedores; por defecto el de landings (DeepSeek al frente). */
+  orden?: readonly string[];
+  /** Qué cuenta como respuesta válida; por defecto "trae <html". */
+  validar?: (text: string) => boolean;
+  /** Etiqueta para el log. */
+  tarea?: string;
 }
 
 export interface SalidaRedaccion {
@@ -130,7 +144,9 @@ export async function redactarConProveedores(e: EntradaRedaccion): Promise<Salid
   // Tope total: el doble del tiempo pedido. Sin esto, seis candidatos a 90 s
   // cada uno son nueve minutos para un request que espera uno.
   const limite = Date.now() + (e.timeoutMs ?? 150_000) * 2;
-  for (const c of await candidatos(e.tenantId)) {
+  const validar = e.validar || ((t: string) => /<html[\s>]|<!doctype\s+html/i.test(t));
+  const tarea = e.tarea || "landing";
+  for (const c of await candidatos(e.tenantId, e.orden || PROVEEDORES)) {
     const { proveedor, modelo, config } = c;
     if (Date.now() > limite) { errores.push("se agotó el tiempo total de la cadena"); break; }
     try {
@@ -152,12 +168,12 @@ export async function redactarConProveedores(e: EntradaRedaccion): Promise<Salid
       // La validación ES la forma de "saber llamarlos": vacío, o sin HTML,
       // o un error disfrazado de respuesta → siguiente candidato.
       if (!text) { errores.push(`${proveedor}/${modelo}: vacío (finish:${fin})`); continue; }
-      if (!/<html[\s>]|<!doctype\s+html/i.test(text)) {
-        errores.push(`${proveedor}/${modelo}: no devolvió HTML (${text.slice(0, 80).replace(/\s+/g, " ")}…)`);
+      if (!validar(text)) {
+        errores.push(`${proveedor}/${modelo}: respuesta no válida (${text.slice(0, 80).replace(/\s+/g, " ")}…)`);
         continue;
       }
-      if (fin === "length") logger.warn({ proveedor, modelo }, "[Landing] el HTML pudo quedar cortado (finish:length)");
-      console.log(`🧠 [LANDING] HTML redactado por ${proveedor}/${modelo} en ${Date.now() - t0}ms`);
+      if (fin === "length") logger.warn({ proveedor, modelo, tarea }, "[IA] la respuesta pudo quedar cortada (finish:length)");
+      console.log(`🧠 [IA:${tarea}] respondió ${proveedor}/${modelo} en ${Date.now() - t0}ms`);
       return { text, proveedor, modelo };
     } catch (err: any) {
       errores.push(`${proveedor}/${modelo}: ${String(err?.message || err).slice(0, 160)}`);

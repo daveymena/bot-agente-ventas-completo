@@ -4755,7 +4755,8 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       if (!id) return { ok: false, summary: "Falta 'dropiProductId'." };
       const r = await importarProductoDropi(ctx.tenantId, token, id, { precio: num(args?.price) || null, categoria: args?.categoria ? String(args.categoria) : null });
       if (!r.ok) return { ok: false, summary: r.error || "No se pudo importar." };
-      return { ok: true, summary: r.yaExistia ? `♻️ "${r.nombre}" ya estaba (id ${r.productId}): se actualizó stock, fotos y proveedor.` : `✅ Importado "${r.nombre}" (id ${r.productId}). El bot ya lo vende y los pedidos van directo a Dropi.`, data: r };
+      const cur = r.curadoPor ? ` Ficha organizada por ${r.curadoPor}${r.complementadoDesde?.length ? ` (complementada desde ${r.complementadoDesde.length} tienda(s))` : ""}.` : " (sin curación por IA: quedó la limpieza básica).";
+      return { ok: true, summary: (r.yaExistia ? `♻️ "${r.nombre}" ya estaba (id ${r.productId}): se actualizó ficha, stock, fotos y proveedor.` : `✅ Importado "${r.nombre}" (id ${r.productId}). El bot ya lo vende y los pedidos van directo a Dropi.`) + cur, data: r };
     },
   },
   {

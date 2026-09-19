@@ -271,21 +271,49 @@ export function disponible(p: ProductoDropi | null | undefined): { ok: boolean; 
 
 // ─── Importar al catálogo del bot ───────────────────────────────────────────
 
-export interface ResultadoImportacion { ok: boolean; productId?: number; yaExistia?: boolean; error?: string; nombre?: string }
+export interface ResultadoImportacion { ok: boolean; productId?: number; yaExistia?: boolean; error?: string; nombre?: string; curadoPor?: string; complementadoDesde?: string[] }
 
 /**
  * Trae un producto de Dropi al catálogo del negocio. Si ya estaba (mismo
  * dropiProductId), actualiza stock/fotos/proveedor y no duplica. El precio
  * de venta lo decide el dueño; si no lo pasa, se usa el sugerido por Dropi.
  */
-export async function importarProductoDropi(tenantId: number, token: string, dropiId: number, opts: { precio?: number | null; categoria?: string | null } = {}): Promise<ResultadoImportacion> {
+export async function importarProductoDropi(tenantId: number, token: string, dropiId: number, opts: { precio?: number | null; categoria?: string | null; curar?: boolean } = {}): Promise<ResultadoImportacion> {
   const r = await detalleProductoDropi(token, dropiId);
   if (!r.ok || !r.data) return { ok: false, error: `No se pudo leer el producto ${dropiId} en Dropi: ${r.error}` };
   const p = r.data;
   const precio = Number(opts.precio) || Number(p.suggested_price) || Number(p.sale_price) || 0;
   if (!precio) return { ok: false, error: "El producto no trae precio sugerido; pasá un precio de venta." };
-  const imageUrls = fotosDe(p);
   const prov = proveedorDe(p);
+
+  // ── Fotos sin repetidas POR CONTENIDO ──────────────────────────────────
+  // Dropi suele traer la misma foto bajo varias URLs; se comparan los bytes.
+  let imageUrls = fotosDe(p);
+  try {
+    const { fotosUnicasDelProducto } = await import("./fotos-de-producto");
+    imageUrls = await fotosUnicasDelProducto({ imageUrl: imageUrls[0] || null, metadata: { imagenes: imageUrls } }, { max: 12, timeoutMs: 6000 });
+  } catch { /* se usan tal cual */ }
+
+  // ── Curación con IA (gratuitos primero; DeepSeek al final) ─────────────
+  // Ver lib/curador-de-producto.ts: ficha para el comprador, sin frases de
+  // proveedor ni inventos; si la info es escasa busca en otras tiendas.
+  let ficha: import("./curador-de-producto").FichaCurada | null = null;
+  if (opts.curar !== false) {
+    try {
+      const { curarProducto } = await import("./curador-de-producto");
+      const bodega = (p as any).warehouse_product?.[0]?.warehouse?.city?.name || null;
+      ficha = await curarProducto(tenantId, {
+        id: Number(p.id), nombre: String(p.name || ""), descripcionHtml: p.description || "",
+        atributos: (p as any).attributes || [], categoria: p.categories?.[0]?.name || null,
+        proveedor: prov.nombre, bodegaCiudad: bodega, costo: Number(p.sale_price) || null,
+        precioSugerido: Number(p.suggested_price) || null, stock: stockDe(p),
+        variaciones: Array.isArray(p.variations) ? p.variations : [],
+      });
+    } catch (e: any) {
+      logger.warn({ dropiId, err: e?.message }, "[DropiDirecto] la curación falló; se importa con la limpieza básica");
+    }
+  }
+
   const dropi = {
     source: "dropi",
     dropiProductId: Number(p.id),
@@ -295,9 +323,16 @@ export async function importarProductoDropi(tenantId: number, token: string, dro
     dropiCost: Number(p.sale_price) || null,
     dropiType: p.type || null,
     dropiVariations: Array.isArray(p.variations) ? p.variations.map((v: any) => ({ id: v.id, stock: v.stock, attributes: v.attribute_values || v.attributes || v.name })) : [],
+    dropiBodega: (p as any).warehouse_product?.[0]?.warehouse?.city?.name || null,
     imageUrls,
+    imagenes: imageUrls,
     dropiRevisadoEn: new Date().toISOString(),
+    ...(ficha ? { curado: { por: ficha.curadoPor || null, en: new Date().toISOString(), beneficioPrincipal: ficha.beneficioPrincipal, copyWhatsapp: ficha.copyWhatsapp, preguntasFrecuentes: ficha.preguntasFrecuentes, complementadoDesde: ficha.complementadoDesde } } : {}),
   };
+  const nombreFinal = ficha?.nombre || String(p.name || `Producto Dropi ${p.id}`);
+  const descripcionFinal = ficha?.descripcion || customerProductCopy(p.description, String(p.name || ""));
+  const featuresFinal = ficha?.caracteristicas || [];
+  const categoriaFinal = opts.categoria || ficha?.categoria || p.categories?.[0]?.name || "Dropshipping";
 
   // ¿Ya estaba? (mismo producto de Dropi en este negocio)
   const existentes = await db.select().from(products).where(eq(products.tenantId, tenantId));
@@ -308,26 +343,29 @@ export async function importarProductoDropi(tenantId: number, token: string, dro
     const m = (() => { try { return typeof previo.metadata === "string" ? JSON.parse(previo.metadata) : (previo.metadata || {}); } catch { return {}; } })();
     await db.update(products).set({
       metadata: JSON.stringify({ ...m, ...dropi }),
-      imageUrl: previo.imageUrl || imageUrls[0] || null,
+      imageUrl: imageUrls[0] || previo.imageUrl || null,
+      // Si se curó, la ficha nueva reemplaza a la vieja (era el crudo del proveedor).
+      ...(ficha ? { name: nombreFinal, description: descripcionFinal, features: featuresFinal, category: categoriaFinal } : {}),
       isActive: disponible(p).ok ? previo.isActive : false,
     } as any).where(eq(products.id, previo.id));
-    return { ok: true, productId: previo.id, yaExistia: true, nombre: previo.name };
+    return { ok: true, productId: previo.id, yaExistia: true, nombre: nombreFinal, curadoPor: ficha?.curadoPor, complementadoDesde: ficha?.complementadoDesde };
   }
 
   const [creado] = await db.insert(products).values({
     tenantId,
-    name: String(p.name || `Producto Dropi ${p.id}`),
-    description: customerProductCopy(p.description, String(p.name || "")),
+    name: nombreFinal,
+    description: descripcionFinal,
+    features: featuresFinal,
     price: String(precio),
     currency: "COP",
-    category: opts.categoria || p.categories?.[0]?.name || "Dropshipping",
+    category: categoriaFinal,
     kind: "physical",
     isActive: disponible(p).ok,
     imageUrl: imageUrls[0] || null,
     metadata: JSON.stringify(dropi),
   } as any).returning();
-  logger.info({ tenantId, productId: (creado as any).id, dropiId: p.id }, "[DropiDirecto] Producto importado");
-  return { ok: true, productId: (creado as any).id, nombre: (creado as any).name };
+  logger.info({ tenantId, productId: (creado as any).id, dropiId: p.id, curadoPor: ficha?.curadoPor || null }, "[DropiDirecto] Producto importado");
+  return { ok: true, productId: (creado as any).id, nombre: (creado as any).name, curadoPor: ficha?.curadoPor, complementadoDesde: ficha?.complementadoDesde };
 }
 
 // ─── Crear el pedido directo en Dropi ───────────────────────────────────────

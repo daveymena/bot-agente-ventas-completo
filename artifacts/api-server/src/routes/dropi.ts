@@ -114,7 +114,7 @@ router.post("/importar", async (req: any, res: any) => {
     for (const it of items.slice(0, 50)) {
       const id = Number(it?.dropiProductId);
       if (!id) continue;
-      resultados.push({ dropiProductId: id, ...(await importarProductoDropi(tenantId, token, id, { precio: Number(it?.precio) || null })) });
+      resultados.push({ dropiProductId: id, ...(await importarProductoDropi(tenantId, token, id, { precio: Number(it?.precio) || null, curar: req.body?.curar !== false })) });
     }
     res.json({ ok: resultados.every((r) => r.ok), resultados });
   } catch (error: any) {
