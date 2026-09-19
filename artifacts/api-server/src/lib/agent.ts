@@ -4622,7 +4622,17 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
       if (seccionAdjunta && SE_BASTA_SOLA.has(String(seccionAdjunta))) {
         for (const parte of finalParts) {
           if (parte.kind !== "text" || !(parte as any).content) continue;
-          const original = String((parte as any).content);
+          // Sin viñetas ni títulos: a "Precio" el modelo mandaba la ficha entera
+          // otra vez (título, 5 viñetas) y encima salía la sección con el
+          // precio (reproducido en producción el 19-09-2026). Las líneas de
+          // lista no tienen punto final, así que el corte por frases de abajo
+          // las dejaba enteras.
+          const original = String((parte as any).content)
+            .split(/\r?\n/)
+            .filter((l) => !/^\s*(?:[•\-*]|\p{Extended_Pictographic})/u.test(l) && !/^\s*\*[^*]+\*\s*$/.test(l))
+            .join(" ")
+            .replace(/\s+/g, " ")
+            .trim();
           // ── Se descartan las frases del monto, no todo lo que venga después ─
           //
           // Antes esto se quedaba con la PRIMERA frase y tiraba el resto. Si

@@ -3163,8 +3163,25 @@ export class WhatsAppManager {
         console.log(`🃏 [WA-CARD] Enviando tarjeta de producto: ${product.name} (ID: ${part.productId}) - ${timestamp}`);
         
         try {
-          const dynamicLinks = await pg.getAllLinks(product, { phone, name: pushName });
-          console.log(`🔗 [WA-CARD] Enlaces generados - MercadoPago: ${!!dynamicLinks.mercadopago?.url}, PayPal: ${!!dynamicLinks.paypal?.url}, Transfer: ${dynamicLinks.transfer.options.length} - ${timestamp}`);
+          // ── Los links de pago NO pueden tumbar la ficha ──────────────────
+          //
+          // Demo del dueño (19-09-2026, conversación 165): el cliente escribió
+          // "Precio" y recibió solo la frase del modelo, sin el precio. La
+          // sección "precio" sí se había decidido; lo que puede fallar es
+          // generar el link de MercadoPago/PayPal (red, token vencido), y ese
+          // error caía en el catch de abajo y descartaba la tarjeta ENTERA.
+          // Ahora, si los links fallan, la ficha sale igual con las cuentas
+          // de transferencia que el negocio tiene cargadas.
+          let dynamicLinks: any;
+          try {
+            dynamicLinks = await pg.getAllLinks(product, { phone, name: pushName });
+          } catch (e: any) {
+            logger.error({ err: e?.message, productId: product.id }, "[WA-CARD] No se pudieron generar los links de pago; la ficha sale sin ellos");
+            let transfer: any = { options: [] };
+            try { transfer = (pg as any).getTransferInfo?.() || transfer; } catch { /* sin cuentas */ }
+            dynamicLinks = { transfer, mercadopago: null, paypal: null };
+          }
+          console.log(`🔗 [WA-CARD] Enlaces generados - MercadoPago: ${!!dynamicLinks.mercadopago?.url}, PayPal: ${!!dynamicLinks.paypal?.url}, Transfer: ${dynamicLinks.transfer?.options?.length ?? 0} - ${timestamp}`);
           
           // Solo la imagen REAL del producto. Si no la tiene, sendImage manda
           // el texto solo — nunca una foto de otro producto (ver sendImage).
@@ -3227,7 +3244,26 @@ export class WhatsAppManager {
           }
           console.log(`✅ [WA-CARD] Tarjeta enviada exitosamente para ${product.name} - ${timestamp}`);
         } catch (err: any) {
+          // Antes esto era un console.log y la tarjeta desaparecía sin rastro
+          // ni respaldo. Ahora se registra como error y se manda lo mínimo que
+          // responde la pregunta del cliente (el precio, el nombre), para que
+          // nunca se quede esperando una respuesta que no llega.
+          logger.error({ err: err?.message, productId: product.id, seccion: (part as any).seccion || null }, "[WA-CARD] Error enviando tarjeta; se manda el respaldo mínimo");
           console.log(`❌ [WA-CARD] Error enviando tarjeta para ${product.name}: ${err.message} - ${timestamp}`);
+          try {
+            const seccionFallida = String((part as any).seccion || "");
+            const precio = Number(product.price);
+            const precioTexto = Number.isFinite(precio) && precio > 0
+              ? `${product.currency === "USD" ? "USD " : "$"}${precio.toLocaleString("es-CO")}${product.currency && product.currency !== "USD" ? ` ${product.currency}` : ""}`
+              : "";
+            const respaldo =
+              seccionFallida === "precio" || seccionFallida === "pago" || seccionFallida === "pago_link" || seccionFallida === "pago_transferencia" || (part as any).paymentOnly
+                ? (precioTexto ? `💰 *${product.name}*: *${precioTexto}*${seccionFallida === "precio" ? "" : "\n\nDame un momento y te paso los datos de pago 🙏"}` : `Déjame confirmarte el precio exacto de *${product.name}* y te escribo enseguida 🙏`)
+                : `*${product.name}*\n\nDame un momento y te paso el detalle completo 🙏`;
+            await this.sendText(phone, respaldo, originalJid);
+          } catch (e2: any) {
+            logger.error({ err: e2?.message }, "[WA-CARD] Tampoco salió el respaldo mínimo");
+          }
         }
       }
     }

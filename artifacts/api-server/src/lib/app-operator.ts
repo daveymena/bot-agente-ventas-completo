@@ -4373,11 +4373,8 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   {
     name: "landing_crear",
     description:
-      "Genera y GUARDA una landing page PROFESIONAL para un producto: un agente especializado (dropshipping, digital, servicio, físico) escribe el HTML completo con diseño premium, copy de respuesta directa y el checkout correcto; si ese generador falla, el servidor la arma igual con el generador por secciones (AIDA, fotos reales). " +
-      "La generación tarda 1 a 3 minutos y corre EN SEGUNDO PLANO: esta herramienta devuelve al instante el id de la landing NUEVA en estado 'generando'. " +
-      "USALA SIEMPRE que el admin pida una landing, página de venta o 'que se vea profesional'. Queda en BORRADOR: para la URL pública, landing_publicar. ⚠️ Va por propose_action. " +
-      "⚠️ NUNCA presentes una landing anterior (de landing_listar o de tu memoria) como si fuera la que acabás de pedir: la nueva es la del id que devuelve ESTA herramienta, y hasta que landing_estado diga 'lista' no existe nada para mostrar.",
-    args: '{ "productId": number (req), "instruccion"?: string (opcional), "familia"?: string (estilo visual: premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch, electronica, suplemento, gourmet) }',
+      "Genera y guarda una landing profesional para un producto (agente premium + respaldo por secciones). Corre EN SEGUNDO PLANO: devuelve al instante el id NUEVO en estado generando; hasta que landing_estado diga lista no muestres ni describas ninguna landing (menos una vieja). Queda en borrador; publicar: landing_publicar. ⚠️ Va por propose_action.",
+    args: '{ "productId": number (req), "instruccion"?: string, "familia"?: string (estilo: premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch, electronica, suplemento, gourmet) }',
     run: async (args, ctx) => {
       const id = num(args?.productId);
       if (!id) return { ok: false, summary: "Falta 'productId'." };
@@ -4429,8 +4426,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   {
     name: "landing_estado",
     description:
-      "Lee el estado de una landing que se está generando (o la última generada en esta conversación): 'generando', 'lista' (con el enlace de vista previa) o 'fallo' (con el motivo). " +
-      "Usala al principio del turno cuando el admin vuelve a escribir después de pedir una landing. Lectura pura.",
+      "Estado de una landing (o la última): generando, lista (con vista previa) o fallo (con motivo). Usala al principio del turno si el admin pidió una landing o un cambio antes. Lectura pura.",
     args: '{ "id"?: number }',
     run: async (args, ctx) => {
       const { landingPages } = await import("@workspace/db");
@@ -4447,10 +4443,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   {
     name: "landing_editar",
     description:
-      "Edita una landing YA creada con una instrucción en lenguaje natural del admin ('hacé el hero más directo', 'agregá una FAQ sobre tallas', " +
-      "'cambiá el botón a Pedir ahora', 'quitá la comparación', 'poné estilo belleza'). En landings por secciones el cambio se aplica al instante; " +
-      "en landings con diseño propio (HTML completo, las que arma el generador premium) la página se reescribe en segundo plano (1 a 3 min) y hasta que " +
-      "landing_estado diga 'lista' la URL muestra la versión anterior: NUNCA digas que ya cambió antes de eso. No inventa datos ni toca las fotos. ⚠️ Va por propose_action.",
+      "Edita una landing con una instrucción del admin (textos, secciones, botón, estilo). Por secciones: al instante. Con diseño propio (HTML): se reescribe en segundo plano (1-3 min) y hasta que landing_estado diga lista la URL muestra la versión anterior; NUNCA digas que ya cambió antes. No inventa datos. ⚠️ Va por propose_action.",
     args: '{ "id": number (req), "instruccion": string (req, con las palabras del admin) }',
     run: async (args, ctx) => {
       // El modelo escribe `id`, `landingId` o `landing`; y la instrucción como
@@ -6321,9 +6314,8 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   {
     name: "dropi_verificar_producto",
     description:
-      "Pregunta a Dropi (API de integraciones, con el token que Dropify dejó en Woo) si un producto sigue disponible para despacho: disponible, archivado por el proveedor, sin stock, o desconocido. " +
-      "Usala antes de prometer un despacho o cuando el admin pregunte 'por qué Dropi rechazó el pedido'. Devuelve también la respuesta cruda de Dropi. Lectura pura.",
-    args: '{ "productId"?: number (id del producto en ESTA tienda), "wooProductId"?: number (id del producto en WooCommerce; uno de los dos) }',
+      "Pregunta a Dropi si un producto sigue despachable: disponible, archivado por el proveedor, sin stock o desconocido (con la respuesta cruda). Lectura pura.",
+    args: '{ "productId"?: number (id en esta tienda), "wooProductId"?: number (id en WooCommerce) }',
     run: async (args, ctx) => {
       const { getWooCommerceService } = await import("./woocommerce");
       const woo = await getWooCommerceService(ctx.tenantId).catch(() => null);
@@ -6353,8 +6345,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   {
     name: "dropi_revisar_catalogo",
     description:
-      "Revisa en Dropi TODOS los productos del catálogo que vienen de Dropi y DESACTIVA los que el proveedor archivó o agotó (y reactiva los que esta misma revisión apagó si volvieron). " +
-      "Es lo que corre solo cada 6 horas; usala cuando el admin quiera revisarlo ya. ⚠️ Cambia el catálogo: va por propose_action.",
+      "Revisa en Dropi todos los productos del catálogo que vienen de Dropi y desactiva los archivados o agotados (corre solo cada 6 h). ⚠️ Cambia el catálogo: propose_action.",
     args: "{}",
     run: async (_args, ctx) => {
       const { sincronizarDisponibilidadDropi } = await import("./dropi-disponibilidad");
@@ -6785,8 +6776,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   {
     name: "agente_reentrenar_ver",
     description:
-      "Muestra qué haría REENTRENAR al vendedor de WhatsApp desde cero: cuántas lecciones automáticas se borrarían, a qué agentes se les pone el prompt base (el flujo del agente de Meta que el dueño aprobó) y qué conocimiento base se siembra (piano, IA 2026, pago único, comprobante). " +
-      "Lectura pura: no cambia nada. Usala ANTES de agente_reentrenar y mostrale el resumen al admin.",
+      "Muestra qué haría reentrenar al vendedor de WhatsApp desde cero (lecciones automáticas a borrar, agentes que reciben el prompt base, conocimiento a sembrar). Lectura pura; usala antes de agente_reentrenar.",
     args: "{}",
     run: async (_args, ctx) => {
       const { planDeReentrenamiento } = await import("./reentrenar-agente");
@@ -6797,9 +6787,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   {
     name: "agente_reentrenar",
     description:
-      "REENTRENA al vendedor de WhatsApp desde cero (pedido del dueño, 18-09-2026): borra las lecciones automáticas que el bot acumuló solo, reemplaza el prompt de los agentes activos por el prompt base (flujo del agente de Meta: presentación sin precio → precio al pedirlo → medios de pago → comprobante → entrega; 100% digital, sin certificados ni suscripciones, nunca el creador, nunca confirmar pagos), vacía el prompt libre del negocio y siembra el conocimiento base de los cursos. " +
-      "NO borra conversaciones ni clientes ni lo que el admin cargó con agente_conocimiento_producto. Aplica en el próximo mensaje. " +
-      "⚠️ Va por propose_action y es un cambio grande: primero agente_reentrenar_ver y mostrá el resumen.",
+      "Reentrena al vendedor de WhatsApp desde cero: borra lecciones automáticas, pone el prompt base (flujo aprobado por el dueño) y siembra el conocimiento de los cursos. No toca conversaciones ni lo cargado a mano. ⚠️ Cambio grande: propose_action, y antes agente_reentrenar_ver.",
     args: "{}",
     run: async (_args, ctx) => {
       const { aplicarReentrenamiento } = await import("./reentrenar-agente");
