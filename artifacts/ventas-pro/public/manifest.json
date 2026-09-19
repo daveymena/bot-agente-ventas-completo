@@ -4,8 +4,8 @@
   "description": "Sistema completo de ventas automatizadas con agentes de IA, gestión de conversaciones y análisis en tiempo real",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#173A6D",
-  "theme_color": "#173A6D",
+  "background_color": "#4F46E5",
+  "theme_color": "#4F46E5",
   "orientation": "portrait-primary",
   "icons": [
     {
@@ -21,7 +21,7 @@
       "purpose": "any"
     },
     {
-      "src": "/icono-512.png",
+      "src": "/icono-512-maskable.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
