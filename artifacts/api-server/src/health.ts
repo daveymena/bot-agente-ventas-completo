@@ -57,9 +57,16 @@ const healthHandler = async (req: any, res: any) => {
     let dbOk = false;
     let dbError: string | null = null;
     try {
-      const { pool } = require("@workspace/db");
+      const { pool, db } = require("@workspace/db");
       if (pool && typeof pool.query === "function") {
         await pool.query("SELECT 1");
+        dbOk = true;
+      } else if (db && typeof db.get === "function") {
+        // Con USE_SQLITE `pool` es null (lib/db/src/index.ts) y el único
+        // handle es el drizzle de sql.js. Sin esta rama el demo de EasyPanel
+        // se reportaba "degradado · base-de-datos" con la base perfecta.
+        const { sql } = require("drizzle-orm");
+        await db.get(sql`select 1`);
         dbOk = true;
       }
     } catch (e: any) {

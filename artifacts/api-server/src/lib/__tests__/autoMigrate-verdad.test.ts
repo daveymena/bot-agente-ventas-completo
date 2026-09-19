@@ -72,6 +72,22 @@ describe("el health dice la verdad sobre la base", () => {
     expect(HEALTH).toContain('problemas.length === 0 ? "ok" : "degradado"');
   });
 
+  /**
+   * Con USE_SQLITE `pool` es null (lib/db/src/index.ts, `pool = null`), y el
+   * health solo sabía preguntar por `pool.query`: el demo de EasyPanel
+   * (2026-09-19) salía "degradado · base-de-datos" con la base perfecta.
+   * Mentir para el lado contrario también es mentir.
+   */
+  it("con SQLite pregunta al drizzle de sql.js, no da la base por caída", () => {
+    const desde = HEALTH.indexOf("¿Contesta la base?");
+    const hasta = HEALTH.indexOf("¿Y están las tablas?");
+    expect(desde).toBeGreaterThan(-1);
+    expect(hasta).toBeGreaterThan(desde);
+    const bloque = HEALTH.slice(desde, hasta);
+    expect(bloque).toContain("typeof db.get");
+    expect(bloque).toContain("db.get(sql`select 1`)");
+  });
+
   it("consulta las tablas de verdad", () => {
     expect(HEALTH).toContain("tablasFaltantes");
     expect(HEALTH).toContain("migracionesFallidas");
