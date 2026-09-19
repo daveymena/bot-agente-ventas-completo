@@ -6569,6 +6569,35 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   },
 
   {
+    name: "agente_reentrenar_ver",
+    description:
+      "Muestra qué haría REENTRENAR al vendedor de WhatsApp desde cero: cuántas lecciones automáticas se borrarían, a qué agentes se les pone el prompt base (el flujo del agente de Meta que el dueño aprobó) y qué conocimiento base se siembra (piano, IA 2026, pago único, comprobante). " +
+      "Lectura pura: no cambia nada. Usala ANTES de agente_reentrenar y mostrale el resumen al admin.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { planDeReentrenamiento } = await import("./reentrenar-agente");
+      const plan = await planDeReentrenamiento(ctx.tenantId);
+      return { ok: true, summary: plan.resumen, data: { lecciones: plan.lecciones.length, agentes: plan.agentes, conocimiento: plan.conocimiento.map((c) => c.pregunta), omitidas: plan.omitidas } };
+    },
+  },
+  {
+    name: "agente_reentrenar",
+    description:
+      "REENTRENA al vendedor de WhatsApp desde cero (pedido del dueño, 18-09-2026): borra las lecciones automáticas que el bot acumuló solo, reemplaza el prompt de los agentes activos por el prompt base (flujo del agente de Meta: presentación sin precio → precio al pedirlo → medios de pago → comprobante → entrega; 100% digital, sin certificados ni suscripciones, nunca el creador, nunca confirmar pagos), vacía el prompt libre del negocio y siembra el conocimiento base de los cursos. " +
+      "NO borra conversaciones ni clientes ni lo que el admin cargó con agente_conocimiento_producto. Aplica en el próximo mensaje. " +
+      "⚠️ Va por propose_action y es un cambio grande: primero agente_reentrenar_ver y mostrá el resumen.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { aplicarReentrenamiento } = await import("./reentrenar-agente");
+      const plan = await aplicarReentrenamiento(ctx.tenantId);
+      return {
+        ok: true,
+        summary: `✅ Vendedor reentrenado: ${plan.lecciones.length} lecciones borradas, prompt base en ${plan.agentes.map((a) => a.name).join(", ") || "ningún agente"}, ${plan.conocimiento.length} respuestas base cargadas${plan.omitidas.length ? ` (⚠️ ${plan.omitidas.join("; ")})` : ""}. Aplica desde el próximo mensaje de cualquier cliente.`,
+        data: { lecciones: plan.lecciones.length, agentes: plan.agentes, conocimiento: plan.conocimiento.length },
+      };
+    },
+  },
+  {
     name: "agente_conocimiento",
     description:
       "Agrega o quita cosas que el agente debe saber (loQueDebeSaber) y cosas que NO puede hacer (noPuede). " +
@@ -6871,6 +6900,8 @@ export const READ_ONLY_TOOLS = new Set([
   "fb_list_adsets", "fb_radiografia_campana", "anuncio_datos_expertos",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
   "dropi_status", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
+  // Leer el estado de una landing en generación y simular el reentrenamiento no cambian nada.
+  "landing_estado", "agente_reentrenar_ver",
   // Probar al vendedor crea una conversación de PRUEBA y no le escribe a nadie: es lectura.
   "agente_probar_chat",
   // Terabox: listar carpetas es lectura pura, no cambia nada.
@@ -6910,6 +6941,8 @@ export const READ_ONLY_TOOLS = new Set([
 ]);
 export const DESTRUCTIVE_TOOLS = new Set([
   "delete_product",
+  // Borra lo aprendido y reemplaza el prompt de los agentes: confirmación reforzada.
+  "agente_reentrenar",
   // fb_create_ad crea objetos reales en Meta y puede gastar al activarse → confirmación reforzada
   "fb_create_ad",
   // fb_page_publish es público e irreversible desde la app (borrar hay que
