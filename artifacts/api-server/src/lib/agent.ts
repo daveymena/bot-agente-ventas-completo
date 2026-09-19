@@ -1268,7 +1268,7 @@ export async function runAgentReply(conversationId: number) {
       const descStr = focus.description ? `\n${focus.description.substring(0, 1500)}` : "";
       const yaTieneLaFicha = memory.sentProductIds.has(focus.id);
       const notaFicha = yaTieneLaFicha
-        ? `\n(El cliente YA recibió la ficha de este producto: no la repitas ni la resumas entera. Si pide más detalle, explicale con tus palabras el punto concreto que pregunta, usando la descripción y características de arriba. No escribas [CARD] salvo que pida la ficha de nuevo.)`
+        ? `\n(El cliente YA recibió la ficha de este producto: no la repitas ni la resumas entera. Si pide más detalle, desarrollá el punto concreto que pregunta a partir de la descripción y características de arriba: qué significa, cómo se usa, qué logra. Lo que la ficha no dice —formato, plataforma, cantidad de videos, garantía, plazos— no lo afirmes. No escribas [CARD] salvo que pida la ficha de nuevo.)`
         : "";
       focusDetail = `\n\nPRODUCTO EN FOCO:\n[ID: ${focus.id}] *${focus.name}* — ${formatPrice(Number(focus.price), focus.currency)}${descStr}${featStr}${notaFicha}`;
     }
@@ -1315,7 +1315,7 @@ export async function runAgentReply(conversationId: number) {
     const enFoco = (productList as any[]).find((p: any) => p.id === memory.currentProductId);
     if (!enFoco) return "";
     const yaVio = memory.sentProductIds.has(enFoco.id);
-    return `\n\n[NOTA] Este cliente ya venía hablando de "${enFoco.name}"${yaVio ? " y YA recibió su ficha y el video" : ""}. Si saluda o pregunta algo general, retomá en una línea ("¿Seguimos con ${enFoco.name}?") sin volver a presentar el producto. Si pregunta un dato puntual, contestá solo ese dato en 1-2 frases.`;
+    return `\n\n[NOTA] Este cliente ya venía hablando de "${enFoco.name}"${yaVio ? " y YA recibió su ficha y el video" : ""}. Si saluda o pregunta algo general, retomá en una línea ("¿Seguimos con ${enFoco.name}?") sin volver a presentar el producto. Si pregunta un dato puntual (precio, plazo, un sí/no), contestá solo ese dato en 1-2 frases; si pide que le expliques o le desgloses algo, ahí sí extendete, con lo que la ficha dice.`;
   })();
   const notaDelSi = (() => {
     const t = String(lastText || "").trim();
@@ -1992,6 +1992,29 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
     }
     if (en.evitar.length) l.push(`- NO hagas en este turno: ${en.evitar.join(", ")}`);
     bloqueEntendido = l.join("\n") + "\n";
+  }
+  // ── "Explicame mejor X" con la ficha ya enviada: desglosar sin inventar ──
+  // Ver lib/desglose.ts: qué punto quiere entender, con qué material y qué
+  // NO puede afirmar. Medido 19-09: sin esto el modelo "desglosaba" con
+  // portal, PDFs y una garantía de 7 días que no existen.
+  try {
+    const { bloqueDeDesglose } = await import("./desglose");
+    const focoId = typeof memory.currentProductId === "number" ? memory.currentProductId : (entendimiento?.productoId ?? null);
+    const enFoco = focoId ? (productList as any[]).find((p: any) => p.id === focoId) : null;
+    if (enFoco && yaVioLaFicha(enFoco.id)) {
+      const bloqueDesglose = bloqueDeDesglose({
+        mensaje: lastText,
+        entendimiento,
+        productoConFichaEnviada: enFoco,
+        negocio: negocio as any,
+      });
+      if (bloqueDesglose) {
+        bloqueEntendido += bloqueDesglose;
+        console.log(`🧩 [DESGLOSE] El cliente pide entender mejor un punto de "${enFoco.name}" con la ficha ya enviada - ${ts()}`);
+      }
+    }
+  } catch (e: any) {
+    console.log(`⚠️ [DESGLOSE] No se pudo armar el bloque: ${e?.message} - ${ts()}`);
   }
 
   const engineContextBlock = `${decision.contextBlock}${playbook.bloque}\n\n${AdvancedIntelligence.generateIntelligentContext(
@@ -4941,6 +4964,32 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             if (inventadas.length > 0) {
               console.log(`📋 [FICHA] ${inventadas.length} linea(s) de temario que no estan en la ficha del producto ${(prodFicha as any).id}: se sacan - ${ts()}`);
               txt = sinElTemarioInventado(txt, prodFicha as any);
+            }
+
+            // Una garantía con días o porcentajes que nadie definió es una
+            // promesa que el negocio después no puede cumplir. Se quita la
+            // frase, no el mensaje (medido 19-09: "Garantía de 7 días, te
+            // devolvemos el 100 %" sobre un negocio sin garantía cargada).
+            {
+              const { garantiaInventada, sinLaGarantiaInventada, frasesDeFormatoInventado, sinElFormatoInventado, limpiarLineasVacias } = await import("./desglose");
+              // Portal, usuario y contraseña, PDFs, videos, módulos… solo si
+              // la ficha o el negocio lo dicen. El modelo lo repitió aun con
+              // la prohibición en el prompt (medido 19-09): se quita la frase.
+              const formato = frasesDeFormatoInventado(txt, prodFicha as any, negocio as any);
+              if (formato.length) {
+                console.log(`🛡️ [FICHA] ${formato.length} frase(s) afirmaban un formato/plataforma que ni el producto ${(prodFicha as any).id} ni el negocio definen: se quitan - ${ts()}`);
+                txt = sinElFormatoInventado(txt, prodFicha as any, negocio as any)
+                  || "Lo que te puedo asegurar es lo que dice la ficha; el detalle de cómo se entrega te lo confirmo con el equipo 🙌";
+              }
+              if (garantiaInventada(txt, prodFicha as any, negocio as any)) {
+                console.log(`🛡️ [FICHA] Afirmaba una garantía que ni el producto ${(prodFicha as any).id} ni el negocio definen: se quita la frase - ${ts()}`);
+                // Lo que queda sin la promesa suele ser relleno ("entiendo tu
+                // inquietud 😊", medido 19-09): se le suma la verdad, que es
+                // lo único útil que se puede decir de una garantía sin definir.
+                const restante = sinLaGarantiaInventada(txt);
+                const honesto = "Sobre la garantía puntual te confirmo con el equipo y te escribo 🙌";
+                txt = limpiarLineasVacias(/confirm|te escribo|con el equipo/i.test(restante) ? restante : [restante, honesto].filter(Boolean).join("\n\n"));
+              }
             }
 
             if (prometeEntregaFisica(txt, prodFicha as any)) {
