@@ -7333,6 +7333,13 @@ const FAMILIAS: Array<{ cuando: RegExp; prefijos: string[] }> = [
     prefijos: ["agent", "agente", "conversa", "lead", "whatsapp", "seguimiento", "followup"] },
   { cuando: /pago|cobr|nequi|transferen|suscripci|plan|factur/i, prefijos: ["payment", "pago", "subscription", "plan"] },
   { cuando: /modelo|ia\b|proveedor|clave|api key/i, prefijos: ["ai_", "test_ai", "model"] },
+  // ── Dropshipping: costo, flete, margen y pedidos de Dropi ─────────────
+  // "¿cuánto me sale en Dropi y cuánto le gano con el envío?" no caía en
+  // ninguna familia y, cuando caía en "producto", se iban las herramientas
+  // de Dropi. Medido 19-09-2026: Atlas contestó "me faltan el costo y el
+  // flete" teniendo dropi_margen disponible.
+  { cuando: /dropi|dropship|proveedor|flete|env[ií]o|margen|gan(o|a|ancia|amos)|cuesta|costo|me sale|recaudo|contraentrega|transportadora|gu[ií]a/i,
+    prefijos: ["dropi", "dropify", "pedido", "lanzar_producto", "lanzamiento", "product"] },
   // ── Métricas y plata: la pregunta más común no tenía familia ───────────
   //
   // "cómo van las ventas hoy" no caía en ninguna de las de arriba, así que
@@ -7670,15 +7677,22 @@ MONITOREO (cuando el admin pregunte "cómo va todo", "revisa el negocio", "por q
 - 🧾 Para una revisión integral usá también analyze_system + get_store + payment_status + fb_status: confirma catálogo, tienda, cobros y Meta antes de recomendar cambios.
 
 DROPSHIPPING CON DROPI (vender productos de proveedores sin tener stock):
-- 📦 dropi_status primero: si la IP del servidor no está autorizada te lo dice con la IP exacta
-  que hay que pedirle a Dropi que habilite. No sigas intentando si eso falla — reportá la IP.
-- 🔎 dropi_search_products para explorar el catálogo del proveedor; mostrale al admin nombre,
-  precio sugerido y stock, y dejá que él elija cuál importar y a qué precio venderlo.
-- ⬇️ dropi_import_product (vía propose_action) lo trae a ESTA tienda con su foto. A partir de ahí el bot lo vende
-  igual que cualquier producto propio.
-- 🚚 dropi_create_order (vía propose_action) SOLO cuando la venta ya esté cerrada y tengas nombre, teléfono y
-  dirección completos. Dispara un despacho real con cobro contra entrega: confirmación
-  obligatoria, y si falta algún dato pedilo antes en vez de inventarlo.
+- 🔑 El negocio tiene su PROPIO token de Dropi (panel → Dropi) y con él la API responde: catálogo,
+  detalle, pedidos reales, costo y flete. NUNCA digas que "Dropi rechaza el token" ni que "no podés
+  saber el costo o el margen": tenés herramientas para leerlo. Si no hay token → dropi_conectar.
+- 💰 dropi_margen cuando pregunten cuánto sale, cuánto se gana, el margen, el flete o cuánto pueden
+  pagar por venta: devuelve precio − costo del proveedor − flete con recaudo (promedio de pedidos
+  reales). Se puede simular otro precio con "precio". Llamala SIEMPRE antes de hablar de plata.
+- 🧾 dropi_pedidos para ver los pedidos reales en Dropi (estado, ciudad, cobrado, costo, flete,
+  transportadora, guía, ganancia). Un pedido "CANCELADO" ahí es que el admin lo canceló en Dropi.
+- 🔎 dropi_buscar para explorar el catálogo (nombre, precio sugerido, costo, stock, proveedor);
+  mostrale al admin y dejá que elija cuál importar y a qué precio.
+- ⬇️ dropi_importar lo trae a ESTA tienda con todas sus fotos, ficha curada por IA y categoría con
+  nombre real; el bot lo vende igual que un producto propio y los pedidos salen directo a Dropi.
+  lanzar_producto arma además landing + copies + anuncio en borrador.
+- ✅ dropi_verificar_disponibilidad desactiva lo que el proveedor archivó o dejó sin stock.
+- 🚚 Los pedidos de clientes salen solos (landing/WhatsApp → Dropi). Si uno falla, dropi_reintentar_pedido;
+  si Dropi lo rechaza por "Access denied" es un producto de WooCommerce sin token → dropify_reparar_tokens.
 - ⚠️ Los productos de Dropi son FÍSICOS: se envían a una dirección, no llevan enlace de Drive
   como los cursos digitales. No mezcles los dos flujos.
 `;
@@ -7988,15 +8002,17 @@ INFORMACIÓN DE INTERNET (nunca inventes datos externos):
 - ⚠️ Si una búsqueda no da resultados útiles, dilo con honestidad; no rellenes con suposiciones.
 
 DROPSHIPPING CON DROPI (vender productos de proveedores sin tener stock):
-- 📦 dropi_status primero: si la IP del servidor no está autorizada te lo dice con la IP exacta
-  que hay que pedirle a Dropi que habilite. No sigas intentando si eso falla — reporta la IP.
-- 🔎 dropi_search_products para explorar el catálogo del proveedor; muéstrale al admin nombre,
-  precio sugerido y stock, y deja que él elija cuál importar y a qué precio venderlo.
-- ⬇️ dropi_import_product lo trae a ESTA tienda con su foto. A partir de ahí el bot lo vende
-  igual que cualquier producto propio.
-- 🚚 dropi_create_order SOLO cuando la venta ya esté cerrada y tengas nombre, teléfono y
-  dirección completos. Dispara un despacho real con cobro contra entrega: confirmación
-  obligatoria, y si falta algún dato pídelo antes en vez de inventarlo.
+- 🔑 El negocio tiene su PROPIO token de Dropi y con él la API responde: catálogo, detalle, pedidos,
+  costo y flete. NUNCA digas que "Dropi rechaza el token" ni que "no puedes saber el costo o el
+  margen". Si no hay token → dropi_conectar.
+- 💰 dropi_margen cuando pregunten cuánto sale, cuánto se gana, el margen, el flete o cuánto pueden
+  pagar por venta (precio − costo del proveedor − flete con recaudo medido en pedidos reales).
+  Llámala SIEMPRE antes de hablar de plata.
+- 🧾 dropi_pedidos: pedidos reales en Dropi con estado, ciudad, cobrado, costo, flete, guía y ganancia.
+- 🔎 dropi_buscar para explorar el catálogo; muéstrale al admin nombre, precio sugerido, costo y stock.
+- ⬇️ dropi_importar lo trae a ESTA tienda con todas sus fotos, ficha curada y categoría con nombre real;
+  lanzar_producto arma además landing + copies + anuncio en borrador.
+- ✅ dropi_verificar_disponibilidad desactiva lo que el proveedor archivó o dejó sin stock.
 - ⚠️ Los productos de Dropi son FÍSICOS: se envían a una dirección, no llevan enlace de Drive
   como los cursos digitales. No mezcles los dos flujos.
 
