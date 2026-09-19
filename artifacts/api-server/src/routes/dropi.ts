@@ -92,6 +92,7 @@ router.get("/buscar", async (req: any, res: any) => {
     };
     res.json({
       ok: true,
+      ...(String(req.query.raw || "") === "1" ? { crudo: (r.data || []).slice(0, 2) } : {}),
       productos: (r.data || []).map((p) => ({
         id: p.id, nombre: p.name, precioSugerido: p.suggested_price ?? null, costo: p.sale_price ?? null, stock: p.stock ?? null,
         proveedor: p.user_id ?? null, categoria: p.categories?.[0]?.name || null, foto: fotos(p), tipo: p.type || null,
