@@ -411,11 +411,17 @@ export function estadoDeGeneracion(l: any): { estado: "generando" | "lista" | "f
   const vistaPrevia = vistaPreviaDeLanding(String(l.slug));
   if (st.generando) {
     const seg = Math.round((Date.now() - new Date(st.desde || Date.now()).getTime()) / 1000);
+    const que = st.editando ? `aplicando el cambio "${String(st.editando).slice(0, 80)}"` : "generándose";
     // Si el proceso se reinició a mitad, nunca va a terminar: se dice.
     if (seg > 6 * 60) {
-      return { estado: "fallo", texto: `La landing [${l.id}] quedó a medias (el servidor se reinició mientras la armaba). Ofrecé crearla de nuevo con landing_crear.`, vistaPrevia: null };
+      return { estado: "fallo", texto: `La landing [${l.id}] quedó a medias ${que} (el servidor se reinició en el medio). ${st.editando ? "Pedí el cambio de nuevo con landing_editar." : "Ofrecé crearla de nuevo con landing_crear."}`, vistaPrevia: null };
     }
-    return { estado: "generando", texto: `⏳ La landing [${l.id}] "${l.name}" sigue generándose (arrancó hace ${seg}s). Decile al admin que le falta poco y que te vuelva a escribir en un momento.`, vistaPrevia: null };
+    return { estado: "generando", texto: `⏳ La landing [${l.id}] "${l.name}" sigue ${que} (hace ${seg}s). Decile al admin que le falta poco y que te vuelva a escribir en un momento; la URL sigue mostrando la versión anterior.`, vistaPrevia: null };
+  }
+  // Una edición de HTML que falló: la página sigue viva con la versión
+  // anterior, pero el cambio NO se aplicó y hay que decirlo.
+  if (st.error && /editar el HTML/i.test(String(st.error))) {
+    return { estado: "fallo", texto: `❌ El último cambio pedido a la landing [${l.id}] NO se aplicó: ${String(st.error).slice(0, 220)}. La página sigue publicada con la versión anterior. Opciones: reintentar con landing_editar, o regenerarla con landing_crear (pierde el diseño actual).`, vistaPrevia: vistaPreviaDeLanding(String(l.slug)) };
   }
   if (st.error && !l.html && !(Array.isArray(l.sections) && l.sections.length)) {
     return { estado: "fallo", texto: `❌ La landing [${l.id}] no se pudo generar: ${String(st.error).slice(0, 300)}. Decíselo al admin y ofrecé reintentar.`, vistaPrevia: null };
@@ -500,6 +506,25 @@ function lanzarGeneracionDeLandingEnSegundoPlano(
       }
     }
   })();
+}
+
+/** Sigue la edición de HTML (que corre en lib/landing/editar.ts) para avisar al turno siguiente. */
+async function esperarYAvisarEdicion(ctx: OperatorContext, landingId: number): Promise<void> {
+  const { landingPages } = await import("@workspace/db");
+  const t0 = Date.now();
+  try {
+    while (Date.now() - t0 < 6 * 60_000) {
+      await new Promise((r) => setTimeout(r, 4000));
+      const [l] = await db.select().from(landingPages).where(eq(landingPages.id, landingId)).limit(1);
+      if (!l || !((l.strategy as any) || {}).generando) break;
+    }
+  } finally {
+    landingsEnCurso.delete(landingId);
+    if (ctx.sessionId) {
+      const clave = `${ctx.tenantId}:${ctx.sessionId}`;
+      landingsPorAvisar.set(clave, [...(landingsPorAvisar.get(clave) || []), landingId]);
+    }
+  }
 }
 
 /**
@@ -4412,8 +4437,9 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     name: "landing_editar",
     description:
       "Edita una landing YA creada con una instrucción en lenguaje natural del admin ('hacé el hero más directo', 'agregá una FAQ sobre tallas', " +
-      "'cambiá el botón a Pedir ahora', 'quitá la comparación', 'poné estilo belleza'). Calcula el cambio, lo aplica y lo guarda; si estaba publicada, " +
-      "se ve en la URL pública al instante. No inventa datos ni toca las fotos (son las reales del producto). ⚠️ Va por propose_action.",
+      "'cambiá el botón a Pedir ahora', 'quitá la comparación', 'poné estilo belleza'). En landings por secciones el cambio se aplica al instante; " +
+      "en landings con diseño propio (HTML completo, las que arma el generador premium) la página se reescribe en segundo plano (1 a 3 min) y hasta que " +
+      "landing_estado diga 'lista' la URL muestra la versión anterior: NUNCA digas que ya cambió antes de eso. No inventa datos ni toca las fotos. ⚠️ Va por propose_action.",
     args: '{ "id": number (req), "instruccion": string (req, con las palabras del admin) }',
     run: async (args, ctx) => {
       // El modelo escribe `id`, `landingId` o `landing`; y la instrucción como
@@ -4422,7 +4448,15 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       const instruccion = String(args?.instruccion || args?.instruction || args?.cambio || "").trim();
       if (!id || !instruccion) return { ok: false, summary: "Faltan 'id' de la landing y/o la 'instruccion'." };
       const { editarLanding } = await import("./landing/editar");
-      const r = await editarLanding(ctx.tenantId, id, instruccion);
+      const r: any = await editarLanding(ctx.tenantId, id, instruccion);
+      // Landing con HTML propio: la edición corre en segundo plano y se
+      // avisa por landing_estado / la nota del turno siguiente. El resumen
+      // NO puede decir "editada": todavía no cambió nada.
+      if (r.enSegundoPlano) {
+        if (ctx.sessionId) landingsEnCurso.set(id, { tenantId: ctx.tenantId, sessionId: ctx.sessionId, productName: `edición: ${instruccion.slice(0, 60)}`, desde: Date.now() });
+        void esperarYAvisarEdicion(ctx, id);
+        return { ok: true, summary: `⏳ Landing [${id}]: ${r.message}`, data: { id, estado: "generando" } };
+      }
       return {
         ok: r.ok,
         summary: r.ok

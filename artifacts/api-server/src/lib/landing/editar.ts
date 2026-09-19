@@ -156,10 +156,70 @@ export function aplicarOperaciones(
   return { name, sections, design, aplicadas, ignoradas };
 }
 
+// ── Landings con HTML propio (generadas por OpenCode) ─────────────────────
+//
+// Medido en producción el 18-09-2026 (landing 15, "color muy femenino"): el
+// dueño pidió dos veces cambiar la paleta, la herramienta contestó
+// "cambios: diseño" y la página siguió idéntica. Esta función editaba
+// `sections`/`design`, pero la ruta pública sirve `html` tal cual cuando
+// existe (landing-publica.ts): las ediciones caían en campos que nadie
+// renderiza. Para esas landings la edición tiene que reescribir el HTML, y
+// eso lo hace OpenCode con `existingHtml` -- tarda, así que corre en
+// segundo plano igual que la creación, y `strategy` dice en qué va.
+const edicionesEnCurso = new Set<number>();
+
+export function landingTieneHtmlPropio(landing: { html?: string | null }): boolean {
+  return typeof landing?.html === "string" && landing.html.trim().length > 0;
+}
+
+export function lanzarEdicionDeHtmlEnSegundoPlano(landing: any, instruction: string): { ok: boolean; message: string } {
+  const id = Number(landing.id);
+  if (edicionesEnCurso.has(id)) return { ok: false, message: `La landing [${id}] ya tiene una edición en curso; esperá a que termine (landing_estado).` };
+  edicionesEnCurso.add(id);
+  void (async () => {
+    const { dbNow } = await import("../date-utils");
+    const marcar = async (cambios: Record<string, any>) => {
+      await db.update(landingPages).set({ ...cambios, updatedAt: dbNow() } as any).where(eq(landingPages.id, id));
+    };
+    const estrategiaBase = { ...((landing.strategy as any) || {}) };
+    try {
+      await marcar({ strategy: { ...estrategiaBase, generando: true, editando: instruction.slice(0, 300), desde: new Date().toISOString(), error: undefined } });
+      const { products } = await import("@workspace/db");
+      const [product] = landing.productId ? await db.select().from(products).where(eq(products.id, Number(landing.productId))).limit(1) : [null];
+      const { generarLandingConOpenCode } = await import("../../routes/landing-studio-opencode");
+      const r = await generarLandingConOpenCode({
+        product: product || { id: landing.productId, name: landing.name, tenantId: landing.tenantId },
+        instruction:
+          `EDITÁ la página existente (viene abajo como HTML). Aplicá SOLO este cambio y devolvé el HTML completo actualizado, ` +
+          `conservando textos, precios, video, formulario y enlaces tal cual: ${instruction}`,
+        existingHtml: landing.html,
+        familia: (landing.design as any)?.familia ?? null,
+        timeoutMs: 150_000,
+      });
+      if (r.error || !r.html || !/<html|<!doctype/i.test(r.html)) throw new Error(r.error || "OpenCode no devolvió HTML");
+      await marcar({ html: r.html, strategy: { ...estrategiaBase, generando: false, editando: undefined, ultimaEdicion: instruction.slice(0, 300), listaEn: new Date().toISOString() } });
+    } catch (e: any) {
+      await marcar({ strategy: { ...estrategiaBase, generando: false, editando: undefined, error: `No se pudo editar el HTML: ${String(e?.message || e).slice(0, 200)}` } }).catch(() => undefined);
+    } finally {
+      edicionesEnCurso.delete(id);
+    }
+  })();
+  return {
+    ok: true,
+    message:
+      `Esta landing tiene diseño propio (HTML completo), así que el cambio se aplica reescribiendo la página: tarda 1 a 3 minutos y corre en segundo plano. ` +
+      `Mientras tanto la URL sigue mostrando la versión anterior. Para saber si terminó: landing_estado con id ${id}. No digas que ya cambió hasta que diga "lista".`,
+  };
+}
+
 /** Todo junto: calcular, aplicar y guardar. Devuelve qué pasó, en palabras. */
 export async function editarLanding(tenantId: number, landingId: number, instruction: string, selectedSectionId?: string | null) {
   const [landing] = await db.select().from(landingPages).where(eq(landingPages.id, landingId)).limit(1);
   if (!landing || landing.tenantId !== tenantId) return { ok: false as const, message: "Landing no encontrada", aplicadas: [] as string[], ignoradas: [] as string[] };
+  if (landingTieneHtmlPropio(landing as any)) {
+    const r = lanzarEdicionDeHtmlEnSegundoPlano(landing, instruction);
+    return { ok: r.ok as boolean, message: r.message, aplicadas: r.ok ? ["html (en segundo plano)"] : [], ignoradas: [] as string[], enSegundoPlano: r.ok };
+  }
   const { message, operations } = await operacionesDeEdicion(tenantId, landing as any, instruction, selectedSectionId);
   if (operations.length === 0) return { ok: false as const, message: message.startsWith("No pude") ? message : `El modelo no devolvió operaciones aplicables (dijo: "${message}").`, aplicadas: [], ignoradas: [] };
   const r = aplicarOperaciones({ name: landing.name, sections: (landing.sections as any[]) || [], design: landing.design }, operations);
