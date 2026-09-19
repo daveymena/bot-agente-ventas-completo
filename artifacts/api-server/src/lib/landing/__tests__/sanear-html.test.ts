@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { sanearHtmlDeLanding } from "../sanear-html";
+import { sanearHtmlDeLanding, sinGarantiaInventada } from "../sanear-html";
 import { htmlDesdeRespuesta, textoDeBitacora } from "../agente-landing";
 
 /**
@@ -97,5 +97,22 @@ describe("video sin fuente", () => {
   it("un video con fuente real se conserva", () => {
     const h = `<!doctype html><html><body>${HERO}<section><video controls poster="https://cdn.test/p.jpg"><source src="https://cdn.test/demo.mp4" type="video/mp4"></video></section></body></html>`;
     expect(sanearHtmlDeLanding(h).html).toContain("demo.mp4");
+  });
+});
+
+describe("garantía sin definir y contenedores vacíos (landing 8, 19-09)", () => {
+  it("quita el chip de garantía inventado y deja los demás", () => {
+    const h = `<div class="chips"><span class="chip">🚚 <b>Envío a todo el país</b></span><span class="chip">↩️ Garantía de devolución</span></div><ul><li>Pago al recibir</li><li>Garantía de 30 días</li></ul>`;
+    const r = sinGarantiaInventada(h);
+    expect(r.html).not.toMatch(/Garantía/);
+    expect(r.html).toContain("Envío a todo el país");
+    expect(r.html).toContain("Pago al recibir");
+    expect(r.quitado[0]).toMatch(/2 promesa/);
+  });
+  it("una figure que quedó vacía al quitar la foto repetida desaparece", () => {
+    const h = `<!doctype html><html><body>${HERO}<section class="g"><h2>Míralo de cerca en detalle real</h2><figure><img src="https://cdn.test/corrector-1.jpg"></figure><figure><img src="https://cdn.test/corrector-9.jpg"></figure></section></body></html>`;
+    const r = sanearHtmlDeLanding(h);
+    expect(r.html).not.toMatch(/<figure>\s*<\/figure>/);
+    expect((r.html.match(/<figure/g) || []).length).toBe(1);
   });
 });

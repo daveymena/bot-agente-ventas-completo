@@ -182,5 +182,47 @@ export function sanearHtmlDeLanding(html: string): ResultadoSaneado {
     actual = r.html;
     quitado.push(...r.quitado);
   }
+  actual = sinContenedoresVacios(actual);
   return { html: actual, quitado };
+}
+
+// ─── Contenedores vacíos y garantías sin definir ─────────────────────────────
+
+/**
+ * Al quitar una foto repetida queda su `<figure>` o `<div class="media">`
+ * vacío: un hueco en la galería (landing 8, 19-09). Se quitan los
+ * contenedores de imagen que quedaron sin nada adentro.
+ */
+export function sinContenedoresVacios(html: string): string {
+  let out = String(html || "");
+  for (let i = 0; i < 3; i++) {
+    out = out
+      .replace(/<figure\b[^>]*>\s*<\/figure>/gi, "")
+      .replace(/<div\b[^>]*class=["'][^"']*\b(?:media|img|image|foto|gallery-item|hero-img|problem-img)\b[^"']*["'][^>]*>\s*<\/div>/gi, "");
+  }
+  return out;
+}
+
+const MENCIONA_GARANTIA = /garant[ií]a|devoluci[oó]n|reembolso|te devolvemos|satisfacci[oó]n garantizada/i;
+
+/**
+ * Cuando el negocio NO tiene garantía cargada, ninguna promesa de garantía
+ * puede salir en la página: se quitan los chips, ítems de lista y párrafos
+ * cortos que la mencionan (medido 19-09: "↩️ Garantía de devolución" en el
+ * hero, inventado). Los títulos y párrafos largos no se tocan: se prefiere
+ * dejar una frase a romper una sección.
+ */
+export function sinGarantiaInventada(html: string): { html: string; quitado: string[] } {
+  let n = 0;
+  const out = String(html || "").replace(
+    /<(li|span|p|div)\b([^>]*)>([^<]{0,160}?)<\/\1>/gi,
+    (todo, tag, attrs, texto) => {
+      if (!MENCIONA_GARANTIA.test(texto)) return todo;
+      // Solo elementos "hoja" cortos: chips, viñetas, notas.
+      if (tag === "div" && !/chip|badge|pill|tag|note|nota/i.test(attrs)) return todo;
+      n++;
+      return "";
+    },
+  );
+  return { html: n ? sinContenedoresVacios(out) : out, quitado: n ? [`${n} promesa(s) de garantía sin definir`] : [] };
 }

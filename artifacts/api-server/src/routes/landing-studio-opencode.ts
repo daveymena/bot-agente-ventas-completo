@@ -796,7 +796,22 @@ export async function generarLandingConOpenCode(opts: {
   let userPrompt = buildUserPrompt(product, tipo, existingHtml, instruction, paleta, pago, diseno, familia);
   if (memoria) userPrompt += `\n\n${memoria}`;
   if (opts.bitacora) userPrompt += opts.bitacora;
-  const system = `${getSystemPrompt(tipo)}\n\n${REGLAS_DEL_AGENTE_DE_LANDINGS}`;
+  // Lo que el negocio SÍ tiene definido (garantía, entrega): el modelo no
+  // puede prometer lo que no está. Medido 19-09 en la landing 8: "Garantía de
+  // devolución" en el hero de un negocio sin garantía cargada.
+  let hechosDelNegocio = "";
+  let tieneGarantia = false;
+  try {
+    const { getBusinessContext } = await import("../lib/business-context");
+    const ctx: any = await getBusinessContext(tenantIdDelProducto);
+    tieneGarantia = !!ctx?.garantia?.descripcion;
+    hechosDelNegocio =
+      "\n\nHECHOS DEL NEGOCIO (lo único que podés prometer):" +
+      `\n- Entrega: ${ctx?.entrega ? `${ctx.entrega.metodo} — ${ctx.entrega.plazo}` : "NO definida: no prometas plazos ni 'envío gratis'"}` +
+      `\n- Garantía: ${tieneGarantia ? ctx.garantia.descripcion : "NO definida: NO menciones garantía, devolución ni reembolso en ninguna parte"}` +
+      "\n- Duraciones, cantidades de uso ('20-30 min al día'), testimonios con nombre y cifras: solo si vienen en los datos del producto.";
+  } catch { /* sin contexto: el saneador igual actúa */ }
+  const system = `${getSystemPrompt(tipo)}\n\n${REGLAS_DEL_AGENTE_DE_LANDINGS}${hechosDelNegocio}`;
 
   let result: { text: string; error?: string; proveedor?: string };
   if (usaAgentePropio) {
@@ -814,6 +829,12 @@ export async function generarLandingConOpenCode(opts: {
   // duplicado al editar (landing 4, 19-09). Se quita lo repetido y se cuenta.
   const saneado = htmlDesdeRespuesta(result.text);
   let html = saneado.html;
+  if (!tieneGarantia) {
+    const { sinGarantiaInventada } = await import("../lib/landing/sanear-html");
+    const g = sinGarantiaInventada(html);
+    html = g.html;
+    saneado.quitado.push(...g.quitado);
+  }
   if (!html.includes("<!DOCTYPE") && !html.includes("<!doctype") && !html.includes("<html")) html = result.text;
   if (tipo === "dropshipping") html = asegurarFormularioDropshipping(html);
   if (saneado.quitado.length) console.log(`🧹 [LANDING] Saneado del HTML: ${saneado.quitado.join(", ")}`);
