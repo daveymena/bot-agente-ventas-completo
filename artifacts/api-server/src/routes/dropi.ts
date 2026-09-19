@@ -79,7 +79,7 @@ router.get("/buscar", async (req: any, res: any) => {
     const token = await tokenDropiDelTenant(tenantId);
     if (!token) return res.status(400).json({ ok: false, error: "Sin token de Dropi" });
     const r = await buscarProductosDropi(token, { q: String(req.query.q || ""), conStock: String(req.query.conStock || "") === "1", pagina: Number(req.query.pagina) || 1, porPagina: Math.min(50, Number(req.query.porPagina) || 24) });
-    if (!r.ok) return res.status(502).json({ ok: false, error: r.error });
+    if (!r.ok) return res.status(200).json({ ok: false, error: /exceeded/i.test(String(r.error)) ? "Dropi limitó las peticiones por un momento: esperá un minuto y volvé a buscar." : `Dropi no respondió: ${r.error}` });
     const { db, products } = await import("@workspace/db");
     const { eq } = await import("drizzle-orm");
     const propios = await db.select({ id: products.id, metadata: products.metadata }).from(products).where(eq(products.tenantId, tenantId));

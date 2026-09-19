@@ -86,6 +86,7 @@ export default function DropiPage() {
     setBuscando(true);
     try {
       const r = await api(`/dropi/buscar?q=${encodeURIComponent(q)}&conStock=${conStock ? 1 : 0}&porPagina=24`);
+      if (!r.ok) throw new Error(r.error || "Dropi no respondió");
       setResultados(r.productos || []);
       if (!r.productos?.length) toast({ title: "Sin resultados en Dropi", description: q ? `Nada para "${q}"` : "Probá con una palabra" });
     } catch (e: any) { toast({ title: "Dropi no respondió", description: e.message, variant: "destructive" }); }

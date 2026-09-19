@@ -109,7 +109,7 @@ function cabeceras(token: string, variante: Variante): Record<string, string> {
   return base;
 }
 
-export async function dropiIntegracion<T = any>(token: string, path: string, body?: Record<string, any>, method: "GET" | "POST" = body ? "POST" : "GET", timeoutMs = 25000): Promise<RespuestaDropi<T>> {
+export async function dropiIntegracion<T = any>(token: string, path: string, body?: Record<string, any>, method: "GET" | "POST" = body ? "POST" : "GET", timeoutMs = 12000): Promise<RespuestaDropi<T>> {
   const huella = token.slice(-12);
   const preferida = varianteQueSirve.get(huella);
   const orden: Variante[] = preferida ? [preferida, preferida === "plana" ? "wordpress" : "plana"] : ["wordpress", "plana"];
@@ -129,6 +129,8 @@ export async function dropiIntegracion<T = any>(token: string, path: string, bod
         const msg = String(json?.message || json?.status || raw.slice(0, 200) || `HTTP ${res.status}`);
         ultima = { ok: false, status: res.status, error: msg, data: json };
         // Solo un rechazo de acceso justifica probar la otra variante.
+        // Límite de peticiones: no insistir, Dropi lo empeora.
+        if (/exceeded the allowed number/i.test(msg) || res.status === 429) return ultima;
         if (/access denied|unauthor|forbidden|401|403/i.test(msg) || res.status === 401 || res.status === 403) {
           logger.info({ path, variante, status: res.status, msg }, "[DropiDirecto] rechazo de acceso; se prueba otra variante de cabeceras");
           continue;
@@ -175,7 +177,19 @@ export interface ProductoDropi {
   [k: string]: any;
 }
 
+const cacheBusquedas = new Map<string, { en: number; r: RespuestaDropi<ProductoDropi[]> }>();
+const CACHE_MS = 60_000;
+
 export async function buscarProductosDropi(token: string, opts: { q?: string; conStock?: boolean; categoria?: string | number; pagina?: number; porPagina?: number } = {}): Promise<RespuestaDropi<ProductoDropi[]>> {
+  const clave = `${token.slice(-12)}|${JSON.stringify(opts)}`;
+  const c = cacheBusquedas.get(clave);
+  if (c && Date.now() - c.en < CACHE_MS) return c.r;
+  const r = await buscarProductosDropiSinCache(token, opts);
+  if (r.ok) cacheBusquedas.set(clave, { en: Date.now(), r });
+  return r;
+}
+
+async function buscarProductosDropiSinCache(token: string, opts: { q?: string; conStock?: boolean; categoria?: string | number; pagina?: number; porPagina?: number } = {}): Promise<RespuestaDropi<ProductoDropi[]>> {
   const body: Record<string, any> = {
     startData: Math.max(0, (opts.pagina ?? 1) - 1),
     pageSize: Math.min(50, opts.porPagina ?? 20),
