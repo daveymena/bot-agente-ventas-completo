@@ -309,6 +309,15 @@ const LAYOUTS: Record<string, Renderizador> = {
     ${eyebrow(s)}<h1 class="serif">${esc(s.title || "")}</h1>
   </div>${figura(s, p, "fig fig--bleed")}<div class="wrap narrow center">${bajada(s)}${boton(s.cta, p)}</div>`,
 
+  // Dropshipping 2026: degradado del acento a todo el hero, foto flotando con
+  // halo, etiqueta de contraentrega y tres micro-beneficios debajo.
+  hero_gradient_product: (s, p) => `<div class="wrap grid-2 middle hero-grad">
+    <div>${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}
+      <p class="pill">📦 Pago contraentrega · envío a todo el país</p>
+      ${precio(p) ? `<p class="price">${esc(precio(p))}</p>` : ""}${boton(s.cta, p)}</div>
+    ${figura(s, p, "fig fig--hero fig--halo")}
+  </div>`,
+
   hero_dark: (s, p) => `<div class="wrap grid-2 middle">
     <div>${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}${boton(s.cta, p)}</div>
     ${figura(s, p, "fig fig--glow")}
@@ -642,6 +651,22 @@ img{max-width:100%;height:auto;display:block}
 .sec{padding:var(--pad-y) var(--pad-x)}
 ${t.fondos === "alterno" ? `.sec:nth-child(even){background:var(--superficie)}` : ""}
 ${t.fondos === "degradado-sutil" ? `.sec:nth-child(even){background:linear-gradient(180deg,var(--superficie),var(--fondo))}` : ""}
+${t.fondos === "degradado-vivo" ? `
+.sec:nth-child(even):not(.sec--hero):not(.sec--cierre){background:color-mix(in srgb,var(--acento) 7%,#fff)}
+.sec.sec--hero,.sec.sec--cierre{background:linear-gradient(135deg,color-mix(in srgb,var(--acento) 70%,#0b0b14) 0%,var(--acento) 100%);color:#fff;position:relative;overflow:hidden}
+.sec--hero h1,.sec--hero h2,.sec--cierre h1,.sec--cierre h2{color:#fff}
+.sec--cierre .pedido label,.sec--cierre .pedido .ayuda,.sec--cierre p{color:rgba(255,255,255,.9)}
+.sec--cierre .pedido input,.sec--cierre .pedido select,.sec--cierre .pedido textarea{background:#fff;color:#111}
+.sec--cierre .pedido button,.sec--cierre button[type=submit]{background:#fff;color:var(--acento);font-weight:800;box-shadow:0 14px 40px rgba(0,0,0,.25)}
+.sec--hero::before,.sec--cierre::before{content:"";position:absolute;inset:-20% -10% auto -10%;height:70%;background:radial-gradient(60% 60% at 30% 20%,rgba(255,255,255,.22),transparent 70%);pointer-events:none}
+.sec--hero .lead,.sec--hero .eyebrow,.sec--cierre .lead,.sec--cierre .eyebrow{color:rgba(255,255,255,.85)}
+.sec--hero .price,.sec--cierre .price{color:#fff;font-size:1.8rem}
+.sec--hero .btn,.sec--cierre .btn{background:#fff;color:var(--acento);box-shadow:0 14px 40px rgba(0,0,0,.25)}
+.btn{background:linear-gradient(135deg,var(--acento),color-mix(in srgb,var(--acento) 70%,#000));box-shadow:0 12px 30px color-mix(in srgb,var(--acento) 40%,transparent)}
+.card,.faq details,.benefit{background:rgba(255,255,255,.72);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.6);box-shadow:var(--sombra)}
+.fig--halo img{border-radius:28px;box-shadow:0 30px 80px color-mix(in srgb,var(--acento) 45%,transparent),0 0 0 8px rgba(255,255,255,.12)}
+.pill{display:inline-block;padding:8px 16px;border-radius:999px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.35);font-weight:600;font-size:.95rem}
+` : ""}
 .wrap{max-width:var(--ancho);margin-inline:auto;display:flex;flex-direction:column;gap:var(--sep);text-align:${alinear}}
 .wrap.narrow{max-width:min(720px,var(--ancho))}
 .wrap.center{text-align:center;align-items:center}

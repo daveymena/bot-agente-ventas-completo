@@ -668,6 +668,7 @@ function instruccionDeFamilia(familia: string | null | undefined, semilla = 0): 
   const heroes = t.layoutsPreferidos?.hero || [];
   const hero = heroes.length ? heroes[Math.abs(semilla) % heroes.length] : null;
   const heroTxt: Record<string, string> = {
+    hero_gradient_product: "fondo con DEGRADADO del acento (de su versión profunda arriba-izquierda a la viva abajo-derecha, con un brillo radial suave), título grande en blanco con la promesa emocional, subtítulo de 1 línea, foto del producto recortada con halo/sombra de color flotando a la derecha (o debajo en móvil), etiqueta 'Pago contraentrega' y CTA pastilla blanca o con degradado; debajo del hero, una franja clara con 3 micro-beneficios con icono",
     hero_center: "título y CTA centrados, foto del producto grande debajo",
     hero_split: "dos columnas: texto a la izquierda, foto del producto a la derecha",
     hero_editorial: "título enorme a la izquierda con la foto recortada a sangre a la derecha",
@@ -680,7 +681,7 @@ function instruccionDeFamilia(familia: string | null | undefined, semilla = 0): 
 - Tipografía: títulos en ${t.tipografia.display} (peso ${t.tipografia.pesoDisplay}, escala ${t.tipografia.escala}), cuerpo en ${t.tipografia.texto} con interlineado ${t.tipografia.interlineado}.
 - Paleta: fondo ${t.color.fondo}, superficies ${t.color.superficie}, texto ${t.color.texto}, texto suave ${t.color.textoSuave}, ACENTO (botones/destacados) ${t.color.acento}, borde ${t.color.borde}.
 - Ritmo: contenido de hasta ${t.ritmo.anchoContenido}, secciones con padding vertical ${t.ritmo.padSeccionY} y separación interna ${t.ritmo.separacion}.
-- Alineación general: ${t.alineacion}. Fondo: ${t.fondos}.
+- Alineación general: ${t.alineacion}. Fondo: ${t.fondos}${t.fondos === "degradado-vivo" ? " → el hero y el bloque de precio llevan degradado lineal del acento (135deg, de la versión oscura del acento a la viva) con un brillo radial blanco al 20 %; el resto alterna blanco y el tinte suave del acento; tarjetas con fondo blanco al 70 % y borde blanco semitransparente (vidrio suave); botones con degradado del acento y sombra de color; TODO profesional: nada de degradados arcoíris ni más de 2 colores en un degradado" : ""}.
 - Imágenes: tratamiento "${t.imagen}". CTA: estilo "${t.cta}".
 - Bordes redondeados ${t.forma.radio}, sombra ${t.forma.sombra}.
 Respetá este estilo en TODA la página: es lo que el admin eligió explícitamente. No lo mezcles con otra paleta.`;

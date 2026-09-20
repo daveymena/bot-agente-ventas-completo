@@ -11,7 +11,7 @@ import { FAMILIAS, TOKENS, tokensDe, esFamilia, elegirFamilia, layoutDe } from "
 
 describe("las familias son de verdad distintas", () => {
   it("están las 16 y cada una se declara a sí misma", () => {
-    expect(FAMILIAS).toHaveLength(16);
+    expect(FAMILIAS).toHaveLength(17);
     for (const f of FAMILIAS) expect(TOKENS[f].familia).toBe(f);
   });
 
@@ -107,7 +107,7 @@ describe("elegir el estilo solo (Sorpréndeme)", () => {
 
   it("sin rubro ni precio alto, decide el tipo de producto", () => {
     expect(elegirFamilia({ nombre: "Pack de recursos", tipo: "digital" }).familia).toBe("educacion");
-    expect(elegirFamilia({ nombre: "Termo de acero", tipo: "physical" }).familia).toBe("ecommerce");
+    expect(elegirFamilia({ nombre: "Termo de acero", tipo: "physical" }).familia).toBe("dropshipping");
   });
 
   /** Elegir sin poder explicar por qué es una caja negra imposible de corregir. */

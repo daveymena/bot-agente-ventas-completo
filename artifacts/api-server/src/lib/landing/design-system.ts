@@ -51,12 +51,13 @@ export type FamiliaVisual =
   | "launch"
   | "electronica"
   | "suplemento"
-  | "gourmet";
+  | "gourmet"
+  | "dropshipping";
 
 export const FAMILIAS: readonly FamiliaVisual[] = [
   "premium", "respuesta-directa", "minimal", "editorial", "ecommerce", "belleza",
   "fitness", "educacion", "tecnologia", "familiar", "creativa", "oscura", "launch",
-  "electronica", "suplemento", "gourmet",
+  "electronica", "suplemento", "gourmet", "dropshipping",
 ] as const;
 
 /** Cómo se integran las fotos. Cambia la composición, no un filtro. */
@@ -76,7 +77,7 @@ export type EstiloDeCTA =
   | "subrayado";       // casi un enlace, para lo editorial
 
 /** Cómo se alternan los fondos a lo largo de la página. */
-export type EstrategiaDeFondo = "plano" | "alterno" | "oscuro" | "degradado-sutil";
+export type EstrategiaDeFondo = "plano" | "alterno" | "oscuro" | "degradado-sutil" | "degradado-vivo";
 
 export type Alineacion = "centrado" | "izquierda" | "alterno";
 
@@ -189,6 +190,36 @@ export const TOKENS: Record<FamiliaVisual, TokensDeDiseno> = {
       offer: ["offer_urgency", "offer_card"],
       testimonials: ["testimonial_cards", "testimonial_slider"],
       faq: ["faq_accordion", "faq_cards"],
+    },
+  },
+
+  // ── Dropshipping 2026 ──────────────────────────────────────────────────
+  // Pedido del dueño (20-09-2026): "las familias están pasadas de moda; ahora
+  // están en moda los degradados y lo profesional; las landings de producto
+  // físico son muy directas y emocionantes". Esta es la familia por defecto
+  // de todo producto físico. El ACENTO real lo pone el color del producto
+  // (lib/landing/color-del-producto.ts); lo de acá es la composición: hero con
+  // degradado profundo→vivo del acento, foto del producto con halo, CTA
+  // pastilla con degradado, tarjetas con vidrio suave, franjas alternas
+  // claras, y un ritmo rápido (secciones cortas, mucho contraste).
+  dropshipping: {
+    familia: "dropshipping",
+    nombre: "Dropshipping directo",
+    cuando: "Producto físico con pago contraentrega: la página tiene que emocionar y cerrar en el primer scroll.",
+    tipografia: { display: "'Poppins', 'Inter', system-ui, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.28, pesoDisplay: 800, espaciadoTitulo: "-0.03em", interlineado: 1.55 },
+    color: { fondo: "#FFFFFF", superficie: "#F6F7FB", texto: "#0F1222", textoSuave: "#4B5063", acento: "#4F46E5", sobreAcento: "#FFFFFF", borde: "#E6E8F0" },
+    ritmo: { anchoContenido: "1040px", padSeccionY: "64px", padSeccionX: "20px", separacion: "20px" },
+    forma: { radio: "22px", sombra: "0 24px 60px rgba(15,18,34,.14)", borde: "1px solid rgba(255,255,255,.35)" },
+    alineacion: "centrado",
+    fondos: "degradado-vivo",
+    imagen: "flotante",
+    cta: "pastilla",
+    layoutsPreferidos: {
+      hero: ["hero_gradient_product", "hero_split", "hero_product_focus"],
+      benefits: ["benefits_cards", "benefits_icon_grid"],
+      offer: ["offer_card", "offer_urgency"],
+      testimonials: ["testimonial_cards"],
+      faq: ["faq_accordion"],
     },
   },
 
@@ -554,7 +585,7 @@ const SENALES: Array<{ familia: FamiliaVisual; palabras: string[] }> = [
   { familia: "suplemento", palabras: ["suplemento", "vitamina", "colageno", "proteina", "omega", "magnesio", "creatina", "quemador", "adelgazante", "herbal", "capsula", "gomitas"] },
   // Salud/ortopedia (corrector de postura, faja, rodillera) NO es fitness:
   // en las tiendas reales va como cualquier producto de contraentrega.
-  { familia: "ecommerce", palabras: ["corrector de postura", "postura", "ortoped", "faja", "rodillera", "lumbar", "cervical", "masajeador", "terapia", "alivio"] },
+  { familia: "dropshipping", palabras: ["corrector de postura", "postura", "ortoped", "faja", "rodillera", "lumbar", "cervical", "masajeador", "terapia", "alivio"] },
   { familia: "fitness", palabras: ["fitness", "gym", "gimnasio", "entrenamiento", "workout", "musculo", "adelgazar", "proteina", "deporte", "yoga", "rutina"] },
   // Tecnología va ANTES que educación a propósito: "curso de inteligencia
   // artificial" es un curso, pero el rubro que manda en la estética es la
@@ -645,7 +676,7 @@ export function elegirFamilia(pistas: PistasDelProducto): EleccionDeEstilo {
     return { familia: "educacion", porque: "Es un producto digital sin un rubro más específico: la línea de formación prioriza confianza y estructura." };
   }
 
-  return { familia: "ecommerce", porque: "Producto físico: foto grande, beneficios y prueba social, que es lo que decide una compra." };
+  return { familia: "dropshipping", porque: "Producto físico con contraentrega: degradados del color del producto, directa y emocional, cierra en el primer scroll." };
 }
 
 /**

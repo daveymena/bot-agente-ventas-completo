@@ -82,7 +82,8 @@ export function briefDeLanding(modelo: ModeloDeNegocio, p: any, ficha: any): str
       `1) Hero con el DOLOR real del comprador y una foto; precio y un botón. 2) La causa (2-3 líneas). 3) Cómo lo resuelve el producto (qué es y cómo se usa). ` +
       `4) 4-6 beneficios concretos con emoji. 5) Segunda foto en uso. 6) Qué incluye / especificaciones (solo las reales). 7) Precio único con envío y pago al recibir. ` +
       `8) UN formulario de pedido (nombre, celular, cédula, dirección, barrio, departamento, ciudad, cantidad). 9) 3 preguntas frecuentes (pago, envío a mi ciudad, talla/uso). 10) Cierre con un solo botón al formulario. ` +
-      `Estilo: blanco, texto negro, botón dorado ancho, Poppins (referencia: tiendas reales de contraentrega). ${base}`;
+      `Tono: DIRECTO y EMOCIONAL (habla del dolor/deseo real del comprador en segunda persona, frases cortas, verbos de acción, cero relleno corporativo); cada sección corta y con un solo mensaje; el botón repite siempre "Pedir ahora · pago contraentrega". ` +
+      `Estilo: moderno y profesional con DEGRADADOS del color del producto (familia "dropshipping"): hero con degradado vivo, foto del producto con halo, tarjetas de vidrio suave, botones pastilla con degradado. Nada de blanco/negro/dorado de tienda vieja. ${base}`;
   }
   if (modelo === "digital") {
     return `Landing de PRODUCTO DIGITAL (curso/plantilla/acceso), mobile-first, estructura: ` +

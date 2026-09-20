@@ -6,7 +6,7 @@ import { elegirFamilia } from "../landing/design-system";
 describe("elegirFamilia: palabras completas, categoría y nombre antes que la descripción", () => {
   it("corrector de postura con soporte → ecommerce, no gourmet", () => {
     const r = elegirFamilia({ nombre: "Corrector De Postura Espalda Unisex Blac", categoria: "Salud y bienestar", descripcion: "Corrector con soporte lumbar. Ajustable, te queda bien y te ayuda.", tipo: "physical", precio: 62000 });
-    expect(r.familia).toBe("ecommerce");
+    expect(r.familia).toBe("dropshipping");
   });
   it("rueda abdominal con soporte → fitness", () => {
     expect(elegirFamilia({ nombre: "RUEDA ABDOMINAL CON SOPORTE", categoria: "Deporte y fitness", descripcion: "te ayuda a entrenar", tipo: "physical" }).familia).toBe("fitness");
