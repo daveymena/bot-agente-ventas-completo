@@ -239,7 +239,12 @@ export async function lanzarProducto(tenantId: number, productId: number, opts: 
   if (modelo === "digital" && !(p as any).deliveryLink) pendiente.push("Cargar el enlace de entrega del producto digital");
 
   // 2) Landing con el brief especialista.
-  const familia = modelo === "fisico" ? "ecommerce" : modelo === "digital" ? "educacion" : "minimal";
+  // La familia sale del RUBRO (design-system.elegirFamilia), no fija por
+  // modelo: "ecommerce" para todo físico hacía que todas las landings de
+  // Dropi fueran la misma plantilla (medido 20-09-2026).
+  const { elegirFamilia } = await import("./landing/design-system");
+  const eleccion = elegirFamilia({ nombre: (p as any).name, categoria: (p as any).category, descripcion: (p as any).description, tipo: (p as any).kind, precio: Number((p as any).price) || null });
+  const familia = eleccion.familia;
   const landing = await crearYPublicarLanding(tenantId, p, briefDeLanding(modelo, p, meta?.curado), familia, opts.publicar !== false, opts.sessionId);
   if (landing.estado !== "lista") pendiente.push(`Landing: ${landing.nota || landing.estado}`);
 

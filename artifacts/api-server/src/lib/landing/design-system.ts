@@ -565,6 +565,11 @@ const SENALES: Array<{ familia: FamiliaVisual; palabras: string[] }> = [
   { familia: "launch", palabras: ["lanzamiento", "launch", "startup", "preventa", "early access", "beta", "waitlist", "lista de espera"] },
   { familia: "familiar", palabras: ["hogar", "cocina", "familia", "bebe", "nino", "mascota", "casa", "limpieza", "organizador"] },
   { familia: "minimal", palabras: ["ropa", "camisa", "vestido", "zapato", "tenis", "moda", "bolso", "chaqueta", "jean"] },
+  // Rubros de la taxonomía cerrada de físicos (lib/taxonomia.ts, 20-09-2026).
+  { familia: "oscura", palabras: ["herramienta", "automotor", "moto ", "carro", "compresor", "taladro"] },
+  { familia: "fitness", palabras: ["camping", "aire libre", "senderismo"] },
+  { familia: "familiar", palabras: ["juguete", "entretenimiento", "papeler", "oficina"] },
+  { familia: "editorial", palabras: ["libro", "espiritual", "devocional"] },
   { familia: "oscura", palabras: ["premium tech", "audio", "lujo"] },
 ];
 

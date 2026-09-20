@@ -424,7 +424,7 @@ function getSystemPrompt(tipo: ProductType): string {
 // Saca los colores de marca del tenant y el color dominante de la imagen del
 // producto. OpenCode los usa para armar la paleta en vez de inventar colores
 // al azar.
-interface Paleta { primary?: string; secondary?: string; accent?: string; dominante?: string }
+interface Paleta { primary?: string; secondary?: string; accent?: string; dominante?: string; acentoProducto?: string; sobreAcento?: string; tinte?: string; origenAcento?: string }
 
 // Diseño que el cliente elige desde el panel (fondo, botones, color). Se aplica
 // en la preview al instante y se le pasa a la IA para regenerar.
@@ -474,9 +474,16 @@ async function paletaDelProducto(product: any): Promise<Paleta> {
   } catch { /* sin tenant: se sigue con la imagen */ }
 
   const foto = fotosDelProducto(product)[0] || product?.imageUrl;
-  if (foto) {
-    const dom = await colorDominanteDeImagen(foto);
-    if (dom) paleta.dominante = dom;
+  // Color REAL del producto (ffmpeg; `sharp` no está instalado y devolvía
+  // null siempre): acento de la landing = color del producto, o el del
+  // rubro si el producto es neutro. Ver lib/landing/color-del-producto.ts.
+  try {
+    const { colorDelProducto } = await import("../lib/landing/color-del-producto");
+    const c = await colorDelProducto({ fotoUrl: foto || null, categoria: product?.category || null, marcaPrimaria: paleta.primary || null });
+    paleta.dominante = c.dominante || undefined;
+    paleta.acentoProducto = c.acento; paleta.sobreAcento = c.sobreAcento; paleta.tinte = c.tinte; paleta.origenAcento = c.origen;
+  } catch {
+    if (foto) { const dom = await colorDominanteDeImagen(foto); if (dom) paleta.dominante = dom; }
   }
   return paleta;
 }
@@ -653,10 +660,23 @@ function asegurarFormularioDropshipping(html: string): string {
 // diseño concreta para OpenCode. Así el selector "estilo visual" deja de ser
 // decorativo: cambia de verdad la tipografía, los colores, el ritmo, la
 // alineación, el tratamiento de imagen y la forma del CTA de la landing.
-function instruccionDeFamilia(familia: string | null | undefined): string {
+function instruccionDeFamilia(familia: string | null | undefined, semilla = 0): string {
   if (!familia) return "";
   const t = tokensDe(familia);
-  return `\n\nESTILO VISUAL ELEGIDO (familia "${t.nombre}" — ${t.cuando}):
+  // Dos productos de la misma familia no tienen que abrir igual: el hero rota
+  // entre los layouts que la familia admite, según el id del producto.
+  const heroes = t.layoutsPreferidos?.hero || [];
+  const hero = heroes.length ? heroes[Math.abs(semilla) % heroes.length] : null;
+  const heroTxt: Record<string, string> = {
+    hero_center: "título y CTA centrados, foto del producto grande debajo",
+    hero_split: "dos columnas: texto a la izquierda, foto del producto a la derecha",
+    hero_editorial: "título enorme a la izquierda con la foto recortada a sangre a la derecha",
+    hero_offer: "oferta arriba (precio + contraentrega) y la foto ocupando media pantalla",
+    hero_product_focus: "la foto del producto es la protagonista a pantalla completa, título encima",
+    hero_left: "todo alineado a la izquierda, foto a la derecha con fondo de tinte",
+    hero_full_visual: "foto a sangre de fondo con el título encima y velo oscuro",
+  };
+  return `\n\nESTILO VISUAL ELEGIDO (familia "${t.nombre}" — ${t.cuando}):${hero ? `\n- Apertura (hero): "${hero}" → ${heroTxt[hero] || hero}.` : ""}
 - Tipografía: títulos en ${t.tipografia.display} (peso ${t.tipografia.pesoDisplay}, escala ${t.tipografia.escala}), cuerpo en ${t.tipografia.texto} con interlineado ${t.tipografia.interlineado}.
 - Paleta: fondo ${t.color.fondo}, superficies ${t.color.superficie}, texto ${t.color.texto}, texto suave ${t.color.textoSuave}, ACENTO (botones/destacados) ${t.color.acento}, borde ${t.color.borde}.
 - Ritmo: contenido de hasta ${t.ritmo.anchoContenido}, secciones con padding vertical ${t.ritmo.padSeccionY} y separación interna ${t.ritmo.separacion}.
@@ -712,8 +732,10 @@ CONTEXTO DEL NEGOCIO:
 
 PALETA DE COLORES (USALA - NO inventes colores al azar):
 ${familia
-  ? `- MANDA la paleta del ESTILO VISUAL de abajo (fondo, superficies, texto y acento). Los colores de marca del negocio son solo para el logo/encabezado o un detalle menor: NO tiñas la página con ellos, y NO uses rosas, lilas ni degradados pastel salvo que el estilo lo indique.`
-  : (paleta?.primary ? `- Color primario (marca): ${paleta.primary}` : "- Color primario: derivalo del color dominante del producto")}
+  ? (paleta?.acentoProducto
+      ? `- El ESTILO VISUAL de abajo pone la composición, la tipografía, el ritmo y los fondos/superficies/texto. El ACENTO (botones, precio, destacados, franjas, iconos) es ${paleta.acentoProducto} — ${paleta.origenAcento === "foto" ? "el color real del producto en su foto" : paleta.origenAcento === "rubro" ? "el color del rubro (el producto es neutro)" : "el color de marca"} — con texto ${paleta.sobreAcento} encima; para fondos de sección suaves usá ${paleta.tinte}. NO uses el acento genérico del estilo si contradice a este. Los colores de marca del negocio son solo para el logo/encabezado.`
+      : `- MANDA la paleta del ESTILO VISUAL de abajo (fondo, superficies, texto y acento). Los colores de marca del negocio son solo para el logo/encabezado o un detalle menor: NO tiñas la página con ellos, y NO uses rosas, lilas ni degradados pastel salvo que el estilo lo indique.`)
+  : (paleta?.acentoProducto ? `- Color primario/acento: ${paleta.acentoProducto} (${paleta.origenAcento === "foto" ? "color real del producto" : "color del rubro"}), texto encima ${paleta.sobreAcento}; tinte para fondos suaves ${paleta.tinte}` : paleta?.primary ? `- Color primario (marca): ${paleta.primary}` : "- Color primario: derivalo del color dominante del producto")}
 ${paleta?.primary && familia ? `- Color de marca (solo logo/detalles): ${paleta.primary}` : ""}
 ${paleta?.secondary && !familia ? `- Color secundario: ${paleta.secondary}` : ""}
 ${paleta?.accent && !familia ? `- Color de acento (CTAs/botones): ${paleta.accent}` : ""}
@@ -722,7 +744,7 @@ Regla: el fondo y los acentos de la landing deben combinar con estos colores. Na
 ${diseno?.fondo ? `- Fondo elegido por el cliente: ${diseno.fondo}` : ""}
 ${diseno?.botones ? `- Estilo de botones elegido por el cliente: ${diseno.botones}` : ""}
 ${diseno?.color ? `- Color primario elegido por el cliente: ${diseno.color} (prioridad sobre la paleta)` : ""}
-${checkout}${instruccionDeFamilia(familia)}`;
+${checkout}${instruccionDeFamilia(familia, Number(product?.id) || 0)}`;
 
   if (existingHtml) {
     prompt += `\n\nMODO EDICIÓN — NO regeneres la página desde cero. Reglas de oro:\n1. Aplicá SOLO lo que pide el admin. Conservá TODO lo demás EXACTO: secciones, textos, imágenes, colores, tipografía y el formulario/checkout.\n2. NUNCA borres el FORMULARIO de pedido (dropshipping) ni ninguna sección que no te hayan pedido quitar.\n3. Si el pedido es ambiguo, hacé el cambio más pequeño posible.\n4. Devolvé el HTML completo con tu cambio aplicado, pero sin alterar lo que no se pidió.\n\nHTML ACTUAL DE LA LANDING:\n${existingHtml}`;
