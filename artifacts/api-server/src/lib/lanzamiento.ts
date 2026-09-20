@@ -37,6 +37,8 @@ export interface OpcionesLanzamiento {
   presupuestoDiario?: number | null;
   /** Crear el anuncio en Meta (en pausa). Por defecto sí, si hay credenciales. */
   conAnuncio?: boolean;
+  /** Video del anuncio con el motor propio (por defecto sí). */
+  conVideo?: boolean;
   /** Publicar la landing al terminar. Por defecto sí. */
   publicar?: boolean;
   /** Avisar al dueño por WhatsApp. Por defecto sí. */
@@ -63,6 +65,7 @@ export interface PaqueteDeLanzamiento {
   landing: { id: number | null; url: string | null; estado: "lista" | "generando" | "fallo" | "omitida"; motor?: string | null; nota?: string };
   copies: Copies | null;
   anuncio: { draftId: number | null; estado: "borrador" | "omitido" | "fallo"; nota?: string };
+  video?: { estado: "generando" | "listo" | "fallo" | "omitido"; url?: string | null; nota?: string };
   pendiente: string[];
   resumen: string;
 }
@@ -250,16 +253,48 @@ export async function lanzarProducto(tenantId: number, productId: number, opts: 
   if (anuncio.estado === "borrador") pendiente.push("Aprobar el anuncio (se sube a Meta en pausa) y definir presupuesto");
   else if (anuncio.nota) pendiente.push(`Anuncio: ${anuncio.nota}`);
 
+  // ── Video del anuncio (motor propio), en segundo plano ──────────────────
+  // Se dispara después de las copies (usa sus ganchos y el guion previo) y no
+  // frena el paquete: tarda 2–5 min y avisa solo con el enlace.
+  let video: PaqueteDeLanzamiento["video"] = { estado: "omitido", nota: "No se pidió video." };
+  if (opts.conVideo !== false) {
+    try {
+      const { generarVideoEnSegundoPlano, hayFfmpeg } = await import("./video-anuncio");
+      if (await hayFfmpeg()) {
+        generarVideoEnSegundoPlano(tenantId, productId, async (r) => {
+          try {
+            const [fila] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
+            let mm: any = {}; try { mm = typeof (fila as any)?.metadata === "string" ? JSON.parse((fila as any).metadata) : ((fila as any)?.metadata || {}); } catch { /* nada */ }
+            if (mm?.lanzamiento) {
+              mm.lanzamiento.video = r.ok && r.video ? { estado: "listo", url: r.video.url } : { estado: "fallo", nota: r.error };
+              await db.update(products).set({ metadata: JSON.stringify(mm) } as any).where(eq(products.id, productId));
+            }
+            if (opts.notificar !== false) {
+              const { avisarAlDueno } = await import("./avisos");
+              await avisarAlDueno(tenantId, r.ok && r.video ? `🎬 *Video del anuncio listo* para ${(p as any).name} (${r.video.duracion}s${r.video.conBroll ? ", con clips reales" : ""})\n${r.video.url}` : `⚠️ El video de ${(p as any).name} no salió: ${r.error}`);
+            }
+          } catch { /* sin aviso */ }
+        });
+        video = { estado: "generando", nota: "Tarda 2–5 min; el enlace llega por WhatsApp/Telegram." };
+      } else {
+        video = { estado: "fallo", nota: "El servidor no tiene ffmpeg." };
+      }
+    } catch (e: any) {
+      video = { estado: "fallo", nota: String(e?.message || e) };
+    }
+  }
+
   const resumen = [
     `🚀 *Paquete de lanzamiento: ${(p as any).name}* (${modelo})`,
     fichaInfo.curada ? `📋 Ficha organizada${fichaInfo.por ? ` por ${fichaInfo.por}` : ""}` : "📋 Ficha: la del catálogo",
     landing.url ? `🌐 Landing publicada: ${landing.url}` : `🌐 Landing: ${landing.estado}${landing.nota ? ` (${landing.nota})` : ""}`,
     copies ? `✍️ Copies listos (WhatsApp, 3 ganchos, Meta, guion de video)${copies.revisadoPor ? ` · ${copies.revisadoPor}` : ""}` : "✍️ Copies: no se pudieron generar",
     anuncio.estado === "borrador" ? `📢 Anuncio en borrador #${anuncio.draftId} (en pausa hasta que lo apruebes)` : `📢 Anuncio: ${anuncio.nota || anuncio.estado}`,
+    video?.estado === "generando" ? "🎬 Video del anuncio: generándose, te llega el enlace en unos minutos" : video?.estado === "listo" ? `🎬 Video: ${video.url}` : video?.nota ? `🎬 Video: ${video.nota}` : "",
     pendiente.length ? `\n⏳ Pendiente:\n• ${pendiente.join("\n• ")}` : "\n✅ Nada pendiente de tu lado salvo revisar.",
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 
-  const paquete: PaqueteDeLanzamiento = { productId, modelo, en: new Date().toISOString(), ficha: fichaInfo, landing, copies, anuncio, pendiente, resumen };
+  const paquete: PaqueteDeLanzamiento = { productId, modelo, en: new Date().toISOString(), ficha: fichaInfo, landing, copies, anuncio, video, pendiente, resumen };
   await db.update(products).set({ metadata: JSON.stringify({ ...meta, lanzamiento: paquete }) } as any).where(eq(products.id, productId));
 
   if (opts.notificar !== false) {

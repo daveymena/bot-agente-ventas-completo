@@ -153,6 +153,34 @@ router.get("/producto/:id", async (req: any, res: any) => {
   }
 });
 
+/** Video de anuncio con el motor propio (ver lib/video-anuncio.ts). */
+router.post("/video/:productId", async (req: any, res: any) => {
+  try {
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ ok: false, error: "No autenticado" });
+    const { generarVideoEnSegundoPlano, hayFfmpeg } = await import("../lib/video-anuncio");
+    if (!(await hayFfmpeg())) return res.status(503).json({ ok: false, error: "El servidor no tiene ffmpeg." });
+    const id = Number(req.params.productId);
+    const estado = generarVideoEnSegundoPlano(tenantId, id, async (r) => {
+      try { const { avisarAlDueno } = await import("../lib/avisos"); await avisarAlDueno(tenantId, r.ok && r.video ? `🎬 *Video de anuncio listo* (${r.video.duracion}s)\n${r.video.url}` : `⚠️ No pude generar el video del producto ${id}: ${r.error}`); } catch { /* sin aviso */ }
+    });
+    res.json({ ok: true, estado });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+router.get("/video/:productId", async (req: any, res: any) => {
+  try {
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ ok: false, error: "No autenticado" });
+    const { leerVideoDeProducto, videoEnCurso } = await import("../lib/video-anuncio");
+    const id = Number(req.params.productId);
+    res.json({ ok: true, enCurso: videoEnCurso(id), video: await leerVideoDeProducto(tenantId, id) });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 router.post("/importar", async (req: any, res: any) => {
   try {
     const tenantId = tenantDe(req);

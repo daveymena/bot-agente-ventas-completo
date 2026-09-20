@@ -464,6 +464,15 @@ app.get("/videos/products/:filename", (req, res) => {
   return res.sendFile(filePath);
 });
 
+// Videos de anuncio generados por el motor propio (lib/video-anuncio.ts).
+app.get("/videos/anuncios/:filename", (req, res) => {
+  const filename = req.params.filename;
+  if (path.basename(filename) !== filename || !/^\d+-\d+\.mp4$/i.test(filename)) return res.status(404).end();
+  const filePath = path.resolve(IMAGES_DIR, "videos", "anuncios", filename);
+  if (!existsSync(filePath)) return res.status(404).json({ message: "Video no disponible" });
+  return res.sendFile(filePath);
+});
+
 // Servir imágenes de productos desde el volumen persistente primero
 app.get("/images/products/:filename", (req, res, next) => {
   const filename = req.params.filename;

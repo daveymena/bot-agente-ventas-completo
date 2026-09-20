@@ -4797,6 +4797,40 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "video_anuncio_crear",
+    description: "Genera un VIDEO de anuncio vertical (1080×1920, 15–30 s) del producto con el motor propio: guion por escenas, fotos del producto con movimiento, B-roll real (Pexels, si hay clave), voz en off es-CO, precio, pago contraentrega y CTA. Corre en segundo plano (2–5 min) y avisa por WhatsApp/Telegram con el enlace. Crea un archivo → requiere confirmación.",
+    args: '{ "productId": number (req) }',
+    run: async (args, ctx) => {
+      const id = num(args?.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'." };
+      const { generarVideoEnSegundoPlano, hayFfmpeg } = await import("./video-anuncio");
+      if (!(await hayFfmpeg())) return { ok: false, summary: "El servidor no tiene ffmpeg todavía (falta el redeploy con el Dockerfile nuevo)." };
+      const estado = generarVideoEnSegundoPlano(ctx.tenantId, id, async (r) => {
+        try {
+          const { avisarAlDueno } = await import("./avisos");
+          await avisarAlDueno(ctx.tenantId, r.ok && r.video
+            ? `🎬 *Video de anuncio listo* (${r.video.duracion}s, ${r.video.escenas} escenas${r.video.conBroll ? ", con clips reales" : ""})\n${r.video.url}`
+            : `⚠️ No pude generar el video del producto ${id}: ${r.error}`);
+        } catch { /* sin aviso */ }
+      });
+      return { ok: true, summary: estado === "ya_en_curso" ? `🎬 El video del producto ${id} ya se está generando; en unos minutos llega el enlace.` : `🎬 Generando el video del producto ${id}: guion → escenas → voz → montaje. Tarda 2–5 minutos; te llega el enlace por WhatsApp/Telegram. Para consultarlo: video_anuncio_estado.` };
+    },
+  },
+  {
+    name: "video_anuncio_estado",
+    description: "Estado o enlace del último video de anuncio generado para un producto (solo lee).",
+    args: '{ "productId": number (req) }',
+    run: async (args, ctx) => {
+      const id = num(args?.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'." };
+      const { leerVideoDeProducto, videoEnCurso } = await import("./video-anuncio");
+      if (videoEnCurso(id)) return { ok: true, summary: `⏳ El video del producto ${id} todavía se está generando.` };
+      const v = await leerVideoDeProducto(ctx.tenantId, id);
+      if (!v) return { ok: true, summary: `El producto ${id} no tiene video de anuncio todavía. Pedímelo con video_anuncio_crear.` };
+      return { ok: true, summary: `🎬 Video del producto ${id}: ${v.url} (${v.duracion}s, ${v.escenas} escenas${v.conBroll ? ", con clips reales" : ""}, guion por ${v.guion.autor || "IA"}, ${new Date(v.en).toLocaleString("es-CO")})`, data: v };
+    },
+  },
+  {
     name: "dropi_margen",
     description: "Ganancia REAL de un producto de Dropi: precio de venta − costo del proveedor (leído de Dropi) − flete con recaudo (promedio de los pedidos reales del negocio). Úsala cuando el admin pregunte cuánto le sale, cuánto gana, el margen o cuánto puede pagar por venta. Solo lee.",
     args: '{ "productId": number (id del catálogo, opcional), "dropiProductId": number (opcional), "precio": number (opcional, para simular otro precio de venta) }',
@@ -7164,7 +7198,7 @@ export const READ_ONLY_TOOLS = new Set([
   // propósito: mueven dinero real y tienen que pasar por confirmación.
   "fb_list_adsets", "fb_radiografia_campana", "anuncio_datos_expertos",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
-  "dropi_status", "dropi_margen", "dropi_pedidos", "dropi_buscar", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
+  "dropi_status", "dropi_margen", "dropi_pedidos", "dropi_buscar", "video_anuncio_estado", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
   "dropi_verificar_producto",
   // Leer el estado de una landing en generación y simular el reentrenamiento no cambian nada.
   "landing_estado", "agente_reentrenar_ver",
@@ -7340,6 +7374,7 @@ const FAMILIAS: Array<{ cuando: RegExp; prefijos: string[] }> = [
   // flete" teniendo dropi_margen disponible.
   { cuando: /dropi|dropship|proveedor|flete|env[ií]o|margen|gan(o|a|ancia|amos)|cuesta|costo|me sale|recaudo|contraentrega|transportadora|gu[ií]a/i,
     prefijos: ["dropi", "dropify", "pedido", "lanzar_producto", "lanzamiento", "product"] },
+  { cuando: /video|reel|tiktok|clip|guion|gui[oó]n|locuci[oó]n/i, prefijos: ["video_anuncio", "product", "lanzamiento", "fb_"] },
   // ── Métricas y plata: la pregunta más común no tenía familia ───────────
   //
   // "cómo van las ventas hoy" no caía en ninguna de las de arriba, así que
@@ -7693,6 +7728,8 @@ DROPSHIPPING CON DROPI (vender productos de proveedores sin tener stock):
 - ✅ dropi_verificar_disponibilidad desactiva lo que el proveedor archivó o dejó sin stock.
 - 🚚 Los pedidos de clientes salen solos (landing/WhatsApp → Dropi). Si uno falla, dropi_reintentar_pedido;
   si Dropi lo rechaza por "Access denied" es un producto de WooCommerce sin token → dropify_reparar_tokens.
+- 🎬 video_anuncio_crear genera el VIDEO del anuncio (vertical, voz, precio, CTA) con el motor propio; el
+  enlace llega por WhatsApp/Telegram. video_anuncio_estado lo consulta. No digas que "no podés hacer videos".
 - ⚠️ Los productos de Dropi son FÍSICOS: se envían a una dirección, no llevan enlace de Drive
   como los cursos digitales. No mezcles los dos flujos.
 `;
@@ -8013,6 +8050,8 @@ DROPSHIPPING CON DROPI (vender productos de proveedores sin tener stock):
 - ⬇️ dropi_importar lo trae a ESTA tienda con todas sus fotos, ficha curada y categoría con nombre real;
   lanzar_producto arma además landing + copies + anuncio en borrador.
 - ✅ dropi_verificar_disponibilidad desactiva lo que el proveedor archivó o dejó sin stock.
+- 🎬 video_anuncio_crear genera el VIDEO del anuncio (vertical, voz, precio, CTA) con el motor propio; el
+  enlace llega por WhatsApp/Telegram. video_anuncio_estado lo consulta. No digas que "no podés hacer videos".
 - ⚠️ Los productos de Dropi son FÍSICOS: se envían a una dirección, no llevan enlace de Drive
   como los cursos digitales. No mezcles los dos flujos.
 

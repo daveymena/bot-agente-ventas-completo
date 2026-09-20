@@ -56,6 +56,7 @@ FROM node:22-slim
 
 WORKDIR /app
 RUN corepack enable
+# ffmpeg: motor propio de videos de anuncio (lib/video-anuncio.ts).
 # chromium + fuentes: necesarios para el scraping con navegador real (ver la
 # herramienta fb_ad_library en app-operator.ts). Facebook devuelve 403 a
 # clientes HTTP simples como curl -- verificado en vivo -- así que la única
@@ -64,6 +65,7 @@ RUN corepack enable
 RUN apt-get update && apt-get install -y \
     curl \
     chromium \
+    ffmpeg \
     fonts-liberation \
     fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
