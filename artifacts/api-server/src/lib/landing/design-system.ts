@@ -599,11 +599,36 @@ export interface EleccionDeEstilo {
  * Devuelve también el POR QUÉ. Un selector automático que no puede explicar su
  * elección es imposible de corregir cuando se equivoca -- y se va a equivocar.
  */
+/**
+ * ¿La palabra clave aparece como PALABRA (o prefijo de palabra) en el texto?
+ *
+ * Medido el 20-09-2026: con `includes` suelto, "te " (té) calzaba en
+ * "sopor(te )" y "corrector de postura" salía con familia GOURMET. Ahora la
+ * clave tiene que empezar en borde de palabra; y si termina en espacio
+ * (clave corta como "te ", "ia "), también tiene que terminar en borde.
+ */
+function contienePalabra(texto: string, clave: string): boolean {
+  const limpia = clave.trim();
+  if (!limpia) return false;
+  const esc = limpia.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const fin = clave.endsWith(" ") || clave.startsWith(" ") ? "(?![a-z0-9])" : "";
+  return new RegExp(`(^|[^a-z0-9])${esc}${fin}`).test(texto);
+}
+
 export function elegirFamilia(pistas: PistasDelProducto): EleccionDeEstilo {
+  // La categoría y el nombre pesan más que la descripción: primero se busca
+  // ahí, y solo si nada calza se mira la descripción (que trae de todo).
+  const fuerte = normalizar([pistas.categoria, pistas.nombre, pistas.angulo].filter(Boolean).join(" "));
   const texto = normalizar([pistas.categoria, pistas.nombre, pistas.descripcion, pistas.angulo].filter(Boolean).join(" "));
 
   for (const { familia, palabras } of SENALES) {
-    const encontrada = palabras.find((p) => texto.includes(p));
+    const encontrada = palabras.find((p) => contienePalabra(fuerte, p));
+    if (encontrada) {
+      return { familia, porque: `El producto habla de "${encontrada.trim()}", así que va con la línea ${TOKENS[familia].nombre.toLowerCase()}.` };
+    }
+  }
+  for (const { familia, palabras } of SENALES) {
+    const encontrada = palabras.find((p) => contienePalabra(texto, p));
     if (encontrada) {
       return { familia, porque: `El producto habla de "${encontrada.trim()}", así que va con la línea ${TOKENS[familia].nombre.toLowerCase()}.` };
     }
