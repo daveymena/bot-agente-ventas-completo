@@ -227,6 +227,13 @@ export function sinElTemarioInventado(
  * reales. Reemplaza --no discute-- lo que dijera la personalidad del agente.
  */
 export function comoSeEntregaDeVerdad(producto: ProductoConFicha): string {
+  const kind = String((producto as any).kind || "digital").toLowerCase();
+  const esFisico = kind === "physical" || kind === "fisico" || kind === "dropshipping";
+
+  if (esFisico) {
+    return "📦 Es un producto físico: te lo enviamos a tu dirección. Pagas contra entrega cuando lo recibes.";
+  }
+
   return producto.deliveryLink
     ? "📩 Te llega por un enlace de acceso apenas confirmemos el pago."
     : "📩 Es digital: te lo enviamos por aquí mismo apenas confirmemos el pago.";

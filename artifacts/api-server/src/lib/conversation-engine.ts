@@ -1950,6 +1950,28 @@ export async function findBestProductMatch(
 
   const best = valid[0];
 
+  // ── DETECCIÓN DE AMBIGÜEDAD: varios productos con el mismo nivel ─────────
+  // Cuando el cliente dice "corrector de postura" y hay 6 productos con ese
+  // nombre, el buscador elige el primero. El bot debería mostrar las opciones
+  // y preguntar cuál quiere, no adivinar.
+  //
+  // Detectamos si hay múltiples productos con el mismo nivel y nombre parecido.
+  // Si hay 2+ productos de nivel >= 3 con el mismo nivel, es ambiguo.
+  const sameLevel = valid.filter(e => e.level === best.level);
+  if (sameLevel.length >= 2 && best.level >= 3) {
+    // Hay varios productos que coinciden igual de bien. Es ambiguo.
+    const nombres = sameLevel.map(e => `"${e.product.name}" (ID ${e.product.id}, $${e.product.price || "?"})`).join(", ");
+    reasoning.push(`⚠️ AMBIGÜEDAD: ${sameLevel.length} productos coinciden igual: ${nombres}`);
+    reasoning.push(`   ⛔ NO elijas uno solo: mostrá las opciones con su imagen y precio, y preguntá cuál quiere el cliente.`);
+    reasoning.push(`   ✅ Escribí algo como: "Tengo varias opciones, ¿cuál te interesa?" y listá los productos.`);
+    return {
+      product: best.product,
+      score: best.level * 25,
+      reasoning: reasoning.join("\n"),
+      fiel: false, // fiel=false para que la IA no asuma que es el correcto
+    };
+  }
+
   // (Eliminado el bloque de "validación adicional" que re-ordenaba los
   // empates con `nameHits*2 + descHits`. Ese rescore volvía a premiar la
   // descripción y deshacía el orden correcto calculado arriba: con
