@@ -834,6 +834,37 @@ export async function runAgentReply(conversationId: number) {
     }
   }
 
+  // ── Motor de ventas v2 (bandera por negocio) ──────────────────────────────
+  //
+  // El enganche va DESPUÉS del límite del plan y ANTES de todo lo demás, en el
+  // mismo punto único por donde pasan todas las respuestas: así el motor nuevo
+  // hereda el candado en vez de esquivarlo, y ningún canal (WhatsApp,
+  // Messenger, comentarios) se queda afuera por olvido.
+  //
+  // Si algo falla, se cae al motor viejo. Preferimos una respuesta del motor
+  // anterior antes que silencio: el cliente está escribiendo AHORA.
+  if (convo.tenantId) {
+    try {
+      const { motorDelTenant } = await import("./motor-nuevo/activacion");
+      if ((await motorDelTenant(convo.tenantId)) === "v2") {
+        const { responderComoVendedor } = await import("./motor-nuevo/adaptador");
+        const respuestaV2 = await responderComoVendedor(conversationId);
+        if (respuestaV2) {
+          console.log(
+            `🆕 [MOTOR-V2] ${conversationId} · ${respuestaV2.aiProvider} · ${respuestaV2.nicho} · ` +
+              `${respuestaV2.traza.length} herramienta(s)${respuestaV2.modoPlan ? " · modo plan" : ""}` +
+              `${respuestaV2.corregido ? " · cifra corregida" : ""}`,
+          );
+          registrarTurnoAtendido(respuestaV2.aiProvider.split("/")[0], respuestaV2.aiProvider, false);
+          return respuestaV2 as any;
+        }
+        logger.warn({ conversationId }, "[MOTOR-V2] sin respuesta: se cae al motor anterior");
+      }
+    } catch (e: any) {
+      logger.error({ err: e?.message, conversationId }, "[MOTOR-V2] falló el turno: se cae al motor anterior");
+    }
+  }
+
   // ── 2. Cargar memoria estructurada desde BD (fuente única de verdad) ──────
   t1 = Date.now();
   const memory = await loadConversationMemory(conversationId);

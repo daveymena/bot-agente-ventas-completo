@@ -145,6 +145,10 @@ export const conversations = sqliteTable("conversations", {
   paymentMethod: text("payment_method"),
   paymentAmount: real("payment_amount"),
   paidAt: text("paid_at"),
+  // Memoria explícita del vendedor (motor v2). En SQLite no hay jsonb: se
+  // guarda el JSON como texto y el repositorio lo parsea. Ver
+  // `lib/motor-nuevo/estado-conversacion.ts`.
+  estadoAgente: text("estado_agente"),
   createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
 });
 

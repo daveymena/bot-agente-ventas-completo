@@ -149,14 +149,13 @@ router.post("/evaluar-chat", async (req, res) => {
  * cliente. Body: { turnos: string[] } o { conversationId } (toma los turnos
  * del cliente de esa conversación real).
  */
-router.post("/sombra", async (req, res) => {
+router.post("/sombra", async (req, res, next) => {
   try {
     const tenantId = tenantIdFromReq(req);
     const { addTenantToInsert } = await import("../lib/tenantManager");
     const { evaluarChat } = await import("../lib/evaluador-de-chats");
-    const { responder } = await import("../lib/motor-nuevo/motor");
-    const { clienteDeepSeek, cargarCatalogoDelNegocio, cargarVozDelNegocio, RepositorioEnMemoria } = await import("../lib/motor-nuevo/adaptador");
-    const { estadoInicial } = await import("../lib/motor-nuevo/estado-conversacion");
+    const { correrEnSombra } = await import("../lib/motor-nuevo/adaptador");
+    const { armarCadena, crearClienteLLM } = await import("../lib/motor-nuevo/cliente-llm");
     const { products } = await import("@workspace/db");
 
     let turnos: string[] = Array.isArray(req.body?.turnos) ? req.body.turnos.map((t: any) => String(t || "")).filter(Boolean) : [];
@@ -165,7 +164,7 @@ router.post("/sombra", async (req, res) => {
       const filas = await db.select().from(messages).where(eq(messages.conversationId, origen)).orderBy(messages.createdAt);
       turnos = filas.filter((m: any) => m.role === "customer").map((m: any) => String(m.content || "")).filter(Boolean).slice(0, 20);
     }
-    if (turnos.length === 0) return res.status(400).json({ error: "turnos vacío" });
+    if (turnos.length === 0) return res.status(400).json({ error: "turnos vac\u00edo" });
 
     // ── Motor actual: conversación nueva, como en evaluar-chat ──────────────
     const [convo] = await db.insert(conversations).values(addTenantToInsert({
@@ -174,18 +173,8 @@ router.post("/sombra", async (req, res) => {
     const catalogoEval = await db.select({ id: products.id, name: products.name, price: products.price, kind: products.kind })
       .from(products).where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)));
 
-    // ── Motor nuevo: estado en memoria + su propio historial ────────────────
-    const llm = clienteDeepSeek();
-    const repo = new RepositorioEnMemoria();
-    const catalogoNuevo = await cargarCatalogoDelNegocio(tenantId, "digital");
-    const voz = await cargarVozDelNegocio(tenantId, { especialidad: "digital" });
-    let estado = estadoInicial(convo.id);
-    const historialNuevo: { role: "customer" | "agent"; content: string; createdAt: Date }[] = [];
-
     const actual: any[] = [];
-    const nuevo: any[] = [];
     for (const mensaje of turnos) {
-      // Actual
       await db.insert(messages).values({ conversationId: convo.id, role: "customer", content: mensaje });
       const t0 = Date.now();
       let reply: any = null;
@@ -196,42 +185,87 @@ router.post("/sombra", async (req, res) => {
         ms: Date.now() - t0,
         texto: partesA.filter((p) => p.kind === "text").map((p) => String(p.content || "")).join("\n\n"),
         tarjetas: partesA.filter((p) => p.kind === "card").map((p) => ({ productId: p.productId, seccion: p.seccion ?? null })),
-      });
-
-      // Nuevo
-      historialNuevo.push({ role: "customer", content: mensaje, createdAt: new Date() });
-      const t1 = Date.now();
-      let partesN: any[] = []; let traza: any[] = []; let error: string | null = null;
-      try {
-        // El historial va entero: el último mensaje es el del cliente que se contesta.
-        const r = await responder({ llm, estado, historial: historialNuevo, catalogo: catalogoNuevo, voz });
-        partesN = r.partes; traza = r.traza; estado = r.estado;
-      } catch (e: any) { error = String(e?.message || e); }
-      const textoN = partesN.filter((p) => p.kind === "text").map((p) => String(p.content || "")).join("\n\n");
-      historialNuevo.push({ role: "agent", content: textoN || "[ficha/video/pago]", createdAt: new Date() });
-      await repo.guardar(estado);
-      nuevo.push({
-        mensaje,
-        ms: Date.now() - t1,
-        texto: textoN,
-        tarjetas: partesN.filter((p) => p.kind === "card").map((p) => ({ productId: p.productId, seccion: p.seccion ?? null })),
-        otras: partesN.filter((p) => p.kind !== "text" && p.kind !== "card"),
-        herramientas: traza.map((t: any) => `${t.herramienta}(${JSON.stringify(t.args)}) → ${String(t.resultado).slice(0, 80)}`),
-        error,
+        proveedor: reply?.aiProvider ?? null,
       });
     }
 
+    // ── Motor nuevo: mismo guion, mismos turnos, sin tocar la conversación ──
+    const llm = crearClienteLLM({ cadena: await armarCadena({ tenantId }), tenantId });
+    let sombra: any = null;
+    let errorSombra: string | null = null;
+    try {
+      sombra = await correrEnSombra({ tenantId, turnos, llm });
+    } catch (e: any) {
+      errorSombra = String(e?.message || e);
+    }
+
     const hallazgosActual = evaluarChat(actual.map((t) => ({ mensaje: t.mensaje, texto: t.texto, tarjetas: t.tarjetas })), catalogoEval as any);
-    const hallazgosNuevo = evaluarChat(nuevo.map((t) => ({ mensaje: t.mensaje, texto: t.texto, tarjetas: t.tarjetas })), catalogoEval as any);
+    const hallazgosNuevo = sombra
+      ? evaluarChat(sombra.salida.map((t: any) => ({ mensaje: t.mensaje, texto: t.texto, tarjetas: t.tarjetas })), catalogoEval as any)
+      : [];
     const msProm = (xs: any[]) => Math.round(xs.reduce((a, b) => a + (b.ms || 0), 0) / Math.max(1, xs.length));
+
     return res.json({
       ok: true,
       turnos: turnos.length,
       actual: { msPromedio: msProm(actual), hallazgos: hallazgosActual, turnos: actual },
-      nuevo: { msPromedio: msProm(nuevo), hallazgos: hallazgosNuevo, turnos: nuevo, estadoFinal: estado },
+      nuevo: {
+        msPromedio: null,
+        hallazgos: hallazgosNuevo,
+        turnos: sombra?.salida ?? [],
+        estadoFinal: sombra?.estado ?? null,
+        nicho: sombra?.guion ?? null,
+        error: errorSombra,
+      },
     });
   } catch (e: any) {
     return res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * GET/POST /api/whatsapp/motor
+ *
+ * La bandera del motor de ventas POR NEGOCIO.
+ *
+ * El valor por defecto es `v1` (el motor de siempre), así que desplegar este
+ * código no le cambia nada a nadie. Para prender el nuevo en un negocio:
+ *
+ *   POST /api/whatsapp/motor  { "motor": "v2" }
+ *
+ * y para volver atrás, `{ "motor": "v1" }`. El cambio es inmediato: no hay que
+ * redesplegar. Ver `lib/motor-nuevo/activacion.ts` para el orden completo de
+ * la decisión (decisión explícita > lista por env > porcentaje > defecto).
+ */
+router.get("/motor", async (req, res, next) => {
+  try {
+    const tenantId = tenantIdFromReq(req);
+    const { motorDelTenant, describirActivacion } = await import("../lib/motor-nuevo/activacion");
+    return res.json({
+      ok: true,
+      tenantId,
+      motor: await motorDelTenant(tenantId),
+      detalle: await describirActivacion(tenantId),
+    });
+  } catch (e: any) {
+    return next(e);
+  }
+});
+
+router.post("/motor", async (req, res, next) => {
+  try {
+    const tenantId = tenantIdFromReq(req);
+    const pedido = String(req.body?.motor || "").toLowerCase();
+    if (pedido !== "v1" && pedido !== "v2") {
+      return res.status(400).json({ error: "motor debe ser \"v1\" o \"v2\"" });
+    }
+    const { fijarMotorDelTenant, describirActivacion } = await import("../lib/motor-nuevo/activacion");
+    const r = await fijarMotorDelTenant(tenantId, pedido as "v1" | "v2");
+    if (!r.ok) return res.status(404).json({ error: "negocio no encontrado" });
+    logger.info({ tenantId, motor: pedido }, "[WhatsApp] motor del vendedor cambiado por el due\u00f1o");
+    return res.json({ ok: true, motor: r.motor, detalle: await describirActivacion(tenantId) });
+  } catch (e: any) {
+    return next(e);
   }
 });
 

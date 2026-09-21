@@ -1,4 +1,4 @@
-import { integer, numeric, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { integer, jsonb, numeric, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 import { agents } from "./agents";
 import { leads } from "./leads";
 import { tenants } from "./tenants";
@@ -23,6 +23,19 @@ export const conversations = pgTable("conversations", {
   paymentMethod: text("payment_method"),           // nequi | daviplata | transferencia | mercadopago | paypal
   paymentAmount: numeric("payment_amount", { precision: 12, scale: 2 }),
   paidAt: timestamp("paid_at", { withTimezone: true }),
+
+  /**
+   * Memoria explícita del vendedor de WhatsApp (motor v2).
+   *
+   * Es un solo campo a propósito: agregar un dato nuevo al estado no puede
+   * exigir otra migración. El motor viejo deducía "¿ya le dimos el precio?"
+   * escaneando el historial con expresiones regulares; acá el hecho queda
+   * escrito en el momento en que ocurre y se lee tal cual.
+   *
+   * `null` = esta conversación nunca pasó por el motor v2: arranca del estado
+   * inicial y no hay nada que migrar.
+   */
+  estadoAgente: jsonb("estado_agente"),
 
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 });

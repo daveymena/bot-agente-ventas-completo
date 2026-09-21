@@ -5,6 +5,8 @@ WhatsApp AI sales bot + SaaS platform. Express backend, React dashboard, SQLite/
 ## Documentación obligatoria antes de implementar cambios
 
 - `CLAUDE.md` — reglas maestras para la fase actual y separación Atlas/WhatsApp.
+- `TRASPASO_2026-09-21.md` — el vendedor de WhatsApp reconstruido: motor v2, bandera por negocio, nichos derivados y las herramientas con las que Atlas diagnostica.
+- `artifacts/api-server/src/lib/motor-nuevo/README.md` — arquitectura del motor de ventas v2.
 - `WHATSAPP_SALES_PLAYBOOK_RESEARCH_2026.md` — investigación y especificación del comportamiento comercial del vendedor WhatsApp.
 - `REDESENO_FRONTEND_UX_UI_2026.md` — auditoría y rediseño visual/responsive 2026.
 - `ESTADO_MOTOR_VENTAS.md` — auditoría del motor comercial.
@@ -15,6 +17,22 @@ WhatsApp AI sales bot + SaaS platform. Express backend, React dashboard, SQLite/
 - **Atlas / Operator** administra el negocio y puede usar OpenCode/MCP para sus tareas administrativas/estratégicas.
 - **Agente vendedor de WhatsApp** es independiente y atiende al cliente final. Su camino crítico no debe pasar por Atlas ni usar OpenCode como intermediario.
 - `AgentOrchestrator` consume la cola de WhatsApp y llama a `runAgentReply(conversationId)` para generar las respuestas del vendedor.
+
+## Motor de ventas: v1 y v2
+
+`artifacts/api-server/src/lib/motor-nuevo/` es el motor nuevo. Está en
+producción **apagado**: el defecto es `v1`, así que desplegarlo no cambia nada
+para ningún cliente. Se prende por negocio con `MOTOR_VENDEDOR*`, por API
+(`POST /api/whatsapp/motor`) o desde Atlas (`vendedor_motor`).
+
+- Los hechos (precio, ficha, video, medios de pago, entrega) los emiten las
+  herramientas desde la base; el modelo escribe la conversación.
+- El estado explícito vive en `conversations.estado_agente`: no se deducen
+  hechos leyendo el historial con regex.
+- El nicho se deriva de los datos (ver `motor-nuevo/nicho.ts`): no hay lista
+  cerrada de rubros.
+- Si falla el v2, el turno cae al v1 automáticamente: antes una respuesta del
+  motor viejo que el silencio.
 
 ## Quick Start
 
@@ -34,7 +52,7 @@ Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env` before the first run to control
 
 ```
 artifacts/
-  api-server/       → Express backend
+  api-server/       → Express backend (src/lib/motor-nuevo/ = vendedor v2)
   ventas-pro/       → Admin dashboard (React + Vite + Tailwind + shadcn/ui)
 lib/
   db/               → Drizzle ORM, dual SQLite/PG schema

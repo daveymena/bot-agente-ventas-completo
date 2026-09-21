@@ -17,6 +17,25 @@ Antes de modificar código relacionado con el frontend o el vendedor de WhatsApp
 - `AgentOrchestrator` consume la cola y llama a `runAgentReply(conversationId)` para el vendedor de WhatsApp.
 - `whatsapp-brain.ts` es código específico de WhatsApp; no debe confundirse con el cerebro de Atlas.
 
+## Dos motores de venta (v1 y v2)
+
+`lib/motor-nuevo/` es el motor nuevo. Se prende **por negocio** con la bandera de
+`lib/motor-nuevo/activacion.ts` (defecto `v1`, o sea el de siempre). Reglas:
+
+- **No se le agregan capas al motor v1.** Si un caso falla y el negocio está en
+  v2, el arreglo va en `motor-nuevo/`: en las herramientas (una regla que se
+  puede probar) o en el estado (un hecho que se registra), nunca en otra
+  instrucción condicional ni en otra regex sobre el texto.
+- **Los hechos los emiten las herramientas.** Precio, ficha, video, medios de
+  pago y entrega salen de la base. El modelo escribe la conversación.
+- **El nicho se deriva, no se elige de una lista.** Ver `motor-nuevo/nicho.ts`.
+  Si aparece un negocio nuevo, no se agrega un `case`: se revisa qué señal de las
+  que ya existen no se está leyendo.
+- **Lo que no está configurado no se afirma:** un dato faltante se convierte en
+  prohibición explícita. Ver `business-context.ts`.
+- Documentación viva: `artifacts/api-server/src/lib/motor-nuevo/README.md` y
+  `TRASPASO_2026-09-21.md`.
+
 ## Regla principal de implementación
 
 No agregar otra capa de prompt o una nueva lista de palabras clave para tapar un caso aislado. Primero localizar la fuente de verdad de la decisión y corregir la arquitectura o el estado que produce el problema.
