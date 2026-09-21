@@ -63,11 +63,16 @@ describe("el catálogo de lo que Atlas puede consultar", () => {
    * colgaba en producción. Este bloque no puede comerse una porción seria de
    * eso, y por eso va agrupado y sin descripciones.
    */
-  it("es barato: entra en menos de 1.600 caracteres", () => {
+  it("es barato: entra en menos de 1.700 caracteres", () => {
     // 1.500 → 1.600 el 14-09-2026: las ~100 letras de más son la regla de que
     // pida herramientas con el marcador en vez de contárselo al admin. Son
     // ~25 tokens; el techo que importa (4.197) sigue lejísimos.
-    expect(catalogoDeCapacidades(SIN_NADA).length).toBeLessThan(1600);
+    //
+    // 1.600 → 1.700 el 21-09-2026: medido 1.630 al sumar las tres
+    // herramientas con las que Atlas diagnostica al vendedor
+    // (vendedor_diagnosticar, vendedor_motor_ver, vendedor_probar). Son los
+    // ~30 caracteres de esos tres nombres; el techo sigue lejísimos.
+    expect(catalogoDeCapacidades(SIN_NADA).length).toBeLessThan(1700);
   });
 
   it("cubre los terrenos grandes del sistema", () => {

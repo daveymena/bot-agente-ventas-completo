@@ -1,116 +1,467 @@
 /**
- * ADAPTADOR DEL MOTOR NUEVO AL SISTEMA REAL (modo sombra)
- * ======================================================
+ * ADAPTADOR: EL MOTOR NUEVO CONECTADO AL SISTEMA REAL
+ * ===================================================
  *
- * El motor de `motor.ts` no sabe nada de la base ni del proveedor de IA:
- * recibe un `ClienteLLM`, un catálogo y una voz. Acá se construyen esas tres
- * cosas con lo que ya existe en el repo, SIN tocar el camino de WhatsApp:
+ * `motor.ts` no sabe nada de la base ni del proveedor de IA: recibe un
+ * cliente, un catálogo, un guion y una voz. Acá se construyen esas piezas con
+ * lo que YA existe en el repo, sin reimplementar nada:
  *
- *   - `clienteDeepSeek`: tool calling estilo OpenAI contra DeepSeek (la misma
- *     API que usa atlas-directo.ts para el operador).
- *   - `cargarCatalogoDelNegocio`: los productos activos del tenant, con el
- *     video leído del metadata igual que lo hace el render de la ficha.
- *   - `RepositorioEnMemoria`: el estado explícito vive en memoria mientras el
- *     motor corre en sombra. Cuando pase a producción va a una columna jsonb.
+ *   · el catálogo          `products` del tenant (con el video leído del
+ *                          metadata igual que lo hace el render de la ficha)
+ *   · la voz               el agente activo + el perfil del negocio
+ *   · el guion             `business-context` + `hechos-de-pago` + `nicho.ts`
+ *   · el conocimiento      `product_knowledge`, lo que cargó el dueño
+ *   · la memoria           `conversations.estado_agente` (jsonb / text)
  *
- * Nada de esto se llama desde el flujo real: solo desde la ruta de sombra
- * (`POST /api/whatsapp/sombra`), que corre los dos motores sobre los mismos
- * turnos y devuelve las dos salidas para compararlas.
+ * Todo lo que escribe en la base pasa por las mismas funciones que usa el
+ * motor viejo (`saveAgentMessage`, `avisarAlDueno`): el día que el motor nuevo
+ * reemplace al viejo, el inbox, los avisos y los reportes siguen funcionando
+ * igual. Que cambie el cerebro no puede cambiar el resto del cuerpo.
  */
-import { and, eq } from "drizzle-orm";
-import { db, products, agents } from "@workspace/db";
+
+import { and, asc, eq } from "drizzle-orm";
+import {
+  db,
+  agents,
+  conversations,
+  leads,
+  messages,
+  products,
+  productKnowledge,
+  tenants,
+} from "@workspace/db";
+import { getBusinessContext } from "../business-context";
+import { mediosDePago } from "../hechos-de-pago";
+import { PaymentGateway } from "../payments";
 import { videoDeProducto } from "../video-de-producto";
-import { getAppUrl } from "../app-url";
+import { saveAgentMessage } from "../conversation-engine";
+import { dbNow } from "../date-utils";
 import { logger } from "../logger";
-import { estadoInicial, type EstadoConversacion, type RepositorioEstado } from "./estado-conversacion";
-import type { Producto } from "./herramientas";
-import type { ClienteLLM, VozDelNegocio } from "./motor";
+import { crearRepositorioDrizzle, type EstadoConversacion, type RepositorioEstado } from "./estado-conversacion";
+import type { ItemDeConocimiento, Producto } from "./herramientas";
+import { guionDelNegocio, type GuionDelNegocio, type NegocioParaNicho } from "./nicho";
+import { crearClienteLLM, armarCadena, type ClienteLLM } from "./cliente-llm";
+import { responder, type Mensaje, type VozDelNegocio } from "./motor";
 
-const URL_DEEPSEEK = "https://api.deepseek.com/chat/completions";
-
-/** Cliente con tool calling. Sin clave devuelve un error legible, no una excepción. */
-export function clienteDeepSeek(opts: { apiKey?: string; modelo?: string; timeoutMs?: number } = {}): ClienteLLM {
-  const apiKey = String(opts.apiKey || process.env.DEEPSEEK_API_KEY || "");
-  const modelo = opts.modelo || process.env.DEEPSEEK_MODEL || "deepseek-chat";
-  const timeoutMs = opts.timeoutMs ?? 25_000;
-  return {
-    async crear({ messages, tools, temperature }) {
-      if (!apiKey) throw new Error("Sin DEEPSEEK_API_KEY: el motor nuevo necesita un modelo con tool calling");
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), timeoutMs);
-      try {
-        const r = await fetch(URL_DEEPSEEK, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-          body: JSON.stringify({ model: modelo, messages, tools, tool_choice: "auto", temperature, max_tokens: 700 }),
-          signal: ctrl.signal,
-        });
-        if (!r.ok) throw new Error(`DeepSeek HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
-        const j: any = await r.json();
-        const m = j?.choices?.[0]?.message || {};
-        return {
-          content: typeof m.content === "string" ? m.content : null,
-          toolCalls: Array.isArray(m.tool_calls)
-            ? m.tool_calls.map((tc: any) => ({ id: String(tc.id), name: String(tc.function?.name || ""), arguments: String(tc.function?.arguments || "{}") }))
-            : [],
-        };
-      } finally {
-        clearTimeout(t);
-      }
-    },
-  };
-}
+/* ────────────────────────────────────────────────────────────────────────────
+ * CARGA
+ * ──────────────────────────────────────────────────────────────────────────── */
 
 /** Productos activos del negocio, en la forma que espera el motor. */
-export async function cargarCatalogoDelNegocio(tenantId: number, soloKind?: "digital" | "physical"): Promise<Producto[]> {
-  const filas = await db.select().from(products).where(and(eq(products.tenantId, tenantId), eq(products.isActive, true))).limit(200);
-  return filas
-    .filter((p: any) => !soloKind || String(p.kind || "digital") === soloKind)
-    .map((p: any) => {
-      let videoUrl: string | null = null;
-      try { videoUrl = videoDeProducto(p.metadata) || null; } catch { videoUrl = null; }
-      return {
-        id: p.id,
-        name: String(p.name || ""),
-        description: p.description ? String(p.description) : null,
-        price: p.price != null && Number.isFinite(Number(p.price)) ? Number(p.price) : null,
-        currency: p.currency || "COP",
-        videoUrl,
-        // En sombra alcanza con el enlace público del producto; en producción
-        // acá irían los enlaces de MercadoPago/PayPal que genera PaymentGateway.
-        paymentUrl: p.paymentLink ? String(p.paymentLink) : `${getAppUrl()}/p/${p.id}`,
-        disponible: true,
-      };
-    });
+export async function cargarCatalogoDelNegocio(tenantId: number): Promise<Producto[]> {
+  const filas = await db
+    .select()
+    .from(products)
+    .where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)))
+    .limit(200);
+
+  return filas.map((p: any) => {
+    let videoUrl: string | null = null;
+    try {
+      videoUrl = videoDeProducto(p.metadata) || null;
+    } catch {
+      videoUrl = null;
+    }
+
+    let opciones: string[] | null = null;
+    try {
+      const crudas = Array.isArray(p.opciones) ? p.opciones : p.opciones ? JSON.parse(String(p.opciones)) : null;
+      if (Array.isArray(crudas)) {
+        opciones = crudas
+          .map((o: any) => String(o?.nombre || o?.name || o?.valor || o?.value || o || "").trim())
+          .filter(Boolean);
+      }
+    } catch {
+      opciones = null;
+    }
+
+    const precio = p.price != null && Number.isFinite(Number(p.price)) ? Number(p.price) : null;
+
+    return {
+      id: p.id,
+      name: String(p.name || ""),
+      description: p.description ? String(p.description) : null,
+      price: precio,
+      currency: p.currency || "COP",
+      kind: p.kind || "digital",
+      categoria: p.category ?? null,
+      opciones,
+      videoUrl,
+      disponible: true,
+    };
+  });
 }
 
-/** La voz: nombre y rol del agente activo del negocio, y su prompt como indicaciones. */
-export async function cargarVozDelNegocio(tenantId: number, opts: { agentId?: number | null; especialidad?: "digital" | "dropshipping" } = {}): Promise<VozDelNegocio> {
-  const filas = await db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.isActive, true)));
-  // En la primera corrida en sombra tomó el primer agente activo (AtlasDrops,
-  // físicos) para un catálogo digital y contestó "los cursos no los veo yo"
-  // a todo. La voz tiene que ser la del agente de la especialidad del catálogo.
-  const a: any = (opts.agentId ? filas.find((x: any) => x.id === opts.agentId) : null)
-    || (opts.especialidad ? filas.find((x: any) => String(x.especialidad || "").toLowerCase() === opts.especialidad) : null)
-    || filas[0] || {};
+/** Los medios de pago REALES del negocio. Si no hay ninguno, la lista es vacía. */
+export async function cargarMediosDePago(tenantId: number): Promise<{ etiqueta: string; tipo: "transferencia" | "link" }[]> {
+  try {
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    if (!tenant) return [];
+    const pg = new PaymentGateway(tenant as any);
+    const info = (pg as any).getTransferInfo?.() || { options: [] };
+    return mediosDePago({ dynamicLinks: { transfer: info } });
+  } catch (e: any) {
+    // Sin medios de pago el agente avisa que los confirma: nunca inventa uno.
+    logger.warn({ err: e?.message, tenantId }, "[MotorV2] no se pudieron leer los medios de pago");
+    return [];
+  }
+}
+
+/** El guion de ventas derivado del negocio. Ver `nicho.ts`. */
+export async function cargarGuion(tenantId: number, catalogo: Producto[], productoEnFoco?: number | null): Promise<GuionDelNegocio> {
+  const ctx = await getBusinessContext(tenantId);
+  const medios = await cargarMediosDePago(tenantId);
+
+  const negocio: NegocioParaNicho = {
+    nombre: ctx.businessName || null,
+    agente: ctx.agentName || null,
+    nicho: ctx.nicho,
+    descripcion: ctx.descripcion,
+    cobertura: ctx.cobertura,
+    horario: ctx.horario,
+    entrega: ctx.entrega,
+    garantia: ctx.garantia,
+    acceso: ctx.acceso,
+    tono: ctx.tono,
+    noPuede: ctx.noPuede,
+    loQueDebeSaber: ctx.loQueDebeSaber,
+    modoCatalogo: ctx.modoCatalogo,
+    condiciones: ctx.condiciones
+      ? {
+          pais: (ctx.condiciones as any).pais ?? null,
+          envio: (ctx.condiciones as any).envio ?? null,
+          costoEnvio: (ctx.condiciones as any).costoEnvio ?? null,
+          pagoEnvio: (ctx.condiciones as any).pagoEnvio ?? null,
+          agenda: (ctx.condiciones as any).agenda ?? null,
+        }
+      : null,
+    negociaPrecio: ctx.negociaPrecio,
+  };
+
+  const enFoco = productoEnFoco != null ? catalogo.find((p) => p.id === productoEnFoco) : null;
+
+  return guionDelNegocio({ catalogo, negocio, medios, productoEnFoco: enFoco ?? null });
+}
+
+/** Lo que el dueño cargó como respuestas. */
+export async function cargarConocimiento(tenantId: number): Promise<ItemDeConocimiento[]> {
+  try {
+    const filas = await db
+      .select()
+      .from(productKnowledge)
+      .where(eq(productKnowledge.tenantId, tenantId))
+      .limit(300);
+
+    return filas.map((k: any) => ({
+      productId: k.productId ?? null,
+      pregunta: String(k.pregunta || ""),
+      disparadores: String(k.disparadores || "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+      respuesta: k.respuesta ? String(k.respuesta) : null,
+    }));
+  } catch (e: any) {
+    logger.warn({ err: e?.message, tenantId }, "[MotorV2] no se pudo leer el conocimiento del negocio");
+    return [];
+  }
+}
+
+/** La voz: el agente activo del negocio y el tono que el dueño escribió. */
+export async function cargarVozDelNegocio(tenantId: number): Promise<VozDelNegocio> {
+  const ctx = await getBusinessContext(tenantId);
+  let agente: any = null;
+  try {
+    const filas = await db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.isActive, true))).limit(5);
+    agente = filas[0] || null;
+  } catch {
+    agente = null;
+  }
+
   return {
-    nombreAgente: String(a.name || "Asesor"),
-    rolAgente: String(a.role || "asesor comercial"),
-    nombreNegocio: String(process.env.BUSINESS_NAME || "el negocio"),
-    // El systemPrompt del agente NO se pasa en sombra: el motor nuevo trae su
-    // propio estilo y el prompt cargado hoy trae reglas del motor viejo.
-    instruccionesExtra: undefined,
+    nombreAgente: ctx.agentName || agente?.name || "Asesor",
+    rolAgente: agente?.role || "asesor comercial",
+    nombreNegocio: ctx.businessName || "nuestro equipo",
+    instruccionesExtra: ctx.tono || null,
   };
 }
 
-/** Estado en memoria: suficiente para correr en sombra. Se pierde al reiniciar. */
-export class RepositorioEnMemoria implements RepositorioEstado {
-  private estados = new Map<number, EstadoConversacion>();
-  async cargar(conversationId: number) {
-    return this.estados.get(conversationId) ?? estadoInicial(conversationId);
+/**
+ * El historial, en orden, con el último mensaje del cliente al final.
+ *
+ * ⚠️ El `limit` va DESPUÉS de ordenar y NO ANTES: con `orderBy(asc)` +
+ * `limit(60)` la base devuelve los 60 mensajes MÁS VIEJOS, así que una
+ * conversación larga se quedaba sin su final -- justo lo que el agente
+ * necesita para no repetirse. Se traen los últimos de la charla.
+ */
+export async function cargarHistorial(conversationId: number, limite = 60): Promise<Mensaje[]> {
+  const filas = await db
+    .select()
+    .from(messages)
+    .where(eq(messages.conversationId, conversationId))
+    .orderBy(asc(messages.createdAt))
+    .limit(500);
+
+  return filas
+    .filter((m: any) => m.role === "customer" || m.role === "agent")
+    .slice(-Math.max(1, limite))
+    .map((m: any) => ({
+      role: m.role === "customer" ? ("customer" as const) : ("agent" as const),
+      content: String(m.content || ""),
+      createdAt: m.createdAt,
+    }));
+}
+
+export function repositorioDeEstado(): RepositorioEstado {
+  return crearRepositorioDrizzle({ db, conversations, eq });
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * EL TURNO COMPLETO
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+export interface RespuestaDelVendedor {
+  content: string;
+  stage: string;
+  parts: any[];
+  aiProvider: string;
+  cardProductIds: number[];
+  /** Diagnóstico del turno. Se devuelve para poder medirlo sin leer logs. */
+  motor: "v2";
+  traza: { herramienta: string; resultado: string }[];
+  modoPlan: boolean;
+  corregido: boolean;
+  nicho: GuionDelNegocio["forma"];
+}
+
+// Los valores son los que ya usa el inbox y el panel (`Stage` en
+// conversation-engine.ts). Inventar etapas nuevas rompía los filtros de la
+// pantalla aunque la columna acepte cualquier texto.
+export const ETAPA_A_STAGE: Record<EstadoConversacion["etapa"], string> = {
+  saludo: "greeting",
+  explorando: "discovery",
+  producto_en_foco: "presentation",
+  precio_dado: "details",
+  cierre: "closing",
+  postventa: "post_sale",
+  escalado: "human_handoff",
+};
+
+/**
+ * Corre un turno del vendedor con el motor nuevo.
+ *
+ * Devuelve EXACTAMENTE la misma forma que `runAgentReply()` de agent.ts, para
+ * que `AgentOrchestrator`, la ruta de pruebas y el panel no se enteren de cuál
+ * de los dos motores contestó.
+ */
+export async function responderComoVendedor(
+  conversationId: number,
+  opts: { llm?: ClienteLLM; appSettings?: any } = {},
+): Promise<RespuestaDelVendedor | null> {
+  const [convo] = await db.select().from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+  if (!convo) return null;
+
+  const tenantId = convo.tenantId ?? 1;
+  const repositorio = repositorioDeEstado();
+
+  const estado = await repositorio.cargar(conversationId);
+  const [historial, catalogo, voz] = await Promise.all([
+    cargarHistorial(conversationId),
+    cargarCatalogoDelNegocio(tenantId),
+    cargarVozDelNegocio(tenantId),
+  ]);
+
+  const guion = await cargarGuion(tenantId, catalogo, estado.productoEnFoco);
+  const conocimiento = await cargarConocimiento(tenantId);
+
+  const llm =
+    opts.llm ??
+    crearClienteLLM({ cadena: await armarCadena({ tenantId, appSettings: opts.appSettings }), tenantId });
+
+  const resultado = await responder({ llm, estado, historial, catalogo, conocimiento, guion, voz });
+
+  await repositorio.guardar(resultado.estado);
+
+  // ── Persistir la respuesta igual que el motor viejo ──────────────────────
+  const texto = resultado.partes
+    .filter((p) => p.kind === "text")
+    .map((p) => String((p as any).content || ""))
+    .join("\n\n")
+    .trim();
+  const cardProductIds = resultado.partes.filter((p) => p.kind === "card").map((p) => (p as any).productId);
+  const textoParaGuardar = texto || (cardProductIds.length ? `[ficha de ${cardProductIds.join(", ")}]` : "");
+
+  await saveAgentMessage(conversationId, textoParaGuardar || "…", ETAPA_A_STAGE[resultado.estado.etapa] as any, {
+    intent: "motor_v2",
+    productId: resultado.estado.productoEnFoco ?? undefined,
+    isHardcoded: false,
+  } as any);
+
+  // El producto en foco NO se guarda en la columna de la conversación: no
+  // existe en el esquema (`currentProductId` lo escribe el motor viejo y
+  // Drizzle lo descarta en silencio, así que nunca se persistió). Acá vive en
+  // `estado_agente`, que sí es una columna real, y por eso sobrevive al
+  // reinicio del contenedor y a los mensajes sin tarjeta.
+  await db
+    .update(conversations)
+    .set({ currentStage: ETAPA_A_STAGE[resultado.estado.etapa], lastMessageAt: dbNow() as any })
+    .where(eq(conversations.id, conversationId));
+
+  // ── Scoring y seguimiento: igual que el motor viejo ─────────────────────
+  //
+  // El motor v2 no deja de alimentar el pipeline comercial: el lead scoring y
+  // los seguimientos programados viven en `leadScoring.ts`, los lee el dashboard
+  // y son los que avisan cuando un cliente quedó a media charla. Es
+  // fire-and-forget y atrapa sus propios errores: nunca puede retrasarle la
+  // respuesta a quien está escribiendo ahora.
+  const ultimoDelCliente = [...historial].reverse().find((m) => m.role === "customer")?.content;
+  if (ultimoDelCliente) {
+    import("../leadScoring")
+      .then(({ processMessageForLeadScoring }) => processMessageForLeadScoring(conversationId, ultimoDelCliente))
+      .catch((err) => logger.warn({ err: err?.message }, "[MotorV2] no se pudo calcular el scoring del lead"));
   }
-  async guardar(estado: EstadoConversacion) {
-    this.estados.set(estado.conversationId, estado);
-    logger.debug({ conversationId: estado.conversationId, etapa: estado.etapa }, "[MotorNuevo] estado guardado (memoria)");
+
+  // ── Efectos: lo que las herramientas pidieron hacer en la base ───────────
+  for (const efecto of resultado.efectos) {
+    try {
+      await aplicarEfecto(efecto, { conversationId, tenantId, convo, estado: resultado.estado, catalogo });
+    } catch (e: any) {
+      logger.error({ err: e?.message, efecto }, "[MotorV2] no se pudo aplicar el efecto del turno");
+    }
   }
+
+  return {
+    content: texto,
+    stage: ETAPA_A_STAGE[resultado.estado.etapa],
+    parts: resultado.partes as any[],
+    aiProvider: resultado.proveedor,
+    cardProductIds,
+    motor: "v2",
+    traza: resultado.traza.map((t) => ({ herramienta: t.herramienta, resultado: String(t.resultado).slice(0, 120) })),
+    modoPlan: resultado.modoPlan,
+    corregido: resultado.corregido,
+    nicho: guion.forma,
+  };
+}
+
+async function aplicarEfecto(
+  efecto: any,
+  ctx: { conversationId: number; tenantId: number; convo: any; estado: EstadoConversacion; catalogo: Producto[] },
+): Promise<void> {
+  if (efecto.tipo === "dato") {
+    if (efecto.campo === "nombre") {
+      // Con el que se le HABLA: el pushName trae apellido y saludar con
+      // apellido delata a la máquina en el primer mensaje.
+      await db
+        .update(conversations)
+        .set({ contactName: String(efecto.valor) })
+        .where(eq(conversations.id, ctx.conversationId));
+    }
+    if (ctx.convo?.leadId) {
+      const [lead] = await db.select().from(leads).where(eq(leads.id, ctx.convo.leadId)).limit(1);
+      const notas = String((lead as any)?.notes || "");
+      const linea = `${efecto.campo}: ${efecto.valor}`;
+      if (!notas.includes(linea)) {
+        await db
+          .update(leads)
+          .set({ notes: `${notas ? `${notas}\n` : ""}${linea}` })
+          .where(eq(leads.id, ctx.convo.leadId));
+      }
+    }
+    return;
+  }
+
+  if (efecto.tipo === "pago_reportado") {
+    const foco = ctx.estado.productoEnFoco;
+    const producto = foco != null ? ctx.catalogo.find((p) => p.id === foco) : null;
+    await db
+      .update(conversations)
+      .set({
+        // pending: el cliente DICE que pagó. Confirmarlo lo hace una persona.
+        paymentStatus: "pending",
+        paymentMethod: efecto.medio ? String(efecto.medio) : null,
+        paymentAmount: producto?.price != null ? String(producto.price) : null,
+      })
+      .where(eq(conversations.id, ctx.conversationId));
+
+    try {
+      const { avisarAlDueno } = await import("../avisos");
+      await avisarAlDueno(
+        ctx.tenantId,
+        `💰 *Pago por verificar* — ${ctx.convo?.contactName || "cliente"} dice que ya pagó${
+          producto ? ` ${producto.name}` : ""
+        }${efecto.medio ? ` por ${efecto.medio}` : ""}. Entrá al panel a confirmarlo.`,
+      );
+    } catch {
+      /* avisar no puede frenar la respuesta al cliente */
+    }
+    return;
+  }
+
+  if (efecto.tipo === "escalar") {
+    await db
+      .update(conversations)
+      .set({ status: "human" })
+      .where(eq(conversations.id, ctx.conversationId));
+    try {
+      const { avisarAlDueno } = await import("../avisos");
+      await avisarAlDueno(
+        ctx.tenantId,
+        `🙋 *Te toca* — ${ctx.convo?.contactName || "un cliente"} necesita a una persona: ${efecto.motivo}`,
+      );
+    } catch {
+      /* idem */
+    }
+  }
+}
+
+/** Para la ruta de sombra: corre el motor sin escribir nada en la conversación. */
+export async function correrEnSombra(params: {
+  tenantId: number;
+  turnos: string[];
+  estadoInicial?: EstadoConversacion;
+  llm: ClienteLLM;
+}) {
+  const catalogo = await cargarCatalogoDelNegocio(params.tenantId);
+  const voz = await cargarVozDelNegocio(params.tenantId);
+  const conocimiento = await cargarConocimiento(params.tenantId);
+  const guion = await cargarGuion(params.tenantId, catalogo, null);
+
+  let estado: EstadoConversacion =
+    params.estadoInicial ??
+    ((await import("./estado-conversacion")).estadoInicial(0));
+  const historial: Mensaje[] = [];
+  const salida: any[] = [];
+
+  for (const turno of params.turnos) {
+    historial.push({ role: "customer", content: turno, createdAt: new Date() });
+    let partes: any[] = [];
+    let traza: any[] = [];
+    let error: string | null = null;
+    let proveedor = "—";
+    try {
+      const r = await responder({ llm: params.llm, estado, historial, catalogo, conocimiento, guion, voz });
+      partes = r.partes;
+      traza = r.traza;
+      proveedor = r.proveedor;
+      estado = r.estado;
+    } catch (e: any) {
+      error = String(e?.message || e);
+    }
+    const texto = partes
+      .filter((p) => p.kind === "text")
+      .map((p) => String(p.content || ""))
+      .join("\n\n");
+    historial.push({ role: "agent", content: texto || "[ficha]", createdAt: new Date() });
+    salida.push({
+      mensaje: turno,
+      texto,
+      tarjetas: partes.filter((p) => p.kind === "card"),
+      herramientas: traza.map((t) => `${t.herramienta} → ${String(t.resultado).slice(0, 90)}`),
+      proveedor,
+      error,
+    });
+  }
+
+  return { salida, estado, guion: { forma: guion.forma, confianza: guion.confianza, senales: guion.senales } };
 }

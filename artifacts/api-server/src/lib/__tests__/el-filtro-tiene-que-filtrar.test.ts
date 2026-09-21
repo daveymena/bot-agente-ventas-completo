@@ -245,6 +245,10 @@ describe("ningún tipo de pedido se pasa del presupuesto", () => {
   // ~28 tokens de base en el caso peor ("sin familia", que lista todas las
   // acciones de cambio con su resumen). Sigue muy por debajo del techo real
   // (~8000) donde Groq empieza a truncar y el modelo alucina.
+  //
+  // 3480 → 3520 el 21-09-2026: medido 3.480 justo (fallaba por 1) al sumar
+  // vendedor_motor y vendedor_olvidar, que son de cambio y por eso engordan
+  // el resumen que viaja en propose_action.
   const PEDIDOS: Array<[string, string]> = [
     ["ventas del día", "cómo van las ventas hoy"],
     ["facturación", "cuánto facturé este mes"],
@@ -260,7 +264,7 @@ describe("ningún tipo de pedido se pasa del presupuesto", () => {
   for (const [nombre, pedido] of PEDIDOS) {
     it(`"${nombre}" entra en el minuto de Groq`, () => {
       const t = tokens(buildMcpToolRegistry(pedido));
-      expect(t, `"${pedido}" pesa ~${t} tokens`).toBeLessThan(3480);
+      expect(t, `"${pedido}" pesa ~${t} tokens`).toBeLessThan(3520);
     });
   }
 });

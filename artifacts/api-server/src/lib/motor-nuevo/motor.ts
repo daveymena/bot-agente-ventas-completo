@@ -2,129 +2,221 @@
  * MOTOR DEL AGENTE
  * ================
  *
- * Reemplaza a runAgentReply() de agent.ts (5.030 líneas) y a toda la cadena
+ * Reemplaza a `runAgentReply()` de agent.ts (5.300 líneas) y a la cadena
  * response-brain / sales-playbook / whatsapp-brain / supervisor / objeciones /
  * next-best-action / emojis-con-medida / precio-verificado.
  *
  * El bucle es el estándar de tool calling y cabe en una pantalla:
  *
- *   1. Se arma el contexto: quién sos, qué hay en el catálogo, QUÉ PASÓ YA
- *      (estado explícito) y el historial de la charla.
+ *   1. Se arma el contexto quién sos, cómo vende este negocio, qué hay en el
+ *      catálogo, QUÉ PASÓ YA (estado explícito) y el historial.
  *   2. Se le pregunta al modelo. Puede contestar texto, o pedir herramientas.
  *   3. Si pidió herramientas, se ejecutan (ellas aplican las reglas y arman
- *      las partes a enviar) y se le devuelve el resultado para que siga.
- *   4. Cuando el modelo da su texto final, se envía junto con lo que las
- *      herramientas agregaron, y se guarda el estado.
+ *      las partes) y se le devuelve el resultado para que siga.
+ *   4. Cuando da su texto final, se envía junto con lo que las herramientas
+ *      agregaron, y se guarda el estado.
  *
  * Lo que NO hay acá, a propósito: ninguna expresión regular que intente
- * entender lo que quiso decir el cliente.
+ * entender lo que quiso decir el cliente. Entenderlo es trabajo del modelo.
+ *
+ * Lo que SÍ hay, y es la única red de seguridad que queda: si el modelo escribe
+ * una cifra de dinero que no existe en el catálogo, se le pide UNA vez que lo
+ * reescriba. No se le reescribe el texto por atrás: eso era lo que convertía
+ * una buena respuesta en un mensaje cortado a la mitad ("empezar h...").
  */
 
 import {
   definicionesDeHerramientas,
   ejecutores,
   type ContextoHerramientas,
+  type Efecto,
   type Parte,
   type Producto,
 } from "./herramientas";
 import {
   describirEstado,
   horasDesdeUltimoMensaje,
+  volvioDespuesDe,
   type EstadoConversacion,
   type RepositorioEstado,
 } from "./estado-conversacion";
+import { renderGuion, type GuionDelNegocio } from "./nicho";
+import type { ClienteLLM } from "./cliente-llm";
 
 export interface Mensaje {
   role: "customer" | "agent";
   content: string;
-  createdAt: Date | string;
+  createdAt?: Date | string;
 }
 
 export interface VozDelNegocio {
   nombreAgente: string;
   rolAgente: string;
   nombreNegocio: string;
-  /** Ajustes de tono que el dueño escribe desde el panel. Opcional y corto. */
-  instruccionesExtra?: string;
-}
-
-export interface ClienteLLM {
-  /** Debe soportar tool calling estilo OpenAI. */
-  crear(params: {
-    messages: any[];
-    tools: any[];
-    temperature: number;
-  }): Promise<{
-    content: string | null;
-    toolCalls: { id: string; name: string; arguments: string }[];
-  }>;
+  /** Ajustes de tono que el dueño escribió. Corto y opcional. */
+  instruccionesExtra?: string | null;
 }
 
 /** Cuántos mensajes del historial se mandan. Uno solo, en un solo lugar. */
-const MENSAJES_DE_HISTORIAL = 40;
+export const MENSAJES_DE_HISTORIAL = 40;
 
 /** Tope de vueltas del bucle, para que nunca se cuelgue llamando herramientas. */
-const MAX_VUELTAS = 6;
+export const MAX_VUELTAS = 6;
 
-export function construirPromptDeSistema(
-  voz: VozDelNegocio,
-  estado: EstadoConversacion,
-  catalogo: Producto[],
-  nombrePorProducto: (id: number) => string,
-): string {
+/** Máximo de fichas por respuesta: dos fotos seguidas en el celular es spam. */
+const MAX_TARJETAS = 2;
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * EL PROMPT
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+export function construirPromptDeSistema(params: {
+  voz: VozDelNegocio;
+  estado: EstadoConversacion;
+  catalogo: Producto[];
+  guion: GuionDelNegocio;
+  nombrePorProducto: (id: number) => string;
+}): string {
+  const { voz, estado, catalogo, guion } = params;
   const horas = horasDesdeUltimoMensaje(estado);
-  const volvioDespuesDeUnRato = horas != null && horas > 8;
+  const volvio = volvioDespuesDe(estado);
 
-  // El catálogo va completo pero compacto. Con catálogos grandes (>60), el
-  // modelo usa buscar_en_catalogo en vez de recibirlo entero.
+  // Catálogo completo pero compacto. Con catálogos grandes, el modelo usa
+  // buscar_en_catalogo en vez de recibirlo entero: 200 fichas no entran en
+  // ningún contexto sin empujar la conversación afuera.
+  const disponibles = catalogo.filter((p) => p.disponible !== false);
   const catalogoCompacto =
-    catalogo.length <= 60
-      ? catalogo
-          .filter((p) => p.disponible)
-          .map((p) => `#${p.id} · ${p.name}${p.price ? ` · ${p.currency || "COP"} ${p.price}` : ""}`)
+    disponibles.length <= 60
+      ? disponibles
+          .map((p) => `#${p.id} · ${p.name}${p.price ? ` · ${p.currency || "COP"} ${p.price.toLocaleString("es-CO")}` : ""}`)
           .join("\n")
-      : `${catalogo.filter((p) => p.disponible).length} productos. Usá buscar_en_catalogo para ubicarlos.`;
+      : `${disponibles.length} productos. Usá buscar_en_catalogo para ubicarlos.`;
 
-  return `Sos ${voz.nombreAgente}, ${voz.rolAgente} de ${voz.nombreNegocio}. Atendés por WhatsApp.
+  const quien = `${voz.nombreAgente}, ${voz.rolAgente} de ${voz.nombreNegocio}`;
+
+  return `Sos ${quien}. Atendés por WhatsApp.
 
 CÓMO HABLÁS
-Como una persona real que sabe de lo que vende. Mensajes cortos, de 2 a 4 frases,
-en el español de Colombia, cálido y directo. Nada de listas con viñetas ni de
-mensajes largos con títulos: esto es un chat, no un folleto. Un emoji suelto está
-bien; cinco no. No repitas lo que el cliente acaba de decir antes de contestarle.
+Como una persona que sabe de lo que vende. Mensajes de 2 a 4 frases, en el
+español del país del negocio, cálido y directo. Nada de listas con viñetas,
+nada de títulos ni de fichas armadas a mano: esto es un chat, no un folleto.
+Un emoji suelto está bien; cinco no. No empieces todas las respuestas con
+"Perfecto", "Claro", "Excelente" ni con el nombre del cliente. No repitas lo
+que el cliente acaba de decir antes de contestarle.
 
 CÓMO PENSÁS
-Escuchá lo que el cliente realmente quiere, no la palabra suelta que usó. Si
-pregunta algo puntual, contestá eso y nada más. Si duda, entendé de qué duda
-antes de empujar. Si lo que pide no existe en el catálogo, decilo con
-naturalidad y mostrale lo que sí hay — nunca inventes un producto, un precio,
-una promoción ni una fecha de entrega.
+Escuchá lo que el cliente realmente quiere, no la palabra suelta que usó.
+Contestá PRIMERO lo que preguntó. Una sola pregunta estratégica por mensaje,
+y solo cuando la respuesta cambie lo que le vas a recomendar. Si duda, antes de
+empujar entendé de qué duda. Si lo que pide no existe, decilo con naturalidad y
+mostrale lo que sí hay.
 
-LAS HERRAMIENTAS HACEN LOS HECHOS
-El precio, la ficha, el video y los datos de pago NO los escribís vos: los manda
-la herramienta correspondiente y se agregan solos al mensaje. Vos ponés la parte
-conversacional alrededor. Si una herramienta te dice que algo ya se envió, no lo
+LAS HERRAMIENTAS PONEN LOS HECHOS
+El precio, los medios de pago, la ficha, el video y la entrega NO los escribís
+vos: los manda la herramienta y se agregan solos al mensaje. Vos ponés la
+conversación alrededor. Si una herramienta te dice que algo ya se envió, no lo
 repitas: retomá desde donde quedaron.
 
-Nunca digas que un pago está confirmado, verificado o recibido. Eso solo lo
-determina una persona del equipo, y el sistema te avisa cuándo pasó.
+Nunca digas que un pago está confirmado, verificado ni recibido. Eso lo
+determina una persona del equipo, y el sistema te avisa cuando pasó.
+
+${renderGuion(guion)}
 
 CATÁLOGO
 ${catalogoCompacto}
 
 LO QUE YA PASÓ EN ESTA CONVERSACIÓN
-${describirEstado(estado, nombrePorProducto)}${
-    volvioDespuesDeUnRato
-      ? `\n\nEl cliente había dejado de escribir hace ${Math.round(horas!)} horas y volvió recién. Retomá donde quedaron en una línea; no arranques de cero ni te presentes de nuevo.`
+${describirEstado(estado, params.nombrePorProducto)}${
+    volvio
+      ? `\n\nEl cliente dejó de escribir hace ${Math.round(horas!)} horas y volvió recién. Retomá donde quedaron en una línea; no te presentes de nuevo ni arranques de cero.`
       : ""
   }${voz.instruccionesExtra ? `\n\nINDICACIONES DEL DUEÑO\n${voz.instruccionesExtra}` : ""}`;
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * LA ÚNICA RED DE SEGURIDAD: CIFRAS QUE NO EXISTEN
+ *
+ * No es el supervisor de antes, que reescribía todo con cuarenta regex. Es una
+ * comprobación de UNA cosa: que ningún número con pinta de plata que escriba el
+ * modelo sea un precio que no está en el catálogo. Si lo es, se le pide que lo
+ * reescriba. Nada más.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/** Montos con pinta de plata: "$60.000", "60.000", "60 mil", "45.000 pesos". */
+const MONTO = /(\$ ?\d[\d.,]{2,}|\d{1,3}(?:[.,]\d{3})+(?:[.,]\d{1,2})?|\d[\d.,]*\s?(?:mil|pesos|cop|usd|d[oó]lares|eur))/gi;
+
+const aNumero = (s: string): number => {
+  // El punto final de la frase se come el número: "$60.000." terminaba en NaN
+  // y por eso una cifra inventada pasaba la red sin ser detectada.
+  const limpio = s.replace(/[^\d.,]/g, "").replace(/[.,]+$/, "");
+  // 60.000 → 60000 (separador de miles) y 60,50 → 60.5 (decimal)
+  const conPunto = limpio.includes(".") && limpio.lastIndexOf(".") - limpio.length < -2;
+  const normalizado = conPunto ? limpio.replace(/\./g, "").replace(",", ".") : limpio.replace(/,/g, ".");
+  const n = Number(normalizado);
+  return Number.isFinite(n) ? n : 0;
+};
+
+/**
+ * Los montos que el modelo SÍ puede escribir: los precios del catálogo y sus
+ * sumas (un cliente que lleva dos productos pregunta por el total).
+ */
+export function montosPermitidos(catalogo: Producto[]): Set<number> {
+  const precios = catalogo.map((p) => Number(p.price) || 0).filter((n) => n > 0).slice(0, 12);
+  const permitidos = new Set<number>([0]);
+  for (const p of precios) {
+    permitidos.add(Math.round(p));
+    permitidos.add(Math.round(p * 100) / 100);
+  }
+  // Sumas de hasta 4 productos: "los dos cursos salen 120.000".
+  for (let mask = 1; mask < 1 << precios.length && mask < 1 << 12; mask++) {
+    let suma = 0;
+    let cuenta = 0;
+    for (let j = 0; j < precios.length; j++) {
+      if (mask & (1 << j)) {
+        suma += precios[j];
+        if (++cuenta > 4) break;
+      }
+    }
+    if (cuenta >= 2 && cuenta <= 4) permitidos.add(Math.round(suma));
+  }
+  return permitidos;
+}
+
+/** ¿El texto tiene una cifra de plata que no existe en el catálogo? */
+export function montosInventados(texto: string, catalogo: Producto[]): number[] {
+  const permitidos = montosPermitidos(catalogo);
+  const hallados = String(texto || "").match(MONTO) || [];
+  const inventados: number[] = [];
+  for (const crudo of hallados) {
+    const n = aNumero(crudo);
+    // Menos de 1.000 no es un precio de nada y evita perseguir "2 años",
+    // "3 días" o los cuatro dígitos de un año.
+    if (n < 1000) continue;
+    const redondo = Math.round(n);
+    if (!permitidos.has(redondo)) inventados.push(n);
+  }
+  return inventados;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * EL BUCLE
+ * ═══════════════════════════════════════════════════════════════════════════ */
 
 export interface ResultadoRespuesta {
   partes: Parte[];
   estado: EstadoConversacion;
   /** Para observabilidad: qué herramientas se usaron y qué contestaron. */
   traza: { herramienta: string; args: any; resultado: string }[];
+  proveedor: string;
+  modoPlan: boolean;
+  /** Si hubo que pedirle que reescribiera una cifra inventada. */
+  corregido: boolean;
+  /**
+   * Lo que hay que aplicar en la base DESPUÉS de responder (pago reportado,
+   * escalado, datos del cliente). Las herramientas son puras; esto lo ejecuta
+   * el adaptador, que es quien tiene la base.
+   */
+  efectos: Efecto[];
 }
 
 export async function responder(params: {
@@ -132,24 +224,38 @@ export async function responder(params: {
   estado: EstadoConversacion;
   historial: Mensaje[];
   catalogo: Producto[];
+  conocimiento: { productId: number | null; pregunta: string; disparadores: string[]; respuesta: string | null }[];
+  guion: GuionDelNegocio;
   voz: VozDelNegocio;
 }): Promise<ResultadoRespuesta> {
-  const { llm, estado, historial, catalogo, voz } = params;
+  const { llm, estado, historial, catalogo, guion, voz } = params;
 
-  const nombrePorProducto = (id: number) =>
-    catalogo.find((p) => p.id === id)?.name ?? `producto #${id}`;
+  const nombrePorProducto = (id: number) => catalogo.find((p) => p.id === id)?.name ?? `producto #${id}`;
+  const mensajeDelCliente = [...historial].reverse().find((m) => m.role === "customer")?.content ?? "";
 
-  const ctx: ContextoHerramientas = { estado, catalogo, partes: [] };
-  const traza: ResultadoRespuesta["traza"] = [];
+  const system = construirPromptDeSistema({ voz, estado, catalogo, guion, nombrePorProducto });
+
+  const ctx: ContextoHerramientas = {
+    estado,
+    catalogo,
+    partes: [],
+    conocimiento: params.conocimiento || [],
+    guion,
+    mensajeDelCliente,
+    efectos: [],
+  };
 
   const messages: any[] = [
-    { role: "system", content: construirPromptDeSistema(voz, estado, catalogo, nombrePorProducto) },
+    { role: "system", content: system },
     ...historial.slice(-MENSAJES_DE_HISTORIAL).map((m) => ({
       role: m.role === "customer" ? "user" : "assistant",
       content: m.content,
     })),
   ];
 
+  const traza: ResultadoRespuesta["traza"] = [];
+  let proveedor = "desconocido";
+  let modoPlan = false;
   let textoFinal = "";
 
   for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
@@ -158,6 +264,8 @@ export async function responder(params: {
       tools: definicionesDeHerramientas,
       temperature: 0.6,
     });
+    proveedor = respuesta.proveedor;
+    modoPlan = modoPlan || respuesta.modoPlan;
 
     if (!respuesta.toolCalls?.length) {
       textoFinal = (respuesta.content || "").trim();
@@ -179,7 +287,7 @@ export async function responder(params: {
       let resultado: { ok: boolean; mensaje: string };
 
       if (!ejecutor) {
-        resultado = { ok: false, mensaje: `No existe la herramienta ${llamada.name}.` };
+        resultado = { ok: false, mensaje: `No existe la herramienta ${llamada.name}. Usá alguna de las que te di.` };
       } else {
         let args: any = {};
         try {
@@ -190,46 +298,88 @@ export async function responder(params: {
         try {
           resultado = await ejecutor(ctx, args);
         } catch (err: any) {
-          // Una herramienta que falla no puede tumbar la respuesta al cliente.
+          // Una herramienta que falla no puede tumbarle la respuesta al cliente.
           resultado = { ok: false, mensaje: `Falló: ${err?.message || "error interno"}.` };
         }
         traza.push({ herramienta: llamada.name, args, resultado: resultado.mensaje });
       }
 
-      messages.push({
-        role: "tool",
-        tool_call_id: llamada.id,
-        content: resultado.mensaje,
-      });
+      messages.push({ role: "tool", tool_call_id: llamada.id, content: resultado.mensaje });
     }
   }
 
-  // El texto del modelo va PRIMERO y las partes que agregaron las herramientas
-  // después, que es el orden natural en un chat ("te cuento... [ficha]").
-  const partes: Parte[] = [];
-  if (textoFinal) partes.push({ kind: "text", content: textoFinal });
-  partes.push(...ctx.partes);
-
-  // Si el modelo no dijo nada y ninguna herramienta produjo algo, no se manda
-  // un mensaje vacío: se escala en silencio para que lo vea una persona.
-  if (!partes.length) {
-    partes.push({
-      kind: "text",
-      content: "Dame un segundo que te confirmo eso 👍",
-    });
+  // ── Red de seguridad: una cifra de plata que no existe en el catálogo ────
+  let corregido = false;
+  let invento = montosInventados(textoFinal, catalogo);
+  if (invento.length) {
+    const aviso = {
+      role: "system" as const,
+      content:
+        `Escribiste ${invento.map((n) => n.toLocaleString("es-CO")).join(", ")} y ese monto NO está en el catálogo. ` +
+        `No inventes cifras: si querés dar un precio, usá la herramienta mostrar con seccion "precio". ` +
+        `Reescribí tu respuesta sin ese número.`,
+    };
+    try {
+      const reintento = await llm.crear({
+        messages: [...messages, { role: "assistant", content: textoFinal }, aviso],
+        temperature: 0.5,
+      });
+      const nuevo = (reintento.content || "").trim();
+      if (nuevo && montosInventados(nuevo, catalogo).length === 0) {
+        textoFinal = nuevo;
+        corregido = true;
+      }
+    } catch {
+      /* si el reintento falla, se corta abajo */
+    }
+    // Si volvió a escribir un monto inventado, se le saca la frase: dejar una
+    // cifra falsa en un chat de ventas es peor que una respuesta más corta.
+    invento = montosInventados(textoFinal, catalogo);
+    if (invento.length) textoFinal = quitarFrasesConMontos(textoFinal, invento);
   }
 
-  estado.ultimoMensajeCliente = new Date().toISOString();
+  // ── Armado de la respuesta ───────────────────────────────────────────────
+  const partes: Parte[] = [];
+  if (textoFinal) partes.push({ kind: "text", content: textoFinal });
 
-  return { partes, estado, traza };
+  // Tarjetas sin repetir y con tope: dos fotos seguidas tapan la pantalla.
+  const vistas = new Set<string>();
+  for (const parte of ctx.partes) {
+    if (parte.kind !== "card") continue;
+    const clave = `${parte.productId}:${parte.seccion}`;
+    if (vistas.has(clave)) continue;
+    vistas.add(clave);
+    if (partes.filter((p) => p.kind === "card").length >= MAX_TARJETAS) break;
+    partes.push(parte);
+  }
+
+  // Si el modelo no dijo nada y ninguna herramienta produjo algo, no se manda
+  // un mensaje vacío ni se deja al cliente sin respuesta.
+  if (!partes.length) {
+    partes.push({ kind: "text", content: "Dame un segundito que te confirmo eso 👍" });
+  }
+
+  estado.turnos += 1;
+  estado.ultimoMensajeCliente = new Date().toISOString();
+  estado.ultimoMensajeAgente = new Date().toISOString();
+
+  return { partes, estado, traza, proveedor, modoPlan, corregido, efectos: ctx.efectos };
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
+/** Saca las frases que contienen un monto inventado. Último recurso, medido. */
+function quitarFrasesConMontos(texto: string, montos: number[]): string {
+  const frases = String(texto)
+    .split(/(?<=[.!?¿¡\n])\s+/)
+    .filter((f) => {
+      const n = montosInventados(f, []);
+      return !(n.length && n.some((x) => montos.includes(x)));
+    });
+  return frases.join(" ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
  * PUNTO DE ENTRADA
- *
- * Misma firma que el runAgentReply() actual, para que whatsapp.ts casi no
- * cambie. ADAPTAR: las tres funciones de carga según el esquema real.
- * ──────────────────────────────────────────────────────────────────────────── */
+ * ═══════════════════════════════════════════════════════════════════════════ */
 
 export async function runAgentReply(
   conversationId: number,
@@ -239,6 +389,8 @@ export async function runAgentReply(
     cargarHistorial: (conversationId: number) => Promise<Mensaje[]>;
     cargarCatalogo: (conversationId: number) => Promise<Producto[]>;
     cargarVoz: (conversationId: number) => Promise<VozDelNegocio>;
+    cargarGuion: (conversationId: number, catalogo: Producto[]) => Promise<GuionDelNegocio>;
+    cargarConocimiento: (conversationId: number) => Promise<ContextoHerramientas["conocimiento"]>;
   },
 ): Promise<Parte[]> {
   const [estado, historial, catalogo, voz] = await Promise.all([
@@ -248,7 +400,12 @@ export async function runAgentReply(
     deps.cargarVoz(conversationId),
   ]);
 
-  const resultado = await responder({ llm: deps.llm, estado, historial, catalogo, voz });
+  const [guion, conocimiento] = await Promise.all([
+    deps.cargarGuion(conversationId, catalogo),
+    deps.cargarConocimiento(conversationId),
+  ]);
+
+  const resultado = await responder({ llm: deps.llm, estado, historial, catalogo, conocimiento, guion, voz });
 
   await deps.repositorio.guardar(resultado.estado);
 

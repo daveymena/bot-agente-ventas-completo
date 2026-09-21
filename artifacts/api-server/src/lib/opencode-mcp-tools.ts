@@ -89,6 +89,28 @@ const CONTRATO_COMPLETO = new Set<string>([
  * un esquema real pronto.
  */
 const TOOL_SCHEMAS: Record<string, object> = {
+  // ── Diagnóstico del vendedor de WhatsApp ────────────────────────────────────
+  // Esquemas explícitos y no el genérico permisivo: son las herramientas que
+  // Atlas tiene que poder llamar SOLO con lo que leyó del pedido, y el
+  // genérico permitía cualquier argumento (y por eso llegaban llamadas con
+  // `{}` cuando el admin había pedido algo concreto).
+  vendedor_diagnosticar: {
+    type: "object",
+    properties: {
+      limite: { type: "number", description: "Cuántas conversaciones revisar, por defecto 20 (máximo 60)" },
+      dias: { type: "number", description: "Cuántos días hacia atrás, por defecto 30" },
+    },
+    additionalProperties: false,
+  },
+  vendedor_motor_ver: { type: "object", properties: {}, additionalProperties: false },
+  vendedor_probar: {
+    type: "object",
+    properties: {
+      turnos: { type: "array", items: { type: "string" }, description: "Mensajes del cliente a probar, en orden. Máximo 8." },
+      conversationId: { type: "number", description: "O el número de una conversación real para tomar sus turnos" },
+    },
+    additionalProperties: false,
+  },
   analyze_system: { type: "object", properties: {}, additionalProperties: false },
   research_start: {
     type: "object",
@@ -1427,7 +1449,7 @@ export function buildMcpToolRegistry(pedido?: string): McpToolDef[] {
 const FAMILIAS_DE_CONSULTA: Array<{ tema: string; herramientas: string[] }> = [
   { tema: "Catalogo y tienda", herramientas: ["list_products", "list_categories", "get_store", "search_product_images", "optimize_price", "optimize_copy"] },
   { tema: "Ventas y clientes", herramientas: ["dashboard_summary", "list_recent_conversations", "list_pending_transfers", "list_duplicate_contacts", "predict_customer", "analyze_channel_performance"] },
-  { tema: "WhatsApp y agente", herramientas: ["whatsapp_status", "get_agent", "configurar_mi_agente", "get_settings", "agente_inspectar", "agente_configurar", "agente_perfil_negocio", "agente_conocimiento", "agente_mensaje", "agente_probar_chat"] },
+  { tema: "WhatsApp y agente", herramientas: ["whatsapp_status", "get_agent", "configurar_mi_agente", "get_settings", "agente_inspectar", "agente_configurar", "agente_perfil_negocio", "agente_conocimiento", "agente_mensaje", "agente_probar_chat", "vendedor_diagnosticar", "vendedor_motor_ver", "vendedor_probar"] },
   { tema: "Facebook Ads", herramientas: ["fb_status", "fb_list_campaigns", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics", "fb_why_not_delivering", "fb_page_can_post", "fb_page_preview", "fb_suggest_audience", "fb_pixel_status", "fb_ad_library", "fb_agent_logs", "que_hago_con_la_campana", "ad_brief"] },
   { tema: "Marketing y contenido", herramientas: ["marketing_diagnostico", "marketing_aprendizajes", "marketing_attribution", "plan_de_contenido", "generate_image", "web_scrape_images"] },
   { tema: "Investigacion en internet", herramientas: ["web_search", "web_fetch", "deep_research", "research_start", "research_check"] },

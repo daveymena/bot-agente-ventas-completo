@@ -32,6 +32,10 @@ const MIGRATIONS = [
   // sin ninguna restricción. description/icon/color ya existían en la DB
   // real (usados por routes/categories.ts) pero no en este esquema; se
   // agregan acá también por las dudas, de forma idempotente.
+  // Memoria explícita del vendedor de WhatsApp (motor v2): lo que YA se le
+  // dijo a este cliente, en qué producto quedaron y qué oferta está abierta.
+  // Sin la columna el motor nuevo no arranca en producción.
+  `ALTER TABLE conversations ADD COLUMN IF NOT EXISTS estado_agente JSONB`,
   `ALTER TABLE product_categories ADD COLUMN IF NOT EXISTS description TEXT`,
   `ALTER TABLE product_categories ADD COLUMN IF NOT EXISTS icon TEXT`,
   `ALTER TABLE product_categories ADD COLUMN IF NOT EXISTS color TEXT NOT NULL DEFAULT '#6b7280'`,

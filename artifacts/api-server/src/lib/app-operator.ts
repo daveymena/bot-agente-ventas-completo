@@ -15,7 +15,7 @@
  * hasta que el modelo marca done:true (o se alcanza el límite de pasos).
  */
 
-import { db, products, productCategories, agents, settings, stores, tenants, conversations, leads, architectMemory, facebookDrafts, payments, coupons } from "@workspace/db";
+import { db, products, productCategories, agents, settings, stores, tenants, conversations, messages, leads, architectMemory, facebookDrafts, payments, coupons } from "@workspace/db";
 import { eq, desc, asc, and, or, gte, sql, ilike, inArray } from "drizzle-orm";
 import { execSync } from "child_process";
 import { logger } from "./logger";
@@ -6900,6 +6900,151 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "vendedor_diagnosticar",
+    description:
+      "Lee las conversaciones REALES de los últimos días y dice qué está haciendo mal el vendedor de WhatsApp " +
+      "(ficha equivocada, precio inventado, cobrarle a quien ya pagó, quedarse pegado al producto viejo...). " +
+      "No llama a ningún modelo, no gasta tokens y no le escribe a nadie: califica lo que el bot YA dijo contra " +
+      "los datos del catálogo. Cada hallazgo trae el número de conversación, qué significa y con qué se arregla. " +
+      "Es la PRIMERA herramienta que hay que usar cuando el admin dice que el bot responde raro: antes de tocar nada.",
+    args: '{ "limite"?: number, "dias"?: number }',
+    run: async (args, ctx) => {
+      const { diagnosticarVendedor } = await import("./diagnostico-vendedor");
+      const d = await diagnosticarVendedor(ctx.tenantId, { limite: args?.limite, dias: args?.dias });
+      return {
+        ok: true,
+        summary: d.resumen,
+        data: {
+          revisadas: d.revisadas,
+          conProblemas: d.conProblemas,
+          turnos: d.turnos,
+          hallazgos: d.hallazgos.map((h) => ({
+            regla: h.regla,
+            queEs: h.titulo,
+            veces: h.veces,
+            conversaciones: h.conversaciones,
+            ejemplo: h.ejemplo,
+            significa: h.significa,
+            seArregla: h.seArregla,
+            herramienta: h.herramienta,
+          })),
+        },
+      };
+    },
+  },
+  {
+    name: "vendedor_motor_ver",
+    description:
+      "Dice cuál de los dos motores está atendiendo a este negocio (v1 = el de siempre, v2 = el nuevo de " +
+      "razonamiento con herramientas) y de dónde salió esa decisión. No cambia nada.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { motorDelTenant, describirActivacion } = await import("./motor-nuevo/activacion");
+      const motor = await motorDelTenant(ctx.tenantId);
+
+      const { conversacionesConMemoria } = await import("./motor-nuevo/activacion");
+      const conMemoria = await conversacionesConMemoria(ctx.tenantId);
+
+      return {
+        ok: true,
+        summary: `${await describirActivacion(ctx.tenantId)} Conversaciones con memoria del motor v2: ${conMemoria}.`,
+        data: { motor, conMemoria },
+      };
+    },
+  },
+  {
+    name: "vendedor_motor",
+    description:
+      "Prende o apaga el motor de ventas v2 para ESTE negocio. v2 es el motor nuevo: razona con herramientas, " +
+      "saca el precio y los medios de pago de la base (no del texto del modelo) y recuerda lo que ya le dijo a " +
+      "cada cliente. v1 es el de siempre. El cambio es inmediato y se puede deshacer pasando el otro valor. " +
+      "⚠️ Cambia cómo le responde el bot a TODOS los clientes de este negocio: siempre corré antes " +
+      "vendedor_diagnosticar y vendedor_probar, y explicale al admin qué viste. Va por propose_action.",
+    args: '{ "motor": "v1" | "v2" }',
+    run: async (args, ctx) => {
+      const motor = String(args?.motor || "").toLowerCase();
+      if (motor !== "v1" && motor !== "v2") {
+        return { ok: false, summary: 'Decí "v1" o "v2".' };
+      }
+      const { fijarMotorDelTenant } = await import("./motor-nuevo/activacion");
+      const r = await fijarMotorDelTenant(ctx.tenantId, motor as "v1" | "v2");
+      if (!r.ok) return { ok: false, summary: "No se encontró el negocio." };
+      return {
+        ok: true,
+        summary:
+          motor === "v2"
+            ? "✅ El vendedor de este negocio pasó al motor v2. Aplica desde el próximo mensaje. " +
+              "Si algo sale mal: vendedor_motor con v1 lo deja como estaba al instante."
+            : "↩️ El vendedor volvió al motor v1 (el de siempre). La memoria del v2 queda guardada por si querés volver.",
+        data: { motor: r.motor },
+      };
+    },
+  },
+  {
+    name: "vendedor_probar",
+    description:
+      "Corre los MISMOS turnos por el motor actual y por el motor v2 y los pone lado a lado, con los hallazgos " +
+      "de cada uno. No le escribe a ningún cliente: crea una conversación de prueba. Mandale los turnos " +
+      "que te fallaron o el número de una conversación real para tomar los turnos de ahí. Es la forma de " +
+      "VERificar que un cambio no empeora las respuestas antes de prenderlo.",
+    args: '{ "turnos"?: string[], "conversationId"?: number }',
+    run: async (args, ctx) => {
+      const { correrEnSombra } = await import("./motor-nuevo/adaptador");
+      const { armarCadena, crearClienteLLM } = await import("./motor-nuevo/cliente-llm");
+
+      let turnos: string[] = Array.isArray(args?.turnos) ? args.turnos.map((t: any) => String(t || "")).filter(Boolean) : [];
+      const origen = Number(args?.conversationId);
+
+      if (turnos.length === 0 && Number.isFinite(origen) && origen > 0) {
+        const filas = await db.select().from(messages).where(eq(messages.conversationId, origen)).orderBy(messages.createdAt);
+        turnos = filas.filter((m: any) => m.role === "customer").map((m: any) => String(m.content || "")).filter(Boolean).slice(0, 8);
+      }
+      if (turnos.length === 0) {
+        return { ok: false, summary: "Dame turnos para probar o el número de una conversación real." };
+      }
+
+      const llm = crearClienteLLM({ cadena: await armarCadena({ tenantId: ctx.tenantId }), tenantId: ctx.tenantId });
+      const r = await correrEnSombra({ tenantId: ctx.tenantId, turnos: turnos.slice(0, 8), llm });
+
+      return {
+        ok: true,
+        summary:
+          `Probé ${turnos.length} turnos con el motor v2 (${r.guion.forma}, confianza ${Math.round(r.guion.confianza * 100)}%). ` +
+          r.salida
+            .map((t: any, i: number) => `${i + 1}. "${t.mensaje}" → ${t.error ? `ERROR: ${t.error}` : String(t.texto).slice(0, 160) || "[ficha]"}`)
+            .join(" | "),
+        data: { turnos: r.salida, nicho: r.guion },
+      };
+    },
+  },
+  {
+    name: "vendedor_olvidar",
+    description:
+      "Borra la memoria que el motor v2 tiene de UNA conversación: qué fichas ya le mandó, qué precio le dio y " +
+      "qué le ofreció último. Se usa cuando el agente quedó trabado repitiendo algo o después de corregir un " +
+      "dato del negocio. Ojo: después de esto el bot puede volver a presentar un producto ya presentado. " +
+      "⚠️ Cambia el comportamiento de esa conversación: va por propose_action.",
+    args: '{ "conversationId": number }',
+    run: async (args, ctx) => {
+      const { olvidarMemoria } = await import("./motor-nuevo/activacion");
+      const r = await olvidarMemoria(ctx.tenantId, Number(args?.conversationId));
+      if (!r.ok) {
+        return {
+          ok: false,
+          summary:
+            r.motivo === "esa conversación es de otro negocio"
+              ? "Esa conversación es de otro negocio: no se puede tocar."
+              : `No pude borrar la memoria: ${r.motivo}.`,
+        };
+      }
+      return {
+        ok: true,
+        summary: `Listo: borré la memoria de la conversación ${Number(args?.conversationId)}. El bot arranca de cero con ese cliente en el próximo mensaje.`,
+        data: { conversationId: Number(args?.conversationId) },
+      };
+    },
+  },
+  {
     name: "agente_conocimiento",
     description:
       "Agrega o quita cosas que el agente debe saber (loQueDebeSaber) y cosas que NO puede hacer (noPuede). " +
@@ -7377,6 +7522,11 @@ export const READ_ONLY_TOOLS = new Set([
   "dropi_verificar_producto",
   // Leer el estado de una landing en generación y simular el reentrenamiento no cambian nada.
   "landing_estado", "agente_reentrenar_ver",
+  // Diagnosticar al vendedor, ver en qué motor está y probarlo en sombra son
+  // lectura: no le escriben a ningún cliente ni cambian cómo atiende el bot.
+  // Diagnosticar SIN pedir permiso es el punto: si hubiera que aprobar cada
+  // diagnóstico, nadie diagnosticaría nunca.
+  "vendedor_diagnosticar", "vendedor_motor_ver", "vendedor_probar",
   // Probar al vendedor crea una conversación de PRUEBA y no le escribe a nadie: es lectura.
   "agente_probar_chat",
   // Terabox: listar carpetas es lectura pura, no cambia nada.
@@ -7433,6 +7583,10 @@ export const CODE_TOOLS = new Set([
 ]);
 export const DESTRUCTIVE_TOOLS = new Set([
   "delete_product",
+  // Cambiar el motor con el que el bot le responde a TODOS los clientes de un
+  // negocio merece la misma confirmación reforzada que borrar algo: se puede
+  // deshacer en un segundo, pero mientras está mal, se pierden ventas.
+  "vendedor_motor",
   // Borra lo aprendido y reemplaza el prompt de los agentes: confirmación reforzada.
   "agente_reentrenar",
   // fb_create_ad crea objetos reales en Meta y puede gastar al activarse → confirmación reforzada
