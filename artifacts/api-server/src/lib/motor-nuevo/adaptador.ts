@@ -35,7 +35,6 @@ import { mediosDePago } from "../hechos-de-pago";
 import { PaymentGateway } from "../payments";
 import { videoDeProducto } from "../video-de-producto";
 import { saveAgentMessage } from "../conversation-engine";
-import { nombreDePila } from "../nombre-de-pila";
 import { dbNow } from "../date-utils";
 import { logger } from "../logger";
 import { crearRepositorioDrizzle, type EstadoConversacion, type RepositorioEstado } from "./estado-conversacion";
@@ -187,17 +186,25 @@ export async function cargarVozDelNegocio(tenantId: number): Promise<VozDelNegoc
   };
 }
 
-/** El historial, en orden, con el último mensaje del cliente al final. */
+/**
+ * El historial, en orden, con el último mensaje del cliente al final.
+ *
+ * ⚠️ El `limit` va DESPUÉS de ordenar y NO ANTES: con `orderBy(asc)` +
+ * `limit(60)` la base devuelve los 60 mensajes MÁS VIEJOS, así que una
+ * conversación larga se quedaba sin su final -- justo lo que el agente
+ * necesita para no repetirse. Se traen los últimos de la charla.
+ */
 export async function cargarHistorial(conversationId: number, limite = 60): Promise<Mensaje[]> {
   const filas = await db
     .select()
     .from(messages)
     .where(eq(messages.conversationId, conversationId))
     .orderBy(asc(messages.createdAt))
-    .limit(limite);
+    .limit(500);
 
   return filas
     .filter((m: any) => m.role === "customer" || m.role === "agent")
+    .slice(-Math.max(1, limite))
     .map((m: any) => ({
       role: m.role === "customer" ? ("customer" as const) : ("agent" as const),
       content: String(m.content || ""),
@@ -299,6 +306,20 @@ export async function responderComoVendedor(
     .update(conversations)
     .set({ currentStage: ETAPA_A_STAGE[resultado.estado.etapa], lastMessageAt: dbNow() as any })
     .where(eq(conversations.id, conversationId));
+
+  // ── Scoring y seguimiento: igual que el motor viejo ─────────────────────
+  //
+  // El motor v2 no deja de alimentar el pipeline comercial: el lead scoring y
+  // los seguimientos programados viven en `leadScoring.ts`, los lee el dashboard
+  // y son los que avisan cuando un cliente quedó a media charla. Es
+  // fire-and-forget y atrapa sus propios errores: nunca puede retrasarle la
+  // respuesta a quien está escribiendo ahora.
+  const ultimoDelCliente = [...historial].reverse().find((m) => m.role === "customer")?.content;
+  if (ultimoDelCliente) {
+    import("../leadScoring")
+      .then(({ processMessageForLeadScoring }) => processMessageForLeadScoring(conversationId, ultimoDelCliente))
+      .catch((err) => logger.warn({ err: err?.message }, "[MotorV2] no se pudo calcular el scoring del lead"));
+  }
 
   // ── Efectos: lo que las herramientas pidieron hacer en la base ───────────
   for (const efecto of resultado.efectos) {
@@ -444,6 +465,3 @@ export async function correrEnSombra(params: {
 
   return { salida, estado, guion: { forma: guion.forma, confianza: guion.confianza, senales: guion.senales } };
 }
-
-/** El nombre corto, para no saludar con apellido. Reexportado por comodidad. */
-export { nombreDePila };

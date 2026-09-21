@@ -1,4 +1,12 @@
 /**
+ * RETIRAR CON EL V1 — Este módulo pertenece al motor de ventas anterior.
+ *
+ * Sigue vivo porque es el camino por defecto (`MOTOR_VENDEDOR=v1`). Cuando el
+ * motor de `lib/motor-nuevo/` atienda a todos los negocios y el diagnóstico
+ * salga limpio, esto se va. Mientras el negocio esté en v1, no se le agregan
+ * capas nuevas: los arreglos van en el v2. Ver TRASPASO_2026-09-21.md.
+ */
+/**
  * ============================================================
  * SUPERVISOR — revisa la respuesta ANTES de que salga al cliente
  * ============================================================

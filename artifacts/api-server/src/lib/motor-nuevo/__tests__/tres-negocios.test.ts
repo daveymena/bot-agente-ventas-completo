@@ -20,7 +20,7 @@
 
 import { test, describe, expect } from "vitest";
 import { eq } from "drizzle-orm";
-import { db, conversations, tenants } from "@workspace/db";
+import { db, conversations, messages, tenants } from "@workspace/db";
 
 const assert = {
   equal: (a: any, b: any, m?: string) => expect(a, m).toBe(b),
@@ -34,7 +34,7 @@ import { guionDelNegocio, type GuionDelNegocio, type NegocioParaNicho, type Prod
 import { construirPromptDeSistema } from "../motor";
 import type { ItemDeConocimiento, Producto } from "../herramientas";
 import { responder } from "../motor";
-import { ETAPA_A_STAGE } from "../adaptador";
+import { ETAPA_A_STAGE, cargarHistorial } from "../adaptador";
 import { clienteFalso } from "../cliente-llm";
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -467,6 +467,33 @@ describe("la memoria del agente", () => {
  * ═══════════════════════════════════════════════════════════════════ */
 
 describe("lo que se guarda en la conversación", () => {
+  test("el historial trae el FINAL de la charla, no el principio", async () => {
+    const [tenant] = await db
+      .insert(tenants)
+      .values({
+        name: "Historia",
+        email: `hist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}@test.local`,
+        slug: `hist-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        brandName: "Historia",
+      } as any)
+      .returning();
+
+    const [convo] = await db
+      .insert(conversations)
+      .values({ tenantId: tenant.id, contactName: "Cliente", contactPhone: `573007${Math.floor(Math.random() * 1e6)}`, status: "ai" } as any)
+      .returning();
+
+    // Doce turnos: pedir los últimos 5 tiene que devolver del 8 al 12.
+    for (let i = 1; i <= 12; i++) {
+      await db.insert(messages).values({ conversationId: convo.id, role: "customer", content: `mensaje ${i}` } as any);
+    }
+
+    const historial = await cargarHistorial(convo.id, 5);
+    assert.equal(historial.length, 5);
+    assert.equal(historial[0].content, "mensaje 8");
+    assert.equal(historial[4].content, "mensaje 12", "el último es el más reciente");
+  });
+
   test("las etapas que escribe el motor son las que el panel conoce", () => {
     // `Stage` en conversation-engine.ts. Si alguien inventa una etapa nueva,
     // los filtros del inbox dejan de encontrar esas conversaciones y nadie
