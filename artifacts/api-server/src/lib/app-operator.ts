@@ -17,12 +17,14 @@
 
 import { db, products, productCategories, agents, settings, stores, tenants, conversations, leads, architectMemory, facebookDrafts, payments, coupons } from "@workspace/db";
 import { eq, desc, asc, and, or, gte, sql, ilike, inArray } from "drizzle-orm";
+import { execSync } from "child_process";
 import { logger } from "./logger";
 import { tenantManager } from "./tenantManager";
 import { dbNow } from "./date-utils";
 import { getAppUrl } from "./app-url";
 import { videoDeProducto, leerMetadata, normalizarEnlaceDeVideo } from "./video-de-producto";
 import { recordControlPlaneAudit } from "./control-plane-audit";
+import { codeOperator } from "./code-operator";
 
 export interface OperatorContext {
   tenantId: number;
@@ -7009,6 +7011,156 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       }
     },
   },
+
+  // ─── HERRAMIENTAS DE CÓDIGO (darle a Atlas el poder de leer/arreglar el programa) ───
+  // El admin pidió (21-09-2026) que Atlas pueda hacer lo mismo que el programador:
+  // leer el código, encontrar la causa de un bug y arreglarlo. Las de lectura se
+  // ejecutan solas (regla 5.5: leer no pide permiso); las de escritura/commit/deploy
+  // van por propose_action con la confirmación del admin, igual que todo cambio real.
+
+  {
+    name: "codigo_leer",
+    description:
+      "Lee un archivo del código fuente (por ruta y rango de líneas) para entender o arreglar el programa. Lectura.",
+    args: '{ "ruta": string (req, relativa al repo), "desde": number (opcional), "hasta": number (opcional) }',
+    run: async (args) => {
+      if (!args.ruta) return { ok: false, summary: "Falta 'ruta'" };
+      const r = codeOperator.readFile(String(args.ruta));
+      if (!r.success || typeof r.content !== "string") return { ok: false, summary: r.error || "No se pudo leer el archivo" };
+      const lineas = r.content.split("\n");
+      const desde = Math.max(1, Number(args.desde) || 1);
+      const hasta = Math.min(lineas.length, Number(args.hasta) || desde + 399);
+      const trozo = lineas.slice(desde - 1, hasta).join("\n");
+      return {
+        ok: true,
+        summary: `Leído ${args.ruta}: ${lineas.length} líneas (mostrando ${desde}-${hasta})`,
+        data: { ruta: args.ruta, totalLineas: lineas.length, desde, hasta, contenido: trozo },
+      };
+    },
+  },
+  {
+    name: "codigo_buscar",
+    description:
+      "Busca un texto en el código fuente (salta node_modules/.git/dist). Devuelve archivo, línea y contenido. Lectura.",
+    args: '{ "patron": string (req), "solo": string (opcional, regex de archivo) }',
+    run: async (args) => {
+      if (!args.patron) return { ok: false, summary: "Falta 'patron'" };
+      const r = await codeOperator.searchCode(String(args.patron), args.solo ? String(args.solo) : undefined);
+      if (!r.success) return { ok: false, summary: r.error || "No se pudo buscar" };
+      return {
+        ok: true,
+        summary: `${r.results?.length ?? 0} coincidencias de "${args.patron}"`,
+        data: { patron: args.patron, resultados: r.results },
+      };
+    },
+  },
+  {
+    name: "codigo_listar",
+    description: "Lista archivos y carpetas de un directorio del repo. Lectura.",
+    args: '{ "ruta": string (opcional) }',
+    run: async (args) => {
+      const r = codeOperator.listDirectory(String(args.ruta || "."));
+      if (!r.success) return { ok: false, summary: r.error || "No se pudo listar" };
+      return { ok: true, summary: `${r.entries?.length ?? 0} entradas`, data: { entradas: r.entries } };
+    },
+  },
+  {
+    name: "git_estado",
+    description: "Muestra estado de git del repo (cambios, últimos commits, diff). Lectura.",
+    args: '{ }',
+    run: async () => {
+      try {
+        const root = process.cwd();
+        const status = execSync("git status --short", { cwd: root, timeout: 15000 }).toString().trim() || "(sin cambios)";
+        const log = execSync("git log --oneline -10", { cwd: root, timeout: 15000 }).toString().trim();
+        const diff = execSync("git diff --stat", { cwd: root, timeout: 15000 }).toString().trim() || "(sin diff)";
+        return { ok: true, summary: "Estado de git leído", data: { status, ultimosCommits: log, diff } };
+      } catch (e: any) {
+        return { ok: false, summary: `No se pudo leer git: ${e?.message || "git no disponible"}` };
+      }
+    },
+  },
+  {
+    name: "tests_correr",
+    description:
+      "Corre los tests de vitest (un archivo o la suite completa) y dice si pasan. Lectura, no cambia código.",
+    args: '{ "archivo": string (opcional, test específico) }',
+    run: async (args) => {
+      try {
+        const apiDir = `${process.cwd()}/artifacts/api-server`;
+        const target = args.archivo ? String(args.archivo) : "src/lib/__tests__/";
+        const cmd = `USE_SQLITE=true npx vitest run ${target} --reporter=basic 2>&1 | tail -40`;
+        const out = execSync(cmd, { cwd: apiDir, timeout: 240000, maxBuffer: 20 * 1024 * 1024 }).toString().trim();
+        const paso = /Tests\s+\d+ passed \(\d+\)/.test(out) && !/\d+ failed/.test(out);
+        return { ok: paso, summary: paso ? "Los tests pasan ✅" : "Hay tests que fallan ❌", data: { salida: out.slice(-6000) } };
+      } catch (e: any) {
+        const salida = (e?.stdout ? e.stdout.toString() : "") || (e?.stderr ? e.stderr.toString() : "") || String(e?.message || "");
+        return { ok: false, summary: "Los tests fallaron (o vitest no está disponible)", data: { salida: salida.slice(-6000) } };
+      }
+    },
+  },
+  {
+    name: "codigo_escribir",
+    description: "Crea o reemplaza un archivo de código.",
+    args: '{ "ruta": string (req), "contenido": string (req) }',
+    run: async (args) => {
+      if (!args.ruta || typeof args.contenido !== "string") return { ok: false, summary: "Faltan 'ruta' y 'contenido'" };
+      const r = codeOperator.writeFile(String(args.ruta), String(args.contenido));
+      if (!r.success) return { ok: false, summary: r.error || "No se pudo escribir" };
+      return { ok: true, summary: `Escrito ${args.ruta}`, data: { ruta: args.ruta, change: r.change } };
+    },
+  },
+  {
+    name: "git_commit_push",
+    description: "Commit + push de cambios de código a GitHub.",
+    args: '{ "mensaje": string (req), "rutas": string[] (opcional) }',
+    run: async (args) => {
+      if (!args.mensaje) return { ok: false, summary: "Falta 'mensaje'" };
+      try {
+        const root = process.cwd();
+        const rutas = Array.isArray(args.rutas) && args.rutas.length ? args.rutas.map(String).join(" ") : "-A";
+        execSync(`git add ${rutas}`, { cwd: root, timeout: 30000 });
+        execSync(`git -c user.name="Atlas VentasPro" -c user.email="atlas@ventasproia.com" commit -m ${JSON.stringify(String(args.mensaje))}`, { cwd: root, timeout: 30000 });
+        const token = process.env.GITHUB_TOKEN || "";
+        if (token) {
+          execSync(`git push https://x-access-token:${token}@github.com/daveymena/bot-agente-ventas-completo.git HEAD:master`, { cwd: root, timeout: 120000 });
+        } else {
+          execSync("git push origin HEAD:master", { cwd: root, timeout: 120000 });
+        }
+        const head = execSync("git log --oneline -1", { cwd: root, timeout: 15000 }).toString().trim();
+        return { ok: true, summary: `Commit subido a GitHub`, data: { commit: head } };
+      } catch (e: any) {
+        return { ok: false, summary: `No se pudo commitear/subir: ${e?.message || "error"}` };
+      }
+    },
+  },
+  {
+    name: "deploy",
+    description: "Despliega el servicio en EasyPanel.",
+    args: '{ }',
+    run: async () => {
+      const token = process.env.EASYPANEL_TOKEN || process.env.EP_TOKEN || "";
+      if (!token) return { ok: false, summary: "No hay token de EasyPanel configurado (EASYPANEL_TOKEN) en el entorno del servidor" };
+      const host = (process.env.EASYPANEL_URL || "https://144.91.112.79").replace(/\/$/, "");
+      try {
+        for (let i = 0; i < 5; i++) {
+          const res = await fetch(`${host}/api/trpc/services.app.deployService`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ json: { projectName: "tecnoia", serviceName: "bot-agenwhatsapp" } }),
+            signal: AbortSignal.timeout(90000),
+          });
+          if (res.ok) return { ok: true, summary: "Despliegue disparado en EasyPanel" };
+          const txt = await res.text().catch(() => "");
+          if (!/bad gateway|502|unauthorized|error/i.test(txt)) return { ok: true, summary: "Despliegue disparado en EasyPanel" };
+          await new Promise((r) => setTimeout(r, 8000));
+        }
+        return { ok: false, summary: "EasyPanel devolvió Bad Gateway en todos los intentos; probá de nuevo en unos segundos" };
+      } catch (e: any) {
+        return { ok: false, summary: `No se pudo desplegar: ${e?.message || "error"}` };
+      }
+    },
+  },
 ];
 
 /**
@@ -7238,6 +7390,11 @@ export const READ_ONLY_TOOLS = new Set([
   // Cupones: listar y previsualizar un descuento son lectura pura; crear y
   // eliminar cambian datos y van por propose_action.
   "cupon_listar", "cupon_validar",
+  // Código fuente: leer/buscar/listar/correr tests/git_estado no cambian nada,
+  // se ejecutan solos para que Atlas pueda investigar y arreglar bugs. Las de
+  // escritura (codigo_escribir, git_commit_push, deploy) quedan FUERA del set
+  // → solo se alcanzan por propose_action, con el sí del admin.
+  "codigo_leer", "codigo_buscar", "codigo_listar", "tests_correr", "git_estado",
 ]);
 export const DESTRUCTIVE_TOOLS = new Set([
   "delete_product",

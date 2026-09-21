@@ -239,6 +239,12 @@ describe("Publicar un anuncio pasa por la herramienta que acepta el objetivo", (
  * qué habla, mandá todo". Nadie lo vio porque ningún test lo miraba.
  */
 describe("ningún tipo de pedido se pasa del presupuesto", () => {
+  // El tope subió de 3400 a 3480 al agregar las herramientas de código
+  // (codigo_leer/buscar/listar/tests/git_estado + codigo_escribir/commit/deploy)
+  // que el admin pidió para que Atlas pueda arreglar bugs del programa. Son
+  // ~28 tokens de base en el caso peor ("sin familia", que lista todas las
+  // acciones de cambio con su resumen). Sigue muy por debajo del techo real
+  // (~8000) donde Groq empieza a truncar y el modelo alucina.
   const PEDIDOS: Array<[string, string]> = [
     ["ventas del día", "cómo van las ventas hoy"],
     ["facturación", "cuánto facturé este mes"],
@@ -254,7 +260,7 @@ describe("ningún tipo de pedido se pasa del presupuesto", () => {
   for (const [nombre, pedido] of PEDIDOS) {
     it(`"${nombre}" entra en el minuto de Groq`, () => {
       const t = tokens(buildMcpToolRegistry(pedido));
-      expect(t, `"${pedido}" pesa ~${t} tokens`).toBeLessThan(3400);
+      expect(t, `"${pedido}" pesa ~${t} tokens`).toBeLessThan(3480);
     });
   }
 });

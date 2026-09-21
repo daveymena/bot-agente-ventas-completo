@@ -508,6 +508,12 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
       return `▶️ Reactivar la campaña ${g.campaignId ?? "?"} de Facebook — vuelve a gastar según su presupuesto diario`;
     case "fb_set_budget":
       return `💰 Cambiar el presupuesto diario del conjunto de anuncios ${g.adSetId ?? "?"} a $${g.dailyBudget ?? "?"}`;
+    case "codigo_escribir":
+      return `✏️ Modificar el código fuente: ${g.ruta ?? "?"} — se guarda una copia del archivo anterior por si hay que revertir`;
+    case "git_commit_push":
+      return `🔀 Guardar los cambios de código en GitHub (commit + push) — de ahí se despliega. Mensaje: "${valorLegible(g.mensaje, 120)}"`;
+    case "deploy":
+      return `🚀 Desplegar el servicio en producción (reconstruye y REINICIA el WhatsApp del bot)`;
     default:
       return `${a.tool}: ${JSON.stringify(g).slice(0, 80)}`;
   }
@@ -1103,6 +1109,14 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // Entrenar / corregir / probar al vendedor: la prueba real va con el agente.
     patron: /vendedor|\bagente\b|\bbot\b|entren|prob[aá]|corr[ie]g|c[oó]mo (responde|contesta)|responde mal|contesta mal/i,
     herramientas: ["agente_probar_chat", "get_agent"],
+  },
+  {
+    // Código fuente: leer/arreglar el programa. Se activa cuando el admin pide
+    // corregir un bug de verdad (no datos ni reglas), ver el código, o desplegar.
+    // Las herramientas de ESCRITURA (codigo_escribir, git_commit_push, deploy) no
+    // van acá: son de mutación y viajan por propose_action; acá solo las de leer.
+    patron: /c[oó]digo|bug|programa|fuente|repositorio|despleg|deploy|github|commit|git\b|arregl[aá]r? (el |un |la )?(c[oó]digo|bug|programa)|corr[ie]g.*(c[oó]digo|programa)|test|prueba de c[oó]digo/i,
+    herramientas: ["codigo_leer", "codigo_buscar", "codigo_listar", "git_estado", "tests_correr"],
   },
   {
     // "busc"/"búsqueda" y "competidor" faltaban: pedirle literalmente que
