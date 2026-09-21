@@ -13,7 +13,11 @@ describe("la paleta depende del producto", () => {
     ["CURSO DE PIANO COMPLETO", "Música", "educacion"],
     ["CURSO EXCEL AVANZADO", "Tecnología", "tecnologia"],
     ["Crema facial antiarrugas", "Belleza", "belleza"],
-    ["Cojín Moto Viajero", "Accesorios", "ecommerce"],
+    // "cojín moto" cayó en la taxonomía cerrada de físicos "Herramientas y
+    // automotor" (lib/taxonomia.ts, 20-09-2026), que en el design system va con
+    // la línea "oscura". El caso viejo lo esperaba como "ecommerce" (el default
+    // de físico de antes); se actualiza al rubro que de verdad le corresponde.
+    ["Cojín Moto Viajero", "Accesorios", "oscura"],
     ["Rutina de entrenamiento en casa", "Fitness", "fitness"],
     ["Organizador de cocina", "Hogar", "familiar"],
     ["Audífonos Bluetooth inalámbricos", "Tecnología", "electronica"],

@@ -19,6 +19,13 @@ describe('Flujo Completo: Saludo → Búsqueda → Presentación → Pago → Ve
   let categoryMap: Map<number, string>;
 
   beforeEach(async () => {
+    // Limpieza para no arrastrar productos de tests anteriores (ni de corridas
+    // pasadas: la base SQLite de test persiste en data/.test/). Sin esto, cada
+    // test inserta una "Guitarra Acústica" nueva y quedan varias idénticas, así
+    // que el buscador las ve como AMBIGÜEDAD y devuelve fiel=false → "sin match".
+    await db.delete(products);
+    await db.delete(productCategories).where(eq(productCategories.tenantId, 1));
+
     const [guitarra] = await db.insert(products).values({
       tenantId: 1,
       name: 'Guitarra Acústica',

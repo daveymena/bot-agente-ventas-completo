@@ -60,6 +60,21 @@ export interface EntradaSeccion {
   intent?: string | null;
   /** true si a este cliente ya se le mandó la ficha de este producto. */
   fichaYaEnviada?: boolean;
+  /**
+   * true si a este cliente YA se le mostraron los medios de pago (Nequi,
+   * Daviplata, tarjeta, PayPal) en esta conversación.
+   *
+   * Sin esto, un "quiero comprarlo" que llega DESPUÉS de que el cliente ya vio
+   * los medios de pago volvía a disparar la sección "pago": le reenviaba los
+   * mismos cuatro enlaces y números que tenía arriba en la pantalla. Lo que
+   * corresponde ahí no es repetir el catálogo de medios, sino preguntarle cuál
+   * de los que ya vio va a usar.
+   *
+   * No bloquea a quien los pide DE NUEVO con todas las letras ("mándame el
+   * nequi", "pasame el link"): esos pedidos explícitos resuelven antes de
+   * llegar acá (ver PIDE_TRANSFERENCIA / PIDE_LINK / PIDE_PAGO).
+   */
+  pagoYaEnviado?: boolean;
   /** true si en el turno anterior se le ofreció ver el video. */
   ofrecimosVideo?: boolean;
   /** true si el turno anterior ofreció los medios de pago ("¿te paso los datos de pago?"). */
@@ -359,6 +374,25 @@ export function seccionQueCorresponde(e: EntradaSeccion): SeccionFicha {
   // ofrecía precio, contenido ni video, no hay sección que mandar: contesta
   // el texto del modelo, que sí leyó la pregunta.
   if (esAfirmacionSuelta(e.mensaje)) return e.ofrecimosPago ? "pago" : "ninguna";
+
+  // ── Los medios de pago YA se enviaron: no se reenvían ─────────────────────
+  //
+  // Conversación real del dueño (21-09-2026):
+  //
+  //   cliente: "Método de pago?"  → bot: [los cuatro medios de pago]
+  //   cliente: "¿Y cómo viene?"   → bot: [entrega digital]
+  //   cliente: "Quiero comprarlo" → bot: [LOS CUATRO MEDIOS OTRA VEZ]
+  //
+  // El cliente ya tenía los medios arriba en la pantalla. Volver a mandarlos
+  // es lo que hace que se sienta un formulario y no una persona atendiendo.
+  // Lo que corresponde es preguntarle cuál de los que YA vio va a usar.
+  //
+  // Solo frena la intención genérica de compra. Quien pide los datos de nuevo
+  // con todas las letras ("mándame el nequi", "pásame el link de pago") ya
+  // resolvió más arriba y sí los recibe: negárselos sería el error opuesto.
+  if (e.pagoYaEnviado && (intent === "payment_intent" || intent === "confirmation")) {
+    return "ninguna";
+  }
 
   // ── Por intención, cuando el texto no lo dice de forma literal ────────────
   if (intent === "payment_intent" || intent === "confirmation") return "pago";

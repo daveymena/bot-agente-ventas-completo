@@ -1957,11 +1957,23 @@ export async function findBestProductMatch(
   //
   // Detectamos si hay múltiples productos con el mismo nivel y nombre parecido.
   // Si hay 2+ productos de nivel >= 3 con el mismo nivel, es ambiguo.
+  //
+  // ⚠️ PERO "mismo nivel" no alcanza: dos productos pueden llegar al nivel 3 por
+  // caminos de distinta fuerza. "Pack de Idiomas" tiene la palabra en su NOMBRE;
+  // "Curso de Inglés" solo la comparte por CATEGORÍA. Antes se los trataba como
+  // empate y el resultado caía a fiel=false, o sea que al cliente que pedía
+  // "el curso de idiomas" se le decía "no sé cuál de estos dos querés" aunque
+  // el nombre de UNO dijera "Idiomas" con todas las letras. El nombre manda:
+  // solo es ambiguo cuando los candidatos empatan en la coincidencia de NOMBRE.
   const sameLevel = valid.filter(e => e.level === best.level);
-  if (sameLevel.length >= 2 && best.level >= 3) {
-    // Hay varios productos que coinciden igual de bien. Es ambiguo.
-    const nombres = sameLevel.map(e => `"${e.product.name}" (ID ${e.product.id}, $${e.product.price || "?"})`).join(", ");
-    reasoning.push(`⚠️ AMBIGÜEDAD: ${sameLevel.length} productos coinciden igual: ${nombres}`);
+  const bestNameHits = specificWords.filter(w => contieneFrase(normalizeText(best.product.name), w)).length;
+  const mismoNivelYNombre = sameLevel.filter(e =>
+    specificWords.filter(w => contieneFrase(normalizeText(e.product.name), w)).length === bestNameHits
+  );
+  if (mismoNivelYNombre.length >= 2 && best.level >= 3) {
+    // Hay varios productos que coinciden igual de bien EN EL NOMBRE. Es ambiguo.
+    const nombres = mismoNivelYNombre.map(e => `"${e.product.name}" (ID ${e.product.id}, $${e.product.price || "?"})`).join(", ");
+    reasoning.push(`⚠️ AMBIGÜEDAD: ${mismoNivelYNombre.length} productos coinciden igual: ${nombres}`);
     reasoning.push(`   ⛔ NO elijas uno solo: mostrá las opciones con su imagen y precio, y preguntá cuál quiere el cliente.`);
     reasoning.push(`   ✅ Escribí algo como: "Tengo varias opciones, ¿cuál te interesa?" y listá los productos.`);
     return {

@@ -1325,6 +1325,18 @@ export async function runAgentReply(conversationId: number) {
     if (!pregunta) return "";
     return `\n\n[NOTA] El cliente acaba de contestar "${t}" a tu última pregunta: «${pregunta.slice(0, 240)}». Respondé a ESO, en 1-3 frases, sin volver a presentar el producto ni repetir lo que ya le dijiste. Si tu pregunta ofrecía dos opciones, asumí la primera y seguí.`;
   })();
+  // ¿Ya vio los medios de pago? Si es así, cuando diga que quiere comprar no se
+  // le reenvían los enlaces: se le pregunta cuál de los que ya vio va a usar.
+  // El servidor ya lo frena con la sección "ninguna" (ver `seccionQueCorresponde`),
+  // y esta nota le dice al modelo QUÉ hacer en su lugar.
+  const notaMediosYaEnviados = (() => {
+    try {
+      if (!datosYaDichos(memory.history as any).has("como-se-paga")) return "";
+    } catch {
+      return "";
+    }
+    return `\n13. El cliente YA vio los medios de pago en esta conversación. Si dice que quiere comprar, NO le repitas los enlaces ni los números: preguntale CUÁL de los que ya vio va a usar (Nequi, Daviplata, tarjeta o PayPal), en una sola pregunta.`;
+  })();
   const atlasSalesPrompt = `Te llamas ${voice.agentName}${voice.agentRole ? `, ${voice.agentRole}` : ""} de ${voice.businessName}. Atiendes por WhatsApp como el asesor comercial experto de este negocio.
 
 Estás conversando con ${nombreCorto || customerName}. Entiende la conversación completa, responde a la necesidad real del cliente y guía la venta con naturalidad. No eres un bot de menú ni repites plantillas.
@@ -1345,7 +1357,7 @@ Estas reglas MANDAN sobre todo lo demás. Si contradicen algo de abajo, acá gan
 9. NUNCA repitas el título del curso/producto en cada respuesta. Ya lo vio.
 10. Cuando enumerás (qué incluye, cómo se paga), una línea por punto con su emoji. Cuando argumentás, frases naturales.
 11. La pregunta de motivación ("¿lo querés para aprender desde cero?") va SOLO al inicio, una única vez, y solo si el mensaje es ambiguo. Si el cliente ya preguntó algo concreto, respondé eso primero.
-12. NUNCA abras con "¡Perfecto!", "¡Genial!" o "¡Excelente!" a secas. Variá la apertura.
+12. NUNCA abras con "¡Perfecto!", "¡Genial!" o "¡Excelente!" a secas. Variá la apertura.${notaMediosYaEnviados}
 
 EJEMPLO DE CÓMO SE VE UNA BUENA RESPUESTA:
 ❌ MAL: "¡Perfecto! 🎹 Curso de Piano Completo: De Cero a Nivel Avanzado. Aprende a tocar piano paso a paso, desde los fundamentos hasta las técnicas avanzadas, a tu propio ritmo. Ideal para principiantes, intermedios y avanzados, para todas las edades."
@@ -3861,6 +3873,11 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
             intent: decision.intent,
             pide: pedidosLeidos(entendimiento),
             fichaYaEnviada: memory.sentProductIds.has(resolvedId),
+            // ¿Ya le mostramos los medios de pago? Se lee del DATO, no de una
+            // bandera: el historial ya es la verdad de qué se le mandó. Si ya
+            // los vio, un "quiero comprarlo" no los reenvía -- se le pregunta
+            // cuál va a usar. Ver `seccionQueCorresponde`.
+            pagoYaEnviado: datosYaDichos(memory.history as any).has("como-se-paga"),
             ofrecimosVideo,
             ofrecimosContenido,
             ofrecimosPrecio,

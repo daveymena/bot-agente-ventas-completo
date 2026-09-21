@@ -111,6 +111,20 @@ describe("qué le dice el bloque al modelo", () => {
     });
     expect(b).toContain("enlace por WhatsApp — inmediato");
   });
+
+  it("pide el mismo tono y emoji que la ficha: la explicación no cambia de estilo", () => {
+    // Pedido del dueño (21-09-2026): lo que no es ficha (una explicación) debe
+    // salir con el mismo guion -- tono y un emoji por línea -- para que no se
+    // note el cambio de estilo, pero razonando sobre lo que sí dice la ficha.
+    const b = bloqueDeDesglose({
+      mensaje: "explícame mejor cómo funciona en la práctica",
+      entendimiento: entendido({ subintencion: "content_question" }),
+      productoConFichaEnviada: curso, negocio: null,
+    });
+    expect(b).toMatch(/MISMO tono/i);
+    expect(b).toMatch(/un emoji por línea/i);
+    expect(b).toMatch(/no debe notar un cambio de estilo/i);
+  });
 });
 
 describe("guardián de garantías inventadas", () => {

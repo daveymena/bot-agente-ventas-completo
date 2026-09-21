@@ -177,6 +177,7 @@ export function bloqueDeDesglose(e: EntradaDesglose): string {
     l.push("- Lo que la ficha NO dice (formato del material, plataforma, PDFs, cantidad de videos, duración, garantía, plazos) NO existe: no lo afirmes. Si justo pregunta por eso, decí que ese dato puntual lo confirmás con el equipo y seguí con lo que sí sabés.");
   }
   l.push("- 3 a 6 líneas cortas, una idea por línea, sin repetir la ficha ni el precio. Cerrá comprobando si quedó claro o qué parte quiere que le amplíes.");
+  l.push("- Mantené el MISMO tono cálido y el formato de la casa: un emoji por línea que signifique algo (📚 contenido · 💻 modalidad · 🛡️ garantía · 📱 acceso · ✅ incluido). El cliente no debe notar un cambio de estilo entre la ficha y la explicación: es la misma asesora explicando mejor, no un folleto nuevo.");
   return l.join("\n") + "\n";
 }
 
