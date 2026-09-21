@@ -25,6 +25,7 @@ import { getAppUrl } from "./app-url";
 import { videoDeProducto, leerMetadata, normalizarEnlaceDeVideo } from "./video-de-producto";
 import { recordControlPlaneAudit } from "./control-plane-audit";
 import { codeOperator } from "./code-operator";
+import { SUPER_ADMIN_EMAIL } from "../middleware/requireSuperAdmin";
 
 export interface OperatorContext {
   tenantId: number;
@@ -7261,6 +7262,28 @@ export async function executeAction(tool: string, args: any, ctx: OperatorContex
     tool,
     arguments: args || {},
   };
+
+  // ── Código fuente: solo el admin de la plataforma ──────────────────────
+  //
+  // Leer/escribir el código, correr tests, commitear y desplegar son acciones
+  // sobre el programa COMPARTIDO de todo el SaaS. Un cliente de la plataforma
+  // no debe poder leer el código ajeno ni, mucho menos, subirlo o reiniciar el
+  // servicio de todos. Pedido del dueño (21-09-2026): esto es solo para
+  // daveymena16@gmail.com, los demás siguen sin deploy ni commit.
+  if (CODE_TOOLS.has(tool)) {
+    let esAdmin = false;
+    try {
+      const t = await tenantManager.getTenantById(ctx.tenantId);
+      esAdmin = !!t && (!!t.isAdmin || t.email === SUPER_ADMIN_EMAIL);
+    } catch (e: any) {
+      logger.warn({ tool, err: e?.message }, "[AppOperator] No se pudo verificar el admin para la herramienta de código");
+    }
+    if (!esAdmin) {
+      await recordControlPlaneAudit({ ...auditBase, phase: "started", status: "blocked" }, mutating).catch(() => {});
+      return { ok: false, summary: "Las herramientas de código (leer/editar/testear/commit/deploy) son solo para el administrador de la plataforma." };
+    }
+  }
+
   try {
     await recordControlPlaneAudit({ ...auditBase, phase: "started", status: "allowed" }, mutating);
   } catch (e: any) {
@@ -7395,6 +7418,18 @@ export const READ_ONLY_TOOLS = new Set([
   // escritura (codigo_escribir, git_commit_push, deploy) quedan FUERA del set
   // → solo se alcanzan por propose_action, con el sí del admin.
   "codigo_leer", "codigo_buscar", "codigo_listar", "tests_correr", "git_estado",
+]);
+
+/**
+ * Herramientas que operan sobre el CÓDIGO FUENTE compartido de la plataforma.
+ *
+ * Todas —de lectura y de escritura— son solo para el admin (SUPER_ADMIN_EMAIL).
+ * Leer el código de la plataforma ya es información interna, y escribir/commit/
+ * deploy afecta a TODOS los tenants del SaaS. Ver el guard en `executeAction`.
+ */
+export const CODE_TOOLS = new Set([
+  "codigo_leer", "codigo_buscar", "codigo_listar", "git_estado", "tests_correr",
+  "codigo_escribir", "git_commit_push", "deploy",
 ]);
 export const DESTRUCTIVE_TOOLS = new Set([
   "delete_product",
