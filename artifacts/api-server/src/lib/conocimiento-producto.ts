@@ -295,11 +295,24 @@ export function responderPreguntas(
   maximo = 2,
   /** Lo que el dueño cargó desde Atlas (`conocimiento-cargado.ts`). */
   cargadas: PreguntaConocida[] = [],
+  /**
+   * Tipo del producto en foco ("physical", "digital", ...). Toda la tabla
+   * escrita a mano acá (COMUNES + PIANO + EDUCANINO + IA) es de cursos
+   * DIGITALES. Para un producto FÍSICO esas respuestas son mentira: "celular"
+   * dispara "Desde celular, tablet o computador" y "dirección" dispara
+   * "Es 100% online, videos grabados" — justo cuando el cliente está mandando
+   * sus datos de envío. Para un físico solo vale lo que cargó el dueño.
+   */
+  kind: string | null = null,
 ): Respuesta[] {
   const texto = String(mensaje || "");
   if (!texto.trim()) return [];
 
-  const delProducto = productId ? CATALOGO.find((c) => c.productId === productId) : null;
+  const esFisico = kind === "physical" || kind === "fisico" || kind === "dropshipping";
+  // La tabla de fábrica (delProducto + COMUNES) solo se consulta si el producto
+  // NO es físico. Para un físico, ese conocimiento es de cursos digitales y
+  // contesta datos de envío ("celular", "dirección") con el texto equivocado.
+  const delProducto = productId && !esFisico ? CATALOGO.find((c) => c.productId === productId) : null;
   // El orden importa y no se toca: lo específico del producto le gana a lo
   // común. "¿en cuánto tiempo veo resultados?" cae en `acceso_tiempo` ("el
   // acceso es de por vida") si se mira primero la lista común, y eso NO es lo
@@ -308,7 +321,7 @@ export function responderPreguntas(
   // Y lo que el DUEÑO cargó desde Atlas va antes que todo: él conoce su
   // producto mejor que una tabla escrita a mano hace meses. Las de fábrica
   // quedan de respaldo para el negocio que todavía no configuró nada.
-  const candidatas = [...cargadas, ...(delProducto?.preguntas ?? []), ...COMUNES];
+  const candidatas = [...cargadas, ...(delProducto?.preguntas ?? []), ...(esFisico ? [] : COMUNES)];
 
   const resolver = (fragmento: string): Respuesta | null => {
     for (const p of candidatas) {
@@ -347,8 +360,9 @@ export function responderPregunta(
   productId: number | null,
   mensaje: string,
   cargadas: PreguntaConocida[] = [],
+  kind: string | null = null,
 ): Respuesta | null {
-  return responderPreguntas(productId, mensaje, 1, cargadas)[0] ?? null;
+  return responderPreguntas(productId, mensaje, 1, cargadas, kind)[0] ?? null;
 }
 
 export function preguntasSinResponder(): Array<{ producto: string; pregunta: string }> {

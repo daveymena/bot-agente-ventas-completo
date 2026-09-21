@@ -481,3 +481,42 @@ describe("El cliente que va a mandar el comprobante no pregunta por envíos", ()
     }
   });
 });
+
+describe("un producto FÍSICO no contesta con conocimiento de curso digital", () => {
+  // Bug medido en el test de Atlas del corrector de postura (21-09): el cliente
+  // manda sus datos de envío ("celular 300...", "calle 45...") y el bot responde
+  // con texto de curso digital ("desde celular, tablet o computador", "es 100%
+  // online, videos grabados"), porque la tabla de fábrica matchea las palabras
+  // "celular" y "dirección". Para un físico ese conocimiento no aplica.
+  const CORRECTOR = 199; // id cualquiera: la tabla de fábrica no lo conoce
+
+  it("'celular' (dato de envío) NO dispara 'desde celular, tablet o computador'", () => {
+    const r = responderPregunta(CORRECTOR, "Celular 3001234567", [], "physical");
+    expect(r).toBeNull();
+  });
+
+  it("'dirección' (dato de envío) NO dispara 'es 100% online, videos grabados'", () => {
+    const r = responderPregunta(CORRECTOR, "Mi dirección es Calle 45 #12-30", [], "physical");
+    expect(r).toBeNull();
+  });
+
+  it("tampoco contesta 'no hacemos envío físico' a un físico", () => {
+    expect(responderPregunta(CORRECTOR, "hacen envíos a Bogotá?", [], "physical")).toBeNull();
+  });
+
+  it("sin el kind (o digital) el comportamiento de cursos digitales se mantiene", () => {
+    // No se rompe el caso viejo: un curso digital que pregunta "¿desde qué
+    // dispositivo?" sigue recibiendo la respuesta de dispositivos.
+    expect(responderPregunta(123, "puedo verlo desde el celular?")?.texto).toMatch(/celular, tablet o computador/i);
+  });
+
+  it("lo que carga el dueño para un físico SÍ se respeta", () => {
+    const cargadas = [{
+      id: "cargado:envio",
+      patrones: /celular/i as RegExp,
+      respuesta: "Te despachamos a la dirección que me des.",
+    }];
+    const r = responderPregunta(CORRECTOR, "Celular 3001234567", cargadas, "physical");
+    expect(r?.texto).toMatch(/despachamos/i);
+  });
+});

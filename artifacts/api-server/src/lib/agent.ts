@@ -2432,7 +2432,11 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
 
       const { conocimientoCargado } = await import("./conocimiento-cargado");
       const cargadasPrompt = await conocimientoCargado(convo.tenantId, idFocoPrompt);
-      const hechos = responderPreguntas(idFocoPrompt, String(lastText || ""), 2, cargadasPrompt);
+      // El tipo del producto decide qué conocimiento aplica: la tabla de fábrica
+      // es de cursos digitales, y para un FÍSICO responde "celular"/"dirección"
+      // (datos de envío) con texto de curso digital. Ver conocimiento-producto.ts.
+      const kindFocoPrompt = (productList as any[]).find((p: any) => p.id === idFocoPrompt)?.kind ?? null;
+      const hechos = responderPreguntas(idFocoPrompt, String(lastText || ""), 2, cargadasPrompt, kindFocoPrompt);
 
       const conDato = hechos.filter((h) => !h.sinResponder);
       const sinDato = hechos.filter((h) => h.sinResponder);
@@ -4286,13 +4290,17 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           // cliente nuevo del SaaS no tiene ninguna respuesta propia.
           const { conocimientoCargado } = await import("./conocimiento-cargado");
           const cargadas = await conocimientoCargado(convo.tenantId, idFoco);
+          // Mismo guardián que arriba: el conocimiento de fábrica es de cursos
+          // digitales y no aplica a un producto FÍSICO (los datos de envío no
+          // son una pregunta de "dispositivos" ni de "presencial").
+          const kindFoco = (productList as any[]).find((p: any) => p.id === idFoco)?.kind ?? null;
           // Plural a propósito: el cliente suele encadenar dos preguntas en un
           // mismo mensaje y antes solo se contestaba la primera.
           // La respuesta escrita es la del producto EN FOCO. Si el cliente
           // preguntó por otra cosa que no tenemos ("el Renovador, ¿cómo me
           // llega?" con el Pack Idiomas en foco), contestarle "por un enlace
           // de acceso" es hablarle del producto equivocado (medido 13-09).
-          const conocidas = decision.nombraOtroProducto ? [] : responderPreguntas(idFoco, lastText, 2, cargadas);
+          const conocidas = decision.nombraOtroProducto ? [] : responderPreguntas(idFoco, lastText, 2, cargadas, kindFoco);
           if (decision.nombraOtroProducto) console.log(`📗 [CONOCIMIENTO] no aplica: la pregunta es sobre algo que no es el producto en foco - ${ts()}`);
           const conocida = conocidas.length
             ? {
