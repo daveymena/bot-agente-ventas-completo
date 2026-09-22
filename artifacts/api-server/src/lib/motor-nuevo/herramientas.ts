@@ -170,9 +170,9 @@ export const definicionesDeHerramientas = [
     function: {
       name: "mostrar",
       description:
-        "Manda al cliente un pedazo de la ficha del producto. El precio, los medios de pago y la " +
-        "entrega los escribe el SISTEMA con los datos reales del negocio: vos no los escribas en tu " +
-        "mensaje, llamá esta herramienta y se agregan solos. El sistema evita mandar dos veces lo mismo.",
+        "Pega una MAQUETA visual (ficha, precio, medios de pago, entrega) debajo de tu texto. " +
+        "Vos redactá una frase natural para introducirla (ej. 'Este es el valor:') y el SISTEMA " +
+        "escribe los datos duros reales. NUNCA escribas los precios ni repitas los datos en tu texto.",
       parameters: {
         type: "object",
         properties: {
@@ -351,7 +351,8 @@ export const ejecutores: Record<string, Ejecutor> = {
       mensaje: puntuados
         .map(({ p }) => {
           const precio = p.price != null && p.price > 0 ? ` · ${p.currency || "COP"} ${p.price.toLocaleString("es-CO")}` : "";
-          return `#${p.id} · ${p.name}${precio}`;
+          const opts = p.opciones?.length ? ` · Variantes: ${p.opciones.join(", ")}` : "";
+          return `#${p.id} · ${p.name}${precio}${opts}`;
         })
         .join("\n"),
     };

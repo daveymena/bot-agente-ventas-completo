@@ -88,7 +88,11 @@ export function construirPromptDeSistema(params: {
   const catalogoCompacto =
     disponibles.length <= 60
       ? disponibles
-          .map((p) => `#${p.id} · ${p.name}${p.price ? ` · ${p.currency || "COP"} ${p.price.toLocaleString("es-CO")}` : ""}`)
+          .map((p) => {
+            const precio = p.price ? ` · ${p.currency || "COP"} ${p.price.toLocaleString("es-CO")}` : "";
+            const opts = p.opciones?.length ? ` · Variantes: ${p.opciones.join(", ")}` : "";
+            return `#${p.id} · ${p.name}${precio}${opts}`;
+          })
           .join("\n")
       : `${disponibles.length} productos. Usá buscar_en_catalogo para ubicarlos.`;
 
@@ -110,12 +114,15 @@ Contestá PRIMERO lo que preguntó. Una sola pregunta estratégica por mensaje,
 y solo cuando la respuesta cambie lo que le vas a recomendar. Si duda, antes de
 empujar entendé de qué duda. Si lo que pide no existe, decilo con naturalidad y
 mostrale lo que sí hay.
+Si el cliente muestra intención de compra ("lo quiero", "cómo pago", "mándame el link", "me sirve", "listo"), CERRÁ. Dejá de dar explicaciones, no hagas más preguntas de descubrimiento y llamá a mostrar(seccion="pago") directamente.
 
-LAS HERRAMIENTAS PONEN LOS HECHOS
-El precio, los medios de pago, la ficha, el video y la entrega NO los escribís
-vos: los manda la herramienta y se agregan solos al mensaje. Vos ponés la
-conversación alrededor. Si una herramienta te dice que algo ya se envió, no lo
-repitas: retomá desde donde quedaron.
+LAS HERRAMIENTAS PONEN LAS MAQUETAS (DATOS DUROS)
+El precio, los medios de pago, la ficha, el video y la entrega son MAQUETAS que
+el sistema pega abajo de tu texto cuando usás las herramientas. Vos redactás la
+charla natural que las acompaña, pero NUNCA repitas el contenido de la maqueta
+en tu texto. Ejemplo: si usás mostrar(seccion="precio"), tu texto solo debe
+decir "Acá te dejo el valor:" y la herramienta hace el resto. Si una herramienta
+te dice que algo ya se envió, no lo repitas: retomá desde donde quedaron.
 
 Nunca digas que un pago está confirmado, verificado ni recibido. Eso lo
 determina una persona del equipo, y el sistema te avisa cuando pasó.
@@ -152,22 +159,42 @@ const aNumero = (s: string): number => {
   // 60.000 → 60000 (separador de miles) y 60,50 → 60.5 (decimal)
   const conPunto = limpio.includes(".") && limpio.lastIndexOf(".") - limpio.length < -2;
   const normalizado = conPunto ? limpio.replace(/\./g, "").replace(",", ".") : limpio.replace(/,/g, ".");
-  const n = Number(normalizado);
+  let n = Number(normalizado);
+  // "60 mil" es 60.000, no 60: sin esto quedaba por debajo del umbral de
+  // 1.000 y una cifra inventada pasaba la red sin ser vista.
+  if (/\bmil\b/i.test(s) && n < 1000) n *= 1000;
   return Number.isFinite(n) ? n : 0;
 };
 
+/** Todos los montos que aparecen escritos en un texto (ya normalizados). */
+function montosEn(texto: string): number[] {
+  return (String(texto || "").match(MONTO) || []).map(aNumero).filter((n) => n >= 1000);
+}
+
 /**
  * Los montos que el modelo SÍ puede escribir: los precios del catálogo y sus
- * sumas (un cliente que lleva dos productos pregunta por el total).
+ * sumas (un cliente que lleva dos productos pregunta por el total), más
+ * cualquier cifra que el sistema le haya dado por escrito (`textosDeContexto`:
+ * el guion con el costo de envío, una respuesta del conocimiento, el resultado
+ * de una herramienta). Si el modelo repite un número que le dimos nosotros, no
+ * lo inventó.
+ *
+ * Los precios individuales entran TODOS: antes se tomaban los primeros 12 y
+ * con un catálogo más grande un precio real se marcaba como inventado y se le
+ * borraba la frase al cliente. El tope de 12 queda solo para las sumas, que
+ * son combinatorias.
  */
-export function montosPermitidos(catalogo: Producto[]): Set<number> {
-  const precios = catalogo.map((p) => Number(p.price) || 0).filter((n) => n > 0).slice(0, 12);
+export function montosPermitidos(catalogo: Producto[], textosDeContexto: string[] = []): Set<number> {
+  const todos = catalogo.map((p) => Number(p.price) || 0).filter((n) => n > 0);
   const permitidos = new Set<number>([0]);
-  for (const p of precios) {
+  for (const p of todos) {
     permitidos.add(Math.round(p));
     permitidos.add(Math.round(p * 100) / 100);
   }
+  for (const t of textosDeContexto) for (const n of montosEn(t)) permitidos.add(Math.round(n));
+
   // Sumas de hasta 4 productos: "los dos cursos salen 120.000".
+  const precios = todos.slice(0, 12);
   for (let mask = 1; mask < 1 << precios.length && mask < 1 << 12; mask++) {
     let suma = 0;
     let cuenta = 0;
@@ -182,18 +209,14 @@ export function montosPermitidos(catalogo: Producto[]): Set<number> {
   return permitidos;
 }
 
-/** ¿El texto tiene una cifra de plata que no existe en el catálogo? */
-export function montosInventados(texto: string, catalogo: Producto[]): number[] {
-  const permitidos = montosPermitidos(catalogo);
-  const hallados = String(texto || "").match(MONTO) || [];
+/** ¿El texto tiene una cifra de plata que no existe en el catálogo ni en lo que se le dio? */
+export function montosInventados(texto: string, catalogo: Producto[], textosDeContexto: string[] = []): number[] {
+  const permitidos = montosPermitidos(catalogo, textosDeContexto);
   const inventados: number[] = [];
-  for (const crudo of hallados) {
-    const n = aNumero(crudo);
-    // Menos de 1.000 no es un precio de nada y evita perseguir "2 años",
-    // "3 días" o los cuatro dígitos de un año.
-    if (n < 1000) continue;
-    const redondo = Math.round(n);
-    if (!permitidos.has(redondo)) inventados.push(n);
+  // Menos de 1.000 no es un precio de nada y evita perseguir "2 años",
+  // "3 días" o los cuatro dígitos de un año (`montosEn` ya los descarta).
+  for (const n of montosEn(texto)) {
+    if (!permitidos.has(Math.round(n))) inventados.push(n);
   }
   return inventados;
 }
@@ -316,15 +339,18 @@ export async function responder(params: {
       role: "system" as const,
       content:
         `Escribiste ${invento.map((n) => n.toLocaleString("es-CO")).join(", ")} y ese monto NO está en el catálogo. ` +
-        `No inventes cifras: si querés dar un precio, usá la herramienta mostrar con seccion "precio". ` +
-        `Reescribí tu respuesta sin ese número.`,
+        `Reescribí tu respuesta de forma natural sin incluir ese número. ` +
+        `IMPORTANTE: No pidas disculpas ni le hables de este error interno al usuario. NO podés usar herramientas en este turno, respondé solo con texto.`,
     };
     try {
       const reintento = await llm.crear({
         messages: [...messages, { role: "assistant", content: textoFinal }, aviso],
         temperature: 0.5,
       });
-      const nuevo = (reintento.content || "").trim();
+      const nuevo = (reintento.content || "")
+        .replace(/<｜｜DSML[\s\S]*/g, "")
+        .replace(/<\|\|DSML[\s\S]*/g, "")
+        .trim();
       if (nuevo && montosInventados(nuevo, catalogo).length === 0) {
         textoFinal = nuevo;
         corregido = true;
@@ -337,6 +363,12 @@ export async function responder(params: {
     invento = montosInventados(textoFinal, catalogo);
     if (invento.length) textoFinal = quitarFrasesConMontos(textoFinal, invento);
   }
+
+  // Limpiar basura interna de herramientas que algunos LLMs filtran en primera respuesta
+  textoFinal = textoFinal
+    .replace(/<｜｜DSML[\s\S]*/g, "")
+    .replace(/<\|\|DSML[\s\S]*/g, "")
+    .trim();
 
   // ── Armado de la respuesta ───────────────────────────────────────────────
   const partes: Parte[] = [];
