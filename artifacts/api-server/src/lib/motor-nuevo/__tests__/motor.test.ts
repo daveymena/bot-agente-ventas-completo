@@ -547,4 +547,31 @@ describe("el catálogo", () => {
     assert.match(r.mensaje, /^No hay nada en el catálogo/);
     assert.doesNotMatch(r.mensaje.split("Lo que SÍ hay")[0], /Curso de piano/);
   });
+
+  test("'taladro' en una tienda chica SÍ se encuentra (regresión del 22-09)", () => {
+    // 3 taladros en un catálogo de 5: frecuencia 60%. Con el umbral viejo (0.5)
+    // "taladro" se trataba como palabra de categoría, la búsqueda volvía vacía
+    // y el bot decía "no manejo taladros" a un producto que sí estaba.
+    const ctx = ctxNuevo();
+    ctx.catalogo = [
+      { id: 1, name: "Kit Taladro Percutor Inalámbrico 24V", description: "", price: 150000, currency: "COP", kind: "physical", disponible: true },
+      { id: 2, name: "Taladro inalámbrico 36V", description: "", price: 180000, currency: "COP", kind: "physical", disponible: true },
+      { id: 3, name: "Taladro Brushless con polichador", description: "", price: 180000, currency: "COP", kind: "physical", disponible: true },
+      { id: 4, name: "Destornillador", description: "", price: 20000, currency: "COP", kind: "physical", disponible: true },
+      { id: 5, name: "Cinta métrica", description: "", price: 15000, currency: "COP", kind: "physical", disponible: true },
+    ];
+
+    const r = ejecutores.buscar_en_catalogo(ctx, { consulta: "me interesa un taladro" }) as any;
+
+    assert.match(r.mensaje, /Taladro/);
+    assert.doesNotMatch(r.mensaje, /No hay nada en el catálogo/);
+  });
+
+  test("mostrar con id vacío guía a buscar primero, no falla en seco", () => {
+    const ctx = ctxNuevo();
+    const r = ejecutores.mostrar(ctx, { productoId: undefined, seccion: "completa" }) as any;
+
+    assert.equal(r.ok, false);
+    assert.match(r.mensaje, /buscar_en_catalogo/i);
+  });
 });

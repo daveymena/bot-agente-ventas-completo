@@ -305,7 +305,13 @@ export function puntuarCoincidencias(consulta: string, catalogo: Producto[], lim
     const enCuantos = textos.filter((t) => t.includes(w)).length;
     if (enCuantos === 0) return 0;
     const frecuencia = enCuantos / Math.max(1, disponibles.length);
-    if (disponibles.length >= 3 && frecuencia >= 0.5) return 0; // palabra de categoría
+    // Palabra "de categoría": aparece en AL MENOS DOS TERCIOS del catálogo y no
+    // distingue. El umbral era 0.5, pero tumbaba búsquedas válidas en catálogos
+    // chicos: 3 taladros en una tienda de 5 productos (60%) se leían como
+    // "categoría" y el bot decía "no manejo taladros" a un producto que sí
+    // estaba (22-09). "Curso" en un catálogo de cursos (2 de 3 = 66%) sigue
+    // cayendo porque no distingue cuál curso quiere el cliente.
+    if (disponibles.length >= 3 && enCuantos * 3 >= disponibles.length * 2) return 0;
     return Math.log(1 / frecuencia);
   };
 
@@ -380,8 +386,17 @@ export const ejecutores: Record<string, Ejecutor> = {
   },
 
   mostrar(ctx, { productoId, seccion, reenviar }) {
-    const p = ctx.catalogo.find((x) => x.id === Number(productoId));
-    if (!p) return { ok: false, mensaje: `No existe el producto #${productoId}.` };
+    const idNumerico = Number(productoId);
+    if (!Number.isFinite(idNumerico) || idNumerico <= 0) {
+      return {
+        ok: false,
+        mensaje:
+          "No me pasaste un id de producto válido. No llames a mostrar sin id: " +
+          "buscá primero con buscar_en_catalogo lo que pidió el cliente y usá el id que te devuelva.",
+      };
+    }
+    const p = ctx.catalogo.find((x) => x.id === idNumerico);
+    if (!p) return { ok: false, mensaje: `No existe el producto #${idNumerico}. Buscá en el catálogo primero.` };
 
     const sec = String(seccion || "completa") as Seccion;
     const yaVio = yaSeEnvio(ctx.estado, p.id, sec);
