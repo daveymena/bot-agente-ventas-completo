@@ -28,7 +28,13 @@ import {
   precioDado,
   productoPresentado,
   yaSeEnvio,
+  registrarHechoEntregado,
+  registrarHechoPedido,
+  registrarIntencion,
+  apilarContexto,
+  marcarPaso,
   type EstadoConversacion,
+  type Intencion,
   type Oferta,
 } from "./estado-conversacion";
 import { datosQueFaltan, type GuionDelNegocio } from "./nicho";
@@ -45,6 +51,8 @@ export interface Producto {
   opciones?: string[] | null;
   videoUrl?: string | null;
   disponible?: boolean;
+  /** Stock REAL (`products.stock`, puede ser null = no configurado). */
+  stock?: number | null;
 }
 
 /** Lo que el dueño cargó en `product_knowledge`. */
@@ -110,6 +118,12 @@ export interface ContextoHerramientas {
   mensajeDelCliente: string;
   /** Efectos pendientes de aplicar al terminar el turno. */
   efectos: Efecto[];
+  /**
+   * Hook opcional que el adaptador provee para recargar el guion cuando el
+   * foco cambia en mitad del turno. Sin esto, `que_falta_para_cerrar` usaría
+   * la calificación del producto anterior (digital vs físico).
+   */
+  alCambiarFoco?: (nuevoProductoId: number) => Promise<void> | void;
 }
 
 export interface ResultadoHerramienta {
@@ -274,6 +288,85 @@ export const definicionesDeHerramientas = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "anotar_contexto",
+      description:
+        "Anota intención y pendiente del turno (para que el próximo 'sí/ese/dale/cuánto' se resuelva sin releer texto). " +
+        "Llamala cuando quede claro qué quiere el cliente o qué le preguntaste. No envía nada al cliente.",
+      parameters: {
+        type: "object",
+        properties: {
+          intencion: {
+            type: "string",
+            enum: [
+              "saludar", "explorar", "ver_producto", "preguntar_precio", "preguntar_info",
+              "preguntar_entrega", "comprar", "pagar", "reportar_pago", "objecion", "despedida", "otra",
+            ],
+          },
+          preguntaPendiente: { type: "string", description: "Lo último que le preguntaste, si esperás respuesta." },
+          accionPendiente: { type: "string", description: "Lo que quedó pendiente (ej. pedir_ciudad, enviar_pago)." },
+          siguienteAccion: { type: "string", description: "Qué vas a hacer después." },
+          objecion: { type: "string", description: "Si puso una duda, anotala para no repetir la explicación." },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "consultar_disponibilidad",
+      description:
+        "Consulta inventario REAL del producto (columna stock). Usala antes de afirmar que hay stock, " +
+        "una variante o una cantidad. Si no hay inventario configurado, te dice que lo confirmes: nunca inventes.",
+      parameters: {
+        type: "object",
+        properties: {
+          productoId: { type: "number" },
+          variante: { type: "string", description: "Color/talla/modelo, si el cliente la pidió." },
+          cantidad: { type: "number", description: "Cuántas unidades quiere." },
+        },
+        required: ["productoId"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "registrar_caso",
+      description:
+        "Registra un caso de servicio o consultoría (necesidad/problema/objetivo/alcance/cita). " +
+        "No cotiza ni agenda por sí solo: deja el caso estructurado para cotizar o agendar después.",
+      parameters: {
+        type: "object",
+        properties: {
+          tipo: { type: "string", enum: ["servicio", "consultoria"] },
+          necesidad: { type: "string" },
+          alcance: { type: "string" },
+          cuando: { type: "string", description: "Cuándo quiere la cita/entrega del servicio." },
+          problema: { type: "string" },
+          objetivo: { type: "string" },
+        },
+        required: ["tipo"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "solicitar_cotizacion",
+      description:
+        "Marca la cotización/propuesta como en proceso para que una persona la prepare. " +
+        "Usala cuando el precio depende del alcance (consultoría, servicio con visita, instalación). No inventa el valor.",
+      parameters: {
+        type: "object",
+        properties: { resumen: { type: "string", description: "Qué incluirá la cotización." } },
+        required: [],
+      },
+    },
+  },
 ];
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -364,17 +457,43 @@ export const ejecutores: Record<string, Ejecutor> = {
     };
   },
 
-  enfocar_producto(ctx, { productoId }) {
+  async enfocar_producto(ctx, { productoId }) {
     const p = ctx.catalogo.find((x) => x.id === Number(productoId));
     if (!p) return { ok: false, mensaje: `No existe el producto #${productoId}. Buscá en el catálogo primero.` };
 
     const anterior = ctx.estado.productoEnFoco;
+    if (anterior === p.id) {
+      return { ok: true, mensaje: `Producto en foco: ${p.name}.` };
+    }
+    // Multimodelo: apilar contexto para "y la cámara?" tras la laptop.
+    apilarContexto(ctx.estado, anterior ? `hablaban de ${nombreDe(ctx, anterior)}` : "explorando");
+    ctx.estado.productoAnterior = anterior;
     ctx.estado.productoEnFoco = p.id;
     if (ctx.estado.etapa === "saludo" || ctx.estado.etapa === "explorando") {
       ctx.estado.etapa = "producto_en_foco";
     }
+    // FASE 3/4: cambio explícito actualiza foco+anterior y marca proceso,
+    // sin borrar historial (seccionesEnviadas/datos se conservan).
+    if (ctx.estado.compra === "ninguno" || ctx.estado.compra === "interes") {
+      ctx.estado.compra = "producto_definido";
+    }
 
-    if (anterior && anterior !== p.id) {
+    // La oferta anterior era de otro producto: un "sí" posterior no puede
+    // seguir aceptando aquello. Se invalida en vez de reinterpretarla.
+    if (ctx.estado.ultimaOferta?.productoId != null && ctx.estado.ultimaOferta.productoId !== p.id) {
+      ctx.estado.ultimaOferta = null;
+    }
+
+    // El guion (qué falta para cerrar, cómo se cierra) depende del producto
+    // en foco. Si el adaptador proveyó el hook, se recarga en el acto para
+    // que `que_falta_para_cerrar` no use la calificación rancia.
+    try {
+      await ctx.alCambiarFoco?.(p.id);
+    } catch {
+      /* recargar el guion nunca puede tumbar el cambio de foco */
+    }
+
+    if (anterior) {
       return {
         ok: true,
         mensaje:
@@ -385,7 +504,7 @@ export const ejecutores: Record<string, Ejecutor> = {
     return { ok: true, mensaje: `Producto en foco: ${p.name}.` };
   },
 
-  mostrar(ctx, { productoId, seccion, reenviar }) {
+  async mostrar(ctx, { productoId, seccion, reenviar }) {
     const idNumerico = Number(productoId);
     if (!Number.isFinite(idNumerico) || idNumerico <= 0) {
       return {
@@ -454,7 +573,22 @@ export const ejecutores: Record<string, Ejecutor> = {
     });
 
     registrarEnvio(ctx.estado, p.id, sec);
-    if (ctx.estado.productoEnFoco !== p.id) ctx.estado.productoEnFoco = p.id;
+    registrarHechoEntregado(ctx.estado, `${sec} de ${p.name}`);
+    marcarPaso(ctx.estado, `mostrar_${sec}_${p.id}`);
+    if (ctx.estado.productoEnFoco !== p.id) {
+      const previo = ctx.estado.productoEnFoco;
+      apilarContexto(ctx.estado, previo ? `hablaban de ${nombreDe(ctx, previo)}` : "explorando");
+      ctx.estado.productoAnterior = previo;
+      ctx.estado.productoEnFoco = p.id;
+      // `mostrar` también mueve el foco (el modelo a veces muestra sin
+      // enfocar antes): la oferta previa de otro producto queda invalidada
+      // por `registrarOferta` de abajo, que ya apunta al producto nuevo.
+      try {
+        await ctx.alCambiarFoco?.(p.id);
+      } catch {
+        /* idem: no tumbar el envío por el guion */
+      }
+    }
 
     const resumen: Record<string, string> = {
       precio: `el precio de ${p.name}${p.price ? ` (${p.currency || "COP"} ${p.price.toLocaleString("es-CO")})` : ""}`,
@@ -475,6 +609,18 @@ export const ejecutores: Record<string, Ejecutor> = {
 
     if (sec === "precio") ctx.estado.etapa = "precio_dado";
     if (sec.startsWith("pago")) ctx.estado.etapa = "cierre";
+    // FASE 4: proceso explícito movido por herramientas, no por memoria del LLM.
+    if (sec === "precio" && (ctx.estado.compra === "ninguno" || ctx.estado.compra === "interes" || ctx.estado.compra === "producto_definido")) {
+      ctx.estado.compra = "precio_dado";
+    }
+    if (sec.startsWith("pago")) {
+      ctx.estado.compra = "listo_para_pagar";
+      if (ctx.estado.pago === "ninguno" || ctx.estado.pago === "pendiente_dato") ctx.estado.pago = "datos_enviados";
+    }
+    if ((sec === "info" || sec === "completa" || sec === "video") && ctx.estado.compra === "ninguno") {
+      ctx.estado.compra = "producto_definido";
+    }
+    if (sec === "entrega" && ctx.estado.entregaEstado === "pendiente_datos") ctx.estado.entregaEstado = "datos_listos";
 
     return {
       ok: true,
@@ -532,14 +678,27 @@ export const ejecutores: Record<string, Ejecutor> = {
 
     ctx.estado.datos[c as keyof EstadoConversacion["datos"]] = v;
     ctx.efectos.push({ tipo: "dato", campo: c, valor: v });
+    registrarHechoEntregado(ctx.estado, `dato ${c}`);
+    // FASE 4 físico/contraentrega: dirección+ciudad completan entrega.
+    if ((c === "direccion" || c === "ciudad") && ctx.estado.entregaEstado === "pendiente_datos") {
+      const tieneCiudad = String((ctx.estado.datos as any).ciudad || "").trim();
+      const tieneDir = String((ctx.estado.datos as any).direccion || "").trim();
+      if (tieneCiudad && tieneDir) ctx.estado.entregaEstado = "datos_listos";
+    }
     return { ok: true, mensaje: `Guardado (${c}: ${v}). No lo repitas en tu mensaje salvo que aporte.` };
   },
 
   que_falta_para_cerrar(ctx) {
     const faltan = datosQueFaltan(ctx.guion.calificacion, ctx.estado.datos as Record<string, string>);
     if (!faltan.length) {
+      ctx.estado.accionPendiente = null;
+      ctx.estado.siguienteAccion = "cerrar_y_enviar_pago";
       return { ok: true, mensaje: "No falta ningún dato: podés cerrar. Pedile la confirmación y mandale los medios de pago." };
     }
+    // FASE 7: si falta un dato, se pide ÚNICAMENTE ese dato.
+    ctx.estado.accionPendiente = `pedir_${faltan[0].campo}`;
+    ctx.estado.siguienteAccion = `pedir_${faltan[0].campo}`;
+    registrarHechoPedido(ctx.estado, faltan[0].campo);
     return {
       ok: true,
       mensaje:
@@ -552,6 +711,11 @@ export const ejecutores: Record<string, Ejecutor> = {
   registrar_pago_reportado(ctx, { medio, referencia }) {
     ctx.estado.comprobanteRecibido = true;
     ctx.estado.etapa = "postventa";
+    // FASE 4/7: reportado ≠ confirmado. Solo persona confirma (adaptador).
+    ctx.estado.compra = "pago_reportado";
+    ctx.estado.pago = "reportado";
+    ctx.estado.accionPendiente = null;
+    ctx.estado.siguienteAccion = "esperar_verificacion_humana";
     ctx.efectos.push({ tipo: "pago_reportado", medio, referencia });
     return {
       ok: true,
@@ -566,12 +730,138 @@ export const ejecutores: Record<string, Ejecutor> = {
   escalar_a_humano(ctx, { motivo }) {
     ctx.estado.etapa = "escalado";
     ctx.estado.escalado = { motivo: String(motivo || "sin motivo"), at: ahora() };
+    ctx.estado.accionPendiente = null;
+    ctx.estado.siguienteAccion = "esperar_humano";
     ctx.efectos.push({ tipo: "escalar", motivo: String(motivo || "sin motivo") });
     return {
       ok: true,
       mensaje:
         `Escalado registrado (${motivo}). Decile en una línea que ya le pasás el caso a alguien del ` +
         `equipo, sin prometer tiempos exactos.`,
+    };
+  },
+
+  anotar_contexto(ctx, { intencion, preguntaPendiente, accionPendiente, siguienteAccion, objecion }) {
+    const validas: Intencion[] = [
+      "saludar", "explorar", "ver_producto", "preguntar_precio", "preguntar_info",
+      "preguntar_entrega", "comprar", "pagar", "reportar_pago", "objecion", "despedida", "otra",
+    ];
+    if (typeof intencion === "string" && (validas as string[]).includes(intencion)) {
+      registrarIntencion(ctx.estado, intencion as Intencion);
+    }
+    if (typeof preguntaPendiente === "string" && preguntaPendiente.trim()) {
+      ctx.estado.preguntaPendiente = preguntaPendiente.trim().slice(0, 300);
+    }
+    if (typeof accionPendiente === "string" && accionPendiente.trim()) {
+      ctx.estado.accionPendiente = accionPendiente.trim().slice(0, 120);
+    }
+    if (typeof siguienteAccion === "string" && siguienteAccion.trim()) {
+      ctx.estado.siguienteAccion = siguienteAccion.trim().slice(0, 120);
+    }
+    if (typeof objecion === "string" && objecion.trim()) {
+      const o = objecion.trim().slice(0, 200);
+      if (!ctx.estado.objecionesVistas.includes(o)) ctx.estado.objecionesVistas.push(o);
+    }
+    return { ok: true, mensaje: "Contexto anotado. No le muestres esto al cliente; seguí la conversación." };
+  },
+
+  consultar_disponibilidad(ctx, { productoId, variante, cantidad }) {
+    const id = Number(productoId);
+    const p = ctx.catalogo.find((x) => x.id === id);
+    if (!p) return { ok: false, mensaje: `No existe el producto #${productoId}. Buscá en el catálogo primero.` };
+    const det = (ctx.estado.detalleProducto[p.id] ??= {});
+    if (typeof variante === "string" && variante.trim()) {
+      det.variante = variante.trim().slice(0, 120);
+      ctx.estado.datos.variante = det.variante;
+    }
+    if (Number.isFinite(Number(cantidad)) && Number(cantidad) > 0) {
+      det.cantidad = Math.min(999, Math.floor(Number(cantidad)));
+      (ctx.estado.datos as any).cantidad = String(det.cantidad);
+    }
+    // Variante pedida debe existir en opciones reales: si no, no se inventa.
+    if (det.variante && p.opciones?.length && !p.opciones.some((o) => o.toLowerCase().includes(det.variante!.toLowerCase()))) {
+      det.stockEstado = "por_confirmar";
+      return {
+        ok: true,
+        mensaje:
+          `El catálogo no trae la variante "${det.variante}" para ${p.name} (opciones: ${p.opciones.join(", ")}). ` +
+          `No afirmes que existe: decí que lo confirmás.`,
+      };
+    }
+    if (p.stock == null) {
+      det.stockEstado = "sin_dato";
+      return {
+        ok: true,
+        mensaje:
+          `${p.name} no tiene inventario configurado. No afirmes stock ni disponibilidad: ` +
+          `decí que revisás existencias y confirmás.`,
+      };
+    }
+    det.stock = p.stock;
+    if (p.stock <= 0) {
+      det.stockEstado = "agotado";
+      return { ok: true, mensaje: `${p.name} figura sin stock. No lo ofrezcas como disponible: explícalo y ofrecele alternativa real.` };
+    }
+    if (det.cantidad != null && det.cantidad > p.stock) {
+      det.stockEstado = "por_confirmar";
+      return { ok: true, mensaje: `Pide ${det.cantidad} pero hay ${p.stock} en inventario. No confirmes: decí que lo verificás.` };
+    }
+    det.stockEstado = "disponible";
+    marcarPaso(ctx.estado, `stock_${p.id}`);
+    return { ok: true, mensaje: `${p.name}: ${p.stock} unidad(es) en inventario. Podés ofrecerlo.` };
+  },
+
+  registrar_caso(ctx, { tipo, necesidad, alcance, cuando, problema, objetivo }) {
+    if (tipo !== "servicio" && tipo !== "consultoria") {
+      return { ok: false, mensaje: "Tipo inválido: es servicio o consultoria." };
+    }
+    if (tipo === "servicio") {
+      const s = (ctx.estado.servicio ??= {});
+      if (typeof necesidad === "string" && necesidad.trim()) {
+        s.necesidad = necesidad.trim().slice(0, 300);
+        ctx.estado.datos.necesidad = s.necesidad;
+        ctx.efectos.push({ tipo: "dato", campo: "necesidad", valor: s.necesidad });
+      }
+      if (typeof alcance === "string" && alcance.trim()) {
+        s.alcance = alcance.trim().slice(0, 300);
+        (ctx.estado.datos as any).alcance = s.alcance;
+      }
+      if (typeof cuando === "string" && cuando.trim()) {
+        s.citaCuando = cuando.trim().slice(0, 120);
+        ctx.estado.datos.cuando = s.citaCuando;
+      }
+      registrarIntencion(ctx.estado, "explorar");
+      marcarPaso(ctx.estado, "caso_servicio");
+      return { ok: true, mensaje: "Caso de servicio registrado. Diagnosticá primero; cotizá después con datos reales." };
+    }
+    const c = (ctx.estado.consultoria ??= {});
+    if (typeof problema === "string" && problema.trim()) {
+      c.problema = problema.trim().slice(0, 300);
+      (ctx.estado.datos as any).problema = c.problema;
+    }
+    if (typeof objetivo === "string" && objetivo.trim()) {
+      c.objetivo = objetivo.trim().slice(0, 300);
+      (ctx.estado.datos as any).objetivo = c.objetivo;
+    }
+    if (typeof necesidad === "string" && necesidad.trim() && !c.problema) c.problema = necesidad.trim().slice(0, 300);
+    if (typeof alcance === "string" && alcance.trim()) c.alcance = alcance.trim().slice(0, 300);
+    if (!c.cotizacion) c.cotizacion = "pendiente";
+    registrarIntencion(ctx.estado, "explorar");
+    marcarPaso(ctx.estado, "caso_consultoria");
+    return { ok: true, mensaje: "Caso de consultoría registrado. Entendé problema y objetivo antes de cotizar; no inventes precio fijo." };
+  },
+
+  solicitar_cotizacion(ctx, { resumen }) {
+    if (ctx.estado.consultoria) ctx.estado.consultoria.cotizacion = "en_proceso";
+    if (ctx.estado.servicio) ctx.estado.servicio.cotizacion = "en_proceso";
+    ctx.estado.siguienteAccion = "preparar_cotizacion";
+    ctx.estado.accionPendiente = "preparar_cotizacion";
+    marcarPaso(ctx.estado, "cotizacion_solicitada");
+    return {
+      ok: true,
+      mensaje:
+        `Cotización marcada en proceso${typeof resumen === "string" && resumen.trim() ? `: ${resumen.trim().slice(0, 200)}` : ""}. ` +
+        `Decile que preparás la propuesta con esos datos, sin inventar el valor.`,
     };
   },
 };

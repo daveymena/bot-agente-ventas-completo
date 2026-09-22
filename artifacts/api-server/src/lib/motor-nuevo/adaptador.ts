@@ -76,6 +76,7 @@ export async function cargarCatalogoDelNegocio(tenantId: number): Promise<Produc
     }
 
     const precio = p.price != null && Number.isFinite(Number(p.price)) ? Number(p.price) : null;
+    const stock = p.stock != null && Number.isFinite(Number(p.stock)) ? Number(p.stock) : null;
 
     return {
       id: p.id,
@@ -88,6 +89,7 @@ export async function cargarCatalogoDelNegocio(tenantId: number): Promise<Produc
       opciones,
       videoUrl,
       disponible: true,
+      stock,
     };
   });
 }
@@ -111,6 +113,16 @@ export async function cargarMediosDePago(tenantId: number): Promise<{ etiqueta: 
 export async function cargarGuion(tenantId: number, catalogo: Producto[], productoEnFoco?: number | null): Promise<GuionDelNegocio> {
   const ctx = await getBusinessContext(tenantId);
   const medios = await cargarMediosDePago(tenantId);
+  // FASE 4 contraentrega: vive en condiciones.pagoEnvio, no en PaymentGateway.
+  // Si el dueño la configuró, es un medio real y el cierre puede ofrecerlo.
+  try {
+    const pagoEnvio = String((ctx.condiciones as any)?.pagoEnvio || "");
+    if (/contra\s*entrega/i.test(pagoEnvio) && !medios.some((m) => /contra/i.test(m.etiqueta))) {
+      medios.push({ etiqueta: "Contraentrega", tipo: "transferencia" });
+    }
+  } catch {
+    /* no crítico */
+  }
 
   const negocio: NegocioParaNicho = {
     nombre: ctx.businessName || null,
@@ -265,6 +277,7 @@ export async function responderComoVendedor(
   const repositorio = repositorioDeEstado();
 
   const estado = await repositorio.cargar(conversationId);
+  const estadoAntes = JSON.parse(JSON.stringify(estado));
   const [historial, catalogo, voz] = await Promise.all([
     cargarHistorial(conversationId),
     cargarCatalogoDelNegocio(tenantId),
@@ -278,7 +291,16 @@ export async function responderComoVendedor(
     opts.llm ??
     crearClienteLLM({ cadena: await armarCadena({ tenantId, appSettings: opts.appSettings }), tenantId });
 
-  const resultado = await responder({ llm, estado, historial, catalogo, conocimiento, guion, voz });
+  const resultado = await responder({
+    llm,
+    estado,
+    historial,
+    catalogo,
+    conocimiento,
+    guion,
+    voz,
+    recargarGuion: (nuevoFocoId: number) => cargarGuion(tenantId, catalogo, nuevoFocoId),
+  });
 
   await repositorio.guardar(resultado.estado);
 
@@ -329,6 +351,39 @@ export async function responderComoVendedor(
       logger.error({ err: e?.message, efecto }, "[MotorV2] no se pudo aplicar el efecto del turno");
     }
   }
+
+  // FASE 14 — Observabilidad: por qué respondió esto, sin adivinar ni
+  // guardar datos sensibles (se trunca texto del cliente).
+  logger.info(
+    {
+      conversationId,
+      tenantId,
+      mensajeRecibido: String(ultimoDelCliente || "").slice(0, 200),
+      estadoAntes: {
+        foco: estadoAntes.productoEnFoco,
+        anterior: estadoAntes.productoAnterior,
+        intencion: estadoAntes.intencionActual,
+        oferta: estadoAntes.ultimaOferta,
+        compra: estadoAntes.compra,
+        pago: estadoAntes.pago,
+      },
+      intencionDetectada: resultado.estado.intencionActual,
+      productoActivo: resultado.estado.productoEnFoco,
+      herramientas: resultado.traza.map((t) => t.herramienta),
+      estadoDespues: {
+        foco: resultado.estado.productoEnFoco,
+        compra: resultado.estado.compra,
+        pago: resultado.estado.pago,
+        entrega: resultado.estado.entregaEstado,
+      },
+      siguienteAccion: resultado.estado.siguienteAccion,
+      proveedor: resultado.proveedor,
+      modoPlan: resultado.modoPlan,
+      corregido: resultado.corregido,
+      forma: guion.forma,
+    },
+    "[MOTOR-V2] turno",
+  );
 
   return {
     content: texto,
@@ -440,7 +495,16 @@ export async function correrEnSombra(params: {
     let error: string | null = null;
     let proveedor = "—";
     try {
-      const r = await responder({ llm: params.llm, estado, historial, catalogo, conocimiento, guion, voz });
+      const r = await responder({
+        llm: params.llm,
+        estado,
+        historial,
+        catalogo,
+        conocimiento,
+        guion,
+        voz,
+        recargarGuion: (nuevoFocoId: number) => cargarGuion(params.tenantId, catalogo, nuevoFocoId),
+      });
       partes = r.partes;
       traza = r.traza;
       proveedor = r.proveedor;
@@ -460,6 +524,19 @@ export async function correrEnSombra(params: {
       herramientas: traza.map((t) => `${t.herramienta} → ${String(t.resultado).slice(0, 90)}`),
       proveedor,
       error,
+      // FASE 11/12: comparación estructurada, no solo texto.
+      intencion: (estado as any)?.intencionActual ?? null,
+      producto: (estado as any)?.productoEnFoco ?? null,
+      toolCalls: traza.map((t: any) => t.herramienta),
+      state: {
+        foco: (estado as any)?.productoEnFoco ?? null,
+        anterior: (estado as any)?.productoAnterior ?? null,
+        oferta: (estado as any)?.ultimaOferta ?? null,
+        compra: (estado as any)?.compra ?? null,
+        pago: (estado as any)?.pago ?? null,
+        entrega: (estado as any)?.entregaEstado ?? null,
+      },
+      nextAction: (estado as any)?.siguienteAccion ?? null,
     });
   }
 

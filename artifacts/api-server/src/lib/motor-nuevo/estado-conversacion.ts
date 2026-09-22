@@ -35,6 +35,59 @@ export type Etapa =
   | "postventa"
   | "escalado";
 
+/**
+ * FASE 1 — Intención del turno. La fija el modelo vía `anotar_contexto`
+ * (o queda null): nunca se deduce con regex sobre texto viejo.
+ */
+export type Intencion =
+  | "saludar"
+  | "explorar"
+  | "ver_producto"
+  | "preguntar_precio"
+  | "preguntar_info"
+  | "preguntar_entrega"
+  | "comprar"
+  | "pagar"
+  | "reportar_pago"
+  | "objecion"
+  | "despedida"
+  | "otra";
+
+/** FASE 4/7 — Proceso de compra explícito. Lo mueven las herramientas, no el LLM. */
+export type EstadoCompra =
+  | "ninguno"
+  | "interes"
+  | "producto_definido"
+  | "precio_dado"
+  | "listo_para_pagar"
+  | "pago_reportado"
+  | "pago_confirmado"
+  | "pedido_creado"
+  | "entregado"
+  | "cancelado";
+
+/** FASE 4/7 — Pago explícito. Solo una persona llega a `confirmado`. */
+export type EstadoPago =
+  | "ninguno"
+  | "pendiente_dato"
+  | "datos_enviados"
+  | "reportado"
+  | "verificando"
+  | "confirmado"
+  | "rechazado";
+
+/** FASE 4 — Entrega explícita. `no_aplica` para digital. */
+export type EstadoEntrega =
+  | "no_aplica"
+  | "pendiente_datos"
+  | "datos_listos"
+  | "programada"
+  | "enviada"
+  | "entregada";
+
+/** FASE 7 — Operación con ciclo de vida. Ningún fallo se reporta como éxito. */
+export type EstadoOperacion = "started" | "in_progress" | "completed" | "failed" | "cancelled";
+
 export interface Oferta {
   tipo: TipoOferta;
   productoId: number | null;
@@ -49,16 +102,61 @@ export type CampoDeDato =
   | "ciudad"
   | "direccion"
   | "variante"
+  | "cantidad"
   | "necesidad"
+  | "alcance"
   | "cuando"
   | "presupuesto"
+  | "problema"
+  | "objetivo"
   | "otro";
+
+/** Contexto previo apilado (multimodelo: cámara + laptop sin perderse). Máx 5. */
+export interface ContextoPrevio {
+  producto: number | null;
+  intencion: Intencion | null;
+  compra: EstadoCompra;
+  resumen: string;
+  at: string;
+}
+
+/** Detalle operativo por producto: variante, cantidad y stock REAL. */
+export interface DetalleProducto {
+  variante?: string | null;
+  cantidad?: number | null;
+  stock?: number | null;
+  stockEstado?: "disponible" | "agotado" | "sin_dato" | "por_confirmar";
+}
+
+/** Servicio: necesidad → diagnóstico/alcance → disponibilidad → precio → agenda. */
+export interface CasoServicio {
+  necesidad?: string | null;
+  alcance?: string | null;
+  citaCuando?: string | null;
+  cotizacion?: "pendiente" | "en_proceso" | "enviada";
+}
+
+/** Consultoría: problema → objetivo → contexto → alcance → propuesta → cotización. */
+export interface CasoConsultoria {
+  problema?: string | null;
+  objetivo?: string | null;
+  tipoNegocio?: string | null;
+  alcance?: string | null;
+  cotizacion?: "pendiente" | "en_proceso" | "enviada";
+}
 
 export interface EstadoConversacion {
   conversationId: number;
 
   /** Producto del que se está hablando ahora. null = todavía explorando. */
   productoEnFoco: number | null;
+
+  /**
+   * Producto del que se hablaba antes del cambio de foco.
+   * Permite "volver al anterior" sin rebuscarlo en el historial.
+   * Se escribe en `enfocar_producto` / `mostrar` cuando el foco cambia.
+   */
+  productoAnterior: number | null;
 
   /**
    * QUÉ se le mandó de CADA producto y cuándo.
@@ -105,12 +203,65 @@ export interface EstadoConversacion {
 
   /** Si se escaló a una persona, por qué. */
   escalado: { motivo: string; at: string } | null;
+
+  /* ── FASE 1: fuente única de verdad (todo aditivo, todo opcional) ── */
+
+  /** Intención del turno actual (la declara el modelo) y la anterior. */
+  intencionActual: Intencion | null;
+  intencionAnterior: Intencion | null;
+
+  /** Última pregunta que hizo el AGENTE (para resolver "sí/ese/dale"). */
+  preguntaPendiente: string | null;
+  /** Acción que quedó pendiente (ej. "pedir_ciudad", "enviar_pago"). */
+  accionPendiente: string | null;
+
+  /** Hechos ya entregados / pedidos, sin releer el historial. */
+  hechosEntregados: string[];
+  hechosPedidos: string[];
+
+  /** Proceso comercial explícito (FASE 4). Lo escriben las herramientas. */
+  compra: EstadoCompra;
+  pago: EstadoPago;
+  entregaEstado: EstadoEntrega;
+
+  /** Última herramienta ejecutada y su resultado (FASE 6/14). */
+  ultimaHerramienta: { nombre: string; args: any; ok: boolean; at: string } | null;
+
+  /** Última pregunta del agente (texto) y último mensaje del cliente (texto). */
+  ultimaPreguntaAgente: string | null;
+  ultimoMensajeClienteTexto: string | null;
+
+  /** Próxima acción sugerida (para observabilidad y sombra). */
+  siguienteAccion: string | null;
+
+  /** Cuándo se actualizó el resumen de hechos (FASE 5). */
+  resumenActualizadoEn: string | null;
+
+  /* ── Multimodelo: físico/dropshipping/consultoría/servicios (aditivo) ── */
+
+  /** Pila de contextos previos para "y la cámara?" tras hablar de laptop. */
+  contextosPrevios: ContextoPrevio[];
+
+  /** Variante/cantidad/stock por producto (stock = columna real, puede ser null). */
+  detalleProducto: Record<number, DetalleProducto>;
+
+  /** Caso de servicio y de consultoría (null = no aplica en esta charla). */
+  servicio: CasoServicio | null;
+  consultoria: CasoConsultoria | null;
+
+  /** Pasos completados del proceso (para "estábamos en pago"). */
+  pasosCompletados: string[];
+
+  /** Método de pago/entrega elegidos (texto del cliente, no invención). */
+  pagoMetodo: string | null;
+  entregaMetodo: string | null;
 }
 
 export function estadoInicial(conversationId: number): EstadoConversacion {
   return {
     conversationId,
     productoEnFoco: null,
+    productoAnterior: null,
     seccionesEnviadas: {},
     ultimaOferta: null,
     pagoConfirmadoPorHumano: false,
@@ -123,6 +274,27 @@ export function estadoInicial(conversationId: number): EstadoConversacion {
     ultimoMensajeAgente: null,
     resumenPrevio: null,
     escalado: null,
+    intencionActual: null,
+    intencionAnterior: null,
+    preguntaPendiente: null,
+    accionPendiente: null,
+    hechosEntregados: [],
+    hechosPedidos: [],
+    compra: "ninguno",
+    pago: "ninguno",
+    entregaEstado: "no_aplica",
+    ultimaHerramienta: null,
+    ultimaPreguntaAgente: null,
+    ultimoMensajeClienteTexto: null,
+    siguienteAccion: null,
+    resumenActualizadoEn: null,
+    contextosPrevios: [],
+    detalleProducto: {},
+    servicio: null,
+    consultoria: null,
+    pasosCompletados: [],
+    pagoMetodo: null,
+    entregaMetodo: null,
   };
 }
 
@@ -142,9 +314,33 @@ export function normalizarEstado(crudo: unknown, conversationId: number): Estado
     ...base,
     ...c,
     conversationId,
+    productoEnFoco: typeof c.productoEnFoco === "number" ? c.productoEnFoco : null,
+    productoAnterior: typeof c.productoAnterior === "number" ? c.productoAnterior : null,
     seccionesEnviadas: c.seccionesEnviadas && typeof c.seccionesEnviadas === "object" ? c.seccionesEnviadas : {},
     datos: c.datos && typeof c.datos === "object" ? c.datos : {},
     objecionesVistas: Array.isArray(c.objecionesVistas) ? c.objecionesVistas : [],
+    intencionActual: typeof c.intencionActual === "string" ? (c.intencionActual as EstadoConversacion["intencionActual"]) : null,
+    intencionAnterior: typeof c.intencionAnterior === "string" ? (c.intencionAnterior as EstadoConversacion["intencionAnterior"]) : null,
+    preguntaPendiente: typeof c.preguntaPendiente === "string" ? c.preguntaPendiente : null,
+    accionPendiente: typeof c.accionPendiente === "string" ? c.accionPendiente : null,
+    hechosEntregados: Array.isArray(c.hechosEntregados) ? c.hechosEntregados.map(String) : [],
+    hechosPedidos: Array.isArray(c.hechosPedidos) ? c.hechosPedidos.map(String) : [],
+    compra: typeof c.compra === "string" ? (c.compra as EstadoConversacion["compra"]) : "ninguno",
+    pago: typeof c.pago === "string" ? (c.pago as EstadoConversacion["pago"]) : "ninguno",
+    entregaEstado: typeof c.entregaEstado === "string" ? (c.entregaEstado as EstadoConversacion["entregaEstado"]) : "no_aplica",
+    ultimaHerramienta:
+      c.ultimaHerramienta && typeof c.ultimaHerramienta === "object" ? (c.ultimaHerramienta as EstadoConversacion["ultimaHerramienta"]) : null,
+    ultimaPreguntaAgente: typeof c.ultimaPreguntaAgente === "string" ? c.ultimaPreguntaAgente : null,
+    ultimoMensajeClienteTexto: typeof c.ultimoMensajeClienteTexto === "string" ? c.ultimoMensajeClienteTexto : null,
+    siguienteAccion: typeof c.siguienteAccion === "string" ? c.siguienteAccion : null,
+    resumenActualizadoEn: typeof c.resumenActualizadoEn === "string" ? c.resumenActualizadoEn : null,
+    contextosPrevios: Array.isArray(c.contextosPrevios) ? (c.contextosPrevios as EstadoConversacion["contextosPrevios"]).slice(-5) : [],
+    detalleProducto: c.detalleProducto && typeof c.detalleProducto === "object" ? (c.detalleProducto as EstadoConversacion["detalleProducto"]) : {},
+    servicio: c.servicio && typeof c.servicio === "object" ? (c.servicio as EstadoConversacion["servicio"]) : null,
+    consultoria: c.consultoria && typeof c.consultoria === "object" ? (c.consultoria as EstadoConversacion["consultoria"]) : null,
+    pasosCompletados: Array.isArray(c.pasosCompletados) ? c.pasosCompletados.map(String) : [],
+    pagoMetodo: typeof c.pagoMetodo === "string" ? c.pagoMetodo : null,
+    entregaMetodo: typeof c.entregaMetodo === "string" ? c.entregaMetodo : null,
   };
 }
 
@@ -171,6 +367,84 @@ export function registrarEnvio(estado: EstadoConversacion, productoId: number, s
 
 export function registrarOferta(estado: EstadoConversacion, oferta: Omit<Oferta, "at">): void {
   estado.ultimaOferta = { ...oferta, at: ahora() };
+}
+
+/* ── FASE 1/4/7: escrituras deterministas (las llaman herramientas/motor) ── */
+
+/** Fija la intención declarada por el modelo, conservando la anterior. */
+export function registrarIntencion(estado: EstadoConversacion, intencion: Intencion): void {
+  if (estado.intencionActual !== intencion) estado.intencionAnterior = estado.intencionActual;
+  estado.intencionActual = intencion;
+}
+
+/** Última herramienta ejecutada (para F2: "el segundo/ese" se resuelve con esto). */
+export function registrarHerramienta(
+  estado: EstadoConversacion,
+  nombre: string,
+  args: any,
+  ok: boolean,
+): void {
+  estado.ultimaHerramienta = { nombre, args, ok, at: ahora() };
+}
+
+/** Hechos entregados/pedidos sin releer el historial. Sin duplicados. */
+export function registrarHechoEntregado(estado: EstadoConversacion, hecho: string): void {
+  const h = String(hecho || "").trim();
+  if (h && !estado.hechosEntregados.includes(h)) estado.hechosEntregados.push(h);
+}
+
+export function registrarHechoPedido(estado: EstadoConversacion, hecho: string): void {
+  const h = String(hecho || "").trim();
+  if (h && !estado.hechosPedidos.includes(h)) estado.hechosPedidos.push(h);
+}
+
+/**
+ * FASE 5 — Resumen de HECHOS (no transcripción) para conversaciones largas.
+ * Se deriva del estado estructurado: nunca inventa, nunca cita texto viejo.
+ */
+export function actualizarResumenDesdeEstado(
+  estado: EstadoConversacion,
+  nombrePorProducto: (id: number) => string,
+): string {
+  const partes: string[] = [];
+  if (estado.productoEnFoco != null) partes.push(`Interesado en ${nombrePorProducto(estado.productoEnFoco)}`);
+  const enviadas = Object.entries(estado.seccionesEnviadas).flatMap(([id, secs]) =>
+    Object.keys(secs).map((s) => `${s} de ${nombrePorProducto(Number(id))}`),
+  );
+  if (enviadas.length) partes.push(`Ya recibió: ${enviadas.join(", ")}`);
+  if (estado.ultimaOferta && estado.ultimaOferta.tipo !== "ninguna") partes.push(`Último ofrecido: ${estado.ultimaOferta.resumen}`);
+  const datos = Object.entries(estado.datos).filter(([, v]) => String(v || "").trim());
+  if (datos.length) partes.push(`Datos: ${datos.map(([k, v]) => `${k}=${v}`).join(", ")}`);
+  if (estado.objecionesVistas.length) partes.push(`Dudas: ${estado.objecionesVistas.join("; ")}`);
+  partes.push(`Compra: ${estado.compra}; pago: ${estado.pago}; entrega: ${estado.entregaEstado}`);
+  if (estado.servicio?.necesidad) partes.push(`Servicio: ${estado.servicio.necesidad}`);
+  if (estado.consultoria?.problema) partes.push(`Consultoría: ${estado.consultoria.problema}`);
+  if (estado.pasosCompletados.length) partes.push(`Pasos: ${estado.pasosCompletados.join(", ")}`);
+  const resumen = partes.join(". ") + ".";
+  estado.resumenPrevio = resumen;
+  estado.resumenActualizadoEn = ahora();
+  return resumen;
+}
+
+/**
+ * Apila el contexto activo antes de cambiarlo (máx 5). Permite "y la cámara?"
+ * tras hablar de laptop sin rebuscar texto. No borra historial.
+ */
+export function apilarContexto(estado: EstadoConversacion, resumen: string): void {
+  estado.contextosPrevios.push({
+    producto: estado.productoEnFoco,
+    intencion: estado.intencionActual,
+    compra: estado.compra,
+    resumen: String(resumen || "").slice(0, 200),
+    at: ahora(),
+  });
+  if (estado.contextosPrevios.length > 5) estado.contextosPrevios = estado.contextosPrevios.slice(-5);
+}
+
+/** Marca un paso del proceso una sola vez (para "estábamos en pago"). */
+export function marcarPaso(estado: EstadoConversacion, paso: string): void {
+  const p = String(paso || "").trim();
+  if (p && !estado.pasosCompletados.includes(p)) estado.pasosCompletados.push(p);
 }
 
 /**
@@ -296,6 +570,9 @@ export function describirEstado(
 
   if (estado.productoEnFoco != null) {
     l.push(`Producto en foco: ${nombrePorProducto(estado.productoEnFoco)}.`);
+    if (estado.productoAnterior != null && estado.productoAnterior !== estado.productoEnFoco) {
+      l.push(`Producto anterior: ${nombrePorProducto(estado.productoAnterior)} (solo para "volver al anterior", no lo mezcles con el actual).`);
+    }
   } else {
     l.push("Todavía no hay un producto definido en esta conversación.");
   }
@@ -317,6 +594,67 @@ export function describirEstado(
         `"listo", "obvio", "de una", un pulgar arriba, un emoji), está aceptando ESO y nada más. ` +
         `Si dice que sí a una pregunta que vos no hiciste, no inventes: preguntá.`,
     );
+  }
+
+  // FASE 2 — Resolución de referencias sin buscar en texto viejo.
+  // "sí/no/ese/esa/el primero/el segundo/ese curso/lo quiero/dale/ok/
+  //  mándame ese/cuánto?/y ese?" se resuelve con ESTO, en este orden:
+  //  mensaje actual → última pregunta del agente → producto activo →
+  //  producto anterior → última herramienta → estado.
+  if (estado.ultimaPreguntaAgente) {
+    l.push(`Tu última pregunta fue: "${estado.ultimaPreguntaAgente}". Un "sí/no/ese/dale/ok" contesta A ESO.`);
+  }
+  if (estado.preguntaPendiente) {
+    l.push(`Pregunta pendiente: ${estado.preguntaPendiente}. Resolvé la referencia contra esto antes de cambiar de tema.`);
+  }
+  if (estado.ultimaHerramienta) {
+    l.push(
+      `Última herramienta: ${estado.ultimaHerramienta.nombre} (${estado.ultimaHerramienta.ok ? "ok" : "falló"}). ` +
+        `Si pide "ese/el segundo/cuánto" es sobre el producto en foco, no sobre otro del catálogo.`,
+    );
+  }
+  if (estado.intencionActual) {
+    l.push(`Intención actual: ${estado.intencionActual}. Si cambia de producto o de intención, actualizala con anotar_contexto.`);
+  }
+  if (estado.accionPendiente || estado.siguienteAccion) {
+    l.push(`Lo próximo: ${estado.accionPendiente || estado.siguienteAccion}. No saltes al cierre ni repitas lo ya entregado.`);
+  }
+  if (estado.compra !== "ninguno" || estado.pago !== "ninguno" || estado.entregaEstado !== "no_aplica") {
+    l.push(`Proceso: compra=${estado.compra}, pago=${estado.pago}, entrega=${estado.entregaEstado}. No afirmes un paso que no esté completado.`);
+  }
+  if (estado.hechosEntregados.length) {
+    l.push(`Hechos ya entregados (no los repitas): ${estado.hechosEntregados.slice(-8).join("; ")}.`);
+  }
+  // Multimodelo: contextos previos, detalle operativo, servicio/consultoría.
+  if (estado.contextosPrevios.length) {
+    const previos = estado.contextosPrevios
+      .map((c) => (c.producto != null ? `${nombrePorProducto(c.producto)} (${c.compra})` : `explorando (${c.compra})`))
+      .join(" ← ");
+    l.push(`Hablaban antes de: ${previos}. "Y el/la [anterior]?" vuelve ahí sin mezclar.`);
+  }
+  for (const [id, d] of Object.entries(estado.detalleProducto)) {
+    const bits: string[] = [];
+    if (d.variante) bits.push(`variante ${d.variante}`);
+    if (d.cantidad) bits.push(`cantidad ${d.cantidad}`);
+    if (d.stockEstado) bits.push(`stock: ${d.stockEstado}${d.stock != null ? ` (${d.stock})` : ""}`);
+    if (bits.length) l.push(`De ${nombrePorProducto(Number(id))}: ${bits.join(", ")}. No afirmes stock que no esté acá.`);
+  }
+  if (estado.servicio?.necesidad) {
+    l.push(
+      `Caso de servicio: ${estado.servicio.necesidad}${estado.servicio.alcance ? `; alcance: ${estado.servicio.alcance}` : ""}` +
+        `${estado.servicio.citaCuando ? `; cita: ${estado.servicio.citaCuando}` : ""}. Primero diagnosticá, después cotizás.`,
+    );
+  }
+  if (estado.consultoria?.problema || estado.consultoria?.objetivo) {
+    l.push(
+      `Consultoría: problema=${estado.consultoria.problema || "?"}, objetivo=${estado.consultoria.objetivo || "?"}` +
+        `${estado.consultoria.alcance ? `, alcance=${estado.consultoria.alcance}` : ""}` +
+        `${estado.consultoria.cotizacion ? `, cotización=${estado.consultoria.cotizacion}` : ""}. ` +
+        `Entendé el problema antes de cotizar; si el precio depende del alcance, decilo y registrá el caso.`,
+    );
+  }
+  if (estado.pasosCompletados.length) {
+    l.push(`Pasos ya completados: ${estado.pasosCompletados.join(", ")}. Retomá desde ahí, no desde cero.`);
   }
 
   const datos = Object.entries(estado.datos).filter(([, v]) => String(v || "").trim());

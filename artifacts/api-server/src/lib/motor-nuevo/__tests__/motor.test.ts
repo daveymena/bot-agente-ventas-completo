@@ -91,40 +91,40 @@ function ctxNuevo(estado?: Partial<EstadoConversacion>): ContextoHerramientas {
  * ═══════════════════════════════════════════════════════════════════ */
 
 describe("la ficha y el video no se repiten", () => {
-  test("la segunda vez que se pide la ficha, no se envía", () => {
+  test("la segunda vez que se pide la ficha, no se envía", async () => {
     const ctx = ctxNuevo();
 
-    const primera = ejecutores.mostrar(ctx, { productoId: 1, seccion: "completa" }) as any;
+    const primera = (await ejecutores.mostrar(ctx, { productoId: 1, seccion: "completa" })) as any;
     assert.equal(primera.ok, true);
     assert.equal(ctx.partes.filter((p) => p.kind === "card").length, 1);
 
-    const segunda = ejecutores.mostrar(ctx, { productoId: 1, seccion: "completa" }) as any;
+    const segunda = (await ejecutores.mostrar(ctx, { productoId: 1, seccion: "completa" })) as any;
     assert.equal(segunda.ok, false);
     assert.match(segunda.mensaje, /ya le mandaste/i);
     assert.equal(ctx.partes.filter((p) => p.kind === "card").length, 1, "no se agregó una segunda ficha");
   });
 
-  test("el video tampoco, y no depende de encontrar el enlace en el historial", () => {
+  test("el video tampoco, y no depende de encontrar el enlace en el historial", async () => {
     const ctx = ctxNuevo();
 
-    assert.equal((ejecutores.mostrar(ctx, { productoId: 1, seccion: "video" }) as any).ok, true);
-    const repetido = ejecutores.mostrar(ctx, { productoId: 1, seccion: "video" }) as any;
+    assert.equal(((await ejecutores.mostrar(ctx, { productoId: 1, seccion: "video" })) as any).ok, true);
+    const repetido = (await ejecutores.mostrar(ctx, { productoId: 1, seccion: "video" })) as any;
 
     assert.equal(repetido.ok, false);
     assert.equal(ctx.partes.filter((p) => p.kind === "card").length, 1);
   });
 
-  test("si el cliente la pide de nuevo explícitamente, sí se reenvía", () => {
+  test("si el cliente la pide de nuevo explícitamente, sí se reenvía", async () => {
     const ctx = ctxNuevo();
-    ejecutores.mostrar(ctx, { productoId: 1, seccion: "completa" });
+    await ejecutores.mostrar(ctx, { productoId: 1, seccion: "completa" });
 
-    const reenvio = ejecutores.mostrar(ctx, { productoId: 1, seccion: "completa", reenviar: true }) as any;
+    const reenvio = (await ejecutores.mostrar(ctx, { productoId: 1, seccion: "completa", reenviar: true })) as any;
 
     assert.equal(reenvio.ok, true);
     assert.equal(ctx.partes.filter((p) => p.kind === "card").length, 2);
   });
 
-  test("al volver al día siguiente el estado sigue ahí (no hay ventana de 4 horas)", () => {
+  test("al volver al día siguiente el estado sigue ahí (no hay ventana de 4 horas)", async () => {
     // El bug era VENTANA_SESION_MS = 4h en conversation-engine.ts: pasadas 4
     // horas se consideraba "sesión nueva" y se repetía todo. El estado explícito
     // no caduca por tiempo, así que esto no puede volver a pasar.
@@ -134,14 +134,14 @@ describe("la ficha y el video no se repiten", () => {
       productoEnFoco: 1,
     });
 
-    assert.equal((ejecutores.mostrar(ctx, { productoId: 1, seccion: "completa" }) as any).ok, false);
-    assert.equal((ejecutores.mostrar(ctx, { productoId: 1, seccion: "video" }) as any).ok, false);
+    assert.equal(((await ejecutores.mostrar(ctx, { productoId: 1, seccion: "completa" })) as any).ok, false);
+    assert.equal(((await ejecutores.mostrar(ctx, { productoId: 1, seccion: "video" })) as any).ok, false);
     assert.equal(ctx.partes.length, 0, "no se le reenvió nada al cliente que volvió");
   });
 
-  test("un producto que no tiene video cargado no ofrece video", () => {
+  test("un producto que no tiene video cargado no ofrece video", async () => {
     const ctx = ctxNuevo();
-    const r = ejecutores.mostrar(ctx, { productoId: 2, seccion: "video" }) as any;
+    const r = (await ejecutores.mostrar(ctx, { productoId: 2, seccion: "video" })) as any;
     assert.equal(r.ok, false);
     assert.match(r.mensaje, /no tiene video/i);
   });
@@ -156,18 +156,18 @@ describe("la ficha y el video no se repiten", () => {
  * ═══════════════════════════════════════════════════════════════════ */
 
 describe("el 'sí' del cliente", () => {
-  test("dar el precio deja registrado a qué contestaría un 'sí'", () => {
+  test("dar el precio deja registrado a qué contestaría un 'sí'", async () => {
     const ctx = ctxNuevo();
-    ejecutores.mostrar(ctx, { productoId: 1, seccion: "precio" });
+    await ejecutores.mostrar(ctx, { productoId: 1, seccion: "precio" });
 
     assert.equal(ctx.estado.ultimaOferta?.tipo, "precio");
     assert.equal(ctx.estado.ultimaOferta?.productoId, 1);
     assert.match(String(ctx.estado.ultimaOferta?.resumen), /60\.000/);
   });
 
-  test("el bloque de contexto le dice al modelo exactamente qué se ofreció", () => {
+  test("el bloque de contexto le dice al modelo exactamente qué se ofreció", async () => {
     const ctx = ctxNuevo();
-    ejecutores.mostrar(ctx, { productoId: 1, seccion: "completa" });
+    await ejecutores.mostrar(ctx, { productoId: 1, seccion: "completa" });
 
     const texto = describirEstado(ctx.estado, (id) => CATALOGO.find((p) => p.id === id)!.name);
 
@@ -176,10 +176,10 @@ describe("el 'sí' del cliente", () => {
     assert.match(texto, /"sí", "dale", "listo", "obvio"/);
   });
 
-  test("la última oferta se pisa con la más reciente, no se acumulan", () => {
+  test("la última oferta se pisa con la más reciente, no se acumulan", async () => {
     const ctx = ctxNuevo();
-    ejecutores.mostrar(ctx, { productoId: 1, seccion: "completa" });
-    ejecutores.mostrar(ctx, { productoId: 1, seccion: "precio" });
+    await ejecutores.mostrar(ctx, { productoId: 1, seccion: "completa" });
+    await ejecutores.mostrar(ctx, { productoId: 1, seccion: "precio" });
 
     assert.equal(ctx.estado.ultimaOferta?.tipo, "precio", "lo último ofrecido fue el precio");
   });
@@ -213,20 +213,20 @@ describe("el pago", () => {
     assert.match(texto, /No afirmes que el pago está confirmado/);
   });
 
-  test("no se mandan datos de pago si antes no se dio el precio", () => {
+  test("no se mandan datos de pago si antes no se dio el precio", async () => {
     // "sin oferta previa no hay ficha ni pago" — commit 9c18d99.
     const ctx = ctxNuevo();
-    const r = ejecutores.mostrar(ctx, { productoId: 1, seccion: "pago" }) as any;
+    const r = (await ejecutores.mostrar(ctx, { productoId: 1, seccion: "pago" })) as any;
 
     assert.equal(r.ok, false);
     assert.match(r.mensaje, /todavía no le dijiste cuánto cuesta/i);
     assert.equal(ctx.partes.length, 0);
   });
 
-  test("con el precio dado, sí se mandan", () => {
+  test("con el precio dado, sí se mandan", async () => {
     const ctx = ctxNuevo();
-    ejecutores.mostrar(ctx, { productoId: 1, seccion: "precio" });
-    const r = ejecutores.mostrar(ctx, { productoId: 1, seccion: "pago" }) as any;
+    await ejecutores.mostrar(ctx, { productoId: 1, seccion: "precio" });
+    const r = (await ejecutores.mostrar(ctx, { productoId: 1, seccion: "pago" })) as any;
 
     assert.equal(r.ok, true);
     assert.equal(ctx.partes.filter((p) => p.kind === "card" && (p as any).seccion === "pago").length, 1);
@@ -241,9 +241,9 @@ describe("el pago", () => {
  * ═══════════════════════════════════════════════════════════════════ */
 
 describe("el precio", () => {
-  test("el precio se manda como tarjeta, con el valor de la base", () => {
+  test("el precio se manda como tarjeta, con el valor de la base", async () => {
     const ctx = ctxNuevo();
-    ejecutores.mostrar(ctx, { productoId: 1, seccion: "precio" });
+    await ejecutores.mostrar(ctx, { productoId: 1, seccion: "precio" });
 
     const tarjeta = ctx.partes.find((p) => p.kind === "card") as any;
     assert.equal(tarjeta.seccion, "precio");
@@ -269,12 +269,12 @@ describe("el precio", () => {
     assert.deepEqual(montosInventados("escribime al 3001234567, llevo 3 días esperando", CATALOGO), []);
   });
 
-  test("si el negocio no cargó la entrega, la sección entrega no se manda", () => {
+  test("si el negocio no cargó la entrega, la sección entrega no se manda", async () => {
     const sinEntrega = guionDelNegocio({ catalogo: CATALOGO, negocio: { nombre: "Sin Datos" } });
     const ctx = ctxNuevo();
     ctx.guion = sinEntrega;
 
-    const r = ejecutores.mostrar(ctx, { productoId: 1, seccion: "entrega" }) as any;
+    const r = (await ejecutores.mostrar(ctx, { productoId: 1, seccion: "entrega" })) as any;
     assert.equal(r.ok, false);
     assert.match(r.mensaje, /no cargó cómo entrega/i);
     assert.equal(ctx.partes.length, 0);
@@ -567,9 +567,9 @@ describe("el catálogo", () => {
     assert.doesNotMatch(r.mensaje, /No hay nada en el catálogo/);
   });
 
-  test("mostrar con id vacío guía a buscar primero, no falla en seco", () => {
+  test("mostrar con id vacío guía a buscar primero, no falla en seco", async () => {
     const ctx = ctxNuevo();
-    const r = ejecutores.mostrar(ctx, { productoId: undefined, seccion: "completa" }) as any;
+    const r = (await ejecutores.mostrar(ctx, { productoId: undefined, seccion: "completa" })) as any;
 
     assert.equal(r.ok, false);
     assert.match(r.mensaje, /buscar_en_catalogo/i);

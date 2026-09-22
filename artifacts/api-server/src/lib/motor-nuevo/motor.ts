@@ -37,6 +37,8 @@ import {
   describirEstado,
   horasDesdeUltimoMensaje,
   volvioDespuesDe,
+  registrarHerramienta,
+  actualizarResumenDesdeEstado,
   type EstadoConversacion,
   type RepositorioEstado,
 } from "./estado-conversacion";
@@ -116,6 +118,10 @@ empujar entendé de qué duda. Si lo que pide no existe, decilo con naturalidad 
 mostrale lo que sí hay.
 Si el cliente muestra intención de compra ("lo quiero", "cómo pago", "mándame el link", "me sirve", "listo", "dale", "de una"), CERRÁ. Dejá de dar explicaciones y no hagas más preguntas de descubrimiento. Si no tenés claro de qué producto habla, ubicalo antes con buscar_en_catalogo y enfocar_producto. Si todavía no le mostraste el precio de ese producto, mandá primero mostrar(seccion="precio") y después, en el mismo turno, mostrar(seccion="pago"); si ya se lo mostraste, mandá mostrar(seccion="pago") directamente.
 
+CÓMO RESOLVÉS REFERENCIAS (sin releer texto viejo)
+"sí / no / ese / esa / el primero / el segundo / ese curso / lo quiero / dale / ok / mándame ese / cuánto? / y ese?" se resuelve con el bloque LO QUE YA PASÓ: mensaje actual primero, después tu última pregunta, producto en foco, producto anterior y última herramienta. "Cuánto?" es del producto en foco. "Ese" después de ofrecer es lo último ofrecido. Si igual no está claro, preguntá cuál antes de mostrar nada.
+Cuando quede clara la intención o le hagas una pregunta, llamá a anotar_contexto (no envía nada al cliente) para que el próximo turno no tenga que adivinar.
+
 LAS HERRAMIENTAS PONEN LAS MAQUETAS (DATOS DUROS)
 El precio, los medios de pago, la ficha, el video y la entrega son MAQUETAS que
 el sistema pega abajo de tu texto cuando usás las herramientas. Vos redactás la
@@ -129,6 +135,13 @@ Nunca llames a mostrar con un id vacío o inventado.
 
 Nunca digas que un pago está confirmado, verificado ni recibido. Eso lo
 determina una persona del equipo, y el sistema te avisa cuando pasó.
+
+CÓMO VENDÉS SEGÚN QUÉ ES (multimodelo, no todo es "producto-precio-pago")
+- Físico/dropshipping: producto → variante (consultar_disponibilidad, nunca inventes stock) → ciudad → entrega/logística → pago → datos → pedido. La contraentrega solo si está configurada; si no, explicá lo que sí hay. No sueltes "tenemos contraentrega" al saludar.
+- Servicio: necesidad → diagnóstico/alcance (registrar_caso tipo servicio) → disponibilidad → precio real o cotización (solicitar_cotizacion) → agenda (cuándo). No des precio cerrado si depende del modelo/visita.
+- Consultoría: problema → objetivo → contexto del negocio → alcance (registrar_caso tipo consultoria) → propuesta/cotización (solicitar_cotizacion). El valor depende del alcance: decilo y registrá el caso, no inventes precio fijo.
+- Si cambia de servicio a producto (o al revés), cambiá el foco con enfocar_producto/registrar_caso y seguí: el contexto anterior queda apilado para "y la reparación?".
+- Garantía/devolución/tiempos: solo lo cargado por el dueño (consultar_conocimiento/guion). Si no está, decí que lo confirmás. Nunca inventes testimonios, cifras de clientes ni plazos.
 
 ${renderGuion(guion)}
 
@@ -253,11 +266,30 @@ export async function responder(params: {
   conocimiento: { productId: number | null; pregunta: string; disparadores: string[]; respuesta: string | null }[];
   guion: GuionDelNegocio;
   voz: VozDelNegocio;
+  /**
+   * Recarga el guion para el nuevo foco cuando el modelo cambia de producto
+   * en mitad del turno. Lo provee el adaptador (tiene tenant/catálogo).
+   */
+  recargarGuion?: (productoEnFocoId: number) => Promise<GuionDelNegocio>;
 }): Promise<ResultadoRespuesta> {
   const { llm, estado, historial, catalogo, guion, voz } = params;
 
   const nombrePorProducto = (id: number) => catalogo.find((p) => p.id === id)?.name ?? `producto #${id}`;
   const mensajeDelCliente = [...historial].reverse().find((m) => m.role === "customer")?.content ?? "";
+  // FASE 1/14: el texto del cliente queda en estado (para referencias y diagnóstico).
+  estado.ultimoMensajeClienteTexto = String(mensajeDelCliente || "").slice(0, 500) || null;
+
+  // FASE 5: con charla larga el historial se corta en 40; el resumen de HECHOS
+  // (no transcripción) preserva lo viejo sin reenviar todo al modelo.
+  if (historial.length > 30 && (!estado.resumenPrevio || estado.turnos % 10 === 0)) {
+    actualizarResumenDesdeEstado(estado, nombrePorProducto);
+  }
+  // FASE 4: la forma de venta inicializa el proceso esperado sin borrar nada.
+  if ((guion.forma === "fisico" || guion.forma === "servicio" || guion.forma === "mixto") && estado.entregaEstado === "no_aplica") {
+    estado.entregaEstado = "pendiente_datos";
+  }
+  if (estado.compra === "ninguno" && estado.productoEnFoco != null) estado.compra = "producto_definido";
+  else if (estado.compra === "ninguno") estado.compra = "interes";
 
   const system = construirPromptDeSistema({ voz, estado, catalogo, guion, nombrePorProducto });
 
@@ -269,6 +301,14 @@ export async function responder(params: {
     guion,
     mensajeDelCliente,
     efectos: [],
+    alCambiarFoco: params.recargarGuion
+      ? async (nuevoId: number) => {
+          const nuevo = await params.recargarGuion!(nuevoId);
+          // Mutar en el sitio: `que_falta_para_cerrar` lee `ctx.guion`
+          // en el mismo turno, después del cambio de foco.
+          Object.assign(ctx.guion, nuevo);
+        }
+      : undefined,
   };
 
   const messages: any[] = [
@@ -324,9 +364,13 @@ export async function responder(params: {
         try {
           resultado = await ejecutor(ctx, args);
         } catch (err: any) {
-          // Una herramienta que falla no puede tumbarle la respuesta al cliente.
-          resultado = { ok: false, mensaje: `Falló: ${err?.message || "error interno"}.` };
+          // FASE 7: una herramienta que falla NO tumba la respuesta ni se
+          // reporta como éxito. Queda en traza + ultimaHerramienta.
+          resultado = { ok: false, mensaje: `Falló: ${err?.message || "error interno"}. Decile que lo confirmás en un momento, sin inventar el dato.` };
         }
+        // FASE 1/6: tool → result → state update. La última herramienta queda
+        // en estado para resolver "ese/el segundo" y para observabilidad.
+        registrarHerramienta(estado, llamada.name, args, resultado.ok);
         traza.push({ herramienta: llamada.name, args, resultado: resultado.mensaje });
       }
 
@@ -395,7 +439,29 @@ export async function responder(params: {
   }
 
   estado.turnos += 1;
-  estado.ultimoMensajeCliente = new Date().toISOString();
+  // FASE 2: la última pregunta del agente resuelve el próximo "sí/ese/dale".
+  if (textoFinal && /\?\s*$/.test(textoFinal)) {
+    estado.ultimaPreguntaAgente = textoFinal.slice(-300);
+    if (!estado.preguntaPendiente) estado.preguntaPendiente = textoFinal.slice(-300);
+  } else if (textoFinal) {
+    estado.preguntaPendiente = null;
+  }
+  // FASE 8/14: si el modelo no dejó siguiente acción, se deriva de lo pendiente.
+  if (!estado.siguienteAccion) {
+    estado.siguienteAccion =
+      estado.accionPendiente ||
+      (estado.ultimaOferta && estado.ultimaOferta.tipo !== "ninguna" ? "esperar_respuesta_a_oferta" : "seguir_explorando");
+  }
+  // `ultimoMensajeCliente` debe medir el silencio REAL del cliente para que
+  // `volvioDespuesDe(8h)` salude distinto al día siguiente. Antes se
+  // sobrescribía con `now()` del agente en cada turno y la retomada nunca se
+  // detectaba. Solo se toca si el historial trae marca temporal del cliente.
+  const ultimoCliente = [...historial].reverse().find((m) => m.role === "customer");
+  const marcaCliente =
+    ultimoCliente?.createdAt != null ? new Date(ultimoCliente.createdAt as any).toISOString() : null;
+  if (marcaCliente && !Number.isNaN(Date.parse(marcaCliente))) {
+    estado.ultimoMensajeCliente = marcaCliente;
+  }
   estado.ultimoMensajeAgente = new Date().toISOString();
 
   return { partes, estado, traza, proveedor, modoPlan, corregido, efectos: ctx.efectos };
@@ -424,7 +490,7 @@ export async function runAgentReply(
     cargarHistorial: (conversationId: number) => Promise<Mensaje[]>;
     cargarCatalogo: (conversationId: number) => Promise<Producto[]>;
     cargarVoz: (conversationId: number) => Promise<VozDelNegocio>;
-    cargarGuion: (conversationId: number, catalogo: Producto[]) => Promise<GuionDelNegocio>;
+    cargarGuion: (conversationId: number, catalogo: Producto[], productoEnFocoId?: number | null) => Promise<GuionDelNegocio>;
     cargarConocimiento: (conversationId: number) => Promise<ContextoHerramientas["conocimiento"]>;
   },
 ): Promise<Parte[]> {
@@ -436,11 +502,20 @@ export async function runAgentReply(
   ]);
 
   const [guion, conocimiento] = await Promise.all([
-    deps.cargarGuion(conversationId, catalogo),
+    deps.cargarGuion(conversationId, catalogo, estado.productoEnFoco),
     deps.cargarConocimiento(conversationId),
   ]);
 
-  const resultado = await responder({ llm: deps.llm, estado, historial, catalogo, conocimiento, guion, voz });
+  const resultado = await responder({
+    llm: deps.llm,
+    estado,
+    historial,
+    catalogo,
+    conocimiento,
+    guion,
+    voz,
+    recargarGuion: (nuevoFocoId: number) => deps.cargarGuion(conversationId, catalogo, nuevoFocoId),
+  });
 
   await deps.repositorio.guardar(resultado.estado);
 
