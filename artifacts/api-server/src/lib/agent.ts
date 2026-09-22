@@ -4050,7 +4050,9 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           // la necesitan.
           if (resolvedId === -1) {
             // Sección "ninguna": ya se decidió arriba que no va tarjeta.
-          } else if (pasoDelEmbudo?.movimiento === "calificar") {
+          } else if (pasoDelEmbudo?.movimiento === "calificar" && !(decision as any).productoAmbiguo) {
+            // Si hay varias variantes con mismo nombre (corrector postura x6), no se califica:
+            // se muestra la lista para elegir, no se pregunta "para qué lo vas a usar".
             const pr = (productList as any[]).find((x: any) => x.id === resolvedId);
             fichaRetenida = {
               id: resolvedId,

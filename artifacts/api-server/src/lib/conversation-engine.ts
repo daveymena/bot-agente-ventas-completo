@@ -1410,12 +1410,27 @@ function raizPalabra(p: string): string {
  * legítimas: el cliente escribe "libros" y el producto se llama "PACK DE
  * LIBROS", o pide "perros" y el pack se llama "EDUCA A TU PERRO".
  */
+function esMismoConTypo(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  if (a.length < 4 || b.length < 4) return false;
+  let i = 0; let j = 0; let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++edits > 1) return false;
+    if (a.length === b.length) { i++; j++; }
+    else if (a.length > b.length) i++;
+    else j++;
+  }
+  edits += Math.abs((a.length - i) - (b.length - j));
+  return edits <= 1;
+}
 function contieneFrase(texto: string, frase: string): boolean {
   const t = texto.split(/\s+/).filter(Boolean).map(raizPalabra);
   const f = frase.split(/\s+/).filter(Boolean).map(raizPalabra);
   if (f.length === 0) return false;
   for (let i = 0; i + f.length <= t.length; i++) {
-    if (f.every((w, j) => t[i + j] === w)) return true;
+    if (f.every((w, j) => t[i + j] === w || esMismoConTypo(t[i + j], w))) return true;
   }
   return false;
 }

@@ -143,6 +143,28 @@ const N = (t: unknown): string =>
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "");
 
+/** Levenshtein <=1: corrige "corector"→"corrector", "lanpostura"→"postura" sin abrir la puerta a falsos positivos. */
+function esMismoConTypo(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (Math.abs(a.length - b.length) > 1) return false;
+  if (a.length < 4 || b.length < 4) return false; // palabras cortas no toleran typo
+  let i = 0; let j = 0; let edits = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++edits > 1) return false;
+    if (a.length === b.length) { i++; j++; }
+    else if (a.length > b.length) i++;
+    else j++;
+  }
+  edits += Math.abs((a.length - i) - (b.length - j));
+  return edits <= 1;
+}
+function incluyeConTypo(texto: string, palabra: string): boolean {
+  if (texto.includes(palabra)) return true;
+  const palabras = texto.split(/[^a-z0-9ñ]+/).filter(Boolean);
+  return palabras.some((w) => esMismoConTypo(w, palabra));
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
  * DEFINICIÓN DE LAS HERRAMIENTAS (formato OpenAI tool calling)
  * ═══════════════════════════════════════════════════════════════════════════ */
@@ -431,7 +453,7 @@ export function puntuarCoincidencias(consulta: string, catalogo: Producto[], lim
   return disponibles
     .map((p, i) => ({
       p,
-      puntos: palabras.reduce((n, w) => n + (textos[i].includes(w) ? peso(w) : 0), 0),
+      puntos: palabras.reduce((n, w) => n + (incluyeConTypo(textos[i], w) ? peso(w) : 0), 0),
     }))
     .filter((x) => x.puntos > 0)
     .sort((a, b) => b.puntos - a.puntos)
