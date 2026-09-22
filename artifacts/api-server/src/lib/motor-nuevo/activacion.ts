@@ -32,7 +32,7 @@ export type Motor = "v1" | "v2";
 const CACHE_MS = 60_000;
 const cache = new Map<number, { motor: Motor; expira: number }>();
 
-const ENV_MOTOR = () => String(process.env.MOTOR_VENDEDOR || "v1").toLowerCase();
+const ENV_MOTOR = () => String(process.env.MOTOR_VENDEDOR || "v2").toLowerCase();
 const ENV_TENANTS = () =>
   String(process.env.MOTOR_VENDEDOR_TENANTS || "")
     .split(",")
