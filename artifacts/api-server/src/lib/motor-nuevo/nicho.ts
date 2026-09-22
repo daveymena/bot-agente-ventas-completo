@@ -458,8 +458,14 @@ export function calificacionDe(
     datos.push({ campo: "necesidad", porque: "sin saber qué necesita no se puede proponer el servicio", obligatorio: true });
     datos.push({ campo: "cuando", porque: "un servicio se agenda en una fecha concreta", obligatorio: true });
     datos.push({ campo: "ciudad", porque: "define si el servicio llega a su zona", obligatorio: false });
+    if (hayVariantes) {
+      datos.push({ campo: "variante", porque: "el servicio tiene opciones y hay que saber cuál quiere", obligatorio: true });
+    }
   } else if (forma === "digital") {
     datos.push({ campo: "necesidad", porque: "define cuál de los productos le sirve de verdad", obligatorio: false });
+    if (hayVariantes) {
+      datos.push({ campo: "variante", porque: "el producto tiene opciones y hay que saber cuál quiere", obligatorio: true });
+    }
   } else {
     datos.push({ campo: "necesidad", porque: "hay productos que se entregan distinto y define cuál le sirve", obligatorio: false });
     datos.push({ campo: "ciudad", porque: "solo si el producto en juego es físico", obligatorio: false });
