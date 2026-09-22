@@ -16,7 +16,7 @@ import { whatsapp, type AgentReplyPart } from '../whatsapp';
 import { db } from "@workspace/db";
 import { messages } from "@workspace/db";
 import { conversations } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { logger } from '../logger';
 
 export interface AgentOrchestratorConfig {
@@ -213,7 +213,11 @@ export class AgentOrchestrator {
   private async getOrCreateConversation(tenantId: string, phone: string): Promise<{ id: number; currentStage: string | null; contactName: string; contactPhone: string } | null> {
     try {
       // Buscar conversación existente
-      const existing = await db.select().from(conversations).where(eq(conversations.contactPhone, phone)).limit(1);
+      const tenantIdNum = typeof tenantId === "string" ? Number.parseInt(tenantId, 10) : tenantId;
+      const existing = await db.select().from(conversations).where(and(
+        eq(conversations.contactPhone, phone),
+        eq(conversations.tenantId, tenantIdNum),
+      )).limit(1);
       
       if (existing.length > 0) {
         return existing[0];

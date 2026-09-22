@@ -86,7 +86,6 @@ router.post("/login", async (req, res, next) => {
     const incomingHash = hashPassword(password);
     if (tenant.passwordHash !== incomingHash) {
       console.log(`❌ Login fallido: Contraseña incorrecta para ${email}.`);
-      console.log(`🔍 Recibido: ${incomingHash.substring(0,10)}... | En DB: ${tenant.passwordHash?.substring(0,10)}...`);
       return res.status(401).json({ error: "Contraseña incorrecta" });
     }
 
