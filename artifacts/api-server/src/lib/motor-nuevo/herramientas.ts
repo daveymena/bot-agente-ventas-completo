@@ -212,6 +212,26 @@ export const definicionesDeHerramientas = [
   {
     type: "function" as const,
     function: {
+      name: "mostrar_opciones",
+      description:
+        "Cuando el cliente pide algo que coincide con VARIOS productos (nombre ambiguo, varios modelos), " +
+        "mostrá la ficha de cada opción para que elija. Usala en vez de listar solo texto.",
+      parameters: {
+        type: "object",
+        properties: {
+          productoIds: {
+            type: "array",
+            items: { type: "number" },
+            description: "Ids de los productos a mostrar (de 2 a 4).",
+          },
+        },
+        required: ["productoIds"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "consultar_conocimiento",
       description:
         "Busca en lo que el DUEÑO del negocio cargó como respuestas (qué incluye, duración, " +
@@ -627,6 +647,44 @@ export const ejecutores: Record<string, Ejecutor> = {
       mensaje:
         `Se envió "${seccion}" de ${p.name}. Los datos (precio, cuentas, enlaces) los puso el sistema: ` +
         `no los repitas en tu texto. Seguí con lo que sigue naturalmente.`,
+    };
+  },
+
+  mostrar_opciones(ctx, { productoIds }) {
+    const ids = (Array.isArray(productoIds) ? productoIds : [])
+      .map(Number)
+      .filter((n) => Number.isFinite(n) && n > 0)
+      .slice(0, 4);
+
+    if (ids.length < 2) {
+      return { ok: false, mensaje: "mostrar_opciones es para DOS o más productos. Si es uno solo, usá mostrar." };
+    }
+
+    const prods = ids.map((id) => ctx.catalogo.find((p) => p.id === id)).filter((p): p is Producto => !!p);
+    if (prods.length < 2) {
+      return { ok: false, mensaje: "No encontré esos ids en el catálogo. Buscá primero con buscar_en_catalogo y usá los ids que devuelva." };
+    }
+
+    for (const p of prods) {
+      ctx.partes.push({
+        kind: "card",
+        productId: p.id,
+        seccion: "info",
+        yaVioContenido: productoPresentado(ctx.estado, p.id),
+        sesionNueva: ctx.estado.turnos === 0,
+        videoYaEnviado: yaSeEnvio(ctx.estado, p.id, "video"),
+        mensajeDelCliente: ctx.mensajeDelCliente,
+        yaSabeElPrecio: precioDado(ctx.estado, p.id),
+      });
+      registrarEnvio(ctx.estado, p.id, "info");
+    }
+
+    const orden = prods.map((p, i) => `${i + 1}) ${p.name}`).join(" · ");
+    return {
+      ok: true,
+      mensaje:
+        `Mostré ${prods.length} opciones, en este orden: ${orden}. ` +
+        `Decile al cliente que elija cuál, sin repetir lo que ya sale en las fichas.`,
     };
   },
 

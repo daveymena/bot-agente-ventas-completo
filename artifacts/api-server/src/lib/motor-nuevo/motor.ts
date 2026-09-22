@@ -65,8 +65,9 @@ export const MENSAJES_DE_HISTORIAL = 40;
 /** Tope de vueltas del bucle, para que nunca se cuelgue llamando herramientas. */
 export const MAX_VUELTAS = 6;
 
-/** Máximo de fichas por respuesta: dos fotos seguidas en el celular es spam. */
-const MAX_TARJETAS = 2;
+/** Máximo de fichas por respuesta. 4 alcanza para un "elegí entre estas" sin
+ *  convertirse en un folleto: más de 4 fotos seguidas tapa el celular. */
+const MAX_TARJETAS = 4;
 
 /* ═══════════════════════════════════════════════════════════════════════════
  * EL PROMPT
@@ -132,6 +133,9 @@ te dice que algo ya se envió, no lo repitas: retomá desde donde quedaron.
 Para mostrar un producto necesitás su id: si no lo tenés, buscá primero con
 buscar_en_catalogo usando lo que pidió el cliente y usá el id que devuelva.
 Nunca llames a mostrar con un id vacío o inventado.
+Si el cliente pide algo ambiguo que coincide con VARIOS productos (varios
+modelos con el mismo nombre), mostrá la ficha de cada uno con mostrar_opciones
+para que elija, en vez de listar solo texto.
 
 Nunca digas que un pago está confirmado, verificado ni recibido. Eso lo
 determina una persona del equipo, y el sistema te avisa cuando pasó.
