@@ -119,6 +119,15 @@ export interface EngineDecision {
   pidioVerCatalogo: boolean;
 
   /**
+   * El cliente nombró algo que tiene VARIAS variantes en el catálogo con el
+   * mismo nombre ("corrector de postura" y hay 6). No es "no lo tengo" (eso es
+   * productSearchFailed) ni "no nombró nada" (mensajeSinProducto): es "elegí
+   * cuál". Lo correcto es mostrale la lista de las variantes con su precio y
+   * preguntarle cuál quiere, NUNCA mandar la ficha del primero.
+   */
+  productoAmbiguo: boolean;
+
+  /**
    * El producto que la búsqueda identificó EN ESTE MENSAJE (no en el historial).
    *
    * Existe porque avisar a la IA no alcanza. Hasta ahora, cuando la búsqueda
@@ -1685,7 +1694,7 @@ export async function findBestProductMatch(
   // Sin esa distinción el llamador trataba igual a los dos, y una coincidencia
   // hallada en la letra chica de una descripción se le afirmaba a la IA como si
   // el cliente la hubiera nombrado.
-): Promise<{ product: typeof productList[0]; score: number; reasoning: string; fiel: boolean } | null> {
+): Promise<{ product: typeof productList[0]; score: number; reasoning: string; fiel: boolean; ambiguo?: boolean } | null> {
   const reasoning: string[] = [];
   // Se sacan saludos y cortesías ANTES de contar, igual que en
   // `mensajeNombraProducto` — que ya lo hacía, y el comentario de esa función
@@ -1972,15 +1981,16 @@ export async function findBestProductMatch(
   );
   if (mismoNivelYNombre.length >= 2 && best.level >= 3) {
     // Hay varios productos que coinciden igual de bien EN EL NOMBRE. Es ambiguo.
-    const nombres = mismoNivelYNombre.map(e => `"${e.product.name}" (ID ${e.product.id}, $${e.product.price || "?"})`).join(", ");
+    const nombres = mismoNivelYNombre.map(e => `"${e.product.name}" (ID ${e.product.id}, $${(e.product as any).price || "?"})`).join(", ");
     reasoning.push(`⚠️ AMBIGÜEDAD: ${mismoNivelYNombre.length} productos coinciden igual: ${nombres}`);
-    reasoning.push(`   ⛔ NO elijas uno solo: mostrá las opciones con su imagen y precio, y preguntá cuál quiere el cliente.`);
-    reasoning.push(`   ✅ Escribí algo como: "Tengo varias opciones, ¿cuál te interesa?" y listá los productos.`);
+    reasoning.push(`   ⛔ NO elijas uno solo: muestra las opciones con su imagen y precio, y pregunta cuál quiere el cliente.`);
+    reasoning.push(`   ✅ Escribe algo como: "Tengo varias opciones, ¿cuál te interesa?" y lista los productos.`);
     return {
       product: best.product,
       score: best.level * 25,
       reasoning: reasoning.join("\n"),
       fiel: false, // fiel=false para que la IA no asuma que es el correcto
+      ambiguo: true, // hay VARIOS iguales: no es "no lo tengo", es "elegí cuál"
     };
   }
 
@@ -2085,6 +2095,7 @@ export async function computeDecision(
   let productSearchFailed = false;
   let mensajeSinProducto = false;
   let pidioVerCatalogo = false;
+  let productoAmbiguo = false;
   let searchReasoning: string | null = null;
   // ¿La búsqueda IDENTIFICÓ el producto, o solo encontró algo parecido? Decide
   // si a la IA se le ordena contestar sobre ese producto o solo ofrecerlo.
@@ -2202,6 +2213,7 @@ export async function computeDecision(
     // Razonamiento de búsqueda (para inyectar en el prompt)
     searchReasoning = match?.reasoning || null;
     coincidenciaFiel = !!match?.fiel;
+    productoAmbiguo = !!match?.ambiguo;
 
     // 🤖 DECISIÓN DE PRODUCTO DELEGADA A LA IA
     // La IA recibe el catálogo completo y analiza el contexto de la conversación
@@ -2334,7 +2346,13 @@ export async function computeDecision(
       // autocompleta igual para TODOS los anuncios— no pide nada, y contestarle
       // "no lo manejo" a alguien que acaba de costar plata en publicidad es
       // peor que no contestar.
-      if (pidePlantillaDeCatalogo(incomingText)) {
+      if (productoAmbiguo) {
+        // Hay VARIAS variantes con el MISMO nombre ("corrector de postura" × 6).
+        // No es "no lo tengo" (productSearchFailed) ni "no nombró nada": es
+        // "elegí cuál". El searchReasoning ya trae la lista con nombre+precio, y
+        // buildContextBlock se la pasa al modelo para que la muestre y pregunte.
+        console.log(`🃏 [DECISION] Lo que pidió tiene varias variantes iguales: se muestra la lista, no se elige una`);
+      } else if (pidePlantillaDeCatalogo(incomingText)) {
         // Pidió ver la oferta. No es "no tengo lo que buscás" ni "no dijo nada":
         // dijo algo concreto y la respuesta correcta es mostrarle qué hay.
         pidioVerCatalogo = true;
@@ -2359,7 +2377,7 @@ export async function computeDecision(
   }
 
   // ── Construir bloque de contexto para el prompt ─────────────────────────────
-  const contextBlock = buildContextBlock(memory, intent, stage, productToShow, shouldSendCard, searchReasoning, productSearchFailed, t, productList, negocio, mensajeSinProducto, coincidenciaFiel, pidioVerCatalogo);
+  const contextBlock = buildContextBlock(memory, intent, stage, productToShow, shouldSendCard, searchReasoning, productSearchFailed, t, productList, negocio, mensajeSinProducto, coincidenciaFiel, pidioVerCatalogo, productoAmbiguo);
 
   // ── Razón de la decisión (para logs) ────────────────────────────────────────
   const debugReason = [
@@ -2386,6 +2404,7 @@ export async function computeDecision(
     productSearchFailed,
     mensajeSinProducto,
     pidioVerCatalogo,
+    productoAmbiguo,
     productoDelMensaje,
     nombraOtroProducto,
     pidioReenvio,
@@ -2410,7 +2429,8 @@ export function buildContextBlock(
   negocio?: BusinessContext | null,
   mensajeSinProducto?: boolean,
   coincidenciaFiel?: boolean,
-  pidioVerCatalogo?: boolean
+  pidioVerCatalogo?: boolean,
+  productoAmbiguo?: boolean
 ): string {
   const lines: string[] = [];
 
@@ -2483,7 +2503,13 @@ export function buildContextBlock(
     // encontró un parecido, mandarla dejaba el prompt diciendo las dos cosas a la
     // vez ("no afirmes que es lo que pidió" + "contestá sobre ESE producto"), y
     // ante esa contradicción el modelo termina afirmando.
-    if (coincidenciaFiel) {
+    if (productoAmbiguo) {
+      // Hay VARIAS variantes con el mismo nombre: NO es "no lo tengo" ni "esto
+      // es lo más parecido". Es "elegí cuál de las que SÍ tenemos".
+      lines.push(`\n🃏 HAY VARIAS OPCIONES QUE COINCIDEN CON LO QUE PIDIÓ. No elijas una por él ni mandes la ficha de la primera.`);
+      lines.push(`   Muéstrale la LISTA completa de esas opciones (nombre y precio, tal como aparecen arriba) y pregúntale cuál quiere.`);
+      lines.push(`   Si el cliente da una seña para distinguirlas (precio, apellido del nombre, material), responde con ESA y su ficha.`);
+    } else if (coincidenciaFiel) {
       lines.push(`\n⚠️ Contesta sobre ESE producto. Si el historial habla de otro, ese ya pasó: el cliente cambió de tema y hay que seguirlo.`);
     } else {
       lines.push(`\n⚠️ OJO: eso es lo más parecido del catálogo, NO lo que el cliente nombró. Ofrecelo como alternativa y pregunta si le sirve; no lo des por hecho.`);
