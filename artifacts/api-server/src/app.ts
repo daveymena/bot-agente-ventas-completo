@@ -102,6 +102,12 @@ iniciarProgramador();
 import { startMarketingDailyReport } from "./lib/marketing-team/daily-report";
 startMarketingDailyReport();
 
+// Auto-mejora curada de agentes: aprende de errores en segundo plano. Apagado
+// por defecto (AUTOREFLEXION_ENABLED=true lo prende). Aplica cambios aditivos
+// al prompt con version y rollback (ver lib/auto-reflexion.ts).
+import { registrarAutoReflexion } from "./lib/auto-reflexion";
+registrarAutoReflexion();
+
 // Auto-start del scheduler de remarketing: procesa en tandas chicas las
 // campañas de email/WhatsApp que Atlas encoló (nunca manda nada por su
 // cuenta -- solo drena lo que el admin ya confirmó, ver remarketing.ts).

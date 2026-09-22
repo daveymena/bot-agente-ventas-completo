@@ -195,11 +195,39 @@ async function scoreAgents(
     .from(conversations)
     .where(eq(conversations.id, conversationId))
     .limit(1);
+
   if (convo?.agentId) {
     const dueño = activeAgents.find((a: any) => a.id === convo.agentId);
     if (dueño) {
-      logger.info({ tenantId, conversationId, agente: dueño.name }, "[AgentRouter] Sigue el agente que ya venía atendiendo esta conversación");
-      return [{ agentId: dueño.id, agentName: dueño.name, score: 100, reason: "Ya venía atendiendo esta conversación" }];
+      // ── REGLA DE TRASPASO: Sofía -> Especialista ──────────────────────
+      //
+      // Si el agente actual es "general" (Recepcionista), permitimos que el
+      // router busque un especialista si el cliente nombra un producto o servicio concreto.
+      // Sin esto, Sofía se quedaría con la conversación aunque el cliente pida un curso.
+      const agentType = getAgentType(dueño.role, dueño.name);
+      if (agentType === "general") {
+        try {
+          const { findBestProductMatch, mensajeNombraProducto } = await import("./conversation-engine");
+          const { db: base, products } = await import("@workspace/db");
+          const catalogo = await base.select().from(products)
+            .where(and(eq(products.isActive, true), eq(products.tenantId, tenantId))).limit(200);
+
+          const match = mensajeNombraProducto(messageText) ? await findBestProductMatch(messageText, catalogo as any, new Map()) : null;
+
+          // Si hay un match fuerte, ignoramos la continuidad y dejamos que el scoring busque al especialista
+          if (match?.product && match.score >= 50) {
+            logger.info({ tenantId, conversationId, agente: dueño.name, producto: (match.product as any).name }, "[AgentRouter] Traspaso: Cliente nombra producto mientras habla con general");
+          } else {
+            logger.info({ tenantId, conversationId, agente: dueño.name }, "[AgentRouter] Sigue el agente que ya venía atendiendo esta conversación");
+            return [{ agentId: dueño.id, agentName: dueño.name, score: 100, reason: "Ya venía atendiendo esta conversación" }];
+          }
+        } catch (e: any) {
+          logger.warn({ tenantId, err: e?.message }, "[AgentRouter] Error en lógica de traspaso desde general");
+        }
+      } else {
+        logger.info({ tenantId, conversationId, agente: dueño.name }, "[AgentRouter] Sigue el agente que ya venía atendiendo esta conversación");
+        return [{ agentId: dueño.id, agentName: dueño.name, score: 100, reason: "Ya venía atendiendo esta conversación" }];
+      }
     }
     // El agente asignado se desactivó o se borró: se vuelve a elegir, y el
     // nuevo queda asignado al final de `getActiveAgent`.
