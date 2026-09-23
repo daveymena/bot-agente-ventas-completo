@@ -1,7 +1,7 @@
 # CHECKLIST — REGISTRO DE VENTASPRO ANTE LA DNDA
 
 ## A. Antes de presentar
-- [ ] Confirmar que el commit 662ebc16c6da60c356823ad6715083424ad33a31 es la versión que se quiere depositar.
+- [ ] Confirmar que el commit 369129e117dfc329cd5acf77f11a040ef7def494 es la versión que se quiere depositar.
 - [ ] Confirmar autoría.
 - [ ] Confirmar titularidad patrimonial.
 - [ ] Revisar coautores/contratistas.
