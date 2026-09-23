@@ -3,7 +3,7 @@
 ## 1. Obra
 Título: VENTASPRO
 Tipo: Programa de computador / software
-Versión: commit 662ebc16c6da60c356823ad6715083424ad33a31
+Versión: commit 369129e117dfc329cd5acf77f11a040ef7def494
 Rama: master
 Fecha de referencia: 22/09/2026
 Autor declarado para revisión: Duvier Davey Mena Mosquera
@@ -20,7 +20,7 @@ El expediente debe contener:
 - Este índice.
 
 ## 3. Qué versión se deposita
-Se toma como referencia el commit 662ebc16c6da60c356823ad6715083424ad33a31. Si el código cambia antes de presentar, debe actualizarse este expediente y registrar el nuevo commit.
+Se toma como referencia el commit 369129e117dfc329cd5acf77f11a040ef7def494. Si el código cambia antes de presentar, debe actualizarse este expediente y registrar el nuevo commit.
 
 ## 4. Exclusiones de seguridad
 NO incluir en el archivo de depósito:
