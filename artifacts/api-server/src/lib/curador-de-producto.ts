@@ -96,6 +96,68 @@ function valida(j: any): j is FichaCurada {
     && Array.isArray(j.caracteristicas) && j.caracteristicas.length >= 3;
 }
 
+/** Normaliza el nombre del proveedor a un título limpio, sin códigos internos. */
+function limpiarNombre(n: string): string {
+  const limpio = String(n || "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!limpio) return "";
+  return limpio
+    .split(" ")
+    .map((w, i) => {
+      const min = /^(x|kz|cn|ml|cm|kg|mm|gb|tb|w|v|ah|usb|hd|led|ips|4k|5g|vs|y|e|de|del|el|la|los|las|un|una|con|sin|para|por|a|o|u)$/i.test(w);
+      if (i === 0) return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+      return min ? w.toLowerCase() : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
+/**
+ * Ficha determinística, SIN IA: arma la ficha con lo que ya trae Dropi.
+ *
+ * Es el camino rápido y sin tokens. Se usa cuando la descripción del proveedor
+ * alcanza; si está incompleta, `curarProducto` cae al curado con IA. Las
+ * reglas son las mismas: nada que no esté en los datos.
+ */
+function curarProductoSinIA(p: ProductoCrudo): FichaCurada {
+  const descripcion = limpiarHtml(p.descripcionHtml)
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !esLineaDeProveedor(l))
+    .join("\n")
+    .trim();
+
+  const nombre = limpiarNombre(p.nombre) || String(p.nombre || "").trim();
+
+  const caracteristicas = (Array.isArray(p.atributos) ? p.atributos : [])
+    .map((a: any) => {
+      if (a && typeof a === "object") return String(a.name || a.value || a.nombre || "").trim();
+      return String(a || "").trim();
+    })
+    .filter(Boolean)
+    .slice(0, 8)
+    .map((c) => (/\p{Emoji}/u.test(c) ? c : `✅ ${c}`));
+
+  const categoria = categoriaReal({ nombre, categoriaSugerida: p.categoria || null, categoriaProveedor: p.categoria || null, descripcion: p.descripcionHtml || null });
+
+  const lineas = descripcion ? descripcion.split("\n").filter(Boolean).slice(0, 5) : [];
+  const beneficioPrincipal = lineas[0] || "";
+  const copyWhatsapp = lineas.slice(0, 2).join(" ");
+
+  return {
+    nombre,
+    descripcion: lineas.join("\n") || nombre,
+    caracteristicas,
+    categoria,
+    beneficioPrincipal,
+    copyWhatsapp,
+    preguntasFrecuentes: [],
+    complementadoDesde: [],
+    curadoPor: "deterministico",
+  };
+}
+
 /**
  * Cura el producto. Si falta información, busca en otras tiendas (texto)
  * y se lo pasa al modelo como fuentes. Devuelve null si ningún modelo
@@ -105,6 +167,13 @@ export async function curarProducto(tenantId: number, p: ProductoCrudo, opts: { 
   const descripcion = limpiarHtml(p.descripcionHtml);
   let fuentes: Array<{ url: string; titulo: string; texto: string }> = [];
   const incompleto = estaIncompleto(p);
+  // ── Camino rápido SIN IA ──────────────────────────────────────────────
+  // Si los datos del proveedor alcanzan, la ficha sale determinística: ahorra
+  // un turno de LLM por cada producto importado. La IA queda solo para las
+  // fichas realmente incompletas (donde además busca en otras tiendas).
+  if (!incompleto) {
+    return curarProductoSinIA(p);
+  }
   if (incompleto && opts.buscarEnWeb !== false) {
     try {
       const { fuentesParaProducto } = await import("./buscar-en-la-web");
