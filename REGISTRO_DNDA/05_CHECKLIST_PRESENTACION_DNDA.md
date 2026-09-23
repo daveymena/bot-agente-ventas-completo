@@ -1,4 +1,4 @@
-# CHECKLIST — REGISTRO DE VENTASPRO ANTE LA DNDA
+# CHECKLIST — REGISTRO DE VENTASPROIA ANTE LA DNDA
 
 ## A. Antes de presentar
 - [ ] Confirmar que el commit 369129e117dfc329cd5acf77f11a040ef7def494 es la versión que se quiere depositar.
@@ -19,7 +19,7 @@
 ## C. Formulario
 - [ ] Crear/usar cuenta de Registro en Línea.
 - [ ] Seleccionar categoría Software.
-- [ ] Título exactamente igual al documento depositado: VENTASPRO.
+- [ ] Título exactamente igual al documento depositado: VENTASPROIA.
 - [ ] Año de creación = año de finalización de la versión depositada.
 - [ ] Autor(es) correctamente identificados.
 - [ ] Origen y forma de elaboración correctamente declarados.

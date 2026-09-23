@@ -1,4 +1,4 @@
-# FICHA TÉCNICA Y ARQUITECTURA — VENTASPRO
+# FICHA TÉCNICA Y ARQUITECTURA — VENTASPROIA
 
 ## 1. Tipo de arquitectura
 Monorepo administrado con pnpm workspaces, con backend, frontend administrativo, librerías compartidas y tienda pública.
@@ -95,9 +95,9 @@ El proyecto contiene configuración y scripts para despliegue mediante contenedo
 ## 9. Identificación técnica de la versión
 Repositorio: daveymena/bot-agente-ventas-completo
 Rama: master
-Commit: 369129e117dfc329cd5acf77f11a040ef7def494
-Mensaje: feat(agents): auto-reflexion curada, Sofia recepcionista y traspaso al especialista
-Fecha del commit: 22 de septiembre de 2026
+Commit: 823bdee6b6ce5dd593a64e624c9cef74dd8791c4
+Mensaje: fix(motor-v2): responder el precio antes de pedir datos y reconocer 'que vale'
+Fecha del commit: 23 de septiembre de 2026
 
 ## 10. Nota sobre exactitud
 Esta ficha se elaboró a partir de la estructura y documentación existentes en el repositorio. Para el depósito debe conservarse una copia íntegra e inalterada de la versión de código que se declare como obra depositada.

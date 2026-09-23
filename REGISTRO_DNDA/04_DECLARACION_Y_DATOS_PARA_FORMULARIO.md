@@ -1,7 +1,7 @@
 # DATOS PREPARATORIOS PARA EL FORMULARIO DNDA
 
 ## Datos de la obra
-**Título:** VENTASPRO
+**Título:** VENTASPROIA
 **Tipo:** Software / soporte lógico
 **Año de creación:** 2026 — confirmar como año de finalización de la versión que se deposita.
 **Origen:** Originaria, si se confirma que la obra no es una adaptación o transformación de otra obra.

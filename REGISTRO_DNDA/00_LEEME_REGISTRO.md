@@ -1,10 +1,10 @@
-# EXPEDIENTE DE REGISTRO DE SOFTWARE — VENTASPRO
+# EXPEDIENTE DE REGISTRO DE SOFTWARE — VENTASPROIA
 
 Fecha de preparación: 23 de septiembre de 2026
 Repositorio fuente: daveymena/bot-agente-ventas-completo
 Rama: master
-Commit de referencia: 369129e117dfc329cd5acf77f11a040ef7def494
-Título propuesto de la obra: VENTASPRO
+Commit de referencia: 823bdee6b6ce5dd593a64e624c9cef74dd8791c4
+Título propuesto de la obra: VENTASPROIA
 Tipo de obra: Programa de computador / soporte lógico
 Autor declarado para revisión: Duvier Davey Mena Mosquera
 Año de creación propuesto: 2026

@@ -1,9 +1,9 @@
-# DESCRIPCIÓN DEL PROGRAMA — VENTASPRO
+# DESCRIPCIÓN DEL PROGRAMA — VENTASPROIA
 
 ## 1. Identificación
-**Nombre:** VentasPro
+**Nombre:** VentasProIA
 **Naturaleza:** Programa de computador / plataforma SaaS de automatización comercial
-**Versión de referencia:** estado del repositorio en el commit 369129e117dfc329cd5acf77f11a040ef7def494
+**Versión de referencia:** estado del repositorio en el commit 823bdee6b6ce5dd593a64e624c9cef74dd8791c4
 **Fecha de referencia:** 22 de septiembre de 2026
 **Autor declarado:** Duvier Davey Mena Mosquera
 
@@ -14,7 +14,7 @@ VentasPro es una plataforma de software orientada a la gestión y automatizació
 1. Administración de negocios y aislamiento multi-tenant.
 2. Gestión de productos, categorías, servicios y fichas comerciales.
 3. Gestión de conversaciones y clientes.
-4. Integración de WhatsApp mediante Baileys.
+4. Integración de WhatsApp mediante Baileys y WhatsApp Cloud API (Graph API de Meta) como transporte alternativo activable por configuración.
 5. Agentes especializados de atención y ventas.
 6. Router de agentes y traspaso a especialistas.
 7. Motor de ventas v1 y motor nuevo v2 activable por negocio.
@@ -29,6 +29,8 @@ VentasPro es una plataforma de software orientada a la gestión y automatizació
 16. Sistema de auto-reflexión curada de agentes, con versionado y posibilidad de rollback.
 17. Panel web administrativo.
 18. Arquitectura preparada para SQLite en desarrollo y PostgreSQL en producción.
+19. Medición y cobro por conversación de WhatsApp Cloud API (excedente sobre el plan, con costo real y precio de venta configurables).
+20. Desambiguación visual de productos (mostrar_opciones) con resolución de referencias ("el primero", "este") y prioridad de mostrar el precio antes de pedir datos de cierre.
 
 ## 4. Flujo funcional general
 El cliente inicia una conversación. El sistema identifica el negocio/tenant, conserva el contexto de la conversación, determina el agente correspondiente y procesa la intención. El agente obtiene hechos comerciales mediante herramientas y genera una respuesta natural. Cuando corresponde, el sistema presenta información de producto, conduce al pago, registra el resultado y permite seguimiento.

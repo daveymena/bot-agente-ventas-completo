@@ -1,11 +1,11 @@
 # MANIFIESTO INTERNO DE LA VERSIÓN DEPOSITADA
 
 ## Identificación
-Obra: VENTASPRO
+Obra: VENTASPROIA
 Repositorio: daveymena/bot-agente-ventas-completo
 Rama: master
-Commit: 369129e117dfc329cd5acf77f11a040ef7def494
-Fecha del commit: 22/09/2026
+Commit: 823bdee6b6ce5dd593a64e624c9cef74dd8791c4
+Fecha del commit: 23/09/2026
 Autor declarado para revisión: Duvier Davey Mena Mosquera
 
 ## Finalidad
