@@ -859,8 +859,9 @@ router.post("/strategist/draft/:id/publish", async (req, res, next) => {
     // al conectar la página desde el panel. Se crea una instancia con el
     // tenant real de la request para que use ESE token.
     const { AdStrategist } = await import("../lib/ad-strategist");
-    const ok = await new AdStrategist(tenant || undefined).publishDraft(draftId);
-    return res.json({ ok, message: ok ? "Borrador publicado" : "Error al publicar (revisa que Facebook esté conectado y el borrador tenga campaña creada)" });
+    const strategist = new AdStrategist(tenant || undefined);
+    const ok = await strategist.publishDraft(draftId);
+    return res.json({ ok, message: ok ? "Borrador publicado" : strategist.ultimoMotivo || "Error al publicar" });
   } catch (e) { return next(e); }
 });
 

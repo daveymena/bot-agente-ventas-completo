@@ -660,22 +660,32 @@ Responde SOLO con este JSON exacto:
    * imagen de verdad (JPG/PNG/WEBP). Un SVG o un 404 hacen que rechace la
    * creación del anuncio completa.
    */
-  private async imagenDescargable(url: string): Promise<boolean> {
+  /**
+   * ¿Meta puede usar esta foto? `ok:false` con `motivo` cuando la foto existe
+   * pero Meta la va a rechazar (chica, WebP); `motivo` null cuando ni siquiera
+   * se pudo descargar.
+   *
+   * Antes solo se miraba el content-type y que pesara más de 2 KB: la foto de
+   * 225×225 del corrector (7 KB) pasaba, y Meta rechazaba el anuncio entero.
+   */
+  private async imagenParaMeta(url: string): Promise<{ ok: boolean; motivo: string | null }> {
     try {
       const r = await fetch(url, { method: "GET", signal: AbortSignal.timeout(12_000) });
-      if (!r.ok) return false;
+      if (!r.ok) return { ok: false, motivo: null };
       const tipo = (r.headers.get("content-type") || "").toLowerCase();
-      if (!tipo.startsWith("image/")) return false;
+      if (!tipo.startsWith("image/")) return { ok: false, motivo: null };
       // SVG es "image/" pero Meta no lo acepta en un creativo, y además es lo
       // que devuelve nuestra propia ruta de respaldo cuando NO encuentra el
       // archivo ("Imagen no disponible").
-      if (tipo.includes("svg")) return false;
-      const largo = Number(r.headers.get("content-length") || 0);
+      if (tipo.includes("svg")) return { ok: false, motivo: null };
+      const buf = Buffer.from(await r.arrayBuffer());
       // Un archivo de pocos bytes no es una foto: es un cartel o un error.
-      if (largo > 0 && largo < 2000) return false;
-      return true;
+      if (buf.length < 2000) return { ok: false, motivo: null };
+      const { medirImagen, porQueMetaLaRechaza } = await import("./medidas-de-imagen");
+      const motivo = porQueMetaLaRechaza(medirImagen(buf));
+      return { ok: !motivo, motivo };
     } catch {
-      return false;
+      return { ok: false, motivo: null };
     }
   }
 
@@ -761,13 +771,34 @@ Responde SOLO con este JSON exacto:
       // Si la imagen no sirve, se trata como si el producto NO tuviera:
       // abajo ya existe el camino de generarla con IA. Vale más un anuncio
       // con foto generada que una campaña que Meta rechaza entera.
+      // Se prueban TODAS las fotos del producto (la principal primero) y se usa
+      // la primera que Meta acepte. Si hay fotos reales pero todas son chicas,
+      // se corta ACÁ con el motivo -- antes de crear la campaña, para no dejar
+      // una huérfana en Ads Manager -- en vez de reemplazar la foto real de un
+      // producto físico por una inventada con IA.
       if (creativeImageUrl) {
-        const sirve = await this.imagenDescargable(creativeImageUrl);
-        if (!sirve) {
-          logger.warn({ productId: product.id, url: creativeImageUrl }, "[Facebook] La imagen del producto no se puede descargar o no es JPG/PNG -- se genera una");
-          creativeImageUrl = "";
-          hasRealProductImage = false;
+        const { fotosDelProducto } = await import("./fotos-de-producto");
+        const candidatas = [...new Set([creativeImageUrl, ...fotosDelProducto(product)])];
+        const rechazos: string[] = [];
+        let elegida = "";
+        for (const url of candidatas) {
+          const r = await this.imagenParaMeta(url);
+          if (r.ok) { elegida = url; break; }
+          if (r.motivo) rechazos.push(r.motivo);
         }
+        if (!elegida && rechazos.length) {
+          throw new Error(
+            `Ninguna foto de "${product.name}" sirve para un anuncio: ${[...new Set(rechazos)].join("; ")}. ` +
+              `Subí una foto más grande del producto (idealmente 1080×1080) y volvé a intentarlo.`,
+          );
+        }
+        if (!elegida) {
+          logger.warn({ productId: product.id, url: creativeImageUrl }, "[Facebook] Ninguna foto del producto se puede descargar -- se genera una");
+          hasRealProductImage = false;
+        } else if (elegida !== creativeImageUrl) {
+          logger.info({ productId: product.id, url: elegida }, "[Facebook] La foto principal no sirve para Meta: se usa otra del producto");
+        }
+        creativeImageUrl = elegida;
       }
 
       // Sin foto real: se intenta generar una con IA (nombre + descripción

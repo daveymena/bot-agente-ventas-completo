@@ -614,10 +614,15 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     } catch { return null; }
   }
 
+  /** Por qué falló el último publishDraft, para mostrárselo al admin en vez de "Error al publicar". */
+  ultimoMotivo: string | null = null;
+
   async publishDraft(draftId: number): Promise<boolean> {
+    this.ultimoMotivo = null;
+    const falla = (motivo: string) => { this.ultimoMotivo = motivo; return false; };
     try {
       const [draft] = await db.select().from(facebookDrafts).where(eq(facebookDrafts.id, draftId)).limit(1);
-      if (!draft) return false;
+      if (!draft) return falla("No encontré ese borrador.");
 
       // ── Candado de precio ────────────────────────────────────────────
       // Auditando los borradores reales del admin (2026-08-14): 84 de 195
@@ -640,7 +645,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
             { draftId, precioReal, precioEnElTexto: n },
             "[AdStrategist] Publicación BLOQUEADA: el borrador tiene un precio que no es el del producto",
           );
-          return false;
+          return falla(`El texto del anuncio dice ${bruto}, más de 10 veces el precio real del producto (${precioReal}). Corregí el texto antes de publicar.`);
         }
       }
 
@@ -650,7 +655,7 @@ Este contenido digital es tu atajo directo a resultados profesionales.
         // permisos de usuario (ads_management). Un token de página (lo que
         // había acá antes) falla con el error #17 de Meta.
         const { accessToken, adAccountId } = this.credencialesFb();
-        if (!accessToken || !adAccountId) return false;
+        if (!accessToken || !adAccountId) return falla("Facebook no está conectado: falta el token o la cuenta publicitaria.");
 
         // El anuncio (con su creativo real) ya se creó en createDraftAd,
         // PAUSED -- acá solo hay que activarlo con un POST directo a su
@@ -666,7 +671,11 @@ Este contenido digital es tu atajo directo a resultados profesionales.
         const activateData: any = await activateRes.json();
         if (activateData.error) {
           logger.error({ err: activateData.error, draftId }, "[AdStrategist] Meta rechazó activar el anuncio");
-          return false;
+          const e = activateData.error;
+          return falla(
+            `Meta rechazó activar el anuncio: ${e.error_user_msg || e.message || "sin detalle"}` +
+              (e.error_subcode ? ` (código ${e.code}/${e.error_subcode})` : ""),
+          );
         }
 
         await db.update(facebookDrafts)
@@ -674,10 +683,10 @@ Este contenido digital es tu atajo directo a resultados profesionales.
           .where(eq(facebookDrafts.id, draftId));
         return true;
       }
-      return false;
+      return falla("Ese borrador todavía no está en Meta: primero hay que subirlo (queda en pausa) y después activarlo.");
     } catch (err: any) {
       logger.error({ err, draftId }, "[AdStrategist] Error publishing draft");
-      return false;
+      return falla(err?.message || "Error publicando el borrador");
     }
   }
 
