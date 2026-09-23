@@ -3304,11 +3304,12 @@ export class WhatsAppManager {
         .join(" ");
       if (textoHablado.trim().length >= 20) {
         try {
-          const { hablar } = await import("./voz-de-atlas");
+          const { hablar, generoDeNombre, vozParaGenero } = await import("./voz-de-atlas");
           // Ritmo natural (+0%): una voz de ventas calmada suena más confiable
           // que la de Atlas, que corre un poco para leer paneles.
-          // Voz configurable: es-CO-SalomeNeural (mujer) o es-CO-GonzaloNeural (hombre).
-          const voz = process.env.WHATSAPP_AUDIO_VOICE || "es-CO-SalomeNeural";
+          // Voz según el género del cliente: mujer responde con voz de mujer,
+          // hombre con voz de hombre. WHATSAPP_AUDIO_VOICE fuerza una fija.
+          const voz = process.env.WHATSAPP_AUDIO_VOICE || vozParaGenero(generoDeNombre(pushName));
           const audio = await hablar(textoHablado, voz, "+0%");
           if (audio) {
             await this.sendAudio(phone, audio, "audio/mpeg", originalJid);

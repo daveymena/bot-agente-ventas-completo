@@ -98,6 +98,38 @@ const VERSION_GEC = "1-143.0.3650.20";
 /** Colombiana, femenina. La otra de es-CO es `es-CO-GonzaloNeural`. */
 export const VOZ_POR_DEFECTO = "es-CO-SalomeNeural";
 
+/** Colombiana, masculina. */
+export const VOZ_HOMBRE = "es-CO-GonzaloNeural";
+
+/**
+ * Adivina el género por el primer nombre (best effort).
+ *
+ * Se usa para que el bot conteste con voz de mujer si la clienta es mujer y
+ * con voz de hombre si el cliente es hombre. Es heurística: el `pushName` de
+ * WhatsApp puede ser cualquier cosa ("Esposa Linda Número"), así que si no
+ * matchea una lista corta de nombres ni un sufijo claro, devuelve null y se
+ * cae a la voz por defecto.
+ */
+export function generoDeNombre(nombre: string): "mujer" | "hombre" | null {
+  const primero = String(nombre || "").trim().split(/\s+/)[0]?.toLowerCase() || "";
+  if (primero.length < 3) return null;
+
+  const MUJER = /^(mar[ií]a|ana|claudia|laura|diana|paola|carolina|camila|valentina|daniela|juliana|karen|andrea|m[oó]nica|[aá]ngela|ang[ée]lica|carmen|isabel|luisa|margarita|marta|patricia|sandra|liliana|nubia|esperanza|beatriz|nancy|ruth|ver[oó]nica|xiomara|dora|marcela|norma|sonia|stella|leidy|luz|rosa|gloria|alba|elena|ines|mercedes|olga|pilar|teresa|yenny|jennifer|jessica|m[ée]lissa|natalia|vanesa|paula|johana|marleny|lina|mayra|tatiana|yurany|darly|kelly)$/;
+  const HOMBRE = /^(juan|jose|jos[ée]|carlos|luis|pedro|pablo|miguel|jorge|andres|andr[ée]s|david|daniel|[oó]scar|oscar|eduardo|fernando|mario|ricardo|roberto|manuel|francisco|javier|alexander|alexis|jhon|john|jeison|brayan|kevin|cristian|sebastian|santiago|diego|mauricio|wilson|wilmar|yeison|alfonso|alberto|armando|camilo|cesar|dario|eder|edwin|esteban|fabian|felipe|gustavo|hernan|hugo|ivan|jaime|leonardo|nelson|nicolas|orlando|ramon|raul|reinaldo|ruben|salomon|samuel|sergio|tomas|victor|enrique|gerardo|guillermo|hector|saul|walter|yerson)$/;
+
+  if (MUJER.test(primero)) return "mujer";
+  if (HOMBRE.test(primero)) return "hombre";
+  // Sufijos: los femeninos suelen terminar en -a, los masculinos en consonante.
+  if (/a$/.test(primero)) return "mujer";
+  if (/[orlsnzd]$/.test(primero)) return "hombre";
+  return null;
+}
+
+/** Voz según el género del cliente. Null (desconocido) cae a mujer. */
+export function vozParaGenero(g: "mujer" | "hombre" | null): string {
+  return g === "hombre" ? VOZ_HOMBRE : VOZ_POR_DEFECTO;
+}
+
 /**
  * Deja el texto listo para ser LEÍDO EN VOZ ALTA.
  *
