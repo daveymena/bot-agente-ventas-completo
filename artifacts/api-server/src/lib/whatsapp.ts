@@ -2715,6 +2715,31 @@ export class WhatsAppManager {
   }
 
   /**
+   * Manda un audio (voz del agente) al cliente.
+   *
+   * Diferenciador frente a la competencia: el vendedor colombiano cierra con
+   * audios, no con texto. La voz la genera `lib/voz-de-atlas.ts` (Edge TTS,
+   * es-CO, gratis) y acá solo se despacha. Si la síntesis o el envío fallan,
+   * el turno ya quedó respondido por texto: la voz nunca tira.
+   */
+  async sendAudio(phone: string, buffer: Buffer, mimetype = "audio/mpeg", originalJid?: string) {
+    if (!this.sock || this.state !== "connected") throw new Error("WhatsApp no conectado");
+    this.enforceSendLimits();
+    const targetJid = originalJid || `${phone}@s.whatsapp.net`;
+    await this.esperarEspaciadoEntreEnvios(targetJid);
+    try {
+      const enviado = await this.sock.sendMessage(targetJid, { audio: buffer, mimetype });
+      anotarMensajePropio(enviado?.key?.id);
+    } catch (e) {
+      this.recordSendFailure();
+      throw e;
+    }
+    this.recordSendSuccess();
+    trackWhatsAppCost(this.currentTenant.id.toString());
+    void sumarMensaje(this.currentTenant.id);
+  }
+
+  /**
    * El cliente mandó una foto que parece un comprobante de pago.
    *
    * Se guarda en disco, queda un pago `pending` y le llega el aviso al admin
@@ -3268,6 +3293,29 @@ export class WhatsAppManager {
       }
     }
     
+    // ── VOZ: el agente también habla ─────────────────────────────────────────
+    // Diferenciador: además del texto, se manda una nota de voz del agente.
+    // Activable con WHATSAPP_AUDIO_ENABLED=true. La voz (Edge TTS es-CO) es
+    // gratis; si falla, el turno ya quedó respondido por texto.
+    if (String(process.env.WHATSAPP_AUDIO_ENABLED || "").toLowerCase() === "true") {
+      const textoHablado = parts
+        .filter((p) => p.kind === "text" && (p as any).content)
+        .map((p) => (p as any).content)
+        .join(" ");
+      if (textoHablado.trim().length >= 20) {
+        try {
+          const { hablar } = await import("./voz-de-atlas");
+          const audio = await hablar(textoHablado);
+          if (audio) {
+            await this.sendAudio(phone, audio, "audio/mpeg", originalJid);
+            console.log(`🎙️ [WA-VOZ] Audio enviado (${Math.round(audio.length / 1024)} KB) - ${timestamp}`);
+          }
+        } catch (e: any) {
+          logger.warn({ err: e?.message }, "[WA-Voz] No se pudo generar/enviar el audio");
+        }
+      }
+    }
+
     console.log(`🏁 [WA-PARTS] Envío de partes completado - Total: ${parts.length} partes procesadas - ${timestamp}`);
   }
 
