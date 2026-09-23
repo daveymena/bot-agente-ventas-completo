@@ -3,7 +3,7 @@
 Fecha de preparación: 23 de septiembre de 2026
 Repositorio fuente: daveymena/bot-agente-ventas-completo
 Rama: master
-Commit de referencia: 662ebc16c6da60c356823ad6715083424ad33a31
+Commit de referencia: 369129e117dfc329cd5acf77f11a040ef7def494
 Título propuesto de la obra: VENTASPRO
 Tipo de obra: Programa de computador / soporte lógico
 Autor declarado para revisión: Duvier Davey Mena Mosquera
