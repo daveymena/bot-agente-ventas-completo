@@ -188,7 +188,13 @@ export function paraLeerEnVoz(markdown: string): string {
   // cuenta si tiene dígitos detrás, así que el punto final queda afuera.
   t = t.replace(/\b(?:US\s*\$|USD\s*\$?)\s*(\d+(?:[.,]\d+)*)/gi, "$1 dólares");
   t = t.replace(/\$\s*(\d+(?:[.,]\d+)*)\s*(?:USD|d[oó]lares)\b/gi, "$1 dólares");
+  // El `$` pelado acá es siempre PESO colombiano.
   t = t.replace(/\$\s*(\d+(?:[.,]\d+)*)/g, "$1 pesos");
+  // Si el texto ya traía "pesos" o "COP" pegado, la conversión del `$` dejó un
+  // doble ("$45.000 pesos" -> "45.000 pesos pesos"). Se quita la repetición.
+  t = t.replace(/(\bpesos)\s+(?:pesos|COP)\b/gi, "$1");
+  // "COP" sin `$` previo también es peso.
+  t = t.replace(/(\d+(?:[.,]\d+)*)\s*COP\b/gi, "$1 pesos");
   // Un `$` que quedó sin número al lado no se lee: decir "dólares" suelto en
   // medio de una frase es peor que no decir nada.
   t = t.replace(/\$/g, " ");
@@ -214,11 +220,11 @@ function escaparXml(s: string): string {
 }
 
 /** El SSML del pedido. Separado para poder probarlo sin abrir un socket. */
-export function armarSsml(texto: string, voz = VOZ_POR_DEFECTO): string {
+export function armarSsml(texto: string, voz = VOZ_POR_DEFECTO, rate = "+8%"): string {
   const idioma = voz.split("-").slice(0, 2).join("-") || "es-CO";
   return (
     `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${idioma}'>` +
-    `<voice name='${voz}'><prosody rate='+8%' pitch='+0Hz'>${escaparXml(texto)}</prosody></voice>` +
+    `<voice name='${voz}'><prosody rate='${rate}' pitch='+0Hz'>${escaparXml(texto)}</prosody></voice>` +
     `</speak>`
   );
 }
@@ -248,7 +254,7 @@ export function recortarParaHablar(texto: string): string {
  * NUNCA tira: quedarse sin voz es un problema menor, y hacerlo caer se
  * llevaría puesta la respuesta escrita, que es lo que de verdad importa.
  */
-export async function hablar(texto: string, voz = VOZ_POR_DEFECTO): Promise<Buffer | null> {
+export async function hablar(texto: string, voz = VOZ_POR_DEFECTO, rate = "+8%"): Promise<Buffer | null> {
   const limpio = recortarParaHablar(paraLeerEnVoz(texto));
   if (!limpio) return null;
 
@@ -286,7 +292,7 @@ export async function hablar(texto: string, voz = VOZ_POR_DEFECTO): Promise<Buff
       );
       ws.send(
         `X-RequestId:${randomUUID().replace(/-/g, "")}\r\nContent-Type:application/ssml+xml\r\n` +
-        `X-Timestamp:${fecha}Z\r\nPath:ssml\r\n\r\n${armarSsml(limpio, voz)}`,
+        `X-Timestamp:${fecha}Z\r\nPath:ssml\r\n\r\n${armarSsml(limpio, voz, rate)}`,
       );
     });
 

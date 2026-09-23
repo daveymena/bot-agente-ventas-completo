@@ -3305,7 +3305,9 @@ export class WhatsAppManager {
       if (textoHablado.trim().length >= 20) {
         try {
           const { hablar } = await import("./voz-de-atlas");
-          const audio = await hablar(textoHablado);
+          // Ritmo natural (+0%): una voz de ventas calmada suena más confiable
+          // que la de Atlas, que corre un poco para leer paneles.
+          const audio = await hablar(textoHablado, undefined, "+0%");
           if (audio) {
             await this.sendAudio(phone, audio, "audio/mpeg", originalJid);
             console.log(`🎙️ [WA-VOZ] Audio enviado (${Math.round(audio.length / 1024)} KB) - ${timestamp}`);
