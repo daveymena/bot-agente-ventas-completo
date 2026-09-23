@@ -49,6 +49,26 @@ router.post("/disconnect", async (req, res, next) => {
   }
 });
 
+// Prueba de voz: genera el audio con el TTS y lo manda a un número por WhatsApp.
+// Sirve para escuchar en vivo cómo suena el agente (sin esperar un turno real).
+router.post("/test-audio", async (req, res, next) => {
+  try {
+    const tid = tenantIdFromReq(req);
+    const phone = String(req.body?.phone || "").trim();
+    if (!phone) return res.status(400).json({ ok: false, error: "Falta phone" });
+    const texto = String(req.body?.texto || "Hola, esta es una prueba de voz de VentasProIA.");
+    const { hablar } = await import("../lib/voz-de-atlas");
+    const voz = process.env.WHATSAPP_AUDIO_VOICE || "es-CO-SalomeNeural";
+    const audio = await hablar(texto, voz, "+0%");
+    if (!audio) return res.status(502).json({ ok: false, error: "No se pudo generar el audio" });
+    const mgr = getWhatsAppForTenant(tid, (req as any).tenant);
+    await mgr.sendAudio(phone, audio, "audio/mpeg");
+    return res.json({ ok: true, bytes: audio.length, voz });
+  } catch (e) {
+    return next(e);
+  }
+});
+
 // Test IA - crear conversación y obtener respuesta (no afectado por multi-tenant)
 router.post("/test-ia", async (req, res, next) => {
   try {
