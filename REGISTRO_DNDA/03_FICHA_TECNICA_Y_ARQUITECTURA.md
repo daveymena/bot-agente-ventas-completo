@@ -95,7 +95,7 @@ El proyecto contiene configuración y scripts para despliegue mediante contenedo
 ## 9. Identificación técnica de la versión
 Repositorio: daveymena/bot-agente-ventas-completo
 Rama: master
-Commit: 662ebc16c6da60c356823ad6715083424ad33a31
+Commit: 369129e117dfc329cd5acf77f11a040ef7def494
 Mensaje: feat(agents): auto-reflexion curada, Sofia recepcionista y traspaso al especialista
 Fecha del commit: 22 de septiembre de 2026
 
