@@ -4,7 +4,7 @@
 Obra: VENTASPRO
 Repositorio: daveymena/bot-agente-ventas-completo
 Rama: master
-Commit: 662ebc16c6da60c356823ad6715083424ad33a31
+Commit: 369129e117dfc329cd5acf77f11a040ef7def494
 Fecha del commit: 22/09/2026
 Autor declarado para revisión: Duvier Davey Mena Mosquera
 
