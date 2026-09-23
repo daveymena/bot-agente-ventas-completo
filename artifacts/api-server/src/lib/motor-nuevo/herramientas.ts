@@ -147,7 +147,11 @@ const N = (t: unknown): string =>
 function esMismoConTypo(a: string, b: string): boolean {
   if (a === b) return true;
   if (Math.abs(a.length - b.length) > 1) return false;
-  if (a.length < 4 || b.length < 4) return false; // palabras cortas no toleran typo
+  // 6+ letras y la primera igual: desde 4 letras "piano" era "plano" y
+  // "astronomia" era "gastronomia" (medido con el catálogo real, 23-09-2026).
+  // Mismo criterio que conversation-engine.ts.
+  if (a.length < 6 || b.length < 6) return false;
+  if (a[0] !== b[0]) return false;
   let i = 0; let j = 0; let edits = 0;
   while (i < a.length && j < b.length) {
     if (a[i] === b[j]) { i++; j++; continue; }
