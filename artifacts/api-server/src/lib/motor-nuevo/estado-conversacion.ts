@@ -159,6 +159,14 @@ export interface EstadoConversacion {
   productoAnterior: number | null;
 
   /**
+   * La lista ORDENADA de productos que se le mostraron como opciones
+   * (mostrar_opciones) y que aún esperan que el cliente elija cuál.
+   * La posición en esta lista ES el orden en que se le mostraron las fichas,
+   * así "el primero/el segundo/este/esa" se resuelve sin adivinar.
+   */
+  opcionesMostradas: number[];
+
+  /**
    * QUÉ se le mandó de CADA producto y cuándo.
    *
    * Reemplaza a `elVideoYaSalio()`, a `yaVioContenido` y a toda la familia de
@@ -262,6 +270,7 @@ export function estadoInicial(conversationId: number): EstadoConversacion {
     conversationId,
     productoEnFoco: null,
     productoAnterior: null,
+    opcionesMostradas: [],
     seccionesEnviadas: {},
     ultimaOferta: null,
     pagoConfirmadoPorHumano: false,
@@ -316,6 +325,9 @@ export function normalizarEstado(crudo: unknown, conversationId: number): Estado
     conversationId,
     productoEnFoco: typeof c.productoEnFoco === "number" ? c.productoEnFoco : null,
     productoAnterior: typeof c.productoAnterior === "number" ? c.productoAnterior : null,
+    opcionesMostradas: Array.isArray(c.opcionesMostradas)
+      ? c.opcionesMostradas.map(Number).filter((n) => Number.isFinite(n))
+      : [],
     seccionesEnviadas: c.seccionesEnviadas && typeof c.seccionesEnviadas === "object" ? c.seccionesEnviadas : {},
     datos: c.datos && typeof c.datos === "object" ? c.datos : {},
     objecionesVistas: Array.isArray(c.objecionesVistas) ? c.objecionesVistas : [],
@@ -601,6 +613,16 @@ export function describirEstado(
   //  mándame ese/cuánto?/y ese?" se resuelve con ESTO, en este orden:
   //  mensaje actual → última pregunta del agente → producto activo →
   //  producto anterior → última herramienta → estado.
+  if (estado.opcionesMostradas.length >= 2) {
+    const orden = estado.opcionesMostradas
+      .map((id, i) => `${i + 1}) ${nombrePorProducto(id)}`)
+      .join(" · ");
+    l.push(
+      `Le mostraste ${estado.opcionesMostradas.length} opciones EN ESTE ORDEN: ${orden}. ` +
+        `Si el cliente dice "el primero/el segundo/la tercera/este/ese/esa/me gusta este", ` +
+        `mapealo a esa posición y usá enfocar_producto con el id de esa posición. NO vuelvas a preguntar "¿cuál?".`,
+    );
+  }
   if (estado.ultimaPreguntaAgente) {
     l.push(`Tu última pregunta fue: "${estado.ultimaPreguntaAgente}". Un "sí/no/ese/dale/ok" contesta A ESO.`);
   }

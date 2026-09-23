@@ -65,4 +65,20 @@ describe("mostrar_opciones (desambiguación visual)", () => {
     assert.ok(c.estado.seccionesEnviadas[1]?.info, "el producto 1 quedó marcado con info enviada");
     assert.ok(c.estado.seccionesEnviadas[2]?.info, "el producto 2 quedó marcado con info enviada");
   });
+
+  test("guarda el orden de las opciones para resolver 'el primero/el segundo/este'", () => {
+    const c = ctx();
+    ejecutores.mostrar_opciones(c, { productoIds: [1, 2, 3] });
+
+    assert.deepEqual(c.estado.opcionesMostradas, [1, 2, 3]);
+  });
+
+  test("al elegir (enfocar_producto) se limpian las opciones mostradas", async () => {
+    const c = ctx();
+    ejecutores.mostrar_opciones(c, { productoIds: [1, 2, 3] });
+    await ejecutores.enfocar_producto(c, { productoId: 2 });
+
+    assert.deepEqual(c.estado.opcionesMostradas, []);
+    assert.equal(c.estado.productoEnFoco, 2);
+  });
 });

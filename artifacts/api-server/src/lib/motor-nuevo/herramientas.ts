@@ -511,6 +511,8 @@ export const ejecutores: Record<string, Ejecutor> = {
     apilarContexto(ctx.estado, anterior ? `hablaban de ${nombreDe(ctx, anterior)}` : "explorando");
     ctx.estado.productoAnterior = anterior;
     ctx.estado.productoEnFoco = p.id;
+    // Ya eligió: las opciones mostradas dejan de estar "en espera de elección".
+    ctx.estado.opcionesMostradas = [];
     if (ctx.estado.etapa === "saludo" || ctx.estado.etapa === "explorando") {
       ctx.estado.etapa = "producto_en_foco";
     }
@@ -700,6 +702,10 @@ export const ejecutores: Record<string, Ejecutor> = {
       });
       registrarEnvio(ctx.estado, p.id, "info");
     }
+
+    // La lista ordenada queda en el estado: "el primero/el segundo/este/esa"
+    // se resuelve contra ESTA posición en el siguiente turno.
+    ctx.estado.opcionesMostradas = prods.map((p) => p.id);
 
     const orden = prods.map((p, i) => `${i + 1}) ${p.name}`).join(" · ");
     return {
