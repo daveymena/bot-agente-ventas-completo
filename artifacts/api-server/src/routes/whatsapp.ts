@@ -58,7 +58,7 @@ router.post("/test-audio", async (req, res, next) => {
     if (!phone) return res.status(400).json({ ok: false, error: "Falta phone" });
     const texto = String(req.body?.texto || "Hola, esta es una prueba de voz de VentasProIA.");
     const { hablar } = await import("../lib/voz-de-atlas");
-    const voz = process.env.WHATSAPP_AUDIO_VOICE || "es-CO-SalomeNeural";
+    const voz = String(req.body?.voz || process.env.WHATSAPP_AUDIO_VOICE || "es-CO-SalomeNeural");
     const audio = await hablar(texto, voz, "+0%");
     if (!audio) return res.status(502).json({ ok: false, error: "No se pudo generar el audio" });
     const mgr = getWhatsAppForTenant(tid, (req as any).tenant);
