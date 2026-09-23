@@ -98,6 +98,12 @@ export async function saveProductImage(source: string, productId: number): Promi
     }
     if (buffer.length < 100) return null; // no es una imagen válida
 
+    // ── Comprimir para web/ads ─────────────────────────────────────────────
+    // Dropi manda las fotos en resolución original (5 MB+); Facebook rechaza
+    // los creativos con imágenes tan pesadas. Se baja a ≤1080px y JPEG 80:
+    // queda <500 KB y sirve igual para ficha, landing y anuncio.
+    buffer = await comprimirParaWeb(buffer);
+
     const dir = path.join(getImageStoreDir(), "products");
     await mkdir(dir, { recursive: true });
     const file = path.join(dir, `${productId}.jpg`);
@@ -108,6 +114,28 @@ export async function saveProductImage(source: string, productId: number): Promi
   } catch (e: any) {
     logger.error({ err: e?.message, productId }, "[ImageStore] Error guardando imagen");
     return null;
+  }
+}
+
+/**
+ * Redimensiona y re-encoda a JPEG para web/anuncios.
+ *
+ * `sharp` está externalizada en build.mjs (no declarada en package.json):
+ * si no está disponible, devuelve el buffer tal cual -- nunca se pierde la
+ * imagen por querer comprimirla. El mismo criterio que usa whatsapp.ts al
+ * convertir webp→jpeg.
+ */
+async function comprimirParaWeb(buffer: Buffer): Promise<Buffer> {
+  try {
+    const sharp = (await import("sharp")).default;
+    const out = await sharp(buffer)
+      .rotate() // respeta EXIF (fotos de celular giradas)
+      .resize({ width: 1080, height: 1080, fit: "inside", withoutEnlargement: true })
+      .jpeg({ quality: 80, mozjpeg: true })
+      .toBuffer();
+    return out.length > 0 ? out : buffer;
+  } catch {
+    return buffer;
   }
 }
 
@@ -137,6 +165,8 @@ export async function saveProductImageVariant(source: string, productId: number,
       return null;
     }
     if (buffer.length < 100) return null;
+
+    buffer = await comprimirParaWeb(buffer);
 
     const dir = path.join(getImageStoreDir(), "products");
     await mkdir(dir, { recursive: true });

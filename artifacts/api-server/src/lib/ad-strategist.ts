@@ -247,6 +247,25 @@ const WINNING_STRATEGIES_BY_NICHE: Record<string, AdStrategy> = {
     interests: ["Libros", "Lectura", "Desarrollo personal", "Conocimiento", "Educación"],
     budget: 10000,
   },
+  // ── Producto FÍSICO (dropshipping/contraentrega) ─────────────────────────
+  // Todos los nichos de arriba son cursos digitales. Un producto físico
+  // (corrector de postura, licuadora, faja...) caía en "Cursos y Educación
+  // General" con un collage de miniaturas de cursos como imagen. Acá tiene su
+  // propia estrategia; el hook/angle se rellenan con la descripción real del
+  // producto en generateAdCopy.
+  producto_fisico: {
+    niche: "Producto físico",
+    hook: "",
+    angle: "",
+    emotionalTrigger: "Resolver un problema concreto del día a día",
+    ctaType: "SHOP_NOW",
+    imageStyle: "Foto real del producto sobre fondo limpio, estilo e-commerce",
+    imagePrompt: "Clean ecommerce product photo on neutral background, natural lighting, high quality, professional",
+    ageMin: 18,
+    ageMax: 55,
+    interests: ["Compras online", "Mercado Libre", "Ofertas", "Bienestar", "Hogar"],
+    budget: 20000,
+  },
 };
 
 /** Lo que el agente conversacional puede aportar cuando genera un borrador
@@ -313,6 +332,13 @@ export class AdStrategist {
   getStrategyForProduct(product: any): AdStrategy {
     const name = (product.name || "").toLowerCase();
     const category = (product.category || "").toLowerCase();
+
+    // Producto físico (dropshipping/contraentrega): NO es un curso. Los nichos
+    // de abajo son todos digitales; un corrector de postura o una licuadora
+    // caían en "Cursos y Educación" con collage de cursos. Va primero.
+    if (product.kind === "physical") {
+      return { ...WINNING_STRATEGIES_BY_NICHE.producto_fisico };
+    }
 
     if (category.includes("diseño") || category.includes("diseño gráfico") || name.includes("photoshop") || name.includes("ilustrator") || name.includes("indesign") || name.includes("lettering") || name.includes("logotipo") || name.includes("canva") || name.includes("after effects") || name.includes("premiere") || name.includes("animación") || name.includes("filmora") || name.includes("portadas") || name.includes("cuadros") || name.includes("sublimados") || name.includes("infografías") || name.includes("dibujo") || name.includes("ilustración") || name.includes("premiere")) {
       return { ...WINNING_STRATEGIES_BY_NICHE.diseno_grafico };
