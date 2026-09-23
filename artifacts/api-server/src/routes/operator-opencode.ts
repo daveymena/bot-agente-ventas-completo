@@ -271,7 +271,13 @@ const CANDIDATOS_PAGOS: { providerID: string; modelID: string }[] = [
   // flash, el costo es el mismo que midio OpenCode para `deepseek-chat`: un 500
   // en ~1,5 s y sigue al siguiente. Barato comparado con los 55 s de pro.
   { providerID: "deepseek", modelID: "deepseek-v4-flash" },
-  { providerID: "deepseek", modelID: "deepseek-v4-pro" },
+  // ⚠️ deepseek-v4-pro SALE de la cadena (2026-09-23). Es un modelo de
+  // RAZONAMIENTO: en pedidos con herramientas se "piensa" ~55s y muchas veces
+  // termina en "se quedó sin tiempo". Es la causa real de "Atlas demora tanto".
+  // No aporta respaldo útil: es la MISMA cuenta que flash, así que si flash se
+  // queda sin saldo, pro también. flash (1.7s) + mistral (1.5s) + big-pickle
+  // (gratis) cubren mejor y sin los 55s.
+  // { providerID: "deepseek", modelID: "deepseek-v4-pro" },
   // 🔻 REMEDIDO el 2026-09-03 contra ESTE contenedor, candidato por candidato,
   // leyendo el texto devuelto (no solo el HTTP 200, que llega igual cuando el
   // cuerpo trae `info.error`):
