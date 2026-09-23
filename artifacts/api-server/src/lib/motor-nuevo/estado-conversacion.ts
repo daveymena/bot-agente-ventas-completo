@@ -722,3 +722,41 @@ export function volvioDespuesDe(estado: EstadoConversacion, horas = 8): boolean 
   const h = horasDesdeUltimoMensaje(estado);
   return h != null && h > horas;
 }
+
+/** Compras ya comprometidas: el cliente que vuelve puede venir por su pedido. */
+const COMPRA_COMPROMETIDA: EstadoCompra[] = ["pago_reportado", "pago_confirmado", "pedido_creado", "entregado"];
+
+/**
+ * El cliente volvió después de horas: es una VISITA NUEVA, no la continuación
+ * de la venta de ayer.
+ *
+ * Antes el estado quedaba intacto -- producto en foco, "lo último que le
+ * ofreciste", pregunta pendiente, "lo próximo: esperar respuesta a la oferta"
+ * -- y el prompt decía "retomá donde quedaron". Resultado: un "hola" al otro
+ * día recibía "¿y pudiste decidirte por el corrector?". El dueño lo describió
+ * como un vendedor que quiere vender a toda costa en vez de ayudar.
+ *
+ * Lo pendiente de la venta vieja se archiva (queda como producto anterior y en
+ * la pila de contextos, para "¿y el de ayer?"), pero deja de empujar. Lo que
+ * el cliente ya contó de sí mismo, lo que ya se le envió y una compra ya
+ * comprometida (pagó, tiene pedido) se conservan: eso es memoria, no presión.
+ */
+export function abrirVisitaNueva(estado: EstadoConversacion): void {
+  if (estado.productoEnFoco != null) {
+    apilarContexto(estado, "visita anterior");
+    estado.productoAnterior = estado.productoEnFoco;
+    estado.productoEnFoco = null;
+  }
+  estado.opcionesMostradas = [];
+  estado.ultimaOferta = null;
+  estado.preguntaPendiente = null;
+  estado.ultimaPreguntaAgente = null;
+  estado.accionPendiente = null;
+  estado.siguienteAccion = null;
+  estado.ultimaHerramienta = null;
+  estado.intencionAnterior = estado.intencionActual;
+  estado.intencionActual = null;
+  // `pago` no se toca: "ya le mandaste los datos de pago" es un hecho, y si
+  // vuelve con un "ya" es justamente lo que hace falta para entenderlo.
+  if (!COMPRA_COMPROMETIDA.includes(estado.compra)) estado.compra = "ninguno";
+}

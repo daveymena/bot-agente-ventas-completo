@@ -37,6 +37,7 @@ import {
   describirEstado,
   horasDesdeUltimoMensaje,
   volvioDespuesDe,
+  abrirVisitaNueva,
   registrarHerramienta,
   actualizarResumenDesdeEstado,
   type EstadoConversacion,
@@ -158,7 +159,10 @@ ${catalogoCompacto}
 LO QUE YA PASÓ EN ESTA CONVERSACIÓN
 ${describirEstado(estado, params.nombrePorProducto)}${
     volvio
-      ? `\n\nEl cliente dejó de escribir hace ${Math.round(horas!)} horas y volvió recién. Retomá donde quedaron en una línea; no te presentes de nuevo ni arranques de cero.`
+      ? `\n\nVISITA NUEVA: el cliente no escribía hace ${Math.round(horas!)} horas. Lo de antes es memoria, no una venta pendiente. ` +
+        `Contestá a lo que escribe AHORA. Si solo saluda, saludalo con calidez y preguntale en qué lo podés ayudar hoy; ` +
+        `no le nombres el producto de antes ni le preguntes si ya se decidió o si ya pagó. ` +
+        `Si él retoma lo de antes, ahí sí seguís desde donde quedaron sin repetirle lo que ya tiene. No te presentes de nuevo.`
       : ""
   }${voz.instruccionesExtra ? `\n\nINDICACIONES DEL DUEÑO\n${voz.instruccionesExtra}` : ""}`;
 }
@@ -286,6 +290,11 @@ export async function responder(params: {
   // FASE 1/14: el texto del cliente queda en estado (para referencias y diagnóstico).
   estado.ultimoMensajeClienteTexto = String(mensajeDelCliente || "").slice(0, 500) || null;
 
+  // Volvió después de horas: visita nueva. Va antes de derivar `compra` del
+  // foco (abajo), porque es justamente el foco viejo lo que se archiva.
+  const volvio = volvioDespuesDe(estado);
+  if (volvio) abrirVisitaNueva(estado);
+
   // FASE 5: con charla larga el historial se corta en 40; el resumen de HECHOS
   // (no transcripción) preserva lo viejo sin reenviar todo al modelo.
   if (historial.length > 30 && (!estado.resumenPrevio || estado.turnos % 10 === 0)) {
@@ -318,13 +327,24 @@ export async function responder(params: {
       : undefined,
   };
 
-  const messages: any[] = [
-    { role: "system", content: system },
-    ...historial.slice(-MENSAJES_DE_HISTORIAL).map((m) => ({
-      role: m.role === "customer" ? "user" : "assistant",
-      content: m.content,
-    })),
-  ];
+  const charla = historial.slice(-MENSAJES_DE_HISTORIAL).map((m) => ({
+    role: m.role === "customer" ? "user" : "assistant",
+    content: m.content,
+  }));
+  // En una visita nueva, el corte se marca DENTRO del historial: sin esto el
+  // último mensaje del bot ("¿te lo llevás?") queda pegado al "hola" de hoy y
+  // el modelo lo lee como la respuesta a esa pregunta.
+  if (volvio) {
+    let inicio = charla.length;
+    while (inicio > 0 && charla[inicio - 1].role === "user") inicio--;
+    if (inicio > 0) {
+      charla.splice(inicio, 0, {
+        role: "system",
+        content: "— Fin de la visita anterior. Pasaron horas. Lo que sigue es lo que el cliente escribe hoy. —",
+      });
+    }
+  }
+  const messages: any[] = [{ role: "system", content: system }, ...charla];
 
   const traza: ResultadoRespuesta["traza"] = [];
   let proveedor = "desconocido";

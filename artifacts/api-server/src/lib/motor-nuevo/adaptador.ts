@@ -19,7 +19,7 @@
  * igual. Que cambie el cerebro no puede cambiar el resto del cuerpo.
  */
 
-import { and, asc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import {
   db,
   agents,
@@ -207,12 +207,17 @@ export async function cargarVozDelNegocio(tenantId: number): Promise<VozDelNegoc
  * necesita para no repetirse. Se traen los últimos de la charla.
  */
 export async function cargarHistorial(conversationId: number, limite = 60): Promise<Mensaje[]> {
-  const filas = await db
-    .select()
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(asc(messages.createdAt))
-    .limit(500);
+  // Los 500 MÁS RECIENTES, después vueltos a orden cronológico. Con
+  // `asc + limit` una charla de más de 500 mensajes traía los 500 primeros y
+  // el agente contestaba leyendo la conversación de hace semanas.
+  const filas = (
+    await db
+      .select()
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(desc(messages.createdAt), desc(messages.id))
+      .limit(500)
+  ).reverse();
 
   return filas
     .filter((m: any) => m.role === "customer" || m.role === "agent")

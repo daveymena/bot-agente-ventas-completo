@@ -16,10 +16,11 @@
  *                                          negocio (el mismo negocio siempre
  *                                          cae del mismo lado, así que no
  *                                          "parpadea" entre motores).
- *   4. `MOTOR_VENDEDOR`                  → el valor por defecto: v1.
+ *   4. `MOTOR_VENDEDOR`                  → el valor por defecto: v2 desde el
+ *                                          22-09-2026 (cdb1356).
  *
- * Con la variable en `v1` (el defecto) NADA cambia para nadie aunque el código
- * nuevo esté en producción. Esa es la condición para poder desplegarlo.
+ * Para volver toda la plataforma al motor viejo sin redesplegar código:
+ * `MOTOR_VENDEDOR=v1` en el entorno.
  */
 
 import { and, eq } from "drizzle-orm";

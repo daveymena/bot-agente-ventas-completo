@@ -276,10 +276,11 @@ describe("una venta completa en la escuela de cursos", () => {
     const segundo = await turno({ negocio: CURSOS, medios: MEDIOS_CURSOS, estado, mensaje: "hola, volví", guionado });
     assert.equal(segundo.partes.filter((p) => p.kind === "card").length, 0, "no la repite");
     assert.match(segundo.traza[0].resultado, /ya le mandaste/i);
-    // Y el modelo recibe el aviso de que volvió, para retomar y no presentarse.
+    // Y el modelo recibe el aviso de visita nueva: no se presenta, pero
+    // tampoco retoma la venta vieja por su cuenta (ver visita-nueva.test.ts).
     // Se lee del prompt con el que corrió el turno: al final del turno el motor
     // actualiza la marca de tiempo, así que reconstruirlo después no lo vería.
-    assert.match(String((segundo as any).system), /volvió recién/);
+    assert.match(String((segundo as any).system), /VISITA NUEVA/);
     assert.match(String((segundo as any).system), /De Curso de piano ya le enviaste/);
   });
 });

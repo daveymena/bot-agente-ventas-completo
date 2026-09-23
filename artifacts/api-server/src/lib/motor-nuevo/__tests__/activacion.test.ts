@@ -2,10 +2,9 @@
  * LA BANDERA
  * ==========
  *
- * El motor nuevo está en producción desde el primer día, pero APAGADO. Esta
- * prueba es la que garantiza que así sea: si algún cambio lo prende para todos
- * sin querer, acá se ve antes de que un cliente real reciba una respuesta
- * distinta a la que venía recibiendo.
+ * Desde el 22-09-2026 (cdb1356) el motor v2 es el valor por defecto. La bandera
+ * sigue existiendo para apagarlo por negocio, o para toda la plataforma con
+ * MOTOR_VENDEDOR=v1, y estas pruebas cuidan que ese interruptor funcione.
  */
 
 import { test, describe, expect, beforeEach, afterEach } from "vitest";
@@ -56,10 +55,10 @@ async function tenantDePrueba() {
 }
 
 describe("la bandera del motor", () => {
-  test("por defecto sigue el motor viejo: desplegar esto no cambia nada", async () => {
+  test("por defecto usa el motor v2 (activado para todos el 22-09)", async () => {
     delete process.env.MOTOR_VENDEDOR;
     const t = await tenantDePrueba();
-    assert.equal(await motorDelTenant(t.id), "v1");
+    assert.equal(await motorDelTenant(t.id), "v2");
   });
 
   test("la variable global lo prende para todos", async () => {
@@ -69,7 +68,7 @@ describe("la bandera del motor", () => {
   });
 
   test("la lista por variable prende solo a los que están en la lista", async () => {
-    delete process.env.MOTOR_VENDEDOR;
+    process.env.MOTOR_VENDEDOR = "v1";
     const t = await tenantDePrueba();
     assert.equal(await motorDelTenant(t.id), "v1");
 
@@ -83,7 +82,7 @@ describe("la bandera del motor", () => {
   });
 
   test("el porcentaje es ESTABLE: el mismo negocio no parpadea entre motores", async () => {
-    delete process.env.MOTOR_VENDEDOR;
+    process.env.MOTOR_VENDEDOR = "v1";
     const t = await tenantDePrueba();
 
     process.env.MOTOR_VENDEDOR_PORCENTAJE = "100";
@@ -127,8 +126,9 @@ describe("la bandera del motor", () => {
   });
 
   test("un negocio que no existe no rompe: cae al valor por defecto", async () => {
-    assert.equal(await motorDelTenant(999999999), "v1");
-    assert.equal(await motorDelTenant(null), "v1");
+    delete process.env.MOTOR_VENDEDOR;
+    assert.equal(await motorDelTenant(999999999), "v2");
+    assert.equal(await motorDelTenant(null), "v2");
   });
 
   test("la explicación dice de dónde salió la decisión", async () => {
