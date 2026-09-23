@@ -299,6 +299,17 @@ const MIGRATIONS = [
   // filas y el conteo queda partido -- la forma silenciosa de que un limite
   // deje de aplicarse.
   `CREATE UNIQUE INDEX IF NOT EXISTS consumo_mensual_tenant_periodo ON consumo_mensual (tenant_id, periodo)`,
+  // ── Conversaciones (ventanas de 24h) por negocio y mes ───────────────────
+  // Medidor del cobro por conversación de WhatsApp Cloud API: con esto el
+  // costo de Meta se puede pasar a cada negocio según su consumo real.
+  `CREATE TABLE IF NOT EXISTS consumo_conversaciones (
+    id SERIAL PRIMARY KEY,
+    tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    periodo TEXT NOT NULL,
+    conversaciones INTEGER NOT NULL DEFAULT 0,
+    actualizado_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
+  )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS consumo_conversaciones_tenant_periodo ON consumo_conversaciones (tenant_id, periodo)`,
   // ── Varias cuentas de Copilot, en cola ──────────────────────────────────
   //
   // ⚠️ `ai-keys.ts` YA LEIA `row.copilotTokens` desde el 2026-08-24, pero esta

@@ -43,11 +43,13 @@ import landingPagesRouter from "./landing-pages";
 import landingPagesAiRouter from "./landing-pages-ai";
 import landingStudioOpencodeRouter from "./landing-studio-opencode";
 import couponsRouter from "./coupons";
+import whatsappCloudRouter from "./whatsapp-cloud";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
 router.use("/whatsapp", whatsappRouter);
+router.use("/whatsapp-cloud", whatsappCloudRouter);
 router.use("/agents", agentsRouter);
 router.use("/conversations", conversationsRouter);
 router.use("/leads", leadsRouter);

@@ -13,7 +13,7 @@
 import { getMessageQueue, QueuedMessage } from '../message-queue';
 import { runAgentReply } from '../agent';
 import { type AgentReplyPart } from '../whatsapp-singleton';
-import { getWhatsAppForTenant } from '../whatsapp-factory';
+import { transporteConectado, enviarPartsAlCliente } from '../transporte-whatsapp';
 import { tenantManager } from '../tenantManager';
 import { checkMessageLimit } from '../../middleware/featureLimits';
 import { db } from "@workspace/db";
@@ -196,9 +196,8 @@ export class AgentOrchestrator {
     // singleton), o sea, el cliente del tenant 2 recibía la respuesta desde
     // el NÚMERO DE WHATSAPP DEL TENANT 1. Ahora usa la instancia real de
     // ESE tenant en ambos pasos.
-    const waInstance = getWhatsAppForTenant(tenantIdNum);
-    if (!waInstance.isConnected()) {
-      logger.debug({ tenantId: tenantIdNum }, '[AgentOrchestrator] WhatsApp not connected for this tenant, deferring message processing');
+    if (!transporteConectado(tenantIdNum)) {
+      logger.debug({ tenantId: tenantIdNum }, '[AgentOrchestrator] Transporte de WhatsApp no conectado para este tenant, difiriendo procesamiento');
       message.processing = false;
       return;
     }
@@ -279,7 +278,7 @@ export class AgentOrchestrator {
 
       // ── Enviar ──────────────────────────────────────────────────────────
       const pushName = convo.contactName || phone;
-      await waInstance.sendAgentParts(phone, pushName, partes, message.from);
+      await enviarPartsAlCliente(tenantIdNum, phone, pushName, partes, message.from);
 
       // NO se persiste aquí: runAgentReply ya guardó la respuesta con
       // saveAgentMessage (con su metadata y actualizando lastMessage) en todos

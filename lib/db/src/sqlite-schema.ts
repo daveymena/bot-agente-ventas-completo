@@ -476,6 +476,14 @@ export const consumoMensual = sqliteTable("consumo_mensual", {
   actualizadoAt: text("actualizado_at").notNull(),
 });
 
+export const consumoConversaciones = sqliteTable("consumo_conversaciones", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  periodo: text("periodo").notNull(),
+  conversaciones: integer("conversaciones").notNull().default(0),
+  actualizadoAt: text("actualizado_at").notNull(),
+});
+
 export const trabajosProgramados = sqliteTable("trabajos_programados", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),

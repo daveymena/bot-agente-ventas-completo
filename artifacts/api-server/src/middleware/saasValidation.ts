@@ -55,7 +55,7 @@ import { logger } from "../lib/logger";
  *
  * 👉 Recalcular estos numeros cuando cambie el costo real, no antes.
  */
-export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMessages: number; maxConversations: number; maxProducts: number; maxAgents: number; features: string[]; trialDays: number; visible?: boolean; }> = {
+export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMessages: number; monthlyConversations: number; maxConversations: number; maxProducts: number; maxAgents: number; features: string[]; trialDays: number; visible?: boolean; }> = {
   basic: {
     // Prueba de 7 días, no gratis para siempre -- si el plan gratuito no
     // vence nadie tiene motivo real para pagar. 30 mensajes alcanza para que
@@ -63,6 +63,7 @@ export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMe
     name: "Prueba gratis",
     price: 0,
     monthlyMessages: 30,
+    monthlyConversations: 20,
     maxConversations: 20,
     maxProducts: 10,
     maxAgents: 1,
@@ -72,8 +73,9 @@ export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMe
   },
   starter: {
     name: "Starter",
-    price: 19,          // cuesta $4,95 -> margen 74%
+    price: 29,          // cuesta ~$5 (IA) -> margen ~83%
     monthlyMessages: 1500,
+    monthlyConversations: 500,
     maxConversations: 150,
     maxProducts: 75,
     maxAgents: 2,
@@ -83,8 +85,9 @@ export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMe
   },
   premium: {
     name: "Growth",
-    price: 49,          // cuesta $13,20 -> margen 73%
+    price: 79,          // cuesta ~$13 (IA) -> margen ~84%
     monthlyMessages: 4000,
+    monthlyConversations: 1500,
     maxConversations: 400,
     maxProducts: 300,
     maxAgents: 5,
@@ -94,8 +97,9 @@ export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMe
   },
   professional: {
     name: "Pro",
-    price: 99,          // cuesta $29,70 -> margen 70%
+    price: 149,         // cuesta ~$30 (IA) -> margen ~80%
     monthlyMessages: 9000,
+    monthlyConversations: 3000,
     maxConversations: 900,
     maxProducts: 750,
     maxAgents: 8,
@@ -116,6 +120,7 @@ export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMe
     name: "Free",
     price: 0,
     monthlyMessages: 100,
+    monthlyConversations: 30,
     maxConversations: 10,
     maxProducts: 5,
     maxAgents: 1,
@@ -125,8 +130,9 @@ export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMe
   },
   enterprise: {
     name: "Enterprise",
-    price: 299,         // cuesta $89,10 -> margen 70% (antes PERDIA $31)
+    price: 299,         // cuesta ~$89 (IA) -> margen ~70%
     monthlyMessages: 27000,
+    monthlyConversations: 10000,
     maxConversations: 2700,
     maxProducts: 5000,
     maxAgents: 10,

@@ -588,6 +588,7 @@ const publicRoutes = [
   "/facebook/messenger/webhook", // Facebook Messenger webhook
   "/facebook/marketplace/webhook", // Facebook Marketplace webhook
   "/facebook/comments/webhook", // Facebook Comments webhook
+  "/whatsapp-cloud/webhook", // WhatsApp Cloud API webhook (mensajes entrantes)
   "/p", // Short URLs para productos
   // Puente MCP que llama el contenedor OpenCode (cerebro de Atlas), no un
   // navegador con sesión -- tiene su PROPIA autenticación (token de turno
