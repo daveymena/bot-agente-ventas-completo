@@ -3,7 +3,7 @@
 ## 1. Identificación
 **Nombre:** VentasPro
 **Naturaleza:** Programa de computador / plataforma SaaS de automatización comercial
-**Versión de referencia:** estado del repositorio en el commit 662ebc16c6da60c356823ad6715083424ad33a31
+**Versión de referencia:** estado del repositorio en el commit 369129e117dfc329cd5acf77f11a040ef7def494
 **Fecha de referencia:** 22 de septiembre de 2026
 **Autor declarado:** Duvier Davey Mena Mosquera
 
