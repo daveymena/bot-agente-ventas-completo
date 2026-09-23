@@ -3307,7 +3307,9 @@ export class WhatsAppManager {
           const { hablar } = await import("./voz-de-atlas");
           // Ritmo natural (+0%): una voz de ventas calmada suena más confiable
           // que la de Atlas, que corre un poco para leer paneles.
-          const audio = await hablar(textoHablado, undefined, "+0%");
+          // Voz configurable: es-CO-SalomeNeural (mujer) o es-CO-GonzaloNeural (hombre).
+          const voz = process.env.WHATSAPP_AUDIO_VOICE || "es-CO-SalomeNeural";
+          const audio = await hablar(textoHablado, voz, "+0%");
           if (audio) {
             await this.sendAudio(phone, audio, "audio/mpeg", originalJid);
             console.log(`🎙️ [WA-VOZ] Audio enviado (${Math.round(audio.length / 1024)} KB) - ${timestamp}`);
