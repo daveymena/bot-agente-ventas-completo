@@ -99,14 +99,17 @@ export class MessageQueue extends EventEmitter {
   /**
    * Obtiene el siguiente mensaje pendiente
    */
-  dequeue(): QueuedMessage | null {
+  dequeue(admitir?: (m: QueuedMessage) => boolean): QueuedMessage | null {
     const ahora = Date.now();
     const pending = this.queue.find(m =>
       !m.processed &&
       !m.processing &&
       m.retryCount < this.maxRetries &&
       // Un mensaje en espera por el tope horario no se toca hasta su hora.
-      (!m.noAntesDe || m.noAntesDe <= ahora)
+      (!m.noAntesDe || m.noAntesDe <= ahora) &&
+      // El orquestador salta las conversaciones que ya se están atendiendo:
+      // dos respuestas en paralelo al mismo cliente se pisarían.
+      (!admitir || admitir(m))
     );
     if (pending) {
       pending.processing = true;
@@ -192,7 +195,9 @@ export class MessageQueue extends EventEmitter {
    */
   cleanup(): void {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    this.queue = this.queue.filter(m => !m.processed || m.createdAt > oneHourAgo);
+    // Los que agotaron los reintentos tampoco se vuelven a tocar nunca: sin
+    // esto se acumulaban en memoria para siempre.
+    this.queue = this.queue.filter(m => (!m.processed && m.retryCount < this.maxRetries) || m.createdAt > oneHourAgo);
   }
 }
 

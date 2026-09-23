@@ -173,8 +173,19 @@ async function initDb() {
     saveDbToDisk = saveDb;
     setInterval(saveDb, 15000);
     process.on("exit", saveDb);
-    process.on("SIGINT", () => { saveDb(); process.exit(0); });
-    process.on("SIGTERM", () => { saveDb(); process.exit(0); });
+    // Guardar, y salir SOLO si nadie más maneja la señal. Como `lib/db` se
+    // importa primero, un `process.exit(0)` acá mataba el cierre ordenado de
+    // WhatsApp (lib/apagado-ordenado.ts) antes de que cerrara el socket: los
+    // mensajes que llegaban durante el deploy se perdían. Es el mismo arreglo
+    // que ya tenía la rama de respaldo de abajo; esta (la que usa la demo) se
+    // había quedado sin él. En un script suelto, sin apagado ordenado, se sigue
+    // saliendo como antes.
+    const alRecibir = (senal: NodeJS.Signals) => () => {
+      saveDb();
+      if (process.listenerCount(senal) <= 1) process.exit(0);
+    };
+    process.on("SIGINT", alRecibir("SIGINT"));
+    process.on("SIGTERM", alRecibir("SIGTERM"));
 
     await ensureSqliteTables(sqliteDb, saveDb);
     dbReady = true;
@@ -183,13 +194,19 @@ async function initDb() {
     const pg = await import("pg");
     const { Pool } = pg.default || pg;
 
-    let dbUrl = process.env.DATABASE_URL || "";
-    if (dbUrl.includes("@base")) {
-      dbUrl = dbUrl.replace("@base", "@79.143.187.160");
-    }
+    // (Se quitó el reemplazo de "@base" por 79.143.187.160: ese servidor ya no
+    // existe -- medido el 23-09-2026, solo responde el puerto 22.)
+    const dbUrl = process.env.DATABASE_URL || "";
 
     if (dbUrl) {
       console.log(`📡 [DB-CONNECTION] Intentando conectar a: ${dbUrl.replace(/:([^:@]+)@/, ":****@")}`);
+    } else if (process.env.NODE_ENV === "production") {
+      // En producción, sin DATABASE_URL NO se arranca. El respaldo de abajo
+      // crea un SQLite VACÍO: el bot quedaba en línea, contestando sin
+      // catálogo, sin clientes y sin historial, y guardando las ventas en un
+      // archivo que nadie mira. Un error de configuración en EasyPanel tiene
+      // que verse como caída, no como un bot que "anda raro".
+      throw new Error("DATABASE_URL no está definida y NODE_ENV=production: no se arranca con una base vacía. Revisá el entorno del servicio.");
     } else {
       console.log(`❌ [DB-CONNECTION] DATABASE_URL no está definida. Intentando fallback a SQLite...`);
       // Fallback: re-exec as SQLite
@@ -413,6 +430,9 @@ const initPromise = initDb().then(() => {
 }).catch(err => {
   console.error("❌ [DB] Error de inicialización:", err.message);
   console.error("❌ [DB] La base de datos NO está disponible. Las operaciones de BD fallarán.");
+  // Falta de configuración en producción: se sale para que EasyPanel lo
+  // muestre como caído en vez de levantar un servidor sin base.
+  if (process.env.NODE_ENV === "production" && !process.env.DATABASE_URL && !USE_SQLITE) process.exit(1);
 });
 
 export async function ensureDbReady() {

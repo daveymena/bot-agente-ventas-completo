@@ -35,6 +35,23 @@ export class AgentOrchestrator {
   private configs: Map<string, AgentOrchestratorConfig> = new Map();
   private processing = false;
   private intervalId?: NodeJS.Timeout;
+  private recuperacionProgramada = false;
+
+  /**
+   * Cuántas conversaciones se atienden a la vez. Antes era UNA para toda la
+   * plataforma: cada respuesta tarda varios segundos (espera de agrupado +
+   * IA), así que con varios negocios activos el último cliente de la fila
+   * esperaba la suma de todos. Dentro de una misma conversación sigue siendo
+   * de a uno (ver `enCurso`).
+   */
+  private readonly maxEnParalelo = Math.max(1, Number(process.env.AGENT_CONCURRENCIA) || 4);
+  private activos = 0;
+  /** Conversaciones que se están atendiendo ahora mismo. */
+  private enCurso = new Set<string>();
+
+  private static claveDe(m: QueuedMessage): string {
+    return m.conversationId != null ? `c${m.conversationId}` : `t${m.tenantId}:${m.phone || m.from}`;
+  }
 
   constructor() {
     logger.info('[AgentOrchestrator] Initialized - IA processor worker');
@@ -58,16 +75,19 @@ export class AgentOrchestrator {
       // Los 20s son para que WhatsApp termine de reconectar: si se encolan
       // antes, processNextMessage los difiere por "no conectado" y vuelven a
       // quedar esperando.
-      const idNum = Number(tenantId);
-      if (Number.isFinite(idNum)) {
-        setTimeout(() => { this.recuperarSinResponder(idNum).catch(() => {}); }, 20_000).unref?.();
+      // La recuperación cubre a TODOS los negocios: antes solo corría para el
+      // tenant configurado acá (el 1), así que un mensaje perdido en un
+      // reinicio de cualquier otro negocio no se recuperaba nunca.
+      if (!this.recuperacionProgramada) {
+        this.recuperacionProgramada = true;
+        setTimeout(() => { this.recuperarSinResponder().catch(() => {}); }, 20_000).unref?.();
         // Y cada 5 minutos: un mensaje puede quedarse sin responder por
         // cualquier motivo (el proveedor de IA falló, WhatsApp estaba
         // reconectando, un error puntual), no solo por un reinicio. Barrer
         // periódicamente hace que el sistema se cure solo en vez de depender
         // de que alguien mire. Encolar de nuevo es barato: si la conversación
         // ya fue respondida, no entra.
-        setInterval(() => { this.recuperarSinResponder(idNum).catch(() => {}); }, 5 * 60_000).unref?.();
+        setInterval(() => { this.recuperarSinResponder().catch(() => {}); }, 5 * 60_000).unref?.();
       }
     }
   }
@@ -94,7 +114,7 @@ export class AgentOrchestrator {
    * vuelven a encolar. Más viejo que eso no se recupera: contestarle a
    * alguien dos días después es peor que no contestarle.
    */
-  private async recuperarSinResponder(tenantId: number): Promise<void> {
+  private async recuperarSinResponder(): Promise<void> {
     try {
       // Se usa el constructor de consultas de Drizzle, no SQL crudo con
       // db.execute: db.execute no se usa en ningún otro lado de este código,
@@ -103,14 +123,12 @@ export class AgentOrchestrator {
       // peor que no tenerla, porque da falsa tranquilidad.
       const hace24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
       const recientes = await db
-        .select({ id: conversations.id, phone: conversations.contactPhone })
+        .select({ id: conversations.id, phone: conversations.contactPhone, tenantId: conversations.tenantId })
         .from(conversations)
-        .where(and(
-          eq(conversations.tenantId, tenantId),
-          gt(conversations.lastMessageAt, hace24h),
-        ))
-        .orderBy(conversations.lastMessageAt)
-        .limit(30);
+        // Solo las que atiende el bot: las que tomó una persona no se tocan.
+        .where(and(gt(conversations.lastMessageAt, hace24h), eq(conversations.status, "ai")))
+        .orderBy(desc(conversations.lastMessageAt))
+        .limit(100);
 
       let recuperadas = 0;
       for (const c of recientes) {
@@ -122,11 +140,14 @@ export class AgentOrchestrator {
           .orderBy(desc(messages.createdAt), desc(messages.id))
           .limit(1);
         if (ultimo?.role !== "customer") continue;
+        if (c.tenantId == null) continue;
+        // Ya está en la cola o atendiéndose: no se duplica la respuesta.
+        if (this.enCurso.has(`c${c.id}`) || this.queue.pendingForConversation(Number(c.id)).length) continue;
 
         this.queue.enqueue({
-          tenantId: String(tenantId),
+          tenantId: String(c.tenantId),
           from: `${c.phone}@s.whatsapp.net`,
-          to: String(tenantId),
+          to: String(c.tenantId),
           body: "",                       // el agente lee el historial de la BD
           timestamp: new Date(),
           messageId: `recuperado_${c.id}_${Date.now()}`,
@@ -137,10 +158,10 @@ export class AgentOrchestrator {
         recuperadas++;
       }
       if (recuperadas > 0) {
-        logger.warn({ tenantId, recuperadas }, "[AgentOrchestrator] Conversaciones sin responder recuperadas");
+        logger.warn({ recuperadas }, "[AgentOrchestrator] Conversaciones sin responder recuperadas");
       }
     } catch (e: any) {
-      logger.error({ err: e?.message, tenantId }, "[AgentOrchestrator] No se pudieron recuperar los mensajes sin responder");
+      logger.error({ err: e?.message }, "[AgentOrchestrator] No se pudieron recuperar los mensajes sin responder");
     }
   }
 
@@ -160,10 +181,20 @@ export class AgentOrchestrator {
   private async runProcessingLoop(): Promise<void> {
     if (!this.processing) return;
 
-    try {
-      await this.processNextMessage();
-    } catch (error) {
-      logger.error({ error }, '[AgentOrchestrator] Loop error');
+    // Se llenan los lugares libres con conversaciones que NO se estén
+    // atendiendo ya. Cada una corre por su cuenta; el bucle no las espera.
+    while (this.activos < this.maxEnParalelo) {
+      const message = this.queue.dequeue((m) => !this.enCurso.has(AgentOrchestrator.claveDe(m)));
+      if (!message) break;
+      const clave = AgentOrchestrator.claveDe(message);
+      this.activos++;
+      this.enCurso.add(clave);
+      this.processMessage(message)
+        .catch((error) => logger.error({ error }, '[AgentOrchestrator] Loop error'))
+        .finally(() => {
+          this.activos--;
+          this.enCurso.delete(clave);
+        });
     }
 
     // Esperar un poco antes de la siguiente vuelta para no saturar
@@ -176,12 +207,7 @@ export class AgentOrchestrator {
   /**
    * Procesa el siguiente mensaje en la cola
    */
-  private async processNextMessage(): Promise<void> {
-    const message = this.queue.dequeue();
-    if (!message) {
-      return;
-    }
-
+  private async processMessage(message: QueuedMessage): Promise<void> {
     const tenantIdNum = Number(message.tenantId);
     if (!Number.isFinite(tenantIdNum)) {
       logger.warn(`[AgentOrchestrator] tenantId inválido: "${message.tenantId}"`);
@@ -197,8 +223,18 @@ export class AgentOrchestrator {
     // el NÚMERO DE WHATSAPP DEL TENANT 1. Ahora usa la instancia real de
     // ESE tenant en ambos pasos.
     if (!transporteConectado(tenantIdNum)) {
-      logger.debug({ tenantId: tenantIdNum }, '[AgentOrchestrator] Transporte de WhatsApp no conectado para este tenant, difiriendo procesamiento');
-      message.processing = false;
+      // Se POSPONE, no se deja "no procesando": `dequeue` devuelve siempre el
+      // primer pendiente, así que un mensaje de un negocio desconectado
+      // volvía a salir primero en cada vuelta y trababa la cola de TODOS los
+      // negocios mientras ese WhatsApp siguiera caído.
+      const edadMs = Date.now() - new Date(message.createdAt).getTime();
+      if (edadMs > 24 * 60 * 60 * 1000) {
+        logger.warn({ tenantId: tenantIdNum, queueId: message.id }, '[AgentOrchestrator] WhatsApp desconectado más de 24h: se descarta el mensaje (queda guardado en la base)');
+        this.queue.markProcessed(message.id);
+        return;
+      }
+      logger.debug({ tenantId: tenantIdNum }, '[AgentOrchestrator] Transporte de WhatsApp no conectado para este tenant, se reintenta en 15s');
+      this.queue.posponer(message.id, 15_000);
       return;
     }
 
@@ -237,6 +273,17 @@ export class AgentOrchestrator {
       if (!convo) {
         logger.error(`[AgentOrchestrator] No se pudo obtener conversación para ${message.from}`);
         this.queue.markFailed(message.id);
+        return;
+      }
+
+      // La conversación la atiende una PERSONA (el dueño la tomó desde el
+      // panel, o el motor la escaló): el bot no contesta. El chequeo existía
+      // en el whatsapp.ts viejo (`if (convo.status === "ai")`) y se perdió al
+      // pasar a cola + orquestador, así que el panel mostraba "Humano" y el
+      // bot le seguía escribiendo al cliente por encima de la persona.
+      if ((convo as any).status === "human") {
+        logger.info({ conversationId: convo.id }, '[AgentOrchestrator] Conversación en manos de una persona: el bot no responde');
+        for (const m of [message, ...this.queue.pendingForConversation(convo.id, message.id)]) this.queue.markProcessed(m.id);
         return;
       }
 
