@@ -86,6 +86,9 @@ registrarOrganico();
 // El equipo de marketing tambien necesita reloj: sin esto, sus catorce
 // especialistas solo trabajan cuando el admin abre el chat y pregunta.
 registrarAgencia();
+// Cierra el loop de aprobaciones: al aprobar una tarea del equipo, se ejecuta
+// de verdad contra Meta (ver lib/marketing-team/task-executor.ts).
+import("./lib/marketing-team/task-executor").then((m) => m.iniciarEjecutorDeTareas()).catch(() => undefined);
 // Tokens de Dropify por producto: se auditan y reparan solos (ver lib/dropify-auditoria.ts).
 import("./lib/dropify-auditoria").then((m) => m.iniciarAuditoriaDropify()).catch(() => undefined);
 import("./lib/telegram-atlas").then((m) => m.iniciarAtlasEnTelegramParaTodos()).catch(() => undefined);

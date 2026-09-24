@@ -250,11 +250,35 @@ router.patch("/tasks/:id", async (req, res, next) => {
     if (status) patch.status = status;
     if (output !== undefined) patch.output = output;
     if (error !== undefined) patch.error = error;
-    if (approvalStatus) patch.approvalStatus = approvalStatus;
+    if (approvalStatus) {
+      patch.approvalStatus = approvalStatus;
+      // Aprobar = habilitar la ejecución; rechazar = cerrar la tarea. El
+      // estado se ajusta acá para que el ejecutor (y el barrido) la tomen.
+      if (!status) {
+        if (approvalStatus === "approved") patch.status = "PENDING";
+        else if (approvalStatus === "rejected") patch.status = "CANCELLED";
+      }
+    }
     patch.updatedAt = new Date();
 
     const [updated] = await db.update(marketingTasks).set(patch).where(eq(marketingTasks.id, id)).returning();
-    return res.json({ task: updated });
+
+    // Aprobar una tarea la manda a ejecutar DE VERDAD contra Meta (antes solo
+    // cambiaba una columna y la acción nunca se aplicaba).
+    let ejecucion: { encolada: boolean; tocaMeta: boolean } | null = null;
+    if (approvalStatus === "approved" && updated) {
+      const { encolarEjecucionAprobada, tocaMeta } = await import("../lib/marketing-team/task-executor");
+      const aplica = tocaMeta(updated.action);
+      if (aplica) {
+        await encolarEjecucionAprobada(tenantId, id).catch(() => undefined);
+      } else {
+        // Sin llamada a Meta: se completa en el acto para no dejarla colgada.
+        await db.update(marketingTasks).set({ status: "COMPLETED", updatedAt: new Date() }).where(eq(marketingTasks.id, id));
+      }
+      ejecucion = { encolada: aplica, tocaMeta: aplica };
+    }
+
+    return res.json({ task: updated, ejecucion });
   } catch (e) {
     return next(e);
   }
