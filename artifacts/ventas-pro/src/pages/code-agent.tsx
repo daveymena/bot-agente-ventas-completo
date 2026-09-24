@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, memo } from "react";
 import { Layout } from "@/components/layout";
 import { useCajaQueCrece } from "@/hooks/use-caja-que-crece";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,22 @@ import {
 } from "@/components/ui/alert-dialog";
 
 const HELP_GUIDE = getHelpGuide("code-agent")!;
+
+/**
+ * Una respuesta de Atlas en Markdown, que se procesa UNA vez por texto.
+ *
+ * Lo que se escribe en la caja vive en el estado de esta pantalla, así que
+ * cada letra la vuelve a dibujar entera; y cada respuesta del historial
+ * volvía a pasar por ReactMarkdown + remarkGfm (tablas, listas, código).
+ * Medido el 24-09-2026 en un celular simulado (CPU ×4, 40 turnos de
+ * historial): 281 ms por letra en mediana, hasta 886 ms — "tarda mucho para
+ * escribir lo que uno teclea". Con memo, si el texto no cambió no se vuelve
+ * a procesar.
+ */
+const PLUGINS_MARKDOWN = [remarkGfm];
+const MarkdownDeAtlas = memo(function MarkdownDeAtlas({ texto }: { texto: string }) {
+  return <ReactMarkdown remarkPlugins={PLUGINS_MARKDOWN}>{texto}</ReactMarkdown>;
+});
 
 type Mode = "operator" | "agent";
 
@@ -101,6 +117,126 @@ const METAS_DE_INICIO = [
   // y Atlas deja de explicarle y de preguntarle de más.
   { texto: "⚡ Ya sé pautar: solo ejecutá", mensaje: "Ya sé pautar, quiero vender un producto nuevo: solo ejecutá" },
 ];
+
+/**
+ * Una fila del chat (pregunta del admin o respuesta de Atlas).
+ *
+ * Memorizada: lo que se escribe en la caja vive en el estado de la pantalla,
+ * y sin esto cada letra volvía a dibujar TODO el historial. Medido el
+ * 24-09-2026 (celular simulado, CPU ×4, 40 turnos): 281 ms por letra antes,
+ * 150 ms con solo el Markdown memorizado. Los mensajes no cambian mientras se
+ * escribe, así que la fila no se vuelve a dibujar.
+ */
+const FilaDeMensaje = memo(function FilaDeMensaje({ msg, i }: { msg: Message; i: number }) {
+  return (
+    <div
+      key={i}
+      className={`group py-5 ${i > 0 ? "border-t border-border/50" : ""} ${msg.role === "user" ? "flex justify-end" : "flex gap-3 md:gap-4"}`}
+    >
+      {msg.role === "assistant" && (
+        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
+          <Bot className="h-4 w-4 text-white" />
+        </div>
+      )}
+      <div className={`min-w-0 ${msg.role === "user" ? "max-w-[85%]" : "flex-1"}`}>
+        <div
+          className={
+            msg.role === "user"
+              ? "rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-primary-foreground"
+              : ""
+          }
+        >
+          {/* break-words + overflow-wrap:anywhere: las respuestas traen URLs largas que sin esto no se pueden partir */}
+          {msg.role === "user" ? (
+            // El mensaje del admin NO pasa por `prose`. Antes usaba
+            // el mismo wrapper que la respuesta del bot, y Typography
+            // fija `color: var(--tw-prose-body)` (gris oscuro) sobre
+            // este div -- eso le ganaba al text-primary-foreground que
+            // hereda de la burbuja, así que quedaba texto casi negro
+            // sobre el fondo morado: ilegible. Además lo que escribe
+            // el admin es texto plano, no Markdown; con whitespace-
+            // pre-wrap se ve tal cual lo tipeó, saltos de línea
+            // incluidos.
+            <div className="text-sm md:text-base leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+              {msg.content}
+            </div>
+          ) : (
+            <div className="text-[15px] md:text-base prose prose-sm md:prose-base dark:prose-invert max-w-none break-words [overflow-wrap:anywhere] prose-p:leading-7 prose-headings:font-semibold prose-headings:mt-5 prose-headings:mb-2 prose-li:my-0.5 prose-ul:my-2 prose-ol:my-2 prose-img:rounded-lg prose-img:shadow-sm prose-a:text-indigo-500 hover:prose-a:text-indigo-600 prose-a:break-all prose-pre:whitespace-pre-wrap prose-pre:break-words prose-pre:overflow-x-auto prose-pre:rounded-xl prose-code:break-words prose-table:block prose-table:overflow-x-auto">
+              <MarkdownDeAtlas texto={msg.content} />
+            </div>
+          )}
+        </div>
+
+        {/* La hora del mensaje. Alineada al lado que corresponde:
+            a la derecha lo que escribió el admin, a la izquierda
+            lo que contestó Atlas -- igual que en WhatsApp. */}
+        {msg.at && (
+          <div
+            title={cuandoExacto(msg.at)}
+            className={`mt-1 text-[11px] text-muted-foreground/70 tabular-nums ${msg.role === "user" ? "text-right" : ""}`}
+          >
+            {cuandoSeDijo(msg.at)}
+          </div>
+        )}
+
+        {/* Copiar la respuesta. Atlas devuelve copys de anuncios,
+            descripciones y planes: cosas que el admin quiere
+            llevarse a otro lado. Sin esto habia que seleccionar a
+            mano un texto largo dentro de un area que scrollea, que
+            en el celular es directamente imposible.
+            Aparece al pasar el mouse en escritorio y siempre en
+            celular, donde no hay hover. */}
+        {msg.role === "assistant" && msg.content && (
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(msg.content)
+                .then(() => toast.success("Copiado"))
+                .catch(() => toast.error("No se pudo copiar"));
+            }}
+            className="mt-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:opacity-0 md:group-hover:opacity-100"
+            title="Copiar respuesta"
+          >
+            <Copy className="h-3.5 w-3.5" /> Copiar
+          </button>
+        )}
+
+        {msg.actions && msg.actions.length > 0 && (
+          <div className="mt-2 rounded-xl border border-border bg-card/50 divide-y divide-border overflow-hidden shadow-xs">
+            {msg.actions.map((a, k) => (
+              <div key={k} className="flex items-start gap-2.5 px-3.5 py-2.5 text-xs md:text-sm">
+                <span
+                  className={`mt-0.5 shrink-0 h-5 w-5 rounded-lg flex items-center justify-center ${a.ok ? "bg-emerald-500/10 text-emerald-600" : "bg-red-500/10 text-red-600"}`}
+                >
+                  {a.ok ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
+                </span>
+                <span className="font-mono text-[11px] text-muted-foreground shrink-0 bg-muted px-1.5 py-0.5 rounded">{a.tool}</span>
+                <span className="text-foreground/90 min-w-0 break-words [overflow-wrap:anywhere]">{a.summary}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {msg.configApplied && (
+          <div className="mt-2 flex gap-2 flex-wrap">
+            <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-xs px-3 py-1">
+              <Check className="h-3 w-3 mr-1" /> Configuración aplicada
+            </Badge>
+            {msg.advancedFeaturesEnabled && (
+              <Badge className="bg-primary/10 text-primary border-primary/20 text-xs px-3 py-1">
+                <Sparkles className="h-3 w-3 mr-1" /> Avanzado
+              </Badge>
+            )}
+          </div>
+        )}
+      </div>
+      {msg.role === "user" && (
+        <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center shrink-0 mt-1 shadow-sm">
+          <User className="h-5 w-5 text-primary-foreground" />
+        </div>
+      )}
+    </div>
+  );
+});
 
 export default function CodeAgent() {
   useAutoTour(HELP_GUIDE);
@@ -1338,116 +1474,7 @@ export default function CodeAgent() {
                    saber dónde termina una y empieza la otra. */}
             <ScrollArea className="flex-1 [&_[data-radix-scroll-area-viewport]>div]:!block [&_[data-radix-scroll-area-viewport]>div]:!min-w-0">
               <div className="mx-auto w-full max-w-3xl px-4 py-6 md:px-6">
-                {messages.map((msg, i) => (
-                  <div
-                    key={i}
-                    className={`group py-5 ${i > 0 ? "border-t border-border/50" : ""} ${msg.role === "user" ? "flex justify-end" : "flex gap-3 md:gap-4"}`}
-                  >
-                    {msg.role === "assistant" && (
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shrink-0 mt-0.5 shadow-sm">
-                        <Bot className="h-4 w-4 text-white" />
-                      </div>
-                    )}
-                    <div className={`min-w-0 ${msg.role === "user" ? "max-w-[85%]" : "flex-1"}`}>
-                      <div
-                        className={
-                          msg.role === "user"
-                            ? "rounded-2xl rounded-br-md bg-primary px-4 py-2.5 text-primary-foreground"
-                            : ""
-                        }
-                      >
-                        {/* break-words + overflow-wrap:anywhere: las respuestas traen URLs largas que sin esto no se pueden partir */}
-                        {msg.role === "user" ? (
-                          // El mensaje del admin NO pasa por `prose`. Antes usaba
-                          // el mismo wrapper que la respuesta del bot, y Typography
-                          // fija `color: var(--tw-prose-body)` (gris oscuro) sobre
-                          // este div -- eso le ganaba al text-primary-foreground que
-                          // hereda de la burbuja, así que quedaba texto casi negro
-                          // sobre el fondo morado: ilegible. Además lo que escribe
-                          // el admin es texto plano, no Markdown; con whitespace-
-                          // pre-wrap se ve tal cual lo tipeó, saltos de línea
-                          // incluidos.
-                          <div className="text-sm md:text-base leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-                            {msg.content}
-                          </div>
-                        ) : (
-                          <div className="text-[15px] md:text-base prose prose-sm md:prose-base dark:prose-invert max-w-none break-words [overflow-wrap:anywhere] prose-p:leading-7 prose-headings:font-semibold prose-headings:mt-5 prose-headings:mb-2 prose-li:my-0.5 prose-ul:my-2 prose-ol:my-2 prose-img:rounded-lg prose-img:shadow-sm prose-a:text-indigo-500 hover:prose-a:text-indigo-600 prose-a:break-all prose-pre:whitespace-pre-wrap prose-pre:break-words prose-pre:overflow-x-auto prose-pre:rounded-xl prose-code:break-words prose-table:block prose-table:overflow-x-auto">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {msg.content}
-                            </ReactMarkdown>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* La hora del mensaje. Alineada al lado que corresponde:
-                          a la derecha lo que escribió el admin, a la izquierda
-                          lo que contestó Atlas -- igual que en WhatsApp. */}
-                      {msg.at && (
-                        <div
-                          title={cuandoExacto(msg.at)}
-                          className={`mt-1 text-[11px] text-muted-foreground/70 tabular-nums ${msg.role === "user" ? "text-right" : ""}`}
-                        >
-                          {cuandoSeDijo(msg.at)}
-                        </div>
-                      )}
-
-                      {/* Copiar la respuesta. Atlas devuelve copys de anuncios,
-                          descripciones y planes: cosas que el admin quiere
-                          llevarse a otro lado. Sin esto habia que seleccionar a
-                          mano un texto largo dentro de un area que scrollea, que
-                          en el celular es directamente imposible.
-                          Aparece al pasar el mouse en escritorio y siempre en
-                          celular, donde no hay hover. */}
-                      {msg.role === "assistant" && msg.content && (
-                        <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(msg.content)
-                              .then(() => toast.success("Copiado"))
-                              .catch(() => toast.error("No se pudo copiar"));
-                          }}
-                          className="mt-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:opacity-0 md:group-hover:opacity-100"
-                          title="Copiar respuesta"
-                        >
-                          <Copy className="h-3.5 w-3.5" /> Copiar
-                        </button>
-                      )}
-
-                      {msg.actions && msg.actions.length > 0 && (
-                        <div className="mt-2 rounded-xl border border-border bg-card/50 divide-y divide-border overflow-hidden shadow-xs">
-                          {msg.actions.map((a, k) => (
-                            <div key={k} className="flex items-start gap-2.5 px-3.5 py-2.5 text-xs md:text-sm">
-                              <span
-                                className={`mt-0.5 shrink-0 h-5 w-5 rounded-lg flex items-center justify-center ${a.ok ? "bg-emerald-500/10 text-emerald-600" : "bg-red-500/10 text-red-600"}`}
-                              >
-                                {a.ok ? <Check className="h-3 w-3" /> : <X className="h-3 w-3" />}
-                              </span>
-                              <span className="font-mono text-[11px] text-muted-foreground shrink-0 bg-muted px-1.5 py-0.5 rounded">{a.tool}</span>
-                              <span className="text-foreground/90 min-w-0 break-words [overflow-wrap:anywhere]">{a.summary}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {msg.configApplied && (
-                        <div className="mt-2 flex gap-2 flex-wrap">
-                          <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-xs px-3 py-1">
-                            <Check className="h-3 w-3 mr-1" /> Configuración aplicada
-                          </Badge>
-                          {msg.advancedFeaturesEnabled && (
-                            <Badge className="bg-primary/10 text-primary border-primary/20 text-xs px-3 py-1">
-                              <Sparkles className="h-3 w-3 mr-1" /> Avanzado
-                            </Badge>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    {msg.role === "user" && (
-                      <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center shrink-0 mt-1 shadow-sm">
-                        <User className="h-5 w-5 text-primary-foreground" />
-                      </div>
-                    )}
-                  </div>
-                ))}
+                {messages.map((msg, i) => <FilaDeMensaje key={i} msg={msg} i={i} />)}
                 {/* Metas de inicio: una charla nueva arranca con Atlas
                     proponiendo, no con una caja vacía. Un clic manda el
                     mensaje que abre la ruta guiada en el servidor. */}

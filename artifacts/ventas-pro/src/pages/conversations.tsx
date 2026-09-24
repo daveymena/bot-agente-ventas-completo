@@ -298,6 +298,80 @@ export default function Conversations() {
     }
   };
 
+  // La lista de burbujas, memorizada. Lo que se escribe en la caja vive en
+  // el estado de esta pantalla: sin esto, cada letra volvía a formatear la
+  // fecha de CADA mensaje (parseISO + format con locale) y a rearmar las
+  // fichas de producto. En el celular eso se sentía como teclado lento
+  // (reporte del dueño 24-09-2026; mismo arreglo que el chat de Atlas).
+  const burbujas = useMemo(() => (Array.isArray(messages) ? messages : []).map((msg, idx) => {
+      const prevMsg = messages[idx - 1];
+      const showDate = !prevMsg || !isSameDay(parseISO(msg.createdAt), parseISO(prevMsg.createdAt));
+      
+      const isCustomer = msg.role === 'customer';
+      const isAgent = msg.role === 'agent';
+      const isHuman = msg.role === 'human';
+
+      return (
+        <div key={msg.id}>
+          {showDate && (
+            <div className="flex justify-center my-8">
+              <span className="text-xs font-semibold bg-background/60 backdrop-blur-sm px-4 py-1.5 rounded-full text-muted-foreground border shadow-sm">
+                {format(parseISO(msg.createdAt), "EEEE d 'de' MMMM", { locale: es })}
+              </span>
+            </div>
+          )}
+          
+          <div className={`flex flex-col mb-2 ${isCustomer ? 'items-end' : 'items-start'}`}>
+            <div className={`flex items-end gap-2 min-w-0 max-w-[95%] sm:max-w-[85%] md:max-w-[75%] ${isCustomer ? 'flex-row-reverse' : 'flex-row'}`}>
+              
+              {/* Avatar */}
+              {!isCustomer && (
+                <div className="shrink-0 mb-1 hidden sm:block">
+                  {isAgent ? (
+                    <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center shadow-md ring-2 ring-background">
+                      <Bot className="h-4 w-4 text-primary-foreground" />
+                    </div>
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center shadow-md ring-2 ring-background">
+                      <User className="h-4 w-4 text-accent-foreground" />
+                    </div>
+                  )}
+                </div>
+              )}
+              
+              {/* Bubble */}
+              <div className={`
+                px-3 sm:px-5 py-2.5 sm:py-3 relative shadow-sm text-sm sm:text-[15px] leading-relaxed break-words overflow-hidden
+                ${isCustomer 
+                  ? 'bg-primary text-primary-foreground rounded-2xl rounded-br-sm' 
+                  : isAgent
+                    ? 'bg-card text-card-foreground border border-primary/20 rounded-2xl rounded-bl-sm ring-1 ring-primary/5'
+                    : 'bg-accent/10 text-foreground border border-accent/20 rounded-2xl rounded-bl-sm'
+                }
+              `}>
+                {!isCustomer && (
+                  <div className="flex items-center gap-1.5 mb-1 opacity-70">
+                    <span className="text-[10px] font-bold uppercase tracking-wider">{isAgent ? 'Bot IA' : 'Operador'}</span>
+                    {msg.stage && <span className="text-[9px] bg-background/50 px-1.5 rounded-sm border">{msg.stage}</span>}
+                  </div>
+                )}
+                
+                <div className="[&>p]:mb-2 [&>p:last-child]:mb-0">
+                  {renderMessageContent(msg.content)}
+                </div>
+                
+                <div className={`flex items-center justify-end mt-1.5 gap-1 ${isCustomer ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
+                  <span className="text-[10px] font-medium">{format(parseISO(msg.createdAt), "HH:mm")}</span>
+                  {isCustomer && <Check className="h-3 w-3" />}
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      );
+  }), [messages, products]);
+
   return (
     <Layout>
       <div className="flex flex-col h-full min-h-0 animate-enter gap-4">
@@ -477,74 +551,7 @@ export default function Conversations() {
                     </div>
                   ) : (
                     <div className="space-y-6">
-                      {(Array.isArray(messages) ? messages : []).map((msg, idx) => {
-                        const prevMsg = messages[idx - 1];
-                        const showDate = !prevMsg || !isSameDay(parseISO(msg.createdAt), parseISO(prevMsg.createdAt));
-                        
-                        const isCustomer = msg.role === 'customer';
-                        const isAgent = msg.role === 'agent';
-                        const isHuman = msg.role === 'human';
-
-                        return (
-                          <div key={msg.id}>
-                            {showDate && (
-                              <div className="flex justify-center my-8">
-                                <span className="text-xs font-semibold bg-background/60 backdrop-blur-sm px-4 py-1.5 rounded-full text-muted-foreground border shadow-sm">
-                                  {format(parseISO(msg.createdAt), "EEEE d 'de' MMMM", { locale: es })}
-                                </span>
-                              </div>
-                            )}
-                            
-                            <div className={`flex flex-col mb-2 ${isCustomer ? 'items-end' : 'items-start'}`}>
-                              <div className={`flex items-end gap-2 min-w-0 max-w-[95%] sm:max-w-[85%] md:max-w-[75%] ${isCustomer ? 'flex-row-reverse' : 'flex-row'}`}>
-                                
-                                {/* Avatar */}
-                                {!isCustomer && (
-                                  <div className="shrink-0 mb-1 hidden sm:block">
-                                    {isAgent ? (
-                                      <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center shadow-md ring-2 ring-background">
-                                        <Bot className="h-4 w-4 text-primary-foreground" />
-                                      </div>
-                                    ) : (
-                                      <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center shadow-md ring-2 ring-background">
-                                        <User className="h-4 w-4 text-accent-foreground" />
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                                
-                                {/* Bubble */}
-                                <div className={`
-                                  px-3 sm:px-5 py-2.5 sm:py-3 relative shadow-sm text-sm sm:text-[15px] leading-relaxed break-words overflow-hidden
-                                  ${isCustomer 
-                                    ? 'bg-primary text-primary-foreground rounded-2xl rounded-br-sm' 
-                                    : isAgent
-                                      ? 'bg-card text-card-foreground border border-primary/20 rounded-2xl rounded-bl-sm ring-1 ring-primary/5'
-                                      : 'bg-accent/10 text-foreground border border-accent/20 rounded-2xl rounded-bl-sm'
-                                  }
-                                `}>
-                                  {!isCustomer && (
-                                    <div className="flex items-center gap-1.5 mb-1 opacity-70">
-                                      <span className="text-[10px] font-bold uppercase tracking-wider">{isAgent ? 'Bot IA' : 'Operador'}</span>
-                                      {msg.stage && <span className="text-[9px] bg-background/50 px-1.5 rounded-sm border">{msg.stage}</span>}
-                                    </div>
-                                  )}
-                                  
-                                  <div className="[&>p]:mb-2 [&>p:last-child]:mb-0">
-                                    {renderMessageContent(msg.content)}
-                                  </div>
-                                  
-                                  <div className={`flex items-center justify-end mt-1.5 gap-1 ${isCustomer ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                                    <span className="text-[10px] font-medium">{format(parseISO(msg.createdAt), "HH:mm")}</span>
-                                    {isCustomer && <Check className="h-3 w-3" />}
-                                  </div>
-                                </div>
-
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
+                      {burbujas}
                     </div>
                   )}
                 </div>
