@@ -289,8 +289,11 @@ export const definicionesDeHerramientas = [
     function: {
       name: "mostrar_opciones",
       description:
-        "Cuando el cliente pide algo que coincide con VARIOS productos (nombre ambiguo, varios modelos), " +
-        "mostrá la ficha de cada opción para que elija. Usala en vez de listar solo texto.",
+        "OBLIGATORIA cuando lo que pide el cliente coincide con DOS o más productos (varios modelos del mismo tipo). " +
+        "Buscá primero con buscar_en_catalogo, después llamala con los ids. El SISTEMA pega debajo de tu texto la ficha de cada opción " +
+        "con su FOTO, NOMBRE y PRECIO reales del catálogo. Por eso en tu texto NUNCA escribas nombres de productos ni precios: " +
+        "solo una frase de intro (ej. 'Te muestro los modelos que tengo:') y la pregunta de cierre. Si listás a mano, los nombres salen " +
+        "viejos y sin foto.",
       parameters: {
         type: "object",
         properties: {
