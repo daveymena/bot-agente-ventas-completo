@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { Sparkles, Send, User, Loader2, Monitor, Smartphone, Download, RefreshCw, LayoutTemplate, Wand2, Copy, Trash2, ExternalLink, EyeOff } from "lucide-react";
+import { Sparkles, Send, User, Loader2, Monitor, Smartphone, Download, RefreshCw, LayoutTemplate, Wand2, Copy, Trash2, ExternalLink, EyeOff, MoreHorizontal } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import ReactMarkdown from "react-markdown";
 import { BloquesEditor } from "@/components/landing/bloques-editor";
 
@@ -34,7 +35,7 @@ type Msg = { role: "user" | "assistant"; content: string; loading?: boolean };
 type Familia =
   | "premium" | "respuesta-directa" | "minimal" | "editorial" | "ecommerce" | "belleza"
   | "fitness" | "educacion" | "tecnologia" | "familiar" | "creativa" | "oscura" | "launch"
-  | "electronica" | "suplemento" | "gourmet";
+  | "electronica" | "suplemento" | "gourmet" | "dropshipping";
 
 const FAMILIAS: { value: Familia; label: string; color: string }[] = [
   { value: "premium", label: "Premium", color: "#8C7A5B" },
@@ -62,50 +63,19 @@ Creo paginas de ventas profesionales con frameworks de alta conversion (AIDA, PA
 
 **Para empezar:**
 1. Selecciona un **producto** arriba
-2. Elige un **estilo visual**
+2. Si querés, elegí un **estilo** (si no, se elige solo según el producto)
 3. Presiona **Generar** — o escribeme que quieres
 
 *"Crea una landing impactante para mi curso de piano"*`;
 
-type Diseno = { fondo?: string; botones?: string; color?: string };
-
-const FONDOS = [
-  { value: "claro", label: "Claro" },
-  { value: "marca", label: "Color marca" },
-  { value: "degradado", label: "Degradado" },
-];
-const BOTONES = [
-  { value: "redondeados", label: "Redondeados" },
-  { value: "pill", label: "Píldora" },
-  { value: "cuadrados", label: "Cuadrados" },
-];
-
 /**
- * Aplica el diseño elegido por el cliente a la preview AL INSTANTE, sin esperar
- * a la IA. Inyecta un <style> con reglas `!important` que pisan los estilos
- * inline que generó OpenCode. Es una vista rápida: cuando el cliente regenera,
- * la IA recibe el mismo diseño y lo hornea bien en el HTML.
+ * Acá había un panel "Diseño (tú decides)" (fondo, botones, color) que solo
+ * pintaba la VISTA PREVIA con un <style> inyectado. La landing publicada se
+ * arma con renderer-v3 desde las secciones y nunca lo leía (el POST
+ * /landing-studio/design lo horneaba en `landing.html`, que ni la ruta
+ * pública ni la de copias usan). Quitado el 23-09-2026: la preview mentía.
+ * El estilo lo decide la familia, que sí llega a la página publicada.
  */
-function inyectarDiseno(html: string, diseno: Diseno): string {
-  const reglas: string[] = [];
-  if (diseno.botones) {
-    const radius = diseno.botones === "pill" ? "999px" : diseno.botones === "redondeados" ? "12px" : "4px";
-    reglas.push(`button, a[href], input[type="submit"], [role="button"] { border-radius: ${radius} !important; }`);
-  }
-  if (diseno.color) {
-    reglas.push(`button, input[type="submit"] { background-color: ${diseno.color} !important; border-color: ${diseno.color} !important; }`);
-  }
-  if (diseno.fondo === "marca" && diseno.color) {
-    reglas.push(`body { background-color: ${diseno.color}18 !important; }`);
-  } else if (diseno.fondo === "degradado" && diseno.color) {
-    reglas.push(`body { background: linear-gradient(180deg, ${diseno.color}26, #ffffff 70%) !important; }`);
-  }
-  if (!reglas.length) return html;
-  const style = `<style id="diseno-cliente">${reglas.join("\n")}</style>`;
-  if (html.includes("</head>")) return html.replace("</head>", `${style}</head>`);
-  if (html.includes("</body>")) return html.replace("</body>", `${style}</body>`);
-  return style + html;
-}
 
 async function apiFetch<T>(url: string, opts?: RequestInit): Promise<T> {
   const r = await fetch(url, { credentials: "include", headers: { "Content-Type": "application/json", ...(opts?.headers || {}) }, ...opts });
@@ -146,7 +116,6 @@ export default function LandingStudioV2() {
   const [busy, setBusy] = useState(false);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
-  const [diseno, setDiseno] = useState<Diseno>({});
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -159,34 +128,19 @@ export default function LandingStudioV2() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
 
-  // Guardar el diseño elegido en la landing (con debounce) para que la versión
-  // publicada lo lleve, sin depender de regenerar con la IA.
-  useEffect(() => {
-    if (!landingId || !previewHtml) return;
-    const t = setTimeout(() => {
-      fetch("/api/landing-studio/design", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ landingId, diseno }),
-      }).catch(() => {});
-    }, 600);
-    return () => clearTimeout(t);
-  }, [diseno, landingId, previewHtml]);
-
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
     const doc = iframe.contentDocument;
     if (!doc) return;
     if (previewHtml) {
-      doc.open(); doc.write(inyectarDiseno(previewHtml, diseno)); doc.close();
+      doc.open(); doc.write(previewHtml); doc.close();
     } else {
       doc.open();
       doc.write(`<!doctype html><html><body style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif;color:#64748b;background:#0f172a;margin:0;flex-direction:column;gap:16px;text-align:center;padding:40px"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="1.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg><p style="font-size:16px;max-width:300px">Selecciona un producto y presiona <strong style="color:#a5b4fc">Generar</strong></p></body></html>`);
       doc.close();
     }
-  }, [previewHtml, diseno]);
+  }, [previewHtml]);
 
   const cargarPreview = useCallback(async (id: number, fam?: Familia) => {
     setPreviewBusy(true);
@@ -221,7 +175,7 @@ export default function LandingStudioV2() {
       const r = await fetch("/api/landing-studio/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, landingId: esNueva ? undefined : landingId, productId: pid, diseno, familia }),
+        body: JSON.stringify({ message: text, landingId: esNueva ? undefined : landingId, productId: pid, familia }),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -253,7 +207,7 @@ export default function LandingStudioV2() {
       setBusy(false);
       inputRef.current?.focus();
     }
-  }, [input, busy, productId, landingId, diseno, familia]);
+  }, [input, busy, productId, landingId, familia]);
 
   const exportar = useCallback(async () => {
     if (!previewHtml) { toast.info("Primero genera una landing."); return; }
@@ -378,14 +332,27 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
     } catch (e: any) { toast.error(`No se pudo eliminar: ${e.message}`); }
   }, [landingId, landings]);
 
+  // El render usa la familia GUARDADA antes que `?familia=`: si no se guarda,
+  // elegir otro estilo sobre una landing ya generada no cambiaba nada (ni la
+  // preview ni la publicada).
+  const cambiarFamilia = useCallback(async (f: Familia) => {
+    setFamilia(f);
+    if (!landingId) return;
+    const l = landings.find(x => x.id === landingId);
+    const design = { ...((l?.design as any) || {}), familia: f };
+    try {
+      await apiFetch(`/api/landing-pages/${landingId}`, { method: "PATCH", body: JSON.stringify({ design }) });
+      setLandings(ls => ls.map(x => x.id === landingId ? { ...x, design } : x));
+      await cargarPreview(landingId, f);
+    } catch (e: any) { toast.error(`No se pudo cambiar el estilo: ${e.message}`); }
+  }, [landingId, landings, cargarPreview]);
+
   const cargarLanding = useCallback(async (id: number) => {
     const l = landings.find(x => x.id === id);
     if (!l) return;
     setLandingId(id);
     if (l.productId) setProductId(l.productId);
     if ((l.design as any)?.familia) setFamilia((l.design as any).familia as Familia);
-    const d = (l as any)?.design || {};
-    setDiseno({ fondo: d.fondo, botones: d.botones, color: d.color });
     setUrlPublica((l as any).status === "published" ? ((l as any).publishedUrl || null) : null);
     await cargarPreview(id, (l.design as any)?.familia as Familia);
     setMsgs(m => [...m, { role: "assistant", content: `Landing **"${l.name}"** cargada${(l as any).status === "published" ? ` — publicada en ${(l as any).publishedUrl}` : " (borrador)"}. ¿Qué querés modificar?` }]);
@@ -447,24 +414,47 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
             )}
             {/* Pedido del dueño (13-09): el campo de la URL se extiende a los
                 lados dentro de la misma barra, no cae en un cuadro debajo. */}
-            {urlAbierto ? (
+            {urlAbierto && (
               <div className="flex items-center gap-1 flex-1 min-w-[280px]">
                 <Input autoFocus value={urlClonar} onChange={e => setUrlClonar(e.target.value)} placeholder="Pegá la URL de la landing a clonar (HTML + CSS)…" className="h-8 text-xs flex-1"
                   onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); clonarDesdeUrl(); } if (e.key === "Escape") setUrlAbierto(false); }} />
                 <Button size="sm" className="h-8 px-3 text-xs" onClick={clonarDesdeUrl} disabled={!urlClonar.trim()}>Clonar</Button>
                 <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setUrlAbierto(false)}>Cancelar</Button>
               </div>
-            ) : (
-              <Button size="sm" variant="ghost" onClick={() => setUrlAbierto(true)} className="h-8 px-2 text-xs"
-                title="Clonar una landing real de internet (HTML + CSS)">
-                <ExternalLink className="h-3.5 w-3.5 mr-1" />Desde URL
-              </Button>
             )}
+            <Button size="sm" variant="ghost" onClick={() => landingId && cargarPreview(landingId)} disabled={!landingId || previewBusy} className="h-8 w-8 p-0"
+              title="Actualizar la vista previa" aria-label="Actualizar la vista previa">
+              <RefreshCw className={`h-3.5 w-3.5 ${previewBusy ? "animate-spin" : ""}`} />
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setPreviewMode(m => m === "desktop" ? "mobile" : "desktop")} className="h-8 w-8 p-0"
+              title={previewMode === "desktop" ? "Ver como se ve en un celular" : "Ver como se ve en pantalla grande"}
+              aria-label={previewMode === "desktop" ? "Ver como se ve en un celular" : "Ver como se ve en pantalla grande"}>
+              {previewMode === "desktop" ? <Smartphone className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
+            </Button>
+            {/* Lo que se usa poco va en "Más": la barra queda con lo del día a día. */}
             <div className="relative">
-              <Button size="sm" variant="ghost" onClick={() => setClonarAbierto(v => !v)} disabled={!landingId} className="h-8 px-2 text-xs"
-                title="Clonar: copia exacta, o el estilo para otro producto">
-                <Copy className="h-3.5 w-3.5 mr-1" />Clonar
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="sm" variant="ghost" className="h-8 w-8 p-0" title="Más acciones" aria-label="Más acciones">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuItem onClick={() => setClonarAbierto(true)} disabled={!landingId}>
+                    <Copy className="h-3.5 w-3.5 mr-2" />Duplicar / usar en otro producto
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setUrlAbierto(true)}>
+                    <ExternalLink className="h-3.5 w-3.5 mr-2" />Copiar una landing de internet
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={exportar} disabled={!landingId}>
+                    <Download className="h-3.5 w-3.5 mr-2" />Descargar HTML
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={eliminar} disabled={!landingId} className="text-red-600 focus:text-red-700">
+                    <Trash2 className="h-3.5 w-3.5 mr-2" />Eliminar landing
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               {clonarAbierto && (
                 <div className="absolute right-0 top-9 z-20 w-64 rounded-md border bg-background p-3 shadow-lg space-y-2">
                   <p className="text-xs font-semibold">Clonar esta landing</p>
@@ -481,23 +471,6 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                 </div>
               )}
             </div>
-            <Button size="sm" variant="ghost" onClick={eliminar} disabled={!landingId} className="h-8 w-8 p-0 text-red-600 hover:text-red-700"
-              title="Eliminar esta landing" aria-label="Eliminar esta landing">
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => landingId && cargarPreview(landingId)} disabled={!landingId || previewBusy} className="h-8 w-8 p-0"
-              title="Actualizar la vista previa" aria-label="Actualizar la vista previa">
-              <RefreshCw className={`h-3.5 w-3.5 ${previewBusy ? "animate-spin" : ""}`} />
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setPreviewMode(m => m === "desktop" ? "mobile" : "desktop")} className="h-8 w-8 p-0"
-              title={previewMode === "desktop" ? "Ver como se ve en un celular" : "Ver como se ve en pantalla grande"}
-              aria-label={previewMode === "desktop" ? "Ver como se ve en un celular" : "Ver como se ve en pantalla grande"}>
-              {previewMode === "desktop" ? <Smartphone className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
-            </Button>
-            <Button size="sm" variant="ghost" onClick={exportar} disabled={!landingId} className="h-8 w-8 p-0"
-              title="Descargar la landing en HTML" aria-label="Descargar la landing en HTML">
-              <Download className="h-3.5 w-3.5" />
-            </Button>
           </div>
         </div>
         {/* El selector de panel, SOLO en pantalla chica (lg:hidden). En
@@ -526,58 +499,13 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
               panelMovil === "chat" ? "flex" : "hidden"
             }`}
           >
-            <div className="px-3 py-2 border-b bg-muted/20 shrink-0">
-              <p className="text-[10px] font-semibold uppercase text-muted-foreground mb-1.5">Estilo visual</p>
-              <div className="flex flex-wrap gap-1">
-                {FAMILIAS.map(f => (
-                  <button key={f.value}
-                    onClick={async () => { setFamilia(f.value); if (landingId) await cargarPreview(landingId, f.value); }}
-                    className={`px-2 py-0.5 rounded text-[10px] font-medium border transition-all ${familia === f.value ? "text-white border-transparent" : "border-border bg-background text-muted-foreground hover:border-primary/40"}`}
-                    style={familia === f.value ? { backgroundColor: f.color } : {}}>
-                    {f.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            {/* Panel de diseño: fondo, botones y color. El cliente elige, no solo
-                la IA. Se aplica al instante en la preview y se le pasa a la IA. */}
-            <div className="px-3 py-2 border-b bg-muted/20 shrink-0 space-y-2">
-              <p className="text-[10px] font-semibold uppercase text-muted-foreground">Diseño (tú decides)</p>
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-muted-foreground w-12 shrink-0">Fondo</span>
-                  <div className="flex gap-1 flex-wrap">
-                    {FONDOS.map(f => (
-                      <button key={f.value}
-                        onClick={() => setDiseno(d => ({ ...d, fondo: d.fondo === f.value ? undefined : f.value }))}
-                        className={`px-2 py-0.5 rounded text-[10px] font-medium border ${diseno.fondo === f.value ? "border-primary bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground hover:border-primary/40"}`}>
-                        {f.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-muted-foreground w-12 shrink-0">Botones</span>
-                  <div className="flex gap-1 flex-wrap">
-                    {BOTONES.map(b => (
-                      <button key={b.value}
-                        onClick={() => setDiseno(d => ({ ...d, botones: d.botones === b.value ? undefined : b.value }))}
-                        className={`px-2 py-0.5 rounded text-[10px] font-medium border ${diseno.botones === b.value ? "border-primary bg-primary/10 text-primary" : "border-border bg-background text-muted-foreground hover:border-primary/40"}`}>
-                        {b.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-muted-foreground w-12 shrink-0">Color</span>
-                  <input type="color" value={diseno.color || "#8b5cf6"}
-                    onChange={e => setDiseno(d => ({ ...d, color: e.target.value }))}
-                    className="h-6 w-8 rounded border bg-background cursor-pointer" />
-                  <button onClick={() => setDiseno(d => ({ ...d, color: undefined }))}
-                    className="text-[10px] text-muted-foreground underline" disabled={!diseno.color}>quitar</button>
-                </div>
-              </div>
-              <p className="text-[9px] text-muted-foreground leading-snug">Se aplican al instante. Presioná <strong>Generar</strong> o pedile a la IA que los hornee en el HTML.</p>
+            <div className="px-3 py-2 border-b bg-muted/20 shrink-0 flex items-center gap-2">
+              <span className="text-[11px] font-medium text-muted-foreground shrink-0">Estilo</span>
+              <span className="h-3 w-3 rounded-full shrink-0 border" style={{ backgroundColor: FAMILIAS.find(f => f.value === familia)?.color }} />
+              <select value={familia} onChange={e => cambiarFamilia(e.target.value as Familia)} disabled={busy || previewBusy}
+                className="h-7 flex-1 rounded-md border bg-background px-2 text-xs">
+                {FAMILIAS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+              </select>
             </div>
             <div className="flex shrink-0 border-b bg-muted/20 p-1 gap-1">
               {([["chat", "💬 Chat"], ["bloques", "🧱 Bloques"]] as const).map(([valor, etiqueta]) => (
