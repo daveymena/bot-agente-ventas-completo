@@ -123,6 +123,7 @@ La ficha de "info" termina ofreciendo "¿te cuento cuánto vale?". Si el cliente
 
 CÓMO RESOLVÉS REFERENCIAS (sin releer texto viejo)
 "sí / no / ese / esa / el primero / el segundo / ese curso / lo quiero / dale / ok / mándame ese / cuánto vale? / qué vale? / cuánto cuesta? / precio / a cómo está? / y ese?" se resuelve con el bloque LO QUE YA PASÓ: mensaje actual primero, después tu última pregunta, producto en foco, producto anterior y última herramienta. Cualquier forma de preguntar el valor ("cuánto vale", "qué vale", "cuánto cuesta", "precio", "a cómo", "el valor") es pedido de precio del producto en foco: mostrá mostrar(seccion="precio"). "Ese" después de ofrecer es lo último ofrecido. Si igual no está claro, preguntá cuál antes de mostrar nada.
+Si el mensaje empieza con [Responde citando este mensaje: "..."], el cliente te respondió señalando ESE mensaje: si es una ficha, su primera línea es el producto que eligió; enfocalo y seguí con ese, sin preguntar "¿cuál?".
 Cuando quede clara la intención o le hagas una pregunta, llamá a anotar_contexto (no envía nada al cliente) para que el próximo turno no tenga que adivinar.
 
 LAS HERRAMIENTAS PONEN LAS MAQUETAS (DATOS DUROS)
@@ -145,7 +146,7 @@ Nunca digas que un pago está confirmado, verificado ni recibido. Eso lo
 determina una persona del equipo, y el sistema te avisa cuando pasó.
 
 CÓMO VENDÉS SEGÚN QUÉ ES (multimodelo, no todo es "producto-precio-pago")
-- Físico/dropshipping: producto → variante (consultar_disponibilidad, nunca inventes stock) → ciudad → entrega/logística → pago → datos → pedido. La contraentrega solo si está configurada; si no, explicá lo que sí hay. No sueltes "tenemos contraentrega" al saludar.
+- Físico/dropshipping: producto → variante (consultar_disponibilidad, nunca inventes stock) → precio → cuando quiere comprarlo, tomar_pedido con los datos de envío que te dé (el sistema te dice qué falta y le manda el resumen) → cuando confirma el resumen, confirmar_pedido. El pedido existe SOLO cuando confirmar_pedido dice que se creó: antes de eso nunca digas "quedó anotado" ni "quedó registrado". La contraentrega solo si está configurada; si no, explicá lo que sí hay. No sueltes "tenemos contraentrega" al saludar.
 - Servicio: necesidad → diagnóstico/alcance (registrar_caso tipo servicio) → disponibilidad → precio real o cotización (solicitar_cotizacion) → agenda (cuándo). No des precio cerrado si depende del modelo/visita.
 - Consultoría: problema → objetivo → contexto del negocio → alcance (registrar_caso tipo consultoria) → propuesta/cotización (solicitar_cotizacion). El valor depende del alcance: decilo y registrá el caso, no inventes precio fijo.
 - Si cambia de servicio a producto (o al revés), cambiá el foco con enfocar_producto/registrar_caso y seguí: el contexto anterior queda apilado para "y la reparación?".
@@ -282,6 +283,8 @@ export async function responder(params: {
    * en mitad del turno. Lo provee el adaptador (tiene tenant/catálogo).
    */
   recargarGuion?: (productoEnFocoId: number) => Promise<GuionDelNegocio>;
+  /** Pedidos de producto físico (ver adaptador.servicioDePedidos). */
+  pedidos?: import("./herramientas").ServicioDePedidos;
 }): Promise<ResultadoRespuesta> {
   const { llm, estado, historial, catalogo, guion, voz } = params;
 
@@ -317,6 +320,7 @@ export async function responder(params: {
     guion,
     mensajeDelCliente,
     efectos: [],
+    pedidos: params.pedidos,
     alCambiarFoco: params.recargarGuion
       ? async (nuevoId: number) => {
           const nuevo = await params.recargarGuion!(nuevoId);
@@ -351,7 +355,8 @@ export async function responder(params: {
   let modoPlan = false;
   let textoFinal = "";
 
-  for (let vuelta = 0; vuelta < MAX_VUELTAS; vuelta++) {
+  const bucle = async (vueltas: number) => {
+  for (let vuelta = 0; vuelta < vueltas; vuelta++) {
     const respuesta = await llm.crear({
       messages,
       tools: definicionesDeHerramientas,
@@ -404,6 +409,38 @@ export async function responder(params: {
       messages.push({ role: "tool", tool_call_id: llamada.id, content: resultado.mensaje });
     }
   }
+  };
+  await bucle(MAX_VUELTAS);
+
+  // ── Red de seguridad: dice que manda algo que no mandó ───────────────────
+  //
+  // Simulación y chat real del 23-09-2026: "¿cómo pago?" → "Ahí te van los
+  // medios de nuevo, Ana" con CERO herramientas: el cliente no recibió nada.
+  // Los hechos los emiten las herramientas; si el texto anuncia un envío que
+  // ninguna hizo, se le avisa UNA vez y se le deja usar la herramienta.
+  // Cualquier cosa que emitió una herramienta cuenta como enviada: una ficha
+  // o el resumen del pedido.
+  const hayTarjetas = () => ctx.partes.length > 0;
+  if (textoFinal && !hayTarjetas() && anunciaUnEnvio(textoFinal)) {
+    messages.push({ role: "assistant", content: textoFinal });
+    messages.push({
+      role: "system",
+      content:
+        "Tu texto dice que le estás enviando algo ahora, pero en este turno no usaste ninguna herramienta que lo envíe: " +
+        "el cliente no recibiría nada. Si te lo pidió, usá mostrar (con reenviar=true si ya se lo habías mandado). " +
+        "Si no hace falta mandar nada, reescribí sin decir que se lo mandás. No le hables de este aviso al cliente.",
+    });
+    const original = textoFinal;
+    textoFinal = "";
+    try {
+      await bucle(2);
+    } catch {
+      /* si el reintento falla, se queda la respuesta original */
+    }
+    // Si no dijo nada ni mandó nada, mejor la respuesta original que un
+    // "dame un segundito".
+    if (!textoFinal && !hayTarjetas()) textoFinal = original;
+  }
 
   // ── Red de seguridad: una cifra de plata que no existe en el catálogo ────
   let corregido = false;
@@ -447,6 +484,13 @@ export async function responder(params: {
   // ── Armado de la respuesta ───────────────────────────────────────────────
   const partes: Parte[] = [];
   if (textoFinal) partes.push({ kind: "text", content: textoFinal });
+  // Textos que emitió una HERRAMIENTA (el resumen del pedido): van tal cual,
+  // después de lo que escribió el modelo. Son hechos de la base, no redacción.
+  for (const parte of ctx.partes) {
+    if (parte.kind === "text" && parte.content && !partes.some((p) => p.kind === "text" && p.content === parte.content)) {
+      partes.push(parte);
+    }
+  }
 
   // Tarjetas sin repetir y con tope: dos fotos seguidas tapan la pantalla.
   const vistas = new Set<string>();
@@ -492,6 +536,20 @@ export async function responder(params: {
   estado.ultimoMensajeAgente = new Date().toISOString();
 
   return { partes, estado, traza, proveedor, modoPlan, corregido, efectos: ctx.efectos };
+}
+
+/**
+ * ¿El texto anuncia que AHORA se le manda algo al cliente? ("ahí te van",
+ * "acá te dejo", "te los paso de nuevo"). No mira lo que escribió el cliente:
+ * es la misma clase de chequeo que `montosInventados`, sobre lo que afirma
+ * el modelo. "Ya te los dejé arriba" (pasado, algo que sí salió antes) no
+ * cuenta.
+ */
+export function anunciaUnEnvio(texto: string): boolean {
+  return (
+    /\b(ah[ií]|ac[aá]|aqu[ií])\s+(te\s+)?(van|va|dejo|mando|paso|env[ií]o|comparto)\b/i.test(texto) ||
+    /\bte\s+(los|las|lo|la)\s+(dejo|mando|paso|env[ií]o|comparto)\s+(de nuevo|otra vez|nuevamente|ac[aá]|aqu[ií]|abajo)\b/i.test(texto)
+  );
 }
 
 /** Saca las frases que contienen un monto inventado. Último recurso, medido. */

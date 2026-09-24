@@ -233,6 +233,15 @@ export function verificarZona(d: DatosDeEnvio, pais?: string | null): { ok: bool
   return { ok: true };
 }
 
+/**
+ * El departamento de una ciudad grande, si se sabe ("Bogotá" → "Bogotá D.C.").
+ * Para que el cliente que escribió solo la ciudad no tenga que contestar
+ * otra pregunta más: lo usa el motor v2 al tomar el pedido.
+ */
+export function departamentoDeCiudad(ciudad: string | null | undefined): string | null {
+  return CIUDAD_A_DEPARTAMENTO[sinTildes(String(ciudad || "")).replace(/[^a-z ]/g, " ").replace(/\s+/g, " ").trim()] ?? null;
+}
+
 /** El resumen que se le muestra al cliente antes de pedirle el sí. */
 export function resumenDelPedido(p: PedidoDropshipping, c: CondicionesDelNegocio = CONDICIONES_DE_RESPALDO): string {
   const precio = Number(p.total ?? p.unitPrice ?? 0);

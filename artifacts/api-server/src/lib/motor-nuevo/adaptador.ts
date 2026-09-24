@@ -22,6 +22,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import {
   db,
+  pool,
   agents,
   conversations,
   leads,
@@ -38,7 +39,7 @@ import { saveAgentMessage } from "../conversation-engine";
 import { dbNow } from "../date-utils";
 import { logger } from "../logger";
 import { crearRepositorioDrizzle, type EstadoConversacion, type RepositorioEstado } from "./estado-conversacion";
-import type { ItemDeConocimiento, Producto } from "./herramientas";
+import type { ItemDeConocimiento, Producto, ServicioDePedidos } from "./herramientas";
 import { guionDelNegocio, type GuionDelNegocio, type NegocioParaNicho } from "./nicho";
 import { crearClienteLLM, armarCadena, type ClienteLLM } from "./cliente-llm";
 import { responder, type Mensaje, type VozDelNegocio } from "./motor";
@@ -210,10 +211,22 @@ export async function agenteQueAtiende(conversationId: number, tenantId: number,
  * ve lo físico, el digital ve lo que no es físico. Sin especialidad, o si el
  * filtro dejara el catálogo vacío, se ve todo: un vendedor sin productos es
  * peor que uno con productos de más.
+ *
+ * Y SOLO se filtra si otro agente activo cubre la otra especialidad. Medido
+ * con la simulación del 23-09-2026: con una sola agente "digital" en el
+ * negocio, el corrector (físico) desaparecía, la agente dijo "correctores no
+ * manejamos" y terminó vendiendo un curso de bicicletas. Si nadie más vende
+ * lo físico, lo físico lo vende el que está.
  */
-export function catalogoDeLaEspecialidad(catalogo: Producto[], especialidad: string | null | undefined): Producto[] {
+export function catalogoDeLaEspecialidad(
+  catalogo: Producto[],
+  especialidad: string | null | undefined,
+  especialidadesActivas: string[] = ["digital", "dropshipping"],
+): Producto[] {
   const e = String(especialidad || "").toLowerCase();
   if (e !== "digital" && e !== "dropshipping") return catalogo;
+  const otra = e === "digital" ? "dropshipping" : "digital";
+  if (!especialidadesActivas.map((x) => String(x || "").toLowerCase()).includes(otra)) return catalogo;
   const esFisico = (p: Producto) => String(p.kind || "digital") === "physical";
   const suyos = catalogo.filter((p) => (e === "dropshipping" ? esFisico(p) : !esFisico(p)));
   return suyos.length ? suyos : catalogo;
@@ -279,9 +292,126 @@ export async function cargarHistorial(conversationId: number, limite = 60): Prom
     .slice(-Math.max(1, limite))
     .map((m: any) => ({
       role: m.role === "customer" ? ("customer" as const) : ("agent" as const),
-      content: String(m.content || ""),
+      content: conCita(m),
       createdAt: m.createdAt,
     }));
+}
+
+/**
+ * Si el cliente respondió CITANDO un mensaje (una ficha, una pregunta), el
+ * modelo tiene que verlo: "me interesa este" sin la cita no dice cuál. La
+ * primera línea de una ficha es el nombre del producto, así que alcanza con
+ * mostrarle el comienzo de lo citado.
+ */
+function conCita(m: any): string {
+  const texto = String(m.content || "");
+  if (m.role !== "customer") return texto;
+  let meta: any = m.metadata;
+  if (typeof meta === "string") {
+    try { meta = JSON.parse(meta); } catch { meta = null; }
+  }
+  const citado = typeof meta?.citado === "string" ? meta.citado.trim() : "";
+  if (!citado) return texto;
+  return `[Responde citando este mensaje: "${citado.slice(0, 300)}"]\n${texto}`;
+}
+
+/**
+ * Los pedidos de producto físico, sobre lib/dropshipping.ts: el mismo código
+ * que usan la landing y el checkout, y que el motor viejo llamaba desde
+ * agent.ts. El motor v2 (el vendedor por defecto desde el 22-09-2026) no lo
+ * tenía: en WhatsApp ninguna venta física creaba el pedido, y el agente decía
+ * "quedó anotado" sin que existiera nada (simulación del 23-09-2026).
+ *
+ * `undefined` sin Postgres: dropshipping.ts escribe SQL de Postgres, y en
+ * SQLite (local, demo) las herramientas dicen honestamente que no hay pedidos
+ * automáticos en vez de reventar.
+ */
+export function servicioDePedidos(p: {
+  tenantId: number;
+  conversationId: number;
+  leadId: number | null;
+  telefono: string | null;
+  condiciones: import("../modelo-de-negocio").CondicionesDelNegocio;
+}): ServicioDePedidos | undefined {
+  if (!pool) return undefined;
+  const ETIQUETA: Record<string, string> = {
+    nombre: "nombre completo", documento: "cédula", telefono: "celular", direccion: "dirección",
+    ciudad: "ciudad", departamento: "departamento", barrio: "barrio", notas: "punto de referencia",
+  };
+  const cond = p.condiciones;
+  return {
+    async tomar({ producto, cantidad, datos }) {
+      try {
+        const ds = await import("../dropshipping");
+        let pedido = await ds.pedidoEnCurso(p.conversationId);
+        // Cambió de producto a mitad del pedido: el viejo se cancela, los
+        // datos que ya dio se pasan al nuevo para no volver a pedirlos.
+        let heredados: Partial<import("../dropshipping").DatosDeEnvio> = {};
+        if (pedido && pedido.productId !== producto.id) {
+          heredados = { nombre: pedido.nombre, telefono: pedido.telefono, documento: pedido.documento, departamento: pedido.departamento, ciudad: pedido.ciudad, direccion: pedido.direccion, barrio: pedido.barrio, notas: pedido.notas };
+          await ds.marcarEstado(pedido.id, "cancelado");
+          pedido = null;
+        }
+        if (!pedido) {
+          pedido = await ds.abrirPedido({
+            tenantId: p.tenantId, conversationId: p.conversationId, leadId: p.leadId,
+            productId: producto.id, productName: producto.name, unitPrice: Number(producto.price) || 0,
+            quantity: cantidad, telefono: p.telefono,
+            metodoPago: cond.envio.pago === "anticipado" ? "transferencia" : "contraentrega",
+          });
+        }
+        const nuevos: Partial<import("../dropshipping").DatosDeEnvio> = { ...heredados, ...datos };
+        if (!nuevos.departamento && !pedido.departamento) {
+          const dep = ds.departamentoDeCiudad(nuevos.ciudad || pedido.ciudad);
+          if (dep) nuevos.departamento = dep;
+        }
+        // Un dato corregido después del resumen vuelve a pedir confirmación.
+        if (pedido.estado === "por_confirmar" && Object.keys(datos).length) await ds.marcarEstado(pedido.id, "completo");
+        pedido = (await ds.guardarDatos(pedido.id, nuevos)) || pedido;
+
+        const faltan = ds.datosQueFaltan(pedido);
+        if (faltan.length) {
+          const yaTiene = ds.CAMPOS_DE_ENVIO.filter((c) => String((pedido as any)[c.campo] ?? "").trim()).map((c) => ETIQUETA[c.campo] || c.campo);
+          return { estado: "faltan", faltan: faltan.map((c) => ETIQUETA[c] || String(c)), yaTiene };
+        }
+        const zona = ds.verificarZona(pedido, cond.pais);
+        if (!zona.ok) return { estado: "zona", motivo: zona.motivo || "la zona no verifica" };
+        await ds.marcarEstado(pedido.id, "por_confirmar");
+        return { estado: "listo", resumen: ds.resumenDelPedido({ ...pedido, estado: "por_confirmar" }, cond) };
+      } catch (e: any) {
+        logger.error({ err: e?.message, conversationId: p.conversationId }, "[MotorV2] no se pudo tomar el pedido");
+        return { estado: "error", motivo: e?.message || "error interno" };
+      }
+    },
+
+    async confirmar() {
+      try {
+        const ds = await import("../dropshipping");
+        const pedido = await ds.pedidoEnCurso(p.conversationId);
+        if (!pedido) return { estado: "sin_pedido" };
+        await ds.marcarEstado(pedido.id, "confirmado");
+        pedido.estado = "confirmado";
+        const r = await ds.despacharPedido(pedido);
+        if (!r.ok && r.noDisponible) return { estado: "no_disponible", mensajeAlCliente: r.noDisponible.mensajeAlCliente };
+        if (!r.ok && r.dropi?.estado === "error") return { estado: "rechazado", motivo: r.dropi.detalle, productoDesactivado: !!r.productoDesactivado };
+        if (!r.ok) return { estado: "error", motivo: r.error || "no se pudo despachar" };
+        const numero = r.dropi?.dropiOrderId || (r.wooOrderId != null ? String(r.wooOrderId) : null);
+        logger.info({ conversationId: p.conversationId, pedidoId: pedido.id, numero }, "[MotorV2] Pedido físico registrado");
+        return {
+          estado: "creado",
+          numero,
+          confirmacion:
+            `Producto: ${pedido.productName} × ${pedido.quantity}. ` +
+            `${cond.envio.costo === "incluido" ? "Envío incluido" : `Envío ${cond.envio.costo}`}. ` +
+            `${pedido.metodoPago === "contraentrega" ? "Paga contraentrega al recibir" : "Pago ya acordado"}. ` +
+            `Llega a ${pedido.direccion}${pedido.barrio ? `, barrio ${pedido.barrio}` : ""} — ${pedido.ciudad}, ${pedido.departamento}, en ${cond.envio.plazo}.`,
+        };
+      } catch (e: any) {
+        logger.error({ err: e?.message, conversationId: p.conversationId }, "[MotorV2] no se pudo confirmar el pedido");
+        return { estado: "error", motivo: e?.message || "error interno" };
+      }
+    },
+  };
 }
 
 export function repositorioDeEstado(): RepositorioEstado {
@@ -347,7 +477,15 @@ export async function responderComoVendedor(
   const ultimoMensaje = [...historial].reverse().find((m) => m.role === "customer")?.content ?? "";
   const agente = await agenteQueAtiende(conversationId, tenantId, ultimoMensaje);
   const voz = await cargarVozDelNegocio(tenantId, agente);
-  const catalogo = catalogoDeLaEspecialidad(catalogoCompleto, agente?.especialidad);
+  let especialidadesActivas: string[] = [];
+  try {
+    especialidadesActivas = (
+      await db.select({ e: agents.especialidad }).from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.isActive, true)))
+    ).map((f: any) => String(f.e || ""));
+  } catch {
+    especialidadesActivas = [];
+  }
+  const catalogo = catalogoDeLaEspecialidad(catalogoCompleto, agente?.especialidad, especialidadesActivas);
   // El producto del que VIENEN hablando no desaparece por un traspaso.
   if (estado.productoEnFoco != null && !catalogo.some((p) => p.id === estado.productoEnFoco)) {
     const enFoco = catalogoCompleto.find((p) => p.id === estado.productoEnFoco);
@@ -361,6 +499,16 @@ export async function responderComoVendedor(
     opts.llm ??
     crearClienteLLM({ cadena: await armarCadena({ tenantId, appSettings: opts.appSettings }), tenantId });
 
+  const negocio = await getBusinessContext(tenantId);
+  const { CONDICIONES_DE_RESPALDO } = await import("../modelo-de-negocio");
+  const pedidos = servicioDePedidos({
+    tenantId,
+    conversationId,
+    leadId: (convo as any).leadId ?? null,
+    telefono: (convo as any).contactPhone ?? null,
+    condiciones: negocio?.condiciones ?? CONDICIONES_DE_RESPALDO,
+  });
+
   const resultado = await responder({
     llm,
     estado,
@@ -370,6 +518,7 @@ export async function responderComoVendedor(
     guion,
     voz,
     recargarGuion: (nuevoFocoId: number) => cargarGuion(tenantId, catalogo, nuevoFocoId),
+    pedidos,
   });
 
   await repositorio.guardar(resultado.estado);

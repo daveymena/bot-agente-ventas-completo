@@ -57,6 +57,8 @@ export class MessageHandler {
     pushName?: string;
     /** Anuncio de Facebook/Instagram del que llegó este contacto, si llegó de uno. */
     anuncio?: { titulo: string; cuerpo: string; url: string; anuncioId: string };
+    /** Texto del mensaje que el cliente citó al responder. Ver extraerMensajeCitado. */
+    citado?: string;
   }): Promise<void> {
     // El mensaje solo llega acá si vino por el socket de Baileys de ESE
     // tenant (whatsapp-factory.ts aísla un socket por tenant) -- eso YA es
@@ -181,14 +183,17 @@ export class MessageHandler {
         role: "customer",
         content: params.body,
         stage: convo.currentStage,
-        metadata: params.anuncio
-          ? {
-              adTitle: params.anuncio.titulo,
-              adBody: params.anuncio.cuerpo,
-              adUrl: params.anuncio.url,
-              adId: params.anuncio.anuncioId,
-            }
-          : {},
+        metadata: {
+          ...(params.anuncio
+            ? {
+                adTitle: params.anuncio.titulo,
+                adBody: params.anuncio.cuerpo,
+                adUrl: params.anuncio.url,
+                adId: params.anuncio.anuncioId,
+              }
+            : {}),
+          ...(params.citado ? { citado: params.citado } : {}),
+        },
       });
 
       if (params.anuncio) {

@@ -263,6 +263,14 @@ export interface EstadoConversacion {
   /** Método de pago/entrega elegidos (texto del cliente, no invención). */
   pagoMetodo: string | null;
   entregaMetodo: string | null;
+
+  /**
+   * En qué turno se le mostró al cliente el RESUMEN del pedido físico.
+   * `confirmar_pedido` solo despacha si el resumen salió en un turno ANTERIOR:
+   * así el "sí" contesta a un resumen que el cliente ya leyó, nunca al mismo
+   * mensaje que se lo muestra.
+   */
+  pedidoPorConfirmarEnTurno: number | null;
 }
 
 export function estadoInicial(conversationId: number): EstadoConversacion {
@@ -304,6 +312,7 @@ export function estadoInicial(conversationId: number): EstadoConversacion {
     pasosCompletados: [],
     pagoMetodo: null,
     entregaMetodo: null,
+    pedidoPorConfirmarEnTurno: null,
   };
 }
 
@@ -353,6 +362,7 @@ export function normalizarEstado(crudo: unknown, conversationId: number): Estado
     pasosCompletados: Array.isArray(c.pasosCompletados) ? c.pasosCompletados.map(String) : [],
     pagoMetodo: typeof c.pagoMetodo === "string" ? c.pagoMetodo : null,
     entregaMetodo: typeof c.entregaMetodo === "string" ? c.entregaMetodo : null,
+    pedidoPorConfirmarEnTurno: typeof c.pedidoPorConfirmarEnTurno === "number" ? c.pedidoPorConfirmarEnTurno : null,
   };
 }
 
@@ -626,8 +636,15 @@ export function describirEstado(
   if (estado.ultimaPreguntaAgente) {
     l.push(`Tu última pregunta fue: "${estado.ultimaPreguntaAgente}". Un "sí/no/ese/dale/ok" contesta A ESO.`);
   }
-  if (estado.preguntaPendiente) {
-    l.push(`Pregunta pendiente: ${estado.preguntaPendiente}. Resolvé la referencia contra esto antes de cambiar de tema.`);
+  // "Antes de cambiar de tema" hacía que el agente INSISTIERA: chat real del
+  // 23-09-2026, "¿Te lo mando a domicilio?" → cliente: "Me muestra" → el bot
+  // repitió la misma pregunta en vez de mostrárselo. La pregunta pendiente
+  // sirve para entender un "sí/ese", no para volver a hacerla.
+  if (estado.preguntaPendiente && estado.preguntaPendiente !== estado.ultimaPreguntaAgente) {
+    l.push(`Pregunta pendiente: ${estado.preguntaPendiente}. Un "sí/no/ese" contesta a esto.`);
+  }
+  if (estado.preguntaPendiente || estado.ultimaPreguntaAgente) {
+    l.push(`Si el cliente pide OTRA cosa (verlo, una foto, una duda), atendé eso primero y no le repitas tu pregunta en el mismo mensaje.`);
   }
   if (estado.ultimaHerramienta) {
     l.push(
@@ -673,6 +690,12 @@ export function describirEstado(
         `${estado.consultoria.alcance ? `, alcance=${estado.consultoria.alcance}` : ""}` +
         `${estado.consultoria.cotizacion ? `, cotización=${estado.consultoria.cotizacion}` : ""}. ` +
         `Entendé el problema antes de cotizar; si el precio depende del alcance, decilo y registrá el caso.`,
+    );
+  }
+  if (estado.pedidoPorConfirmarEnTurno != null) {
+    l.push(
+      "Le mostraste el RESUMEN del pedido y está esperando su confirmación. Si dice que sí (de cualquier forma), " +
+        "llamá a confirmar_pedido. Si corrige un dato, llamá a tomar_pedido con el dato corregido.",
     );
   }
   if (estado.pasosCompletados.length) {
@@ -756,6 +779,9 @@ export function abrirVisitaNueva(estado: EstadoConversacion): void {
   estado.ultimaHerramienta = null;
   estado.intencionAnterior = estado.intencionActual;
   estado.intencionActual = null;
+  // Un resumen de pedido de ayer no se confirma con el "sí" de hoy: si
+  // retoma, se le vuelve a mostrar (los datos siguen guardados en el pedido).
+  estado.pedidoPorConfirmarEnTurno = null;
   // `pago` no se toca: "ya le mandaste los datos de pago" es un hecho, y si
   // vuelve con un "ya" es justamente lo que hace falta para entenderlo.
   if (!COMPRA_COMPROMETIDA.includes(estado.compra)) estado.compra = "ninguno";

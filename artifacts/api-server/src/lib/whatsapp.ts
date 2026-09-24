@@ -749,7 +749,13 @@ export function emojiDeCaracteristica(texto: string, deQueProducto = ""): string
     [/zapato|tenis|calzado|sandalia|bota/, "👟"],
     [/bolso|cartera|mochila|maleta/, "👜"],
     [/anillo|collar|arete|joya|pulsera|reloj/, "💍"],
-    [/u[ñn]a|manicur|cabello|peluquer|maquillaje|belleza|cosm[eé]tic/, "💅"],
+    // Salud y ortopedia ANTES que belleza: Dropi mete los correctores en
+    // "salud y belleza", y el corrector de postura le llegaba al cliente con
+    // 💅 (esmalte de uñas). Chat real del 22-09-2026.
+    [/postura|corrector|ortop[eé]d|columna|espalda|lumbar|rodillera|faja|tobillera|masajeador/, "🦴"],
+    // Solo "uña" CON ñ: `u[ñn]a` casaba con la palabra "una" y cualquier
+    // producto que la dijera salía con 💅.
+    [/\buñas?\b|esmalte|manicur|cabello|peluquer|maquillaje|belleza|cosm[eé]tic/, "💅"],
     [/gimnasio|fitness|ejercicio|entrenamiento|pesas|deporte/, "💪"],
     [/mueble|sof[aá]|colch[oó]n|hogar|cocina|decoraci[oó]n/, "🛋️"],
     [/herramienta|repuesto|mec[aá]nic|taller|motor|llanta/, "🔧"],
@@ -813,6 +819,14 @@ export function vinetasDeLoQueIncluye(
     const k = clave(texto);
     if (!k || vistos.has(k) || out.length >= 4) return;
     vistos.add(k);
+    // Si la característica YA empieza con su emoji (las de Dropi vienen así:
+    // "🧵 Material de neopreno"), se usa ese y no se le pone otro adelante.
+    // Salía "✅ 🧵 Material…": dos emojis apilados, lo que CLAUDE.md prohíbe.
+    const propio = String(texto).trim().match(/^(\p{Extended_Pictographic}(?:️|‍\p{Extended_Pictographic})*)\s*(.*)$/u);
+    if (propio && propio[2]) {
+      out.push(`${propio[1]} ${corta(propio[2])}`);
+      return;
+    }
     // Emoji ADELANTE, como todo lo demás que manda el sistema: la capa de
     // presentación (presentarParaWhatsApp) reescribe los "•" por emojis y
     // dejaba "📦 19 módulos… 🎬" con dos emojis. Meta lo pone atrás, pero lo
@@ -884,6 +898,8 @@ export async function construirSeccion(
    * preguntarlo ni cerrar con una encuesta a quien ya lo sabe.
    */
   yaSabeElPrecio = false,
+  /** Va como una de varias opciones: sin pregunta de cierre (la hace el agente una vez). */
+  sinCierre = false,
 ): Promise<{ conFoto: boolean; mensajes: string[] }> {
   const mon = await contextoDeMoneda(String(semilla).split("|")[0], Number(p.price), p.currency);
   const esFisico = String((p as any).kind || "digital") === "physical";
@@ -912,14 +928,16 @@ export async function construirSeccion(
   // metadata miente sobre lo que el cliente leyo y el "si" del turno siguiente
   // se lee mal.
   const seOfreceElVideo = sePuedeOfrecerElVideo({ seccion, tieneVideo: !!urlVideo, videoYaEnviado });
-  const cierre = invitacionDe(
-    seccion,
-    esFisico,
-    semilla,
-    seOfreceElVideo,
-    yaVioContenido || estaFichaMuestraContenido,
-    yaSabeElPrecio,
-  );
+  const cierre = sinCierre
+    ? ""
+    : invitacionDe(
+        seccion,
+        esFisico,
+        semilla,
+        seOfreceElVideo,
+        yaVioContenido || estaFichaMuestraContenido,
+        yaSabeElPrecio,
+      );
   const L: string[] = [];
 
   // ── Solo el precio ────────────────────────────────────────────────────────
@@ -1318,6 +1336,30 @@ export function extraerContextoDeAnuncio(msgObj: any): ContextoDeAnuncio | null 
       anuncioId: String(ad.sourceId || ad.ctwaClid || "").trim(),
     };
     if (ctx.titulo || ctx.cuerpo || ctx.url || ctx.anuncioId) return ctx;
+  }
+  return null;
+}
+
+/**
+ * El texto del mensaje que el cliente CITÓ al responder (mantener apretado →
+ * "Responder" en WhatsApp).
+ *
+ * Chat real del 22-09-2026: el bot mandó 4 fichas de correctores, el cliente
+ * respondió "Me interesa este" citando la primera, y el bot contestó "¿cuál de
+ * los cinco?" y después "no puedo ver imágenes ni distinguir a cuál apuntás".
+ * La cita traía el nombre del producto; se tiraba sin leerla.
+ */
+export function extraerMensajeCitado(msgObj: any): string | null {
+  if (!msgObj || typeof msgObj !== "object") return null;
+  const candidatos = [msgObj, ...Object.values(msgObj)];
+  for (const c of candidatos) {
+    const q = (c as any)?.contextInfo?.quotedMessage;
+    if (!q) continue;
+    const texto = String(
+      q.conversation || q.extendedTextMessage?.text || q.imageMessage?.caption || q.videoMessage?.caption || q.documentMessage?.caption || "",
+    ).trim();
+    if (texto) return texto.slice(0, 500);
+    if (q.imageMessage) return "[una foto sin texto]";
   }
   return null;
 }
@@ -2651,6 +2693,8 @@ export class WhatsAppManager {
                  // Meta es siempre el mismo para todos los anuncios, asi que
                  // esto es lo unico que dice que producto vino a buscar.
                  anuncio: extraerContextoDeAnuncio(msgObj) ?? undefined,
+                 // Lo que citó al responder ("me interesa ESTE" sobre una ficha).
+                 citado: extraerMensajeCitado(msgObj) ?? undefined,
                });
                console.log(`📤 [WA-QUEUE] Mensaje encolado exitosamente a MessageHandler: ${text.substring(0, 30)}...`);
 
@@ -3228,6 +3272,7 @@ export class WhatsAppManager {
               !!(part as any).videoYaEnviado,
               String((part as any).mensajeDelCliente || ""),
               !!(part as any).yaSabeElPrecio,
+              !!(part as any).sinCierre,
             );
             console.log(`🎯 [WA-CARD] Sección "${seccion}" — ${mensajes.length} mensaje(s), foto: ${conFoto} - ${timestamp}`);
             // El pie de foto va con la foto; TODO lo demas en un solo

@@ -610,6 +610,14 @@ export function invitacionesDe(
   // salía cerrando con "💰" suelto → "Déjame confirmarte ese dato exacto"
   // (visto en producción el 12-09-2026 con el bolso antirrobo). El test de
   // ficha-parcial verifica que cada cierre sobreviva a la aduana.
+  // Ya sabe el precio: ofrecérselo otra vez es repetir. Lo que sigue es el
+  // pedido. Chat real del 23-09-2026: "Ese va en $45.000" y la ficha que
+  // salió enseguida cerraba "¿Quieres saber cuánto está y cómo te llega?".
+  if (yaSabeElPrecio && (s === "info" || s === "completa")) {
+    return esFisico
+      ? ["¿Lo pedimos? Solo necesito tus datos de envío 📦", "¿Te ayudo con el pedido? 📦"]
+      : ["¿Te paso los datos de pago? 💳", "¿Te envío los medios de pago para iniciar? ⚡"];
+  }
   if (!tieneVideo && (s === "info" || s === "completa")) {
     return esFisico
       ? ["¿Quieres saber cuánto está y cómo te llega? 💰", "¿Te cuento cuánto vale y cómo se paga? 💰"]

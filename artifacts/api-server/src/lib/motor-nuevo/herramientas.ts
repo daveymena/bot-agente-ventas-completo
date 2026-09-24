@@ -85,6 +85,13 @@ export type Parte =
       videoYaEnviado?: boolean;
       mensajeDelCliente?: string;
       yaSabeElPrecio?: boolean;
+      /**
+       * Ficha que va como UNA de varias opciones: sale sin pregunta de cierre.
+       * Con 4 fichas seguidas, las 4 cerraban "¿Quieres saber cuánto está?"
+       * (chat real del 22-09-2026); la pregunta ("¿cuál te gusta?") la hace
+       * el texto del agente, una sola vez.
+       */
+      sinCierre?: boolean;
     };
 
 export type Seccion =
@@ -124,6 +131,45 @@ export interface ContextoHerramientas {
    * la calificación del producto anterior (digital vs físico).
    */
   alCambiarFoco?: (nuevoProductoId: number) => Promise<void> | void;
+  /**
+   * Pedidos de productos físicos (dropshipping). Lo provee el adaptador con la
+   * base real (lib/dropshipping.ts); las pruebas le pasan uno falso. Sin él,
+   * `tomar_pedido` / `confirmar_pedido` responden que este negocio no toma
+   * pedidos automáticos -- nunca fingen que se registró algo.
+   */
+  pedidos?: ServicioDePedidos;
+}
+
+/** Lo que el cliente dijo de sí mismo para el envío. Lo extrae el modelo. */
+export interface DatosDelPedido {
+  nombre?: string;
+  telefono?: string;
+  documento?: string;
+  departamento?: string;
+  ciudad?: string;
+  direccion?: string;
+  barrio?: string;
+  notas?: string;
+}
+
+export type ResultadoTomarPedido =
+  | { estado: "faltan"; faltan: string[]; yaTiene: string[] }
+  | { estado: "zona"; motivo: string }
+  | { estado: "listo"; resumen: string }
+  | { estado: "error"; motivo: string };
+
+export type ResultadoConfirmarPedido =
+  | { estado: "creado"; numero: string | null; confirmacion: string }
+  | { estado: "no_disponible"; mensajeAlCliente: string }
+  | { estado: "rechazado"; motivo: string; productoDesactivado: boolean }
+  | { estado: "sin_pedido" }
+  | { estado: "error"; motivo: string };
+
+export interface ServicioDePedidos {
+  /** Abre (o retoma) el pedido de esta conversación y guarda los datos que llegaron. */
+  tomar(p: { producto: Producto; cantidad: number; datos: DatosDelPedido }): Promise<ResultadoTomarPedido>;
+  /** El cliente confirmó el resumen: se registra y se despacha. */
+  confirmar(): Promise<ResultadoConfirmarPedido>;
 }
 
 export interface ResultadoHerramienta {
@@ -299,6 +345,43 @@ export const definicionesDeHerramientas = [
       description:
         "Te dice qué dato le falta a este negocio para poder concretar la venta. Usala cuando el " +
         "cliente ya quiere comprar: así pedís lo justo y no parecés un formulario.",
+      parameters: { type: "object", properties: {}, required: [] },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "tomar_pedido",
+      description:
+        "Para productos FÍSICOS con envío, cuando el cliente ya quiere comprarlo (y ya sabe el precio). " +
+        "Pasale los datos de envío que el cliente te dio, tal como los entendiste (aunque vengan todos en un mensaje " +
+        "o en desorden). El sistema abre el pedido, guarda los datos y te dice qué falta; cuando están todos, verifica " +
+        "la zona y le MANDA al cliente el resumen para confirmar. Llamala otra vez cada vez que te dé o corrija un dato.",
+      parameters: {
+        type: "object",
+        properties: {
+          productoId: { type: "number", description: "El producto que compra. Si no lo pasás, se usa el que está en foco." },
+          cantidad: { type: "number" },
+          nombre: { type: "string", description: "Nombre y apellido de quien recibe." },
+          documento: { type: "string", description: "Cédula o documento." },
+          telefono: { type: "string", description: "Celular de contacto." },
+          direccion: { type: "string", description: "Calle/carrera, número, torre, apto." },
+          barrio: { type: "string" },
+          ciudad: { type: "string" },
+          departamento: { type: "string", description: "Departamento (o estado/provincia). Si solo dijo la ciudad, dejalo vacío." },
+          notas: { type: "string", description: "Punto de referencia u otra indicación de entrega." },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "confirmar_pedido",
+      description:
+        "Registra y despacha el pedido físico. SOLO cuando el cliente confirmó el resumen que le mostró tomar_pedido " +
+        "en un mensaje anterior. Hasta que esta herramienta diga que se creó, el pedido NO existe: no digas que quedó registrado.",
       parameters: { type: "object", properties: {}, required: [] },
     },
   },
@@ -679,10 +762,17 @@ export const ejecutores: Record<string, Ejecutor> = {
   },
 
   mostrar_opciones(ctx, { productoIds }) {
-    const ids = (Array.isArray(productoIds) ? productoIds : [])
+    const pedidos = (Array.isArray(productoIds) ? productoIds : [])
       .map(Number)
-      .filter((n) => Number.isFinite(n) && n > 0)
-      .slice(0, 4);
+      .filter((n) => Number.isFinite(n) && n > 0);
+    const ids = pedidos.slice(0, 4);
+    // Los que no entran se DICEN: con 5 correctores, el texto del agente
+    // listaba 5 y llegaban 4 fichas -- el "Black" no se vio nunca y el
+    // cliente no sabía por qué (chat real del 22-09-2026).
+    const afuera = pedidos
+      .slice(4)
+      .map((id) => ctx.catalogo.find((p) => p.id === id)?.name)
+      .filter(Boolean) as string[];
 
     if (ids.length < 2) {
       return { ok: false, mensaje: "mostrar_opciones es para DOS o más productos. Si es uno solo, usá mostrar." };
@@ -703,6 +793,7 @@ export const ejecutores: Record<string, Ejecutor> = {
         videoYaEnviado: yaSeEnvio(ctx.estado, p.id, "video"),
         mensajeDelCliente: ctx.mensajeDelCliente,
         yaSabeElPrecio: precioDado(ctx.estado, p.id),
+        sinCierre: prods.length > 1,
       });
       registrarEnvio(ctx.estado, p.id, "info");
     }
@@ -716,7 +807,11 @@ export const ejecutores: Record<string, Ejecutor> = {
       ok: true,
       mensaje:
         `Mostré ${prods.length} opciones, en este orden: ${orden}. ` +
-        `Decile al cliente que elija cuál, sin repetir lo que ya sale en las fichas.`,
+        `Decile al cliente que elija cuál, sin repetir lo que ya sale en las fichas.` +
+        (afuera.length
+          ? ` Entran hasta 4 fichas: NO se mostró ${afuera.join(", ")}. No lo nombres como si estuviera arriba; ` +
+            `si querés, decile en una frase que también hay ${afuera.length === 1 ? "otro modelo" : "otros modelos"} y que se lo mostrás si le interesa.`
+          : ""),
     };
   },
 
@@ -796,6 +891,122 @@ export const ejecutores: Record<string, Ejecutor> = {
         `Pedí UNO por mensaje, y siempre DESPUÉS de contestar lo que el cliente acaba de decir. ` +
         `Nunca los pidas todos juntos: en WhatsApp eso se lee como un formulario.`,
     };
+  },
+
+  async tomar_pedido(ctx, args) {
+    if (!ctx.pedidos) {
+      return { ok: false, mensaje: "Este negocio no toma pedidos automáticos. Tomá los datos con registrar_dato y decile que una persona le confirma el envío. No digas que el pedido quedó registrado." };
+    }
+    const id = Number(args?.productoId) || ctx.estado.productoEnFoco;
+    const p = id ? ctx.catalogo.find((x) => x.id === id) : null;
+    if (!p) return { ok: false, mensaje: "No sé qué producto compra. Ubicalo con buscar_en_catalogo o enfocar_producto y volvé a llamar." };
+    if (String(p.kind || "digital") !== "physical") {
+      return { ok: false, mensaje: `${p.name} no es un producto físico: no lleva envío ni pedido. Seguí con mostrar(seccion="pago").` };
+    }
+    // Precio antes que datos: pedir cédula y dirección a quien no sabe cuánto
+    // cuesta es la regla que CLAUDE.md prohíbe romper.
+    if (!precioDado(ctx.estado, p.id)) {
+      return { ok: false, mensaje: `Todavía no le mostraste el precio de ${p.name}. Mandá primero mostrar(seccion="precio") y después pedí los datos.` };
+    }
+    const datos: DatosDelPedido = {};
+    for (const k of ["nombre", "telefono", "documento", "departamento", "ciudad", "direccion", "barrio", "notas"] as const) {
+      const v = String(args?.[k] ?? "").trim();
+      if (v) datos[k] = v.slice(0, 200);
+    }
+    const cantidad = Math.max(1, Math.min(20, Number(args?.cantidad) || 1));
+    const r = await ctx.pedidos.tomar({ producto: p, cantidad, datos });
+
+    ctx.estado.productoEnFoco = p.id;
+    if (ctx.estado.compra === "ninguno" || ctx.estado.compra === "interes" || ctx.estado.compra === "producto_definido" || ctx.estado.compra === "precio_dado") {
+      ctx.estado.compra = "listo_para_pagar";
+    }
+    marcarPaso(ctx.estado, "pedido_abierto");
+
+    switch (r.estado) {
+      case "faltan":
+        ctx.estado.pedidoPorConfirmarEnTurno = null;
+        ctx.estado.accionPendiente = "pedir_datos_envio";
+        ctx.estado.entregaEstado = "pendiente_datos";
+        return {
+          ok: true,
+          mensaje:
+            `Pedido de ${p.name} abierto. ` +
+            (r.yaTiene.length ? `Ya tenés: ${r.yaTiene.join(", ")} (no los vuelvas a pedir). ` : "") +
+            `Faltan: ${r.faltan.join(", ")}. Pedíselos TODOS juntos, en una lista corta, en un solo mensaje. No registres nada todavía.`,
+        };
+      case "zona":
+        ctx.estado.pedidoPorConfirmarEnTurno = null;
+        ctx.estado.accionPendiente = "confirmar_zona";
+        return { ok: true, mensaje: `Los datos están, pero la zona no verifica: ${r.motivo}. Pedile que confirme la ciudad y el departamento. No registres nada.` };
+      case "listo":
+        ctx.estado.pedidoPorConfirmarEnTurno = ctx.estado.turnos;
+        ctx.estado.accionPendiente = "confirmar_pedido";
+        ctx.estado.entregaEstado = "datos_listos";
+        // El resumen lo manda el SISTEMA, tal cual, con los datos guardados:
+        // así no puede salir con un dato cambiado por el modelo.
+        ctx.partes.push({ kind: "text", content: `${r.resumen}\n\n¿Confirmás el pedido y el envío a esa dirección? ✅` });
+        return {
+          ok: true,
+          mensaje:
+            "Datos completos y zona verificada. El sistema ya le manda al cliente el RESUMEN del pedido y le pregunta si confirma. " +
+            "Tu texto: una línea corta antes (ej. \"Te dejo el resumen para que lo revises:\"); no repitas el resumen ni la pregunta. " +
+            "TODAVÍA NO está registrado: no digas que quedó registrado ni inventes número de pedido.",
+        };
+      default:
+        return { ok: false, mensaje: `No se pudo abrir el pedido (${r.motivo}). Decile que tomaste sus datos y que una persona le confirma. No digas que quedó registrado.` };
+    }
+  },
+
+  async confirmar_pedido(ctx) {
+    if (!ctx.pedidos) {
+      return { ok: false, mensaje: "Este negocio no toma pedidos automáticos: decile que una persona le confirma el envío. No digas que quedó registrado." };
+    }
+    if (ctx.estado.pedidoPorConfirmarEnTurno == null) {
+      return { ok: false, mensaje: "No hay un resumen de pedido esperando confirmación. Primero tomar_pedido con los datos; cuando el sistema le mande el resumen y el cliente diga que sí, recién ahí confirmar_pedido." };
+    }
+    if (ctx.estado.pedidoPorConfirmarEnTurno >= ctx.estado.turnos) {
+      return { ok: false, mensaje: "El resumen se le está mandando en ESTE mismo mensaje: el cliente todavía no lo leyó. Esperá su respuesta." };
+    }
+    const r = await ctx.pedidos.confirmar();
+    ctx.estado.pedidoPorConfirmarEnTurno = null;
+    ctx.estado.accionPendiente = null;
+    switch (r.estado) {
+      case "creado":
+        ctx.estado.compra = "pedido_creado";
+        ctx.estado.entregaEstado = "programada";
+        ctx.estado.etapa = "postventa";
+        marcarPaso(ctx.estado, "pedido_creado");
+        // La confirmación la manda el SISTEMA con los datos reales del pedido,
+        // igual que el resumen. En la simulación con la IA real salía solo
+        // "¡Listo, Ana! Tu pedido quedó registrado 🎉": sin número, sin a
+        // dónde llega ni cuándo -- lo que el cliente necesita para quedarse
+        // tranquilo después de dar su cédula y su dirección.
+        ctx.partes.push({
+          kind: "text",
+          content:
+            `✅ Pedido${r.numero ? ` #${r.numero}` : ""} registrado\n\n${r.confirmacion.split(". ").filter(Boolean).join(".\n").replace(/\.+$/, "")}.\n\n` +
+            "Apenas la transportadora genere la guía, te la comparto por acá 📦",
+        });
+        return {
+          ok: true,
+          mensaje:
+            `PEDIDO REGISTRADO${r.numero ? ` (#${r.numero})` : ""}. La confirmación (número, a dónde llega y cuándo) sale JUSTO debajo de tu texto, en este mismo mensaje. ` +
+            "Tu texto: UNA línea cálida de agradecimiento, sin repetir esos datos y sin decir que la confirmación llega después. NO le pidas más datos. NO inventes número de guía.",
+        };
+      case "no_disponible":
+        return { ok: false, mensaje: `NO SE TOMÓ EL PEDIDO: el proveedor no puede despachar este producto. Decile algo como: "${r.mensajeAlCliente}". No le prometas despacho; ofrecele una alternativa del catálogo si la hay.` };
+      case "rechazado":
+        return {
+          ok: false,
+          mensaje: r.productoDesactivado
+            ? `El proveedor rechazó el pedido (${r.motivo}) y el producto se agotó. Decíselo con honestidad y sin tecnicismos, pedile disculpas y ofrecele una alternativa parecida. No prometas despacho ni inventes número de guía.`
+            : `El proveedor tuvo un problema para despachar (${r.motivo}). Decile que ya avisaste al equipo y que le confirmás por acá apenas se resuelva. No prometas despacho ni inventes número de guía.`,
+        };
+      case "sin_pedido":
+        return { ok: false, mensaje: "No encontré el pedido de esta conversación. Volvé a tomar_pedido con sus datos." };
+      default:
+        return { ok: false, mensaje: `El cliente confirmó pero el pedido NO se pudo registrar (${r.motivo}). Decile que ya tenés sus datos y que en un momento le confirmás el despacho. NO inventes número de pedido.` };
+    }
   },
 
   registrar_pago_reportado(ctx, { medio, referencia }) {

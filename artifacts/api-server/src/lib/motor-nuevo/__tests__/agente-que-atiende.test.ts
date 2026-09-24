@@ -31,6 +31,11 @@ describe("cada especialista ve SUS productos", () => {
   test("si su especialidad no tiene productos, ve todo antes que quedarse sin nada", () => {
     expect(catalogoDeLaEspecialidad([CURSO], "dropshipping")).toHaveLength(1);
   });
+  test("si NADIE más vende lo físico, la única agente (digital) ve el corrector", () => {
+    // Simulación real del 23-09: con el filtro sin esta regla, dijo
+    // "correctores no manejamos" y vendió un curso de bicicletas.
+    expect(catalogoDeLaEspecialidad(CAT, "digital", ["digital"]).map((p) => p.id)).toEqual([1, 2]);
+  });
 });
 
 async function negocioConDosAgentes() {
