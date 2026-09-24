@@ -65,9 +65,10 @@ const LIMITES = sinComentarios("../middleware/featureLimits.ts");
 
 describe("se cuenta donde se envia", () => {
   it("cada envio suma a la base", () => {
-    // Dos puntos de envio: texto e imagen. Los dos gastan.
+    // Tres puntos de envio: texto, imagen y nota de voz (f86a0e6, 23-09).
+    // Los tres gastan.
     const veces = (WHATSAPP.match(/sumarMensaje\(this\.currentTenant\.id\)/g) || []).length;
-    expect(veces).toBe(2);
+    expect(veces).toBe(3);
   });
 
   it("sin await: contar no puede demorar el mensaje al cliente", () => {

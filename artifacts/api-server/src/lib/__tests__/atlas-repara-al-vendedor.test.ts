@@ -88,27 +88,31 @@ describe("Atlas ejecuta el diagnóstico", () => {
 describe("Atlas repara", () => {
   test("puede prender y apagar el motor nuevo para un negocio", async () => {
     const t = await negocio();
-    assert.equal(await motorDelTenant(t.id), "v1");
+    // Relativo al valor por defecto de la plataforma (v2 desde cdb1356): lo
+    // que se prueba es que se puede cambiar y volver, no cuál es el defecto.
+    const base = await motorDelTenant(t.id);
+    const otro = base === "v2" ? "v1" : "v2";
 
     // La herramienta cambia el motor; acá se prueba la función que la
     // herramienta llama, porque el cambio pasa por la aprobación del admin
     // (y por el plan de control, que en modo local no está disponible).
     const { fijarMotorDelTenant } = await import("../motor-nuevo/activacion");
-    assert.equal((await fijarMotorDelTenant(t.id, "v2")).motor, "v2");
-    assert.equal(await motorDelTenant(t.id), "v2");
+    assert.equal((await fijarMotorDelTenant(t.id, otro)).motor, otro);
+    assert.equal(await motorDelTenant(t.id), otro);
 
-    assert.equal((await fijarMotorDelTenant(t.id, "v1")).motor, "v1");
-    assert.equal(await motorDelTenant(t.id), "v1", "volver atrás es inmediato");
+    assert.equal((await fijarMotorDelTenant(t.id, base)).motor, base);
+    assert.equal(await motorDelTenant(t.id), base, "volver atrás es inmediato");
   });
 
   test("un valor inválido no cambia nada", async () => {
     const t = await negocio();
+    const base = await motorDelTenant(t.id);
     const { fijarMotorDelTenant } = await import("../motor-nuevo/activacion");
     // @ts-expect-error se prueba el valor que el modelo podría mandar
     const r = await fijarMotorDelTenant(t.id, "v3");
     assert.equal(r.ok, false);
     assert.match(String(r.motivo), /v1 o v2/);
-    assert.equal(await motorDelTenant(t.id), "v1", "no se aplicó");
+    assert.equal(await motorDelTenant(t.id), base, "no se aplicó");
   });
 
   test("borra la memoria de una conversación trabada", async () => {
@@ -157,8 +161,9 @@ describe("Atlas repara", () => {
     // Es la garantía de que "Atlas propuso" nunca se convierte en "Atlas
     // ejecutó" por un camino lateral.
     const t = await negocio();
-    const r = await executeAction("vendedor_motor", { motor: "v2" }, ctxDe(t.id));
+    const base = await motorDelTenant(t.id);
+    const r = await executeAction("vendedor_motor", { motor: base === "v2" ? "v1" : "v2" }, ctxDe(t.id));
     assert.equal(r.ok, false);
-    assert.equal(await motorDelTenant(t.id), "v1", "no cambió nada");
+    assert.equal(await motorDelTenant(t.id), base, "no cambió nada");
   });
 });

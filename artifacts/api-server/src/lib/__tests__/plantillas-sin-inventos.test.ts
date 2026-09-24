@@ -22,6 +22,8 @@
  */
 import { describe, it, expect } from "vitest";
 import { AGENT_TEMPLATES } from "../agent-templates";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 /** El texto completo de una plantilla: el prompt y los prompts de cada etapa. */
 function textoDe(t: any): string {
@@ -70,8 +72,18 @@ describe("ninguna plantilla enseña a inventar escasez", () => {
 describe("el formato es para leer en un teléfono", () => {
   const conFormato = TODAS.filter(([, t]) => t.includes("CÓMO SE ESCRIBE UN MENSAJE"));
 
-  it("al menos una plantilla trae las reglas de formato", () => {
-    expect(conFormato.length).toBeGreaterThan(0);
+  /**
+   * Hasta el 22-09 este bloque vivía en la plantilla de Sofía. Con 662ebc1
+   * Sofía pasó a recepcionista (no presenta fichas) y el vendedor que atiende
+   * por defecto es el motor v2, que NO usa estas plantillas: arma su propio
+   * prompt. Las reglas de formato tienen que estar donde se usan de verdad.
+   */
+  it("las reglas de formato están en el prompt del vendedor que corre (motor v2)", () => {
+    const motor = readFileSync(join(__dirname, "..", "motor-nuevo", "motor.ts"), "utf8");
+    expect(motor).toMatch(/CÓMO HABLÁS/);
+    expect(motor).toMatch(/Mensajes de 2 a 4 frases/);
+    expect(motor).toMatch(/No empieces todas las respuestas con/);
+    expect(motor).toMatch(/Un emoji suelto está bien; cinco no/);
   });
 
   /**
