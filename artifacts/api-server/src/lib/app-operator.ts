@@ -3396,7 +3396,11 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
           notaCopy.puntaje >= 85
             ? `⭐ Calidad del copy: ${notaCopy.puntaje}/100`
             : `⭐ Calidad del copy: ${notaCopy.puntaje}/100\n${notaCopy.notas.map((n) => `   ⚠️ ${n}`).join("\n")}`,
-          `💾 Guardado local, no se tocó la cuenta de Meta.`,
+          draft.campaignId
+            ? `📤 Subido a Meta EN PAUSA (campaña ${draft.campaignId}), con la estructura de tus campañas: no gasta hasta que lo actives.`
+            : draft.errorDeMeta
+              ? `⚠️ Guardado en la app, pero Meta NO lo aceptó: ${draft.errorDeMeta}`
+              : `💾 Guardado local, no se tocó la cuenta de Meta.`,
         ].join("\n\n");
         return {
           ok: true,

@@ -202,7 +202,12 @@ async function crearBorradorDeAnuncio(tenantId: number, productId: number, copie
     const { AdStrategist } = await import("./ad-strategist");
     const grounded = copies ? { primaryText: copies.meta.primaryText, headline: copies.meta.headlines[0], description: copies.meta.description } as any : undefined;
     const draft = await new AdStrategist(tenant as any).createDraftAd(fb.adAccountId, fb.accessToken, productId, grounded, undefined, undefined, presupuesto || undefined);
-    return { draftId: Number((draft as any)?.id) || null, estado: "borrador", nota: "Borrador guardado; se sube a Meta EN PAUSA cuando lo apruebes." };
+    const draftId = Number((draft as any)?.id) || null;
+    // Lo que PASÓ, no lo que se supone: con la creación real habilitada el
+    // borrador ya sube a Meta acá, y antes igual se decía "se sube cuando lo apruebes".
+    if (draft.campaignId) return { draftId, estado: "borrador", nota: `Subido a Meta EN PAUSA (campaña ${draft.campaignId}): no gasta hasta que lo actives.` };
+    if (draft.errorDeMeta) return { draftId, estado: "fallo", nota: `Borrador guardado en la app, pero Meta no lo aceptó: ${draft.errorDeMeta}`.slice(0, 300) };
+    return { draftId, estado: "borrador", nota: "Borrador guardado en la app; se sube a Meta EN PAUSA cuando lo apruebes." };
   } catch (e: any) {
     return { draftId: null, estado: "fallo", nota: String(e?.message || e).slice(0, 200) };
   }

@@ -213,3 +213,31 @@ export function planDeAnuncio(
     metricaClave: "Costo por venta (y por conversación)",
   };
 }
+
+/**
+ * ¿Este texto le promete al cliente algo que ESTE tipo de producto no entrega?
+ *
+ * Caso real (24-09-2026): se subió a Meta el anuncio de un producto FÍSICO con
+ * texto de curso digital ("descargá", "acceso de por vida") -- y el admin
+ * pidió cuidar también lo contrario, un curso anunciado con "pagás al recibir".
+ * El plan de arriba ya arma bien el texto; lo que se colaba era el texto que
+ * trae quien llama (el lanzamiento, la investigación de Atlas), que lo pisaba
+ * sin mirar. Devuelve el motivo, o null si el texto es coherente.
+ */
+const PROMESA_DIGITAL = /\bdescarg|acceso\s+(inmediato|permanente|de\s+por\s+vida|ilimitado|total)|contenido\s+digital|\bm[oó]dulos\b|\blecciones\b|clases\s+(en\s+video|grabadas)|\balumnos\b|certificado\s+de|\bmegapack\b|\bcurso\b/i;
+const PROMESA_FISICA = /pag[aá]s?\s+al\s+recibir|contra\s*entrega|contraentrega|env[ií]os?\s+(a\s+todo|gratis|a\s+domicilio)|te\s+llega\s+a\s+(tu\s+)?casa|lo\s+recib[ií]s\s+en\s+tu\s+casa/i;
+
+export function copyDeOtroModelo(texto: string, modelo: ModeloDeNegocio): string | null {
+  const t = String(texto || "");
+  if (modelo === "fisico") {
+    const m = t.match(PROMESA_DIGITAL);
+    return m ? `promete algo digital ("${m[0]}") y el producto es físico` : null;
+  }
+  if (modelo === "digital" || modelo === "suscripcion") {
+    const m = t.match(PROMESA_FISICA);
+    return m ? `promete una entrega física ("${m[0]}") y el producto es digital` : null;
+  }
+  return null;
+}
+
+export { modeloDelProducto };

@@ -9,7 +9,7 @@ import { generateProductImage } from "./ai-product-image";
 
 import { FB_GRAPH_BASE } from "./meta-api-version";
 import { modeloDelProducto } from "./modelo-de-negocio";
-import { planDeAnuncio } from "./anuncio-por-modelo";
+import { planDeAnuncio, copyDeOtroModelo } from "./anuncio-por-modelo";
 const FB_GRAPH_URL = FB_GRAPH_BASE;
 
 // Corta en el último espacio dentro del límite en vez de a lo bruto -- un
@@ -92,6 +92,8 @@ export interface DraftAd {
   adSetId: string | null;
   adId: string | null;
   status: "draft" | "created";
+  /** Si se intentó subir a Meta y no se pudo, el motivo REAL (nunca "listo" en falso). */
+  errorDeMeta?: string;
 }
 
 const WINNING_STRATEGIES_BY_NICHE: Record<string, AdStrategy> = {
@@ -531,6 +533,15 @@ export class AdStrategist {
     // completo (no solo hook/ángulo), se respeta tal cual -- el precio y los
     // datos reales del producto ya quedaron incorporados en su versión
     // porque el agente los ve en el mismo turno via list_products.
+    // ...salvo que ese texto le prometa al cliente algo que este producto no
+    // entrega (curso "descargable" para un corrector, o "pagás al recibir"
+    // para un curso). Ahí manda el plan del modelo: es el caso del 24-09-2026.
+    const ajeno = [grounded?.primaryText, grounded?.headline, grounded?.description].filter(Boolean).join(" ");
+    const motivoAjeno = ajeno ? copyDeOtroModelo(ajeno, plan.modelo) : null;
+    if (motivoAjeno) {
+      logger.warn({ productId: product?.id, motivo: motivoAjeno }, "[AdStrategist] El texto recibido no corresponde al tipo de producto: se usa el del plan");
+      grounded = { ...grounded, primaryText: undefined, headline: undefined, description: undefined } as any;
+    }
     return {
       primaryText: sinMarkdown(grounded?.primaryText || primaryText),
       headline: sinMarkdown(grounded?.headline || headline),
@@ -765,8 +776,14 @@ export class AdStrategist {
         headline: String(draft.headline || ""),
         description: String(draft.description || ""),
       };
-      if (esCopyDeLaPlantillaVieja(copy.primaryText)) {
-        const [prod] = await db.select().from(products).where(eq(products.id, draft.productId)).limit(1);
+      const [prodDelBorrador] = await db.select().from(products).where(eq(products.id, draft.productId)).limit(1);
+      const { modeloDelProducto } = await import("./anuncio-por-modelo");
+      const noCorresponde = prodDelBorrador
+        ? copyDeOtroModelo(`${copy.primaryText} ${copy.headline} ${copy.description}`, modeloDelProducto(prodDelBorrador as any))
+        : null;
+      if (esCopyDeLaPlantillaVieja(copy.primaryText) || noCorresponde) {
+        if (noCorresponde) logger.warn({ draftId, motivo: noCorresponde }, "[AdStrategist] El copy del borrador no corresponde al producto: se regenera antes de subir");
+        const prod = prodDelBorrador;
         if (prod) {
           const nuevo = await this.generateAdCopy(this.getStrategyForProduct(prod), prod);
           copy = { primaryText: nuevo.primaryText, headline: nuevo.headline, description: nuevo.description };
@@ -839,13 +856,32 @@ export class AdStrategist {
       const act = `act_${adAccountId}`;
 
       const images = (draft.images && draft.images.length > 0 ? draft.images : (draft.imageUrl ? [draft.imageUrl] : [])) as string[];
+
+      // ── El destino y el botón NO se cambian al editar ─────────────────────
+      // Antes el creativo nuevo iba SIEMPRE a la web y sin botón. En una
+      // campaña de MENSAJES eso es lo que Meta rechaza con "Contenido no
+      // válido para el objetivo" (visto el 24-09-2026 tras corregir el texto
+      // del corrector). Se leen del creativo ACTUAL del anuncio -- el que armó
+      // la subida con el objetivo correcto -- y solo cambian texto e imágenes.
+      let destinoActual: string | null = null;
+      let botonActual: any = null;
+      let instagramActual: string | null = null;
+      try {
+        const r = await fetch(`${FB_GRAPH_URL}/${draft.adId}?fields=creative{object_story_spec,instagram_user_id}&access_token=${encodeURIComponent(accessToken)}`);
+        const j: any = await r.json();
+        const ld = j?.creative?.object_story_spec?.link_data;
+        destinoActual = ld?.link || null;
+        botonActual = ld?.call_to_action || null;
+        instagramActual = j?.creative?.object_story_spec?.instagram_user_id || j?.creative?.instagram_user_id || null;
+      } catch { /* sin lectura: se usa la web, como antes */ }
       // Landing publicada del producto si la hay; si no, la tienda.
-      const { url: destinoWeb } = await destinoWebDelProducto(this.tenant.id, Number(draft.productId));
+      const destinoWeb = destinoActual || (await destinoWebDelProducto(this.tenant.id, Number(draft.productId))).url;
       const linkData: Record<string, any> = {
         link: destinoWeb,
         message: draft.primaryText || "",
         name: draft.headline || "",
         description: draft.description || "",
+        ...(botonActual ? { call_to_action: botonActual } : {}),
       };
       if (images.length > 1) {
         linkData.child_attachments = images.map((url, i) => ({
@@ -863,6 +899,7 @@ export class AdStrategist {
         object_story_spec: {
           page_id: this.credencialesFb().pageId,
           link_data: linkData,
+          ...(instagramActual ? { instagram_user_id: instagramActual } : {}),
         },
       });
 
@@ -987,406 +1024,63 @@ export class AdStrategist {
     // difícil de deshacer. El borrador se guarda local y queda listo para
     // revisarlo y publicarlo cuando se decida. Para habilitar la creación real
     // hay que poner FB_CREATE_REAL_CAMPAIGNS=true de forma explícita.
-    if (process.env.FB_CREATE_REAL_CAMPAIGNS !== "true") {
-      const localDraft: DraftAd = {
-        productId: product.id,
-        productName: product.name || "",
-        strategy,
-        primaryText: adCopy.primaryText,
-        headline: adCopy.headline,
-        description: adCopy.description,
-        imageUrl,
-        images: manualAbsolute.length > 0 ? manualAbsolute : undefined,
-        campaignId: null,
-        adSetId: null,
-        adId: null,
-        status: "draft",
-      };
-      // El id del borrador VIAJA con el resultado. Antes se descartaba lo que
-      // devolvía saveDraftToDb, así que `crear_anuncio` nunca sabía el
-      // draftId: no lo mostraba ("— borrador N"), y con subirAMeta=true la
-      // subida se saltaba en silencio porque `draftId` era null.
-      const guardado = await this.saveDraftToDb(localDraft);
-      if (guardado?.id) localDraft.id = Number(guardado.id);
-      logger.info(
-        { productId: product.id, strategy: strategy.niche, draftId: localDraft.id },
-        "[AdStrategist] Borrador local creado (sin tocar la cuenta publicitaria)"
-      );
+    // ── UN SOLO camino a Meta ────────────────────────────────────────────
+    //
+    // Acá había un SEGUNDO creador de campañas (≈350 líneas) que armaba la
+    // campaña a mano: un solo conjunto, sin la plantilla de las campañas
+    // reales de la cuenta, sin las reglas del creativo y con su propio texto.
+    // Con FB_CREATE_REAL_CAMPAIGNS=true lo usaban el lanzamiento automático,
+    // la agencia, el panel y fb_ad_draft -- de ahí las "[BORRADOR] Canguro /
+    // Kit bebé / Bañera" del 24-09-2026, alguna sin conjunto de anuncios, y
+    // al admin se le decía "se sube a Meta cuando lo apruebes" cuando ya
+    // estaba subida. Ahora el borrador SIEMPRE se guarda local y, si la
+    // creación real está habilitada, se sube por `subirBorradorAMeta`: el
+    // mismo camino que fb_upload_draft_to_meta (plantilla, objetivo, mejoras,
+    // chequeo de imagen y de copy). Si Meta lo rechaza se dice el motivo.
+    const localDraft: DraftAd = {
+      productId: product.id,
+      productName: product.name || "",
+      strategy,
+      primaryText: adCopy.primaryText,
+      headline: adCopy.headline,
+      description: adCopy.description,
+      imageUrl,
+      images: manualAbsolute.length > 0 ? manualAbsolute : undefined,
+      campaignId: null,
+      adSetId: null,
+      adId: null,
+      status: "draft",
+    };
+    // El id del borrador VIAJA con el resultado: sin él nadie puede subirlo después.
+    const guardado = await this.saveDraftToDb(localDraft);
+    if (guardado?.id) localDraft.id = Number(guardado.id);
+    logger.info(
+      { productId: product.id, strategy: strategy.niche, draftId: localDraft.id },
+      "[AdStrategist] Borrador local creado (sin tocar la cuenta publicitaria)"
+    );
+    if (process.env.FB_CREATE_REAL_CAMPAIGNS !== "true" || !localDraft.id) return localDraft;
+
+    if (!accessToken || !adAccount) {
+      localDraft.errorDeMeta = "Para subirlo a Meta primero tenés que conectar tu cuenta de Facebook desde la sección Facebook del panel.";
       return localDraft;
     }
-
-    // A partir de acá se crean objetos REALES que gastan dinero. Sin las
-    // credenciales de ESTE negocio no se sigue: antes se intentaba igual con
-    // cadenas vacías (o, peor, con las del dueño de la plataforma) y el
-    // admin recibía un error críptico de Meta en vez de saber que lo único
-    // que le falta es conectar su Facebook.
-    if (!accessToken || !adAccount) {
-      throw new Error(
-        "Para crear anuncios reales primero tenés que conectar tu cuenta de Facebook desde la sección Facebook del panel.",
-      );
+    const objetivo: import("./objetivos-campana").ObjetivoCampana =
+      destino?.tipo === "whatsapp" ? "mensajes" : ((strategy as any).objetivoRecomendado || "mensajes");
+    const subida = await this.subirBorradorAMeta(localDraft.id, objetivo);
+    if (subida.ok) {
+      const [fila] = await db.select().from(facebookDrafts).where(eq(facebookDrafts.id, localDraft.id)).limit(1);
+      localDraft.campaignId = fila?.campaignId ?? subida.campaignId ?? null;
+      localDraft.adSetId = fila?.adSetId ?? null;
+      localDraft.adId = fila?.adId ?? null;
+      localDraft.status = "created";
+      localDraft.primaryText = String(fila?.primaryText || localDraft.primaryText);
+      localDraft.headline = String(fila?.headline || localDraft.headline);
+      localDraft.description = String(fila?.description || localDraft.description);
+    } else {
+      localDraft.errorDeMeta = subida.message || "Meta no aceptó crear la campaña.";
+      logger.warn({ draftId: localDraft.id, motivo: localDraft.errorDeMeta }, "[AdStrategist] El borrador quedó local: Meta no lo aceptó");
     }
-
-    // Se declara FUERA del try para que el catch pueda deshacer la campaña si
-    // un paso posterior falla (ver el rollback más abajo).
-    let campaignIdCreada: string | null = null;
-
-    try {
-      const act = `act_${adAccount}`;
-
-      // ── Destino del anuncio ────────────────────────────────────────────
-      // Por defecto el anuncio manda a la página del producto en la web. Con
-      // destino WhatsApp el anuncio abre una conversación directa: es otro
-      // tipo de campaña, no un cambio de botón -- cambia el objetivo, el
-      // destino del conjunto, el objeto promocionado y el CTA del creativo.
-      // Es EL caso de uso central de este producto (vender por WhatsApp) y
-      // hasta ahora no se podía armar desde la app.
-      const pageIdDestino = this.credencialesFb().pageId;
-      const waLink = destino?.tipo === "whatsapp" ? this.normalizarWhatsApp(destino.numero) : null;
-      if (destino?.tipo === "whatsapp" && !waLink) {
-        throw new Error("El número de WhatsApp no es válido. Poné el número con código de país, por ejemplo 573001234567.");
-      }
-      if (waLink && !pageIdDestino) {
-        throw new Error("Para un anuncio que lleve a WhatsApp hace falta tener la página de Facebook conectada.");
-      }
-      const esWhatsApp = !!waLink;
-
-      // El presupuesto se valida ANTES de tocar Meta.
-      //
-      // Estaba validado recién al armar el conjunto, o sea DESPUÉS de crear la
-      // campaña: con un borrador sin presupuesto (el 88, guardado con
-      // budget:null), `presupuestoDiarioParaMetaPublico(null)` lanzaba y la
-      // campaña quedaba huérfana. Chequearlo acá arriba convierte ese caso en
-      // un error limpio, sin haber creado nada.
-      //
-      // Sin default silencioso, a propósito: es el número que va a gastar por
-      // día. Ya pasó una vez que un default del nicho reemplazara lo que el
-      // admin había aprobado (ver presupuestoDiarioParaMeta), y sobre dinero
-      // el número tiene que ser el que él dijo o ninguno.
-      const presupuestoDelBorrador = Number((strategy as any)?.budget);
-      if (!Number.isFinite(presupuestoDelBorrador) || presupuestoDelBorrador <= 0) {
-        throw new Error(
-          "Este borrador no tiene presupuesto diario, así que no se puede crear la campaña en Meta. "
-          + "Decime cuánto querés gastar por día y lo vuelvo a intentar.",
-        );
-      }
-
-      const campaign = await this.fbPost(act, "campaigns", accessToken, {
-        name: `[BORRADOR] ${product.name}${esWhatsApp ? " (WhatsApp)" : ""} - ${new Date().toLocaleDateString("es-CO")}`,
-        // OUTCOME_SALES optimiza compras en la web y no admite destino de
-        // mensajería; para conversaciones el objetivo correcto es
-        // OUTCOME_ENGAGEMENT.
-        objective: esWhatsApp ? "OUTCOME_ENGAGEMENT" : "OUTCOME_SALES",
-        status: "PAUSED",
-        // [] tira error 100/subcódigo 4834011 -- Meta exige declarar "NONE"
-        // explícito cuando la campaña no aplica a ninguna categoría especial
-        // (vivienda, empleo, crédito, temas sociales/elecciones).
-        special_ad_categories: ["NONE"],
-        // Presupuesto a nivel de conjunto (no CBO): Facebook exige declarar
-        // explícitamente que los conjuntos no comparten presupuesto entre sí.
-        is_adset_budget_sharing_enabled: false,
-      });
-      // A partir de acá la campaña YA existe en la cuenta real: si algo falla
-      // más abajo hay que borrarla, no dejarla huérfana.
-      campaignIdCreada = campaign?.id ? String(campaign.id) : null;
-
-      // optimization_goal=CONVERSIONS sin promoted_object es rechazado por
-      // Graph API (exige que el conjunto apunte a un pixel/evento). Mismo
-      // fix que en facebook.ts: si hay pixel se manda promoted_object con
-      // evento LEAD, si no, se cae a LINK_CLICKS.
-      const pixelId = this.credencialesFb().pixelId;
-      const hasUsablePixel = pixelId ? await this.pixelBelongsToAccount(act, accessToken, pixelId) : false;
-      // Mismo bug que en facebook.ts: mandar intereses sin ID real de la
-      // taxonomía de Facebook hace que Graph API los ignore en silencio --
-      // el borrador salía con audiencia amplia aunque mostrara "intereses
-      // aplicados". Se resuelven contra la búsqueda real antes de armar el
-      // targeting.
-      const resolvedInterests = await resolveInterestIds(accessToken, strategy.interests);
-
-      // strategy.budget viene en PESOS (las plantillas por nicho traen
-      // 12.000-20.000 COP). Meta lo guarda en la moneda de la CUENTA: con una
-      // cuenta en USD, mandar 20000*100 le dijo a Meta "US$20.000 por día"
-      // (~80 millones de pesos diarios) en una campaña que quedó ACTIVA
-      // -- incidente real del 2026-08-10, ver presupuestoDiarioParaMeta.
-      const { FacebookService: FbSvc } = await import("./facebook");
-      const presupuestoMeta = await new FbSvc(this.tenant).presupuestoDiarioParaMetaPublico(strategy.budget);
-      if (!presupuestoMeta.ok) throw new Error(presupuestoMeta.message);
-
-      const adSetBody: Record<string, any> = {
-        name: `[BORRADOR] ${product.name} - Conjunto`,
-        campaign_id: campaign.id,
-        daily_budget: presupuestoMeta.valor,
-        targeting: {
-          geo_locations: { countries: ["CO"] },
-          age_min: strategy.ageMin,
-          age_max: strategy.ageMax,
-          ...(resolvedInterests.length > 0 ? { flexible_spec: [{ interests: resolvedInterests }] } : {}),
-          // ── Ubicaciones: NINGUNA a propósito ─────────────────────────────
-          //
-          // No mandar ubicaciones ES la forma de pedir Advantage+ Placements:
-          // Meta reparte entre sus 25+ y busca la impresión más barata. Es su
-          // default y lo que recomienda.
-          //
-          // Acá se fijaban cinco a mano (feed, story, marketplace,
-          // facebook_reels, y las tres de Instagram), y encima había que
-          // sacarle marketplace en las campañas de mensajes porque Meta
-          // rechazaba el conjunto entero. Toda esa cirugía desaparece: si no
-          // se declara ninguna, Meta usa solo las ELEGIBLES para el objetivo
-          // que sea. El caso de marketplace se resuelve solo.
-          //
-          // (El detalle de que "reels" es válido en instagram_positions pero
-          // en Facebook se llama "facebook_reels" --error #100/1815433, probado
-          // en vivo-- queda anotado acá por si algún día vuelve a hacer falta
-          // declararlas a mano.)
-          //
-          // ── Advantage+ Audience ──────────────────────────────────────────
-          //
-          // Meta exige declarar esta bandera -- sin ella /adsets rechaza la
-          // creación entera con error #100/1870227. Estaba fija en 0 "para
-          // respetar el targeting explícito", con el mismo efecto que tenía en
-          // facebook.ts: como siempre hay un rango de edad, la condición era
-          // siempre verdadera y Advantage+ quedaba apagado SIEMPRE.
-          //
-          // Ahora decide `usarAdvantagePlus`, compartida con facebook.ts para
-          // que las dos rutas no diverjan -- que es exactamente lo que pasó con
-          // el recorte de herramientas y con el objetivo de la campaña.
-          targeting_automation: {
-            advantage_audience: usarAdvantagePlus({
-              interests: resolvedInterests,
-              ageMin: strategy.ageMin,
-              ageMax: strategy.ageMax,
-            }) ? 1 : 0,
-          },
-        },
-        status: "PAUSED",
-        start_time: new Date().toISOString(),
-        // is_dynamic_creative quedó sacado: era para asset_feed_spec, que no
-        // se usa (ver comentario en el creativo más abajo) -- dejarlo activo
-        // sin un creativo asset_feed_spec real habría hecho que Meta rechace
-        // el anuncio por incompatibilidad entre el adset y el creativo.
-      };
-      if (esWhatsApp) {
-        // Click-to-WhatsApp: el conjunto declara que el destino es una
-        // conversación de WhatsApp y promociona la PÁGINA (no el pixel, que
-        // mide la web y acá no interviene). Se optimiza por conversaciones
-        // iniciadas, que es lo que realmente se quiere contar.
-        adSetBody.destination_type = "WHATSAPP";
-        adSetBody.promoted_object = { page_id: pageIdDestino };
-        adSetBody.billing_event = "IMPRESSIONS";
-        adSetBody.optimization_goal = "CONVERSATIONS";
-        adSetBody.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
-        // Ya no hace falta sacarle marketplace a mano ("no admite anuncios de
-        // mensajería: dejarlo hace que Meta rechace el conjunto entero"). Sin
-        // ubicaciones declaradas, Meta usa solo las elegibles para mensajes.
-      } else if (hasUsablePixel) {
-        adSetBody.billing_event = "IMPRESSIONS";
-        // "CONVERSIONS" no es un valor válido de optimization_goal -- el
-        // equivalente moderno para optimizar por conversiones de pixel es
-        // OFFSITE_CONVERSIONS.
-        adSetBody.optimization_goal = "OFFSITE_CONVERSIONS";
-        adSetBody.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
-        // LEAD no es compatible con el objetivo OUTCOME_SALES -- PURCHASE es
-        // el evento que corresponde a una campaña de venta.
-        adSetBody.promoted_object = { pixel_id: pixelId, custom_event_type: "PURCHASE" };
-      } else {
-        // billing_event=LINK_CLICKS lo rechaza Facebook en cuentas nuevas --
-        // IMPRESSIONS sí está disponible desde el día uno.
-        adSetBody.billing_event = "IMPRESSIONS";
-        adSetBody.optimization_goal = "LINK_CLICKS";
-        adSetBody.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
-      }
-      const adSet = await this.fbPost(act, "adsets", accessToken, adSetBody);
-
-      // Imagen: se pasa como URL en `picture` en vez de subir por /adimages
-      // (la aplicación no tiene la capacidad adimages - error #3 de Graph API).
-      // Facebook descarga y cachea la imagen desde la URL directamente.
-      //
-      // Advantage+ Creative -- verificado en vivo (2026-08-08) contra la
-      // cuenta real que el campo `creative_features_spec` EN LA RAÍZ del
-      // payload es aceptado sintácticamente pero Meta lo IGNORA por
-      // completo: el creativo quedaba creado con
-      // degrees_of_freedom_spec.creative_features_spec en OPT_OUT para
-      // TODO pese a pedir OPT_IN (confirmado leyendo el creativo recién
-      // creado). El campo correcto que Meta sí lee va ANIDADO dentro de
-      // `degrees_of_freedom_spec` (ver creativePayload más abajo). Además:
-      //  - `standard_enhancements` está OBSOLETO acá (error 100/subcódigo
-      //    3858504: "Define funciones individuales en su lugar") -- por
-      //    eso no va, solo las mejoras individuales de abajo.
-      //  - `image_background_gen` requiere catálogo asociado al anuncio
-      //    (error 100/subcódigo 3858293) -- esta cuenta no crea anuncios
-      //    vía catálogo, así que no se manda.
-      //
-      // image_uncrop (expandir/generar fondo) y image_brightness_and_contrast
-      // solo se activan si hay una foto REAL del producto (hasRealProductImage):
-      // aplicarlas sobre el placeholder gris de texto no tiene nada que
-      // "realzar" y puede terminar generando un fondo que se parece todavía
-      // menos al curso real -- exactamente el problema de "la foto no
-      // corresponde al producto" que se reportó. text_optimizations y
-      // enhance_cta son retoques seguros (no alteran qué se ve en la
-      // imagen) y quedan activos siempre.
-      const creativeFeaturesSpec: Record<string, any> = {
-        text_optimizations: { enroll_status: "OPT_IN" },
-        enhance_cta: { enroll_status: "OPT_IN" },
-      };
-      if (hasRealProductImage) {
-        creativeFeaturesSpec.image_touchups = { enroll_status: "OPT_IN" };
-        creativeFeaturesSpec.image_brightness_and_contrast = { enroll_status: "OPT_IN" };
-        creativeFeaturesSpec.image_uncrop = { enroll_status: "OPT_IN" };
-      }
-      // asset_feed_spec (Dynamic Creative con varias imágenes) NO se usa acá.
-      // Se probó en vivo contra la cuenta real: generatepreviews lo acepta
-      // sintácticamente, pero la creación real (/adcreatives) rechaza CUALQUIER
-      // URL en asset_feed_spec.images -- probado con placehold.co Y con una
-      // imagen de Wikimedia (100% accesible), mismo error los dos:
-      // "No se ha podido descargar tu imagen" (subcode 3858258). Confirma que
-      // asset_feed_spec.images necesita sí o sí un image_hash real (subido por
-      // /adimages), no una URL -- y esa capacidad sigue bloqueada (error #3,
-      // igual que el picture normal). Meta A/B-testeando imágenes solo queda
-      // bloqueado hasta que se habilite /adimages vía revisión de Meta.
-      //
-      // Path único: una imagen fija en object_story_spec (funciona, verificado
-      // en las pruebas de imágenes reales de esta sesión).
-      //
-      // Carrusel (2+ fotos propias del admin, manualAbsolute): usa
-      // link_data.child_attachments, con `picture` como URL por tarjeta --
-      // MISMO campo `picture` que ya funciona en el path de una sola imagen,
-      // así que debería aceptar URL igual (a diferencia de asset_feed_spec,
-      // que exige image_hash). A diferencia del resto de este archivo, esto
-      // NO está "probado en vivo" todavía -- probar con un borrador de bajo
-      // presupuesto antes de confiar en el carrusel a escala.
-      const isCarousel = manualAbsolute.length > 1;
-      // Con destino WhatsApp el enlace ES el wa.me y el botón tiene que ser
-      // "Enviar mensaje por WhatsApp": si se deja el CTA de venta normal
-      // (ej. SHOP_NOW), Meta rechaza el creativo por no corresponder al
-      // destino de mensajería declarado en el conjunto.
-      // Destino web: la landing PUBLICADA del producto si la hay (es lo que se
-      // armó para convertir), si no la página de la tienda.
-      const destinoLink = esWhatsApp ? waLink! : (await destinoWebDelProducto(this.tenant.id, product.id)).url;
-      const linkData: Record<string, any> = {
-        link: destinoLink,
-        message: adCopy.primaryText,
-        name: adCopy.headline,
-        description: adCopy.description,
-        call_to_action: esWhatsApp
-          ? { type: "WHATSAPP_MESSAGE", value: { app_destination: "WHATSAPP", link: waLink! } }
-          : { type: strategy.ctaType },
-      };
-      if (isCarousel) {
-        // destinoLink, no la URL del producto: si no, en un carrusel con
-        // destino WhatsApp cada tarjeta llevaría a la web y solo el botón
-        // general abriría el chat -- justo lo contrario de lo pedido.
-        linkData.child_attachments = manualAbsolute.map((url, i) => ({
-          link: destinoLink,
-          picture: url,
-          name: i === 0 ? adCopy.headline : `${adCopy.headline} (${i + 1})`,
-          description: adCopy.description,
-          ...(esWhatsApp ? { call_to_action: { type: "WHATSAPP_MESSAGE", value: { app_destination: "WHATSAPP", link: waLink! } } } : {}),
-        }));
-      } else if (imageUrl) {
-        linkData.picture = imageUrl;
-      }
-      const creativePayload: Record<string, any> = {
-        name: `[BORRADOR] ${product.name} - Creativo`,
-        object_story_spec: {
-          page_id: this.credencialesFb().pageId,
-          link_data: linkData,
-        },
-        degrees_of_freedom_spec: { creative_features_spec: creativeFeaturesSpec },
-      };
-      const creative = await this.fbPost(act, "adcreatives", accessToken, creativePayload);
-
-      const ad = await this.fbPost(act, "ads", accessToken, {
-        name: `[BORRADOR] ${product.name}`,
-        adset_id: adSet.id,
-        creative: { creative_id: creative.id },
-        status: "PAUSED",
-      });
-
-      logger.info(
-        { campaignId: campaign.id, adId: ad.id, product: product.name, strategy: strategy.niche },
-        "[AdStrategist] Draft ad created"
-      );
-
-      const draftResult: DraftAd = {
-        productId: product.id,
-        productName: product.name || "",
-        strategy,
-        primaryText: adCopy.primaryText,
-        headline: adCopy.headline,
-        description: adCopy.description,
-        imageUrl,
-        images: manualAbsolute.length > 0 ? manualAbsolute : undefined,
-        campaignId: campaign.id,
-        adSetId: adSet.id,
-        adId: ad.id,
-        status: "created",
-      };
-
-      // El id de la fila guardada viaja de vuelta en el objeto: sin esto,
-      // quien acaba de crear el borrador no sabe con que id subirlo a Meta
-      // despues, y el modelo terminaba proponiendo fb_upload_draft_to_meta
-      // con draftId null (visto en vivo el 18-08-2026).
-      {
-        const guardado = await this.saveDraftToDb(draftResult);
-        if ((guardado as any)?.id) (draftResult as any).id = (guardado as any).id;
-      }
-
-      return draftResult;
-    } catch (err: any) {
-      logger.error({ err, productId }, "[AdStrategist] Error creating draft ad");
-
-      // ── Deshacer la campaña que quedó a medias ───────────────────────────
-      // Reportado por el admin mirando su Ads Manager (2026-08-19): "veo que
-      // crea algo sin conjunto de anuncios". Tenía razón -- había DOS campañas
-      // huérfanas en la cuenta real, las dos sin ningún conjunto:
-      //   GET /120249109029290097/adsets → {"adSets":[]}
-      //
-      // La secuencia es campaña → conjunto → creativo → anuncio. Si falla
-      // cualquier paso después del primero, la campaña ya existe en la cuenta
-      // y este catch la dejaba ahí para siempre: un cascarón que no puede
-      // entregar nada (sin segmentación, sin presupuesto, sin anuncio) y que
-      // se acumula uno más con cada reintento.
-      //
-      // El disparador concreto acá fue un borrador sin presupuesto:
-      // presupuestoDiarioParaMetaPublico(null) lanza DESPUÉS de crear la
-      // campaña. Pero la causa de fondo es que este camino nunca tuvo el
-      // rollback que su gemelo `facebook.ts` sí tiene desde siempre.
-      //
-      // Meta borra en cascada, así que borrar la campaña se lleva conjunto y
-      // creativo si alcanzaron a crearse.
-      const campaignAMedias = (err as any)?.__campaignId || campaignIdCreada;
-      if (campaignAMedias) {
-        const borrada = await this.fbDelete(campaignAMedias, accessToken);
-        logger.warn(
-          { campaignId: campaignAMedias, borrada, productId },
-          borrada
-            ? "[AdStrategist] Campaña a medias borrada de Meta -- no queda basura en la cuenta"
-            : "[AdStrategist] Quedó una campaña a medias en Meta que no se pudo borrar -- avisar al admin",
-        );
-      }
-
-      const draftResult: DraftAd = {
-        productId: product.id,
-        productName: product.name || "",
-        strategy,
-        primaryText: adCopy.primaryText,
-        headline: adCopy.headline,
-        description: adCopy.description,
-        imageUrl,
-        campaignId: null,
-        adSetId: null,
-        adId: null,
-        status: "draft",
-      };
-      // El id de la fila guardada viaja de vuelta en el objeto: sin esto,
-      // quien acaba de crear el borrador no sabe con que id subirlo a Meta
-      // despues, y el modelo terminaba proponiendo fb_upload_draft_to_meta
-      // con draftId null (visto en vivo el 18-08-2026).
-      {
-        const guardado = await this.saveDraftToDb(draftResult);
-        if ((guardado as any)?.id) (draftResult as any).id = (guardado as any).id;
-      }
-      return draftResult;
-    }
+    return localDraft;
   }
 
   async createDraftsForAllProducts(): Promise<{ created: number; failed: number; withoutRealImage: number; drafts: DraftAd[] }> {
