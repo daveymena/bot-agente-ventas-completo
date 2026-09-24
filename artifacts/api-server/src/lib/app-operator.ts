@@ -1913,23 +1913,45 @@ export const TOOLS: ToolDef[] = [
   // ── Agente ──
   {
     name: "update_agent",
-    description: "Actualizar el agente de ventas PRINCIPAL (nombre, rol, tono, prompt, especialidad, metadata, activo). Crea uno si no existe. Para crear un agente NUEVO y ESPECIALIZADO adicional (por ejemplo, uno de dropshipping aparte del de digitales), usá agente_crear.",
-    args: '{ "name"?, "role"?, "tone"?, "systemPrompt"?, "especialidad"?: "digital"|"dropshipping", "metadata"?: object, "isActive"?: boolean }',
+    description:
+      "Actualizar un agente de ventas (nombre, rol, tono, especialidad, indicaciones, activo). Sin 'agentId' edita el PRINCIPAL; " +
+      "con 'agentId' edita ese agente (usá list_agents para ver los ids). Crea uno si no existe. " +
+      "'indicaciones' es lo que el vendedor de WhatsApp LEE en cada respuesta: cómo trata al cliente, políticas propias del agente, " +
+      "qué nunca hacer. Escribilas cortas, concretas y en segunda persona. 'systemPrompt' solo lo usa el motor viejo (v1). " +
+      "Para crear un agente NUEVO y ESPECIALIZADO adicional, usá agente_crear.",
+    args: '{ "agentId"?: number, "name"?, "role"?, "tone"?, "indicaciones"?: string, "systemPrompt"?, "especialidad"?: "digital"|"dropshipping", "metadata"?: object, "isActive"?: boolean }',
     run: async (args, ctx) => {
-      const [existing] = await agenteDelTenant(ctx.tenantId);
+      let existing: any;
+      if (args.agentId != null) {
+        // El filtro por tenant no es opcional: un id de otro negocio no se toca.
+        [existing] = await db.select().from(agents).where(and(eq(agents.id, Number(args.agentId)), eq(agents.tenantId, ctx.tenantId))).limit(1);
+        if (!existing) return { ok: false, summary: `No encontré el agente #${args.agentId} en este negocio.` };
+      } else {
+        [existing] = await agenteDelTenant(ctx.tenantId);
+      }
       // Campos que esta tool realmente soporta. Si el modelo pasa cualquier
       // otra cosa (ej: "messages" con el primer saludo o los seguimientos,
       // visto en vivo 2026-08-17) hoy NO se guarda como parte del agente --
       // y responder "Nada que actualizar" es engañoso: el admin pidió algo
       // que esta herramienta no puede hacer, no que no haya nada que cambiar.
       // Se dice qué llegó y qué SÍ se puede editar con esta herramienta.
-      const SOPORTADOS = ["name", "role", "tone", "systemPrompt", "especialidad", "metadata", "isActive"] as const;
+      const SOPORTADOS = ["agentId", "name", "role", "tone", "indicaciones", "systemPrompt", "especialidad", "metadata", "isActive"] as const;
       const recibidos = Object.keys(args || {}).filter((k) => args[k] !== undefined && args[k] !== null);
       const noSoportados = recibidos.filter((k) => !(SOPORTADOS as readonly string[]).includes(k));
       const patch: Record<string, any> = {};
       for (const k of ["name", "role", "tone", "systemPrompt"]) if (args[k] !== undefined) patch[k] = args[k];
       if (args.especialidad !== undefined) patch.especialidad = args.especialidad;
-      if (args.metadata !== undefined) patch.metadata = args.metadata;
+      // metadata se MEZCLA con la que ya tiene: reemplazarla entera borraba las
+      // indicaciones (y cualquier otra marca) sin que nadie lo pidiera.
+      if (args.metadata !== undefined || args.indicaciones !== undefined) {
+        // En SQLite (local y demo) la columna llega como texto JSON.
+        let previa: Record<string, any> = {};
+        try {
+          previa = typeof existing?.metadata === "string" ? JSON.parse(existing.metadata) : existing?.metadata || {};
+        } catch { previa = {}; }
+        patch.metadata = { ...previa, ...(args.metadata || {}) };
+        if (args.indicaciones !== undefined) patch.metadata.indicaciones = String(args.indicaciones).trim().slice(0, 2000);
+      }
       if (args.isActive !== undefined) patch.isActive = !!args.isActive;
       if (Object.keys(patch).length === 0) {
         const hayNoSoportados = noSoportados.length > 0;
@@ -2023,9 +2045,12 @@ export const TOOLS: ToolDef[] = [
       "para despachar por transportadora; 'digital' entrega con enlace sin pedir envío. " +
       "Cada agente ve SOLO los productos de su especialidad y el sistema lo enruta automáticamente " +
       "cuando un cliente pide un producto de ese tipo. " +
-      "Si no dictás 'systemPrompt', se usa una plantilla experta acorde al rol y la especialidad. " +
+      "'indicaciones' es lo que el vendedor de WhatsApp LEE en cada respuesta: escribí ahí, corto y concreto, " +
+      "cómo trata al cliente y las reglas propias de ESTE agente (qué pregunta antes de cerrar, qué nunca promete). " +
+      "No repitas lo que el sistema ya hace solo (precios, pagos, fichas, no inventar): eso sale de la base. " +
+      "'systemPrompt' solo lo usa el motor viejo (v1); si no lo dictás, se usa una plantilla. " +
       "⚠️ Va por propose_action: crear un agente es una acción real.",
-    args: '{ "name": string (req), "role"?: string, "especialidad": "digital"|"dropshipping" (req), "tone"?: string, "systemPrompt"?: string, "isActive"?: boolean }',
+    args: '{ "name": string (req), "role"?: string, "especialidad": "digital"|"dropshipping" (req), "tone"?: string, "indicaciones"?: string, "systemPrompt"?: string, "isActive"?: boolean }',
     run: async (args, ctx) => {
       if (!args.name || !String(args.name).trim()) {
         return { ok: false, summary: "Falta 'name' (el nombre del agente nuevo)" };
@@ -2061,16 +2086,23 @@ export const TOOLS: ToolDef[] = [
         especialidad,
         systemPrompt: args.systemPrompt || plantilla.systemPrompt,
         stages: plantilla.stages,
+        metadata: args.indicaciones ? { indicaciones: String(args.indicaciones).trim().slice(0, 2000) } : {},
         isActive: args.isActive !== false,
       } as any).returning();
 
+      // Lo que pasa DE VERDAD, sin promesas: el vendedor de WhatsApp (motor
+      // v2) usa nombre, rol, especialidad (qué productos ve) e indicaciones.
+      // Antes esto decía "con N etapas de venta" -- el motor v2 no usa etapas.
       return {
         ok: true,
         summary:
-          `Agente nuevo creado: #${row.id} ${row.name} (${row.role}) — especialidad ${especialidad}. ` +
-          `${args.systemPrompt ? "con el prompt que dictaste" : `basado en la plantilla experta "${plantilla.name}"`}, ` +
-          `con ${plantilla.stages.length} etapas de venta. ` +
-          `El sistema ya lo enruta automáticamente cuando un cliente pide un producto ${especialidad === "dropshipping" ? "físico (con envío)" : "digital (con enlace)"}.`,
+          `Agente nuevo creado: #${row.id} ${row.name} (${row.role}) — especialidad ${especialidad}` +
+          `${row.isActive ? "" : " (inactivo)"}. ` +
+          `Atiende cuando un cliente pide un producto ${especialidad === "dropshipping" ? "físico (con envío)" : "digital (con enlace)"} ` +
+          `y solo ve los productos de su especialidad. ` +
+          (args.indicaciones
+            ? "Sus indicaciones ya las lee el vendedor en cada respuesta."
+            : "No tiene indicaciones propias: habla con el tono general del negocio. Si querés reglas propias, cargalas con update_agent (agentId, indicaciones)."),
         data: { id: row.id, especialidad, plantilla: plantilla.agentType },
       };
     },

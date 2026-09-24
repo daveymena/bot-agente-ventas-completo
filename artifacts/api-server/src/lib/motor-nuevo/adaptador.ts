@@ -53,7 +53,11 @@ export async function cargarCatalogoDelNegocio(tenantId: number): Promise<Produc
     .select()
     .from(products)
     .where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)))
-    .limit(200);
+    // Orden estable y tope holgado: con `limit(200)` sin orden, en un
+    // catálogo grande quedaban afuera productos al azar y `buscar_en_catalogo`
+    // (que busca sobre esta lista) decía que no existían.
+    .orderBy(desc(products.id))
+    .limit(1000);
 
   return filas.map((p: any) => {
     let videoUrl: string | null = null;
@@ -179,22 +183,73 @@ export async function cargarConocimiento(tenantId: number): Promise<ItemDeConoci
   }
 }
 
-/** La voz: el agente activo del negocio y el tono que el dueño escribió. */
-export async function cargarVozDelNegocio(tenantId: number): Promise<VozDelNegocio> {
-  const ctx = await getBusinessContext(tenantId);
-  let agente: any = null;
+/**
+ * QUIÉN ATIENDE esta conversación: el mismo enrutador del motor viejo
+ * (`agent-router.ts`): continuidad por conversación, traspaso de la
+ * recepcionista al especialista y enrutado por el tipo de producto que pide
+ * el cliente.
+ *
+ * Hasta el 23-09-2026 el motor v2 no lo llamaba: tomaba el nombre del PRIMER
+ * agente activo (en cualquier orden) y el catálogo entero. Todo lo que Atlas
+ * configuraba al crear un agente -- especialidad, indicaciones, traspaso -- no
+ * llegaba al vendedor que atiende WhatsApp, y Atlas le decía al dueño "el
+ * sistema ya lo enruta automáticamente".
+ */
+export async function agenteQueAtiende(conversationId: number, tenantId: number, mensaje: string): Promise<any | null> {
   try {
-    const filas = await db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.isActive, true))).limit(5);
-    agente = filas[0] || null;
-  } catch {
-    agente = null;
+    const { getActiveAgent } = await import("../agent-router");
+    return (await getActiveAgent(mensaje || "", conversationId, tenantId)) || null;
+  } catch (e: any) {
+    logger.warn({ err: e?.message, conversationId }, "[MotorV2] no se pudo elegir el agente: se usa la voz general del negocio");
+    return null;
   }
+}
+
+/**
+ * Los productos que le tocan a la especialidad del agente: el de dropshipping
+ * ve lo físico, el digital ve lo que no es físico. Sin especialidad, o si el
+ * filtro dejara el catálogo vacío, se ve todo: un vendedor sin productos es
+ * peor que uno con productos de más.
+ */
+export function catalogoDeLaEspecialidad(catalogo: Producto[], especialidad: string | null | undefined): Producto[] {
+  const e = String(especialidad || "").toLowerCase();
+  if (e !== "digital" && e !== "dropshipping") return catalogo;
+  const esFisico = (p: Producto) => String(p.kind || "digital") === "physical";
+  const suyos = catalogo.filter((p) => (e === "dropshipping" ? esFisico(p) : !esFisico(p)));
+  return suyos.length ? suyos : catalogo;
+}
+
+/**
+ * La voz: el agente que atiende y lo que el dueño escribió.
+ *
+ * Nombre: con un solo agente activo manda el nombre del perfil del negocio
+ * (el dueño lo eligió); con varios, el de cada agente -- si no, la
+ * recepcionista y el especialista se presentan con el mismo nombre.
+ *
+ * Indicaciones: el tono general del negocio + las indicaciones propias del
+ * agente (`agents.metadata.indicaciones`, las escribe Atlas al crearlo). NO
+ * se usa `agents.systemPrompt`: es la plantilla larga del motor viejo, con
+ * reglas que chocan con las de este motor (fichas [CARD], "Google Drive").
+ */
+export async function cargarVozDelNegocio(tenantId: number, elegido?: any | null): Promise<VozDelNegocio> {
+  const ctx = await getBusinessContext(tenantId);
+  let activos: any[] = [];
+  try {
+    activos = await db.select().from(agents).where(and(eq(agents.tenantId, tenantId), eq(agents.isActive, true))).limit(20);
+  } catch {
+    activos = [];
+  }
+  const agente = elegido || activos[0] || null;
+  const varios = activos.length > 1;
+
+  const meta = typeof agente?.metadata === "string" ? (() => { try { return JSON.parse(agente.metadata); } catch { return {}; } })() : agente?.metadata || {};
+  const indicaciones = [ctx.tono, typeof meta?.indicaciones === "string" ? meta.indicaciones.trim() : ""].filter(Boolean).join("\n");
 
   return {
-    nombreAgente: ctx.agentName || agente?.name || "Asesor",
+    nombreAgente: (varios ? agente?.name || ctx.agentName : ctx.agentName || agente?.name) || "Asesor",
     rolAgente: agente?.role || "asesor comercial",
     nombreNegocio: ctx.businessName || "nuestro equipo",
-    instruccionesExtra: ctx.tono || null,
+    instruccionesExtra: indicaciones || null,
   };
 }
 
@@ -283,11 +338,21 @@ export async function responderComoVendedor(
 
   const estado = await repositorio.cargar(conversationId);
   const estadoAntes = JSON.parse(JSON.stringify(estado));
-  const [historial, catalogo, voz] = await Promise.all([
+  const [historial, catalogoCompleto] = await Promise.all([
     cargarHistorial(conversationId),
     cargarCatalogoDelNegocio(tenantId),
-    cargarVozDelNegocio(tenantId),
   ]);
+  // Quién atiende sale del último mensaje del cliente (el enrutador decide
+  // si hay traspaso), y de ahí salen su voz y SUS productos.
+  const ultimoMensaje = [...historial].reverse().find((m) => m.role === "customer")?.content ?? "";
+  const agente = await agenteQueAtiende(conversationId, tenantId, ultimoMensaje);
+  const voz = await cargarVozDelNegocio(tenantId, agente);
+  const catalogo = catalogoDeLaEspecialidad(catalogoCompleto, agente?.especialidad);
+  // El producto del que VIENEN hablando no desaparece por un traspaso.
+  if (estado.productoEnFoco != null && !catalogo.some((p) => p.id === estado.productoEnFoco)) {
+    const enFoco = catalogoCompleto.find((p) => p.id === estado.productoEnFoco);
+    if (enFoco) catalogo.push(enFoco);
+  }
 
   const guion = await cargarGuion(tenantId, catalogo, estado.productoEnFoco);
   const conocimiento = await cargarConocimiento(tenantId);
