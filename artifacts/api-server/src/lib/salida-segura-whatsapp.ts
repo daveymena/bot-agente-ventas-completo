@@ -5,6 +5,9 @@
  * insegura o redundante llegue a WhatsApp cuando otra capa se haya equivocado.
  */
 
+import { blindarSalida } from "./blindaje-de-informacion";
+import { logger } from "./logger";
+
 export type SalidaPart = {
   kind: "text" | "card";
   content?: string;
@@ -231,12 +234,31 @@ function eliminarDuplicadosExactos(parts: SalidaPart[]): SalidaPart[] {
   });
 }
 
+/**
+ * Tapa la información interna de cada burbuja ANTES de cualquier otra lógica.
+ *
+ * Va primero a propósito: si una respuesta llegara a traer una clave, una ruta
+ * del código o un endpoint interno, no queremos que ninguna otra capa la
+ * reordene, la parta en oraciones o la cite en un mensaje de control. Se
+ * limpia en la entrada y el resto del pipeline trabaja sobre texto seguro.
+ */
+function blindarPartes(parts: SalidaPart[]): SalidaPart[] {
+  return parts.map((part) => {
+    if (part.kind !== "text" || !part.content) return part;
+    const { texto, fugas } = blindarSalida(String(part.content));
+    if (fugas.length) {
+      logger.warn({ tipos: fugas.map((f) => f.tipo) }, "[Blindaje] Información interna tapada en una salida de WhatsApp");
+    }
+    return { ...part, content: texto };
+  });
+}
+
 export function prepararSalidaFinal(parts: SalidaPart[]): {
   parts: SalidaPart[];
   blockedPlaceholders: string[];
   removedClaims: string[];
 } {
-  const reconciliada = reconciliarPromesas(Array.isArray(parts) ? parts : []);
+  const reconciliada = reconciliarPromesas(blindarPartes(Array.isArray(parts) ? parts : []));
   const blockedPlaceholders: string[] = [];
   const finalParts = reconciliada.parts
     .map((part) => {
@@ -255,7 +277,13 @@ export function prepararSalidaFinal(parts: SalidaPart[]): {
 }
 
 export function prepararTextoWhatsApp(texto: string): string {
-  const result = bloquearPlaceholders(texto);
+  // Primero el blindaje: si el texto trae un dato interno, ninguna otra capa
+  // debería verlo ni poder volver a citarlo. Ver blindaje-de-informacion.ts.
+  const { texto: blindado, fugas } = blindarSalida(String(texto || ""));
+  if (fugas.length) {
+    logger.warn({ tipos: fugas.map((f) => f.tipo) }, "[Blindaje] Información interna tapada en una salida de WhatsApp");
+  }
+  const result = bloquearPlaceholders(blindado);
   const entrega = corregirEntregaFisicaEnDigital(result.text);
 
   // ── Los dos caminos de salida tienen que limpiar lo mismo ───────────────
