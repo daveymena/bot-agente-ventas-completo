@@ -8,6 +8,8 @@ import { resolveInterestIds, usarAdvantagePlus } from "./facebook";
 import { generateProductImage } from "./ai-product-image";
 
 import { FB_GRAPH_BASE } from "./meta-api-version";
+import { modeloDelProducto } from "./modelo-de-negocio";
+import { planDeAnuncio } from "./anuncio-por-modelo";
 const FB_GRAPH_URL = FB_GRAPH_BASE;
 
 // Corta en el último espacio dentro del límite en vez de a lo bruto -- un
@@ -67,6 +69,11 @@ export interface AdStrategy {
    * generó a partir de investigación en esta sesión (ver ResearchGroundedCopy).
    * Ausente cuando el copy viene de la plantilla fija por nicho. */
   researchNote?: string;
+  /** Qué creativo producir para este modelo (anuncio-por-modelo.ts). */
+  creativo?: { formato: string; estructura: string[] };
+  objetivoRecomendado?: "mensajes" | "ventas" | "trafico";
+  metricaClave?: string;
+  modelo?: string;
 }
 
 export interface DraftAd {
@@ -266,6 +273,22 @@ const WINNING_STRATEGIES_BY_NICHE: Record<string, AdStrategy> = {
     interests: ["Compras online", "Mercado Libre", "Ofertas", "Bienestar", "Hogar"],
     budget: 20000,
   },
+  // ── Servicio (asesoría, reparación, cita) ────────────────────────────────
+  // Se vende por confianza: resultado + método + conversación. Hook/angle
+  // salen del producto real en generateAdCopy (anuncio-por-modelo.ts).
+  servicio: {
+    niche: "Servicio",
+    hook: "",
+    angle: "",
+    emotionalTrigger: "Confianza: alguien que ya sabe resolverlo",
+    ctaType: "CONTACT_US",
+    imageStyle: "Persona real prestando el servicio o trabajo terminado, sin montaje",
+    imagePrompt: "Real professional providing the service, authentic workplace, natural lighting, trustworthy and approachable",
+    ageMin: 22,
+    ageMax: 60,
+    interests: ["Pequeñas empresas", "Emprendimiento", "Servicios profesionales"],
+    budget: 15000,
+  },
 };
 
 /** Lo que el agente conversacional puede aportar cuando genera un borrador
@@ -339,6 +362,12 @@ export class AdStrategist {
     if (product.kind === "physical") {
       return { ...WINNING_STRATEGIES_BY_NICHE.producto_fisico };
     }
+    // Servicio / cotización: tampoco es un curso. Sin esto una asesoría o una
+    // reparación a domicilio caía en "Cursos y Educación" con collage de cursos.
+    const modelo = modeloDelProducto(product);
+    if (modelo === "servicio" || modelo === "cotizacion") {
+      return { ...WINNING_STRATEGIES_BY_NICHE.servicio };
+    }
 
     if (category.includes("diseño") || category.includes("diseño gráfico") || name.includes("photoshop") || name.includes("ilustrator") || name.includes("indesign") || name.includes("lettering") || name.includes("logotipo") || name.includes("canva") || name.includes("after effects") || name.includes("premiere") || name.includes("animación") || name.includes("filmora") || name.includes("portadas") || name.includes("cuadros") || name.includes("sublimados") || name.includes("infografías") || name.includes("dibujo") || name.includes("ilustración") || name.includes("premiere")) {
       return { ...WINNING_STRATEGIES_BY_NICHE.diseno_grafico };
@@ -352,8 +381,12 @@ export class AdStrategist {
       return { ...WINNING_STRATEGIES_BY_NICHE.marketing_digital };
     }
 
+    // Acá decía `salud_deporte`, una clave que NO existe en la tabla: el spread
+    // de `undefined` devolvía una estrategia VACÍA (sin presupuesto, sin
+    // intereses, sin nicho) para todo lo de fitness, cocina, gastronomía y
+    // perros. La clave real es `fitness_salud`.
     if (category.includes("salud") || category.includes("deporte") || name.includes("fitness") || name.includes("pilates") || name.includes("fuerza") || name.includes("guerrero") || name.includes("perro") || name.includes("gastronomía") || name.includes("gastronomia") || name.includes("cocina") || name.includes("receta") || name.includes("perro")) {
-      return { ...WINNING_STRATEGIES_BY_NICHE.salud_deporte };
+      return { ...WINNING_STRATEGIES_BY_NICHE.fitness_salud };
     }
 
     if (category.includes("idiomas") || name.includes("idiomas") || name.includes("inglés") || name.includes("ingles") || name.includes("oxford") || name.includes("idioma") || name.includes("frances") || name.includes("aleman") || name.includes("portugues") || name.includes("japones")) {
@@ -430,64 +463,34 @@ export class AdStrategist {
       if (propio) strategy = { ...strategy, hook: propio };
     }
 
-    const currency = (product.currency || "COP").toUpperCase();
-    // Validar y formatear precio correctamente (sin multiplicar por tipo de cambio ficticio)
-    const price = Number(product.price) || 0;
-    const priceFormatted = price > 0
-      ? price.toLocaleString("es-CO", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-      : "Consulta";
     const name = product.name || "";
-    const rawDesc = (product.description || "").replace(/Acceso completo a /i, "").trim();
-    const shortDesc = rawDesc.length > 100 ? rawDesc.substring(0, 100) + "..." : rawDesc;
 
-    const cat = (product.category || "").toLowerCase();
-    const features = product.features
-      ? (Array.isArray(product.features) ? product.features : [])
-      : [];
-
-    const descLine = shortDesc !== name ? shortDesc : `Contenido digital descargable de ${strategy.niche.toLowerCase()}. Material práctico, listo para usar.`;
-
-    // Sin características cargadas NO se inventan.
+    // ── El texto según QUÉ se vende (anuncio-por-modelo.ts) ─────────────────
     //
-    // El respaldo prometía "Acceso permanente" y "Actualizaciones incluidas"
-    // para cualquier producto, tuviera o no eso. Son justo los compromisos que
-    // el cliente reclama después (paga esperando actualizaciones de por vida),
-    // y que la validación de contenido bloquea cuando los escribe el modelo --
-    // no tiene sentido que la plantilla los meta sola por la puerta de atrás.
-    // Lo único que se afirma sin datos es lo que es cierto para todo producto
-    // digital de esta tienda: que se descarga y que la entrega es inmediata.
-    const featuresLine = features.length >= 2
-      ? features.slice(0, 3).join(" • ")
-      : "📥 Descarga inmediata • 💻 100% online";
-
-    const priceDisplay = priceFormatted === "Consulta" ? "Consulta disponible" : `$${priceFormatted} ${currency}`;
-
-    // Formato PAS (Problem - Agitate - Solve) de alta conversión (2025)
-    //
-    // ── Un emoji por lo que ES cada renglón, no el mismo tres veces ────────
-    //
-    // Las tres viñetas eran ✅ ✅ ✅. El admin lo pidió así: "usar los emoji
-    // para cada cosa, no los mismos, sino el que identifica a cada ítem, como
-    // ya lo habíamos configurado" (2026-08-30).
-    //
-    // Y tenía razón en lo de "ya configurado": el diccionario existe desde
-    // antes, en el prompt de Atlas (app-operator.ts) -- 📚 contenido · 💰
-    // precio · ♾️ acceso de por vida. El generador de copy no lo miraba, así
-    // que el anuncio contradecía la convención del propio sistema.
-    //
-    // Tres ✅ seguidos además no aportan nada: el ojo los saltea. Un emoji que
-    // dice de qué habla el renglón se lee de un vistazo, que es exactamente
-    // para lo que sirve un emoji en un anuncio.
-    const primaryText = `${strategy.hook}
-
-Si no tomas acción hoy, seguirás perdiendo tiempo y dinero con métodos que no funcionan.
-Este contenido digital es tu atajo directo a resultados profesionales.
-
-📚 ${featuresLine}
-💰 Pago único de ${priceDisplay} (Cero mensualidades)
-♾️ Acceso inmediato y permanente
-
-👇 Haz clic abajo para descargar todo el contenido ahora.`;
+    // Acá había UN texto para todo: "Este contenido digital es tu atajo…",
+    // "Haz clic para DESCARGAR", "Acceso inmediato y PERMANENTE" y una
+    // urgencia fabricada ("Si no tomas acción hoy, seguirás perdiendo…"). El
+    // anuncio del corrector de postura le prometía una descarga a quien iba a
+    // recibir un paquete. Ahora físico, digital y servicio tienen su propia
+    // estructura (AIDA) armada SOLO con datos del producto y del negocio.
+    let condiciones: import("./modelo-de-negocio").CondicionesDelNegocio | null = null;
+    try {
+      const { getBusinessContext } = await import("./business-context");
+      condiciones = (await getBusinessContext(this.tenant.id))?.condiciones ?? null;
+    } catch { condiciones = null; }
+    // El gancho: el que trajo la investigación de Atlas; si no hubo, el plan
+    // toma la primera FRASE del producto (el recorte de arriba a 117
+    // caracteres dejaba "Fácil de ajustar..." colgando en el anuncio).
+    const plan = planDeAnuncio(product, condiciones, { gancho: grounded?.hook });
+    strategy = {
+      ...strategy,
+      ctaType: plan.ctaType,
+      creativo: plan.creativo,
+      objetivoRecomendado: plan.objetivoRecomendado,
+      metricaClave: plan.metricaClave,
+      modelo: plan.modelo,
+    };
+    const primaryText = plan.primaryText;
 
     const getEmoji = () => {
       const n = name.toLowerCase();
@@ -507,10 +510,13 @@ Este contenido digital es tu atajo directo a resultados profesionales.
     // Headline corto (< 40 chars): emoji de categoría + nombre real del
     // producto. (Antes decía "+15.000 Alumnos" fijo en TODOS los anuncios --
     // una cifra sin respaldo real, se sacó.)
-    const headline = `${getEmoji()} ${truncateAtWord(name.replace(/^📂\s*/, ""), 35)}`;
-    const description = priceFormatted === "Consulta"
-      ? "Consulta disponible • Acceso permanente"
-      : `$${priceFormatted} ${currency} • Pago único • Acceso permanente`;
+    // 🔥 es el comodín de "no sé qué es": para un corrector o una asesoría no
+    // dice nada. Sin categoría reconocida, el título va sin emoji.
+    const emoji = getEmoji();
+    const headline = emoji === "🔥" ? plan.headline : `${emoji} ${truncateAtWord(name.replace(/^📂\s*/, ""), 35)}`;
+    // La descripción ya no afirma "Acceso permanente" para todo (lo decía
+    // también de un corrector de postura): sale del plan del modelo.
+    const description = plan.description;
 
     // Override final: si el agente investigó y redactó su propio texto
     // completo (no solo hook/ángulo), se respeta tal cual -- el precio y los
