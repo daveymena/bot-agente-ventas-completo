@@ -221,6 +221,17 @@ export async function generarLandingLocal(opts: {
     const plantilla = elegirPlantilla(product as any, opts.plantillaId, negocio);
     const casillas = casillasQueAplican(plantilla, product as any, negocio);
 
+    // ── Para quién es el producto: manda sobre el COPY y el COLOR ──────────
+    // Se calcula UNA vez acá, antes del modelo, para que el copy se escriba
+    // para el público correcto (mujer → femenino, hombre → sobrio, unisex →
+    // neutro, niños → seguro/alegre). Mismo criterio que el Landing Studio.
+    const { publicoDelProducto, paletaDelPublico } = await import("../lib/landing/publico-del-producto");
+    const lecturaPublico = publicoDelProducto({ nombre: product.name, categoria: (product as any)?.category, descripcion: product.description, caracteristicas: (product as any)?.features, tipo: product.kind });
+    const paletaPublico = paletaDelPublico(lecturaPublico.publico);
+    const bloquePublico = paletaPublico
+      ? `\n\nPÚBLICO DEL PRODUCTO (manda sobre el tono y el lenguaje del copy): ${lecturaPublico.porque}\n- Tono visual y verbal: ${paletaPublico.tono}\n- Cómo hablarle: ${paletaPublico.lenguaje}\n- NO uses: ${paletaPublico.evitar}`
+      : "";
+
     // 2.200 tokens no alcanzaban para 7 secciones con ítems y una FAQ con
     // respuestas: el JSON llegaba cortado, `tryParseJson` rescataba un objeto
     // parcial sin `sections`, y la landing salía entera de relleno con
@@ -245,7 +256,7 @@ ESTRUCTURA AIDA:
 - DESEO: El producto como el único vehículo para lograr el resultado.
 - ACCIÓN: Cierre fuerte con urgencia basada en el valor.
 
-Escribe en ${language} para ${country}.${opts.contexto ? `\n\n${opts.contexto}` : ""}`,
+Escribe en ${language} para ${country}.${bloquePublico}${opts.contexto ? `\n\n${opts.contexto}` : ""}`,
       userPrompt: JSON.stringify({
         tarea: "crear_landing",
         objetivo: objective,
@@ -291,14 +302,9 @@ Escribe en ${language} para ${country}.${opts.contexto ? `\n\n${opts.contexto}` 
     });
     const design: any = { ...(result?.design || { tone: "direct-response premium", primary: "#111827", background: "#ffffff", radius: "14px" }), familia: (result?.design as any)?.familia || sugerida.familia };
     // Para quién es el producto manda sobre el color (unisex → neutros,
-    // mujer → femeninos, hombre → masculinos, niños → infantiles). Mismo
-    // criterio que el Landing Studio: lib/landing/publico-del-producto.ts.
-    {
-      const { publicoDelProducto, paletaDelPublico } = await import("../lib/landing/publico-del-producto");
-      const lectura = publicoDelProducto({ nombre: product.name, categoria: (product as any)?.category, descripcion: product.description, caracteristicas: (product as any)?.features, tipo: product.kind });
-      const pal = paletaDelPublico(lectura.publico);
-      if (pal) Object.assign(design, { primary: pal.acento, accent: pal.secundario, tinte: pal.tinte, publico: lectura.publico });
-    }
+    // mujer → femeninos, hombre → masculinos, niños → infantiles). Ya se
+    // calculó arriba (paletaPublico) para el copy; acá solo se aplica.
+    if (paletaPublico) Object.assign(design, { primary: paletaPublico.acento, accent: paletaPublico.secundario, tinte: paletaPublico.tinte, publico: lecturaPublico.publico });
     const name = String(result?.name || `Landing · ${product.name}`);
 
     return { ok: true as const, generatedBy: conSecciones ? "ai" : "fallback", name, productId, strategy, sections, design,
