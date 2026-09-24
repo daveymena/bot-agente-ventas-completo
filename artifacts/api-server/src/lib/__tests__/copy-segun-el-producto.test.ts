@@ -34,3 +34,12 @@ describe("a dónde lleva el anuncio web", () => {
     expect(leerPreferenciaWeb(undefined)).toBeNull();
   });
 });
+
+import { nombreDeConjunto } from "../facebook";
+describe("el nombre del conjunto no arrastra fechas viejas", () => {
+  it("'24/9/2026 - Conjunto' → 'Conjunto'", () => {
+    expect(nombreDeConjunto("24/9/2026 - Conjunto")).toBe("Conjunto");
+    expect(nombreDeConjunto("Corrector - 24/9/2026 - Internacional")).toBe("Internacional");
+    expect(nombreDeConjunto(null)).toBe("Conjunto");
+  });
+});

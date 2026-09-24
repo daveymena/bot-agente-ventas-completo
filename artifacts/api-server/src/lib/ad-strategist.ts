@@ -763,7 +763,7 @@ export class AdStrategist {
       // Plantilla: la última campaña real de la cuenta, salvo que se pida otra o ninguna.
       let plantillaUsada: import("./facebook").PlantillaDeCampana | null = plantilla ?? null;
       if (plantilla === undefined) {
-        const reciente = await fb.campanaMasReciente();
+        const reciente = await fb.campanaModelo();
         if (reciente) plantillaUsada = await fb.plantillaDesdeCampana(reciente.id);
       }
       // ── Borradores con el texto de la plantilla VIEJA ────────────────────

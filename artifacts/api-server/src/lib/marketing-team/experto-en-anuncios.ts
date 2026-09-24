@@ -163,7 +163,7 @@ export async function datosExpertosParaAnuncio(opts: { tenantId: number; product
   let plantilla: any = null;
   if (opts.fb && opts.fb.isConfigured?.()) {
     try { cuenta = await benchmarksDeLaCuenta(opts.fb); } catch { cuenta = null; }
-    try { const r = await opts.fb.campanaMasReciente(); plantilla = r ? await opts.fb.plantillaDesdeCampana(r.id) : null; } catch { plantilla = null; }
+    try { const r = await (opts.fb.campanaModelo ? opts.fb.campanaModelo() : opts.fb.campanaMasReciente()); plantilla = r ? await opts.fb.plantillaDesdeCampana(r.id) : null; } catch { plantilla = null; }
   }
 
   const { fotosDelProducto } = await import("../fotos-de-producto");

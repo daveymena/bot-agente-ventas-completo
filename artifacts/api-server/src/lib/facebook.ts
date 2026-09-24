@@ -1076,7 +1076,7 @@ Responde SOLO con este JSON exacto:
         if (primero.advantagePlus !== undefined) fbTargeting.targeting_automation = { advantage_audience: primero.advantagePlus ? 1 : 0 };
       }
       const adSetBody: Record<string, any> = {
-        name: `${campaignName} - ${primero?.nombre || "Conjunto"}`,
+        name: `${campaignName} - ${nombreDeConjunto(primero?.nombre)}`,
         campaign_id: campaign.id,
         daily_budget: presu.valor,
         targeting: fbTargeting,
@@ -1218,7 +1218,7 @@ Responde SOLO con este JSON exacto:
             targeting_automation: { advantage_audience: cj.advantagePlus === false ? 0 : 1 },
           };
           const bodyCj: Record<string, any> = {
-            name: `${campaignName} - ${cj.nombre}`,
+            name: `${campaignName} - ${nombreDeConjunto(cj.nombre)}`,
             campaign_id: campaign.id,
             daily_budget: presuCj.valor,
             targeting: targetingCj,
@@ -1232,7 +1232,7 @@ Responde SOLO con este JSON exacto:
           if (adSetBody.promoted_object) bodyCj.promoted_object = adSetBody.promoted_object;
           const setCj = await this.fbPost(`${adAccount}/adsets`, bodyCj, `conjunto ${cj.nombre}`, this.config.userAccessToken);
           const adCj = await this.fbPost(`${adAccount}/ads`, {
-            name: `${campaignName} - ${cj.nombre}`,
+            name: `${campaignName} - ${nombreDeConjunto(cj.nombre)}`,
             adset_id: setCj.id,
             creative: { creative_id: creative.id },
             status: "PAUSED",
@@ -1697,6 +1697,38 @@ Responde SOLO con este JSON exacto:
   }
 
   /** La campaña más reciente de la cuenta (activa o en pausa), para usarla de plantilla. */
+  /**
+   * La campaña a COPIAR como estructura: la mejor de la cuenta, no la última.
+   *
+   * Antes era la más reciente, y eso degrada solo: el 24-09-2026 la última era
+   * una campaña mala (un conjunto, creada por el camino viejo) y la siguiente
+   * salió igual de pobre, aunque la cuenta había tenido campañas buenas
+   * (Colombia + Internacional). Orden: la que GASTÓ (Meta la entregó), después
+   * la de más conjuntos, después la más nueva. Las "[BORRADOR]" nunca.
+   */
+  async campanaModelo(): Promise<{ id: string; name: string; status: string } | null> {
+    try {
+      const r = await this.fbGet(`act_${this.config.adAccountId}/campaigns`, {
+        fields: "id,name,effective_status,created_time,adsets.limit(0).summary(true),insights.date_preset(maximum){spend}",
+        limit: "25",
+        filtering: JSON.stringify([{ field: "effective_status", operator: "IN", value: ["ACTIVE", "PAUSED", "CAMPAIGN_PAUSED"] }]),
+      }, this.config.userAccessToken);
+      const lista = (r?.data || [])
+        .filter((c: any) => !/^\s*\[BORRADOR\]/i.test(String(c.name || "")))
+        .map((c: any) => ({
+          c,
+          gasto: Number(c?.insights?.data?.[0]?.spend || 0),
+          conjuntos: Number(c?.adsets?.summary?.total_count || 0),
+        }))
+        .filter((x: any) => x.conjuntos > 0)
+        .sort((a: any, b: any) =>
+          (Number(b.gasto > 0) - Number(a.gasto > 0)) || (b.conjuntos - a.conjuntos) || String(b.c.created_time).localeCompare(String(a.c.created_time)));
+      const c = lista[0]?.c;
+      if (c) return { id: c.id, name: c.name, status: c.effective_status };
+    } catch { /* si la consulta rica falla, la más reciente como antes */ }
+    return this.campanaMasReciente();
+  }
+
   async campanaMasReciente(): Promise<{ id: string; name: string; status: string } | null> {
     try {
       const r = await this.fbGet(`act_${this.config.adAccountId}/campaigns`, {
@@ -2453,3 +2485,18 @@ Responde SOLO con este JSON exacto:
 }
 
 export const facebookService = new FacebookService();
+
+/**
+ * El nombre del conjunto de la plantilla, sin lo que heredó de la campaña
+ * vieja: fechas y restos del nombre anterior ("24/9/2026 - Conjunto" daba
+ * "Corrector - 24/9/2026 - 24/9/2026 - Conjunto").
+ */
+export function nombreDeConjunto(nombre?: string | null): string {
+  const limpio = String(nombre || "")
+    .replace(/\d{1,2}\/\d{1,2}\/\d{2,4}/g, " ")
+    .split(/\s+-(?:\s+-)*\s+|^\s*-\s*|\s*-\s*$/)
+    .map((p) => p.trim())
+    .filter(Boolean)
+    .pop();
+  return limpio || "Conjunto";
+}
