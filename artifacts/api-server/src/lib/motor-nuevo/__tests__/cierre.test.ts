@@ -74,7 +74,10 @@ describe("el cierre, con todas sus variantes", () => {
 
     assert.match(prompt, /intención de compra/);
     // El orden correcto, explícito: nunca "pago" directo sin haber dado el precio.
-    assert.match(prompt, /primero mostrar\(seccion="precio"\) y después[\s\S]*mostrar\(seccion="pago"\)/);
+    // Y después del precio, el cierre depende de qué es: un físico se cierra
+    // con tomar_pedido (datos de envío), no con los medios de pago (simulación
+    // con la IA real del 23-09-2026: mandaba Nequi a un producto contraentrega).
+    assert.match(prompt, /primero mostrar\(seccion="precio"\)[\s\S]*FÍSICO[\s\S]*tomar_pedido[\s\S]*mostrar\(seccion="pago"\)/);
   });
 
   test("con el precio ya dado, 'lo quiero' manda solo los medios de pago", async () => {

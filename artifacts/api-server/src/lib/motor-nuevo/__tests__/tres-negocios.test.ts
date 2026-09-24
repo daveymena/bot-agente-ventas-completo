@@ -135,7 +135,12 @@ async function turno(params: {
 
   // El prompt con el que se corrió ESTE turno: el estado viejo todavía estaba
   // ahí, porque el motor lo pisa al final.
-  (r as any).system = (llm as any).llamadas[0]?.messages?.[0]?.content ?? "";
+  // Lo fijo va primero y el estado del turno al final (caché del proveedor):
+  // se juntan todos los mensajes del sistema de la primera llamada.
+  (r as any).system = ((llm as any).llamadas[0]?.messages ?? [])
+    .filter((m: any) => m.role === "system")
+    .map((m: any) => m.content)
+    .join("\n\n");
   return r;
 }
 

@@ -74,13 +74,32 @@ const MAX_TARJETAS = 4;
  * EL PROMPT
  * ═══════════════════════════════════════════════════════════════════════════ */
 
-export function construirPromptDeSistema(params: {
+type ParamsDelPrompt = {
   voz: VozDelNegocio;
   estado: EstadoConversacion;
   catalogo: Producto[];
   guion: GuionDelNegocio;
   nombrePorProducto: (id: number) => string;
-}): string {
+};
+
+/** El prompt entero en un solo texto (para leerlo, diagnosticarlo y probarlo). */
+export function construirPromptDeSistema(params: ParamsDelPrompt): string {
+  const { fijo, delTurno } = partesDelPrompt(params);
+  return `${fijo}\n\n${delTurno}`;
+}
+
+/**
+ * El prompt partido en lo que NO cambia entre turnos y lo que sí.
+ *
+ * Es por plata, medido (23-09-2026, simulación de venta con DeepSeek): con el
+ * estado ("LO QUE YA PASÓ") adentro del prompt del sistema -- o sea ANTES del
+ * historial -- cada turno cambiaba ese bloque y el proveedor no podía servir
+ * desde su caché nada de lo que venía después: el historial entero se cobraba
+ * a precio completo en cada mensaje. `fijo` va primero; `delTurno` va como
+ * mensaje del sistema DESPUÉS del historial, así el prefijo (reglas +
+ * catálogo + historial) es idéntico de un turno al siguiente.
+ */
+export function partesDelPrompt(params: ParamsDelPrompt): { fijo: string; delTurno: string } {
   const { voz, estado, catalogo, guion } = params;
   const horas = horasDesdeUltimoMensaje(estado);
   const volvio = volvioDespuesDe(estado);
@@ -102,7 +121,7 @@ export function construirPromptDeSistema(params: {
 
   const quien = `${voz.nombreAgente}, ${voz.rolAgente} de ${voz.nombreNegocio}`;
 
-  return `Sos ${quien}. Atendés por WhatsApp.
+  const fijo = `Sos ${quien}. Atendés por WhatsApp.
 
 CÓMO HABLÁS
 Como una persona que sabe de lo que vende. Mensajes de 2 a 4 frases, en el
@@ -118,7 +137,7 @@ Contestá PRIMERO lo que preguntó. Una sola pregunta estratégica por mensaje,
 y solo cuando la respuesta cambie lo que le vas a recomendar. Si duda, antes de
 empujar entendé de qué duda. Si lo que pide no existe, decilo con naturalidad y
 mostrale lo que sí hay.
-Si el cliente muestra intención de compra ("lo quiero", "cómo pago", "mándame el link", "me sirve", "listo", "dale", "de una"), CERRÁ. Dejá de dar explicaciones y no hagas más preguntas de descubrimiento. Si no tenés claro de qué producto habla, ubicalo antes con buscar_en_catalogo y enfocar_producto. Si todavía no le mostraste el precio de ese producto, mandá primero mostrar(seccion="precio") y después, en el mismo turno, mostrar(seccion="pago"); si ya se lo mostraste, mandá mostrar(seccion="pago") directamente. NUNCA pidas compromiso ("¿te lo llevás?", nombre, cédula, dirección) antes de haberle mostrado el precio: primero precio, después datos.
+Si el cliente muestra intención de compra ("lo quiero", "cómo pago", "mándame el link", "me sirve", "listo", "dale", "de una"), CERRÁ. Dejá de dar explicaciones y no hagas más preguntas de descubrimiento. Si no tenés claro de qué producto habla, ubicalo antes con buscar_en_catalogo y enfocar_producto. Si todavía no le mostraste el precio de ese producto, mandá primero mostrar(seccion="precio"). Después, según qué es: un producto FÍSICO con envío se cierra con tomar_pedido (pedile los datos de envío), NO con los medios de pago; lo demás se cierra con mostrar(seccion="pago"). NUNCA pidas compromiso ("¿te lo llevás?", nombre, cédula, dirección) antes de haberle mostrado el precio: primero precio, después datos.
 La ficha de "info" termina ofreciendo "¿te cuento cuánto vale?". Si el cliente contesta "sí" (o "sí, cuánto vale", "qué vale", "dame el precio", "cuánto está"), eso es un pedido de precio: mandá mostrar(seccion="precio") en el acto.
 
 CÓMO RESOLVÉS REFERENCIAS (sin releer texto viejo)
@@ -155,9 +174,9 @@ CÓMO VENDÉS SEGÚN QUÉ ES (multimodelo, no todo es "producto-precio-pago")
 ${renderGuion(guion)}
 
 CATÁLOGO
-${catalogoCompacto}
+${catalogoCompacto}${voz.instruccionesExtra ? `\n\nINDICACIONES DEL DUEÑO\n${voz.instruccionesExtra}` : ""}`;
 
-LO QUE YA PASÓ EN ESTA CONVERSACIÓN
+  const delTurno = `LO QUE YA PASÓ EN ESTA CONVERSACIÓN
 ${describirEstado(estado, params.nombrePorProducto)}${
     volvio
       ? `\n\nVISITA NUEVA: el cliente no escribía hace ${Math.round(horas!)} horas. Lo de antes es memoria, no una venta pendiente. ` +
@@ -165,7 +184,9 @@ ${describirEstado(estado, params.nombrePorProducto)}${
         `no le nombres el producto de antes ni le preguntes si ya se decidió o si ya pagó. ` +
         `Si él retoma lo de antes, ahí sí seguís desde donde quedaron sin repetirle lo que ya tiene. No te presentes de nuevo.`
       : ""
-  }${voz.instruccionesExtra ? `\n\nINDICACIONES DEL DUEÑO\n${voz.instruccionesExtra}` : ""}`;
+  }`;
+
+  return { fijo, delTurno };
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -268,6 +289,8 @@ export interface ResultadoRespuesta {
    * el adaptador, que es quien tiene la base.
    */
   efectos: Efecto[];
+  /** Tokens de TODAS las llamadas del turno (bucle + reintentos). */
+  uso: { llamadas: number; entrada: number; salida: number; cacheados: number };
 }
 
 export async function responder(params: {
@@ -310,7 +333,7 @@ export async function responder(params: {
   if (estado.compra === "ninguno" && estado.productoEnFoco != null) estado.compra = "producto_definido";
   else if (estado.compra === "ninguno") estado.compra = "interes";
 
-  const system = construirPromptDeSistema({ voz, estado, catalogo, guion, nombrePorProducto });
+  const { fijo, delTurno } = partesDelPrompt({ voz, estado, catalogo, guion, nombrePorProducto });
 
   const ctx: ContextoHerramientas = {
     estado,
@@ -348,12 +371,22 @@ export async function responder(params: {
       });
     }
   }
-  const messages: any[] = [{ role: "system", content: system }, ...charla];
+  // Orden pensado para el caché del proveedor (ver partesDelPrompt): lo fijo,
+  // el historial (que solo crece al final) y recién ahí el estado del turno.
+  const messages: any[] = [{ role: "system", content: fijo }, ...charla, { role: "system", content: delTurno }];
 
   const traza: ResultadoRespuesta["traza"] = [];
   let proveedor = "desconocido";
   let modoPlan = false;
   let textoFinal = "";
+  const uso = { llamadas: 0, entrada: 0, salida: 0, cacheados: 0 };
+  const contar = (u?: { entrada: number; salida: number; cacheados: number }) => {
+    uso.llamadas++;
+    if (!u) return;
+    uso.entrada += u.entrada;
+    uso.salida += u.salida;
+    uso.cacheados += u.cacheados;
+  };
 
   const bucle = async (vueltas: number) => {
   for (let vuelta = 0; vuelta < vueltas; vuelta++) {
@@ -362,6 +395,7 @@ export async function responder(params: {
       tools: definicionesDeHerramientas,
       temperature: 0.6,
     });
+    contar(respuesta.uso);
     proveedor = respuesta.proveedor;
     modoPlan = modoPlan || respuesta.modoPlan;
 
@@ -458,6 +492,7 @@ export async function responder(params: {
         messages: [...messages, { role: "assistant", content: textoFinal }, aviso],
         temperature: 0.5,
       });
+      contar(reintento.uso);
       const nuevo = (reintento.content || "")
         .replace(/<｜｜DSML[\s\S]*/g, "")
         .replace(/<\|\|DSML[\s\S]*/g, "")
@@ -535,7 +570,7 @@ export async function responder(params: {
   }
   estado.ultimoMensajeAgente = new Date().toISOString();
 
-  return { partes, estado, traza, proveedor, modoPlan, corregido, efectos: ctx.efectos };
+  return { partes, estado, traza, proveedor, modoPlan, corregido, efectos: ctx.efectos, uso };
 }
 
 /**

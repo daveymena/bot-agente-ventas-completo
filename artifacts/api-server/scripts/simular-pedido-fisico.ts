@@ -60,6 +60,7 @@ const GUION = [
 ];
 
 let estado = estadoInicial(999999);
+const totales = { llamadas: 0, entrada: 0, cacheados: 0, salida: 0 };
 const historial: { role: "customer" | "agent"; content: string; createdAt: Date }[] = [];
 for (const texto of GUION) {
   historial.push({ role: "customer", content: texto, createdAt: new Date() });
@@ -72,6 +73,11 @@ for (const texto of GUION) {
     else console.log(`🧩 [${p.kind}:${p.seccion} #${p.productId}]`);
   }
   console.log(`   · herramientas: ${r.traza.map((t) => t.herramienta).join(", ") || "ninguna"} · compra=${estado.compra}`);
+  const u = r.uso;
+  console.log(`   · tokens: ${u.llamadas} llamada(s) · entrada ${u.entrada} (caché ${u.cacheados} = ${u.entrada ? Math.round((100 * u.cacheados) / u.entrada) : 0}%) · salida ${u.salida}`);
+  totales.llamadas += u.llamadas; totales.entrada += u.entrada; totales.cacheados += u.cacheados; totales.salida += u.salida;
   historial.push({ role: "agent", content: (r.partes as any[]).filter((p) => p.kind === "text").map((p) => p.content).join("\n"), createdAt: new Date() });
 }
+// La entrada servida desde caché se cobra una fracción (ver tarifas vigentes del proveedor).
+console.log(`\nTOTAL: ${totales.llamadas} llamadas · entrada ${totales.entrada} (caché ${totales.entrada ? Math.round((100 * totales.cacheados) / totales.entrada) : 0}%) · salida ${totales.salida}`);
 process.exit(0);

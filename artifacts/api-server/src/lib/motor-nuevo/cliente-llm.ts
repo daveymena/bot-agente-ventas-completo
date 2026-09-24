@@ -45,6 +45,31 @@ export interface RespuestaLLM {
   proveedor: string;
   /** Si se usó el modo JSON (el modelo no traía herramientas). */
   modoPlan: boolean;
+  /**
+   * Tokens de esta llamada, si el proveedor los informa. `cacheados` son los
+   * de entrada que el proveedor sirvió desde su caché de prefijo (DeepSeek:
+   * `prompt_cache_hit_tokens`; OpenAI: `prompt_tokens_details.cached_tokens`)
+   * y se cobran una fracción. Hasta el 23-09-2026 no se medía: no había forma
+   * de saber cuánto costaba un turno ni si el caché servía.
+   */
+  uso?: UsoDeTokens;
+}
+
+export interface UsoDeTokens {
+  entrada: number;
+  salida: number;
+  cacheados: number;
+}
+
+/** Lee el `usage` de una respuesta estilo OpenAI (con las variantes de DeepSeek). */
+export function usoDe(completion: any): UsoDeTokens | undefined {
+  const u = completion?.usage;
+  if (!u) return undefined;
+  return {
+    entrada: Number(u.prompt_tokens) || 0,
+    salida: Number(u.completion_tokens) || 0,
+    cacheados: Number(u.prompt_cache_hit_tokens ?? u.prompt_tokens_details?.cached_tokens) || 0,
+  };
 }
 
 export interface ClienteLLM {
@@ -305,7 +330,7 @@ export function crearClienteLLM(opts: {
 
             if (toolCalls.length || (content && content.trim())) {
               reportProviderResult(providerName, true, Date.now() - t0);
-              return { content, toolCalls, proveedor: source, modoPlan: false };
+              return { content, toolCalls, proveedor: source, modoPlan: false, uso: usoDe(completion) };
             }
             // 200 con todo vacío = fallo, aunque no tire error. Medido: 8 de
             // los 26 modelos de OpenCode Go contestan 200 sin una sola letra.
@@ -329,13 +354,14 @@ export function crearClienteLLM(opts: {
                   })),
                   proveedor: source,
                   modoPlan: true,
+                  uso: usoDe(completion),
                 };
               }
               // Pidió herramientas, contestó prosa: se usa como texto y el
               // turno sigue. Mejor una respuesta sin ficha que ninguna.
-              return { content, toolCalls: [], proveedor: source, modoPlan: true };
+              return { content, toolCalls: [], proveedor: source, modoPlan: true, uso: usoDe(completion) };
             }
-            return { content, toolCalls: [], proveedor: source, modoPlan: false };
+            return { content, toolCalls: [], proveedor: source, modoPlan: false, uso: usoDe(completion) };
           }
 
           reportProviderResult(providerName, false, Date.now() - t0, "respuesta vacía");

@@ -54,7 +54,10 @@ async function hola(estado: any) {
     voz: VOZ,
   });
   const mensajes = (llm as any).llamadas[0].messages as { role: string; content: string }[];
-  return { r, system: mensajes[0].content, mensajes };
+  // Todo lo que el modelo recibe como sistema: lo fijo (primero) y el estado
+  // del turno (último, después del historial, por el caché del proveedor).
+  const system = mensajes.filter((m) => m.role === "system").map((m) => m.content).join("\n\n");
+  return { r, system, mensajes };
 }
 
 describe("un 'hola' al otro día es una visita nueva", () => {

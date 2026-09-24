@@ -600,6 +600,8 @@ export async function responderComoVendedor(
       modoPlan: resultado.modoPlan,
       corregido: resultado.corregido,
       forma: guion.forma,
+      // Cuánto costó el turno y cuánto sirvió el caché del proveedor.
+      tokens: resultado.uso,
     },
     "[MOTOR-V2] turno",
   );
