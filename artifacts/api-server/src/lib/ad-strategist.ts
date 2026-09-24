@@ -311,6 +311,15 @@ export interface ResearchGroundedCopy {
   researchNote?: string;
 }
 
+/**
+ * ¿Este texto salió de la plantilla única de antes del 23-09-2026? Esas frases
+ * las escribía SOLO esa plantilla (nunca el dueño ni Atlas), así que sirven
+ * para reconocer borradores viejos sin adivinar.
+ */
+export function esCopyDeLaPlantillaVieja(texto: string): boolean {
+  return /Haz clic abajo para descargar todo el contenido ahora|Este contenido digital es tu atajo directo|Si no tomas acción hoy, seguirás perdiendo tiempo y dinero/i.test(String(texto || ""));
+}
+
 export class AdStrategist {
   private tenant: TenantContext;
 
@@ -745,17 +754,33 @@ export class AdStrategist {
         const reciente = await fb.campanaMasReciente();
         if (reciente) plantillaUsada = await fb.plantillaDesdeCampana(reciente.id);
       }
+      // ── Borradores con el texto de la plantilla VIEJA ────────────────────
+      // Hasta el 23-09-2026 todo borrador salía con el texto de curso digital
+      // ("Haz clic abajo para descargar todo el contenido", "acceso
+      // permanente"), también el del corrector de postura. El dueño lo vio en
+      // Meta: "la imagen sí subió, pero no con el copy correcto". Un borrador
+      // así no se sube tal cual: se regenera con anuncio-por-modelo.ts.
+      let copy = {
+        primaryText: String(draft.primaryText || ""),
+        headline: String(draft.headline || ""),
+        description: String(draft.description || ""),
+      };
+      if (esCopyDeLaPlantillaVieja(copy.primaryText)) {
+        const [prod] = await db.select().from(products).where(eq(products.id, draft.productId)).limit(1);
+        if (prod) {
+          const nuevo = await this.generateAdCopy(this.getStrategyForProduct(prod), prod);
+          copy = { primaryText: nuevo.primaryText, headline: nuevo.headline, description: nuevo.description };
+          await db.update(facebookDrafts).set({ ...copy, updatedAt: new Date() }).where(eq(facebookDrafts.id, draftId));
+          logger.warn({ draftId }, "[AdStrategist] Borrador con el texto de la plantilla vieja: se regeneró antes de subirlo");
+        }
+      }
       const creado = await fb.createAdForProduct(
         draft.productId,
         Number(draft.budget) || 5000,
         undefined,
         undefined,
-        // El copy APROBADO, no uno nuevo.
-        {
-          primaryText: String(draft.primaryText || ""),
-          headline: String(draft.headline || ""),
-          description: String(draft.description || ""),
-        },
+        // El copy APROBADO (o el regenerado si era el de la plantilla vieja).
+        copy,
         objetivo,
         plantillaUsada,
       );

@@ -215,6 +215,33 @@ export interface FbTargeting {
  * automáticas, cuenta de Instagram vinculada y TODAS las mejoras automáticas
  * del creativo encendidas.
  */
+/**
+ * Paquetes de mejoras que Meta DIO DE BAJA: rechaza el creativo entero con
+ * error 100 / subcódigo 3858504 ("La opción para incluir el campo de mejoras
+ * estándar en el anuncio está obsoleta. Define funciones individuales en su
+ * lugar"). Visto en vivo el 23-09-2026 subiendo el corrector: la rama de
+ * "mejoras completas" (copiar la campaña más reciente) los volvía a meter,
+ * aunque el comentario de al lado ya decía que estaban obsoletos.
+ */
+const PAQUETES_OBSOLETOS = new Set(["standard_enhancements", "advantage_plus_creative"]);
+
+/**
+ * Las mejoras de Advantage+ del creativo, UNA POR UNA (Meta ya no acepta
+ * paquetes). Las que alteran la imagen solo con foto real del producto.
+ */
+export function mejorasDelCreativo(opts: { hayFotoReal: boolean; mejorasCompletas: boolean }): Record<string, { enroll_status: "OPT_IN" }> {
+  const f: string[] = ["text_optimizations", "enhance_cta"];
+  if (opts.hayFotoReal) f.push("image_touchups", "image_brightness_and_contrast", "image_uncrop");
+  // Como en las campañas reales de la cuenta: todas las mejoras individuales.
+  if (opts.mejorasCompletas) {
+    f.push("image_templates", "image_animation", "cv_transformation", "inline_comment", "pac_relaxation",
+      "product_extensions", "show_destination_blurbs", "site_extensions", "product_browsing");
+  }
+  const spec: Record<string, { enroll_status: "OPT_IN" }> = {};
+  for (const nombre of f) if (!PAQUETES_OBSOLETOS.has(nombre)) spec[nombre] = { enroll_status: "OPT_IN" };
+  return spec;
+}
+
 export interface PlantillaDeCampana {
   /** De qué campaña se sacó (para el log y para el admin). */
   origen?: { id: string; nombre: string } | null;
@@ -1092,21 +1119,10 @@ Responde SOLO con este JSON exacto:
       //    pase a Advantage+ catalog ads.
       // image_touchups/brightness/uncrop (los que alteran la imagen) solo
       // se activan con foto real del producto -- ver hasRealProductImage.
-      const creativeFeaturesSpec: Record<string, any> = {
-        text_optimizations: { enroll_status: "OPT_IN" },
-        enhance_cta: { enroll_status: "OPT_IN" },
-      };
-      if (hasRealProductImage) {
-        creativeFeaturesSpec.image_touchups = { enroll_status: "OPT_IN" };
-        creativeFeaturesSpec.image_brightness_and_contrast = { enroll_status: "OPT_IN" };
-        creativeFeaturesSpec.image_uncrop = { enroll_status: "OPT_IN" };
-      }
-      // Como en las campañas reales de la cuenta: TODAS las mejoras encendidas.
-      if (plantilla?.mejorasCompletas) {
-        for (const f of ["advantage_plus_creative", "standard_enhancements", "image_templates", "image_animation", "cv_transformation", "inline_comment", "pac_relaxation", "product_extensions", "show_destination_blurbs", "site_extensions", "product_browsing"]) {
-          creativeFeaturesSpec[f] = { enroll_status: "OPT_IN" };
-        }
-      }
+      const creativeFeaturesSpec = mejorasDelCreativo({
+        hayFotoReal: hasRealProductImage,
+        mejorasCompletas: !!plantilla?.mejorasCompletas,
+      });
       // Instagram: la cuenta vinculada a la página, para que el anuncio salga
       // también ahí con identidad propia (las reales la traen).
       let instagramUserId: string | null = null;
