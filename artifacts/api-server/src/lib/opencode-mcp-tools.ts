@@ -89,6 +89,7 @@ const CONTRATO_COMPLETO = new Set<string>([
  * un esquema real pronto.
  */
 const TOOL_SCHEMAS: Record<string, object> = {
+  agenda_ver: { type: "object", properties: {} },
   // ── Diagnóstico del vendedor de WhatsApp ────────────────────────────────────
   // Esquemas explícitos y no el genérico permisivo: son las herramientas que
   // Atlas tiene que poder llamar SOLO con lo que leyó del pedido, y el
@@ -526,6 +527,13 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
       return `🗑️ BORRAR de Facebook la campaña ${g.campaignId ?? "?"} — se van también sus conjuntos y anuncios. IRREVERSIBLE, no hay papelera${g.borrarAunqueTengaGasto === true ? ", y se pierde su historial de resultados" : ""}`;
     case "fb_pause_campaign":
       return `⏸️ Pausar la campaña ${g.campaignId ?? "?"} de Facebook — deja de gastar`;
+    case "programar_accion":
+      return `🗓️ PROGRAMAR para ${g.cuando ?? (g.enMinutos ? `dentro de ${g.enMinutos} min` : "?")}${g.repetirCadaMin ? ` (y repetir cada ${g.repetirCadaMin} min)` : ""}: ${g.herramienta ?? "?"} ${valorLegible(g.argumentos ?? {})}
+   Se ejecuta SOLA a esa hora, sin volver a preguntarte, y te aviso el resultado`;
+    case "agenda_cambiar":
+      return g.cancelar === true
+        ? `❌ Cancelar la acción programada #${g.id ?? "?"} — no se ejecutará`
+        : `🔁 Mover la acción programada #${g.id ?? "?"} a ${g.cuando ?? (g.enMinutos ? `dentro de ${g.enMinutos} min` : "?")}`;
     case "fb_resume_campaign":
       return `▶️ Reactivar la campaña ${g.campaignId ?? "?"} de Facebook — vuelve a gastar según su presupuesto diario`;
     case "fb_set_budget":
@@ -1067,6 +1075,11 @@ const NUCLEO = new Set<string>([
 ]);
 
 const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
+  {
+    // ── La agenda: "programá", "a las 8", "mañana", "cada noche" ─────────
+    patron: /program|agend|reprogram|a las \d|mañana|manana|cada (?:noche|día|dia|mañana|lunes)|en \d+ (?:min|hora)/i,
+    herramientas: ["agenda_ver"],
+  },
   {
     // ── Anuncios: CREAR ──────────────────────────────────────────────────
     //

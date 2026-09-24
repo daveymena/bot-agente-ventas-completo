@@ -81,6 +81,7 @@ import { iniciarProgramador } from "./lib/programador";
 import { registrarOrganico } from "./lib/agente-organico";
 import { registrarAgencia } from "./lib/agencia-ritmo";
 import { registrarGuardia } from "./lib/agente-horario";
+import { registrarAgendaDeAtlas } from "./lib/atlas-agenda";
 registrarOrganico();
 // El equipo de marketing tambien necesita reloj: sin esto, sus catorce
 // especialistas solo trabajan cuando el admin abre el chat y pregunta.
@@ -93,6 +94,8 @@ import("./lib/categorias").then((m) => m.iniciarVinculoDeCategorias()).catch(() 
 // Atlas arrastraba "Dropi rechaza el token del panel" de sesiones viejas (ver lib/dropi-memoria.ts).
 import("./lib/dropi-memoria").then((m) => m.iniciarCorreccionDeMemoriaDropi()).catch(() => undefined);
 registrarGuardia();
+// Las acciones que el admin deja programadas desde Atlas (ver lib/atlas-agenda.ts).
+registrarAgendaDeAtlas();
 iniciarProgramador();
 
 // Reporte diario del equipo de marketing. Los 13 agentes existian pero no

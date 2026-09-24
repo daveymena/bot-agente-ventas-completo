@@ -5502,6 +5502,41 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       };
     },
   },
+  // ── La agenda: dejar acciones para una hora (ver lib/atlas-agenda.ts) ────
+  {
+    name: "programar_accion",
+    description:
+      "Programar una acción. " +
+      "Se ejecuta SOLA: publicar en la página de Facebook, activar (fb_resume_campaign) o pausar (fb_pause_campaign) un anuncio, cambiar un presupuesto (fb_set_budget), etc. " +
+      "`herramienta` es el nombre de la acción que ya usarías ahora, y `argumentos` exactamente los que le pasarías ahora (conseguí los ids ANTES con las lecturas). " +
+      "`cuando`: \"mañana 08:00\", \"hoy 18:30\", \"lunes 09:00\" o \"AAAA-MM-DD HH:mm\" -- siempre en la hora del negocio; o `enMinutos` para \"dentro de X\". " +
+      "`repetirCadaMin` (opcional, mínimo 15; 1440 = todos los días) para una rutina, p. ej. pausar cada noche. " +
+      "El admin aprueba al programar; a la hora pactada se ejecuta sin volver a preguntar y se le avisa el resultado. Borrar y cambios de código NO se programan.",
+    args: '{ herramienta, argumentos: object, cuando?, enMinutos?, repetirCadaMin?, nota? }',
+    run: async (args, ctx) => {
+      const { programarAccion, porQueNoSePuedeProgramar } = await import("./atlas-agenda");
+      return programarAccion(ctx.tenantId, args || {}, (h) => porQueNoSePuedeProgramar(h, {
+        existe: TOOL_MAP.has(h), esLectura: READ_ONLY_TOOLS.has(h), esCodigo: CODE_TOOLS.has(h),
+      }));
+    },
+  },
+  {
+    name: "agenda_ver",
+    description: "VER las acciones programadas del negocio (pendientes, hechas, fallidas, canceladas) con su #id, hora y resultado. También dice la fecha y hora actual del negocio.",
+    args: "{}",
+    run: async (_args, ctx) => (await import("./atlas-agenda")).verAgenda(ctx.tenantId),
+  },
+  {
+    name: "agenda_cambiar",
+    description: "Mover/cancelar una programada. Solo si está PENDIENTE; `id` es el #id de agenda_ver. Con `cancelar: true` no se ejecuta; con `cuando`/`enMinutos` (igual que en programar_accion) se mueve a esa hora.",
+    args: '{ id, cancelar?, cuando?, enMinutos? }',
+    run: async (args, ctx) => {
+      const ag = await import("./atlas-agenda");
+      return args?.cancelar === true
+        ? ag.cancelarAccion(ctx.tenantId, Number(args?.id))
+        : ag.reprogramarAccion(ctx.tenantId, Number(args?.id), args || {});
+    },
+  },
   {
     name: "crear_anuncio",
     description:
@@ -7502,6 +7537,8 @@ export async function executeAction(tool: string, args: any, ctx: OperatorContex
 // Mutación: cambian datos → requieren PLAN + confirmación del admin.
 // Destructivas / de dinero: confirmación reforzada.
 export const READ_ONLY_TOOLS = new Set([
+  // La agenda: solo lee qué hay programado (ver lib/atlas-agenda.ts).
+  "agenda_ver",
   "analyze_system", "list_products", "list_categories", "get_agent", "get_settings",
   "get_store", "payment_status",
   // Facebook de solo lectura + generación de imagen (solo devuelve preview, no asigna)
@@ -7736,6 +7773,10 @@ const TOOLS_SIEMPRE = new Set([
 
 /** Qué familia de herramientas pide cada tipo de pedido. */
 const FAMILIAS: Array<{ cuando: RegExp; prefijos: string[] }> = [
+  // La agenda (lib/atlas-agenda.ts). Junto con fb_ porque lo que más se
+  // programa es activar/pausar anuncios y publicar en la página.
+  { cuando: /program|agend|a las \d|ma[ñn]ana|cada (?:noche|d[ií]a|lunes)|en \d+ (?:min|hora)/i,
+    prefijos: ["programar_accion", "agenda_", "fb_"] },
   { cuando: /facebook|anuncio|campa[ñn]a|meta|publicar|p[uú]blico|audiencia|instagram|ads?\b/i,
     prefijos: ["fb_", "ad_", "crear_anuncio", "optimize_copy", "generate_image"] },
   { cuando: /producto|precio|cat[aá]logo|curso|pack|stock|categor[ií]a|imagen/i,
