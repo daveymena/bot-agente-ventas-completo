@@ -24,14 +24,20 @@ export interface ColorDelProducto {
   sobreAcento: string;
   /** Color dominante crudo de la foto (puede ser neutro). */
   dominante: string | null;
-  /** De dónde salió: "foto" | "rubro" | "marca" */
-  origen: "foto" | "rubro" | "marca";
+  /** De dónde salió: "publico" | "foto" | "rubro" | "marca" */
+  origen: "publico" | "foto" | "rubro" | "marca";
   /** Tinte suave para fondos de sección (acento al 8 %). */
   tinte: string;
+  /** Para quién es, si el producto lo dice (ver publico-del-producto.ts). */
+  publico?: import("./publico-del-producto").LecturaDePublico;
+  /** Paleta completa del público (secundario, tono, lenguaje, qué evitar). */
+  paletaDePublico?: import("./publico-del-producto").PaletaDePublico;
 }
 
 const ACENTO_POR_RUBRO: Array<[RegExp, string]> = [
-  [/salud|bienestar|ortoped/i, "#0E9F8A"],
+  // Ortopedia por el NOMBRE también: Dropi pone los correctores en "Belleza
+  // y cuidado personal" y salían rosa fucsia.
+  [/salud|bienestar|ortoped|postura|corrector|lumbar|rodillera|cervical|masajeador/i, "#0E9F8A"],
   [/deporte|fitness|gym/i, "#E53935"],
   [/hogar|organiz/i, "#D97706"],
   [/cocina/i, "#EA580C"],
@@ -143,12 +149,41 @@ export function ajustar(color: string, factor: number): string {
   return hex(f(r), f(g), f(b));
 }
 
-export async function colorDelProducto(p: { fotoUrl?: string | null; categoria?: string | null; marcaPrimaria?: string | null }): Promise<ColorDelProducto> {
+export async function colorDelProducto(p: {
+  fotoUrl?: string | null;
+  categoria?: string | null;
+  marcaPrimaria?: string | null;
+  /** Nombre, descripción y características: de ahí sale PARA QUIÉN es. */
+  nombre?: string | null;
+  descripcion?: string | null;
+  caracteristicas?: unknown;
+  tipo?: string | null;
+}): Promise<ColorDelProducto> {
   let dominante: string | null = null, saturado: string | null = null;
   if (p.fotoUrl) {
     const c = await colorDominanteDeFoto(p.fotoUrl).catch(() => null);
     dominante = c?.dominante || null; saturado = c?.saturado || null;
   }
+
+  // ── Para quién es manda sobre la foto y el rubro ─────────────────────────
+  // Dropi pone los correctores en "Belleza" (→ rosa) aunque la ficha diga
+  // "unisex, para hombres y mujeres". Pedido del dueño 23-09-2026: unisex →
+  // neutros, mujer → femeninos, hombre → masculinos, niños → infantiles.
+  const { publicoDelProducto, paletaDelPublico } = await import("./publico-del-producto");
+  const publico = publicoDelProducto({ nombre: p.nombre, categoria: p.categoria, descripcion: p.descripcion, caracteristicas: p.caracteristicas, tipo: p.tipo });
+  const paletaDePublico = paletaDelPublico(publico.publico);
+  if (paletaDePublico) {
+    return {
+      acento: paletaDePublico.acento,
+      sobreAcento: paletaDePublico.sobreAcento,
+      dominante,
+      origen: "publico",
+      tinte: paletaDePublico.tinte,
+      publico,
+      paletaDePublico,
+    };
+  }
+
   let acento: string, origen: ColorDelProducto["origen"];
   if (saturado) {
     // Que el acento sea usable en un botón: ni chillón ni apagado.
@@ -156,10 +191,12 @@ export async function colorDelProducto(p: { fotoUrl?: string | null; categoria?:
     const lum = luminancia(r, g, b);
     acento = lum > 0.6 ? ajustar(saturado, -0.35) : lum < 0.05 ? ajustar(saturado, 0.25) : saturado;
     origen = "foto";
-  } else if (acentoPorRubro(p.categoria)) {
-    acento = acentoPorRubro(p.categoria)!; origen = "rubro";
+  } else if (acentoPorRubro(`${p.nombre || ""} ${p.categoria || ""}`)) {
+    // El nombre va PRIMERO: "Corrector de postura" + categoría "Belleza" es
+    // ortopedia, no maquillaje.
+    acento = acentoPorRubro(`${p.nombre || ""} ${p.categoria || ""}`)!; origen = "rubro";
   } else {
     acento = p.marcaPrimaria || "#4F46E5"; origen = "marca";
   }
-  return { acento, sobreAcento: textoSobre(acento), dominante, origen, tinte: ajustar(acento, 0.92) };
+  return { acento, sobreAcento: textoSobre(acento), dominante, origen, tinte: ajustar(acento, 0.92), publico };
 }

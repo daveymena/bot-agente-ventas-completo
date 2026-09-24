@@ -289,7 +289,16 @@ Escribe en ${language} para ${country}.${opts.contexto ? `\n\n${opts.contexto}` 
       categoria: (product as any)?.category, nombre: product.name, descripcion: product.description,
       tipo: product.kind, precio: Number(product.price),
     });
-    const design = { ...(result?.design || { tone: "direct-response premium", primary: "#111827", background: "#ffffff", radius: "14px" }), familia: (result?.design as any)?.familia || sugerida.familia };
+    const design: any = { ...(result?.design || { tone: "direct-response premium", primary: "#111827", background: "#ffffff", radius: "14px" }), familia: (result?.design as any)?.familia || sugerida.familia };
+    // Para quién es el producto manda sobre el color (unisex → neutros,
+    // mujer → femeninos, hombre → masculinos, niños → infantiles). Mismo
+    // criterio que el Landing Studio: lib/landing/publico-del-producto.ts.
+    {
+      const { publicoDelProducto, paletaDelPublico } = await import("../lib/landing/publico-del-producto");
+      const lectura = publicoDelProducto({ nombre: product.name, categoria: (product as any)?.category, descripcion: product.description, caracteristicas: (product as any)?.features, tipo: product.kind });
+      const pal = paletaDelPublico(lectura.publico);
+      if (pal) Object.assign(design, { primary: pal.acento, accent: pal.secundario, tinte: pal.tinte, publico: lectura.publico });
+    }
     const name = String(result?.name || `Landing · ${product.name}`);
 
     return { ok: true as const, generatedBy: conSecciones ? "ai" : "fallback", name, productId, strategy, sections, design,

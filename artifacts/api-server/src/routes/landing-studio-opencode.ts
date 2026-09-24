@@ -424,7 +424,12 @@ function getSystemPrompt(tipo: ProductType): string {
 // Saca los colores de marca del tenant y el color dominante de la imagen del
 // producto. OpenCode los usa para armar la paleta en vez de inventar colores
 // al azar.
-interface Paleta { primary?: string; secondary?: string; accent?: string; dominante?: string; acentoProducto?: string; sobreAcento?: string; tinte?: string; origenAcento?: string }
+interface Paleta {
+  primary?: string; secondary?: string; accent?: string; dominante?: string; acentoProducto?: string; sobreAcento?: string; tinte?: string; origenAcento?: string;
+  /** Para quién es el producto y cómo se le habla (lib/landing/publico-del-producto.ts). */
+  publico?: import("../lib/landing/publico-del-producto").LecturaDePublico;
+  paletaDePublico?: import("../lib/landing/publico-del-producto").PaletaDePublico;
+}
 
 // Diseño que el cliente elige desde el panel (fondo, botones, color). Se aplica
 // en la preview al instante y se le pasa a la IA para regenerar.
@@ -479,9 +484,13 @@ async function paletaDelProducto(product: any): Promise<Paleta> {
   // rubro si el producto es neutro. Ver lib/landing/color-del-producto.ts.
   try {
     const { colorDelProducto } = await import("../lib/landing/color-del-producto");
-    const c = await colorDelProducto({ fotoUrl: foto || null, categoria: product?.category || null, marcaPrimaria: paleta.primary || null });
+    const c = await colorDelProducto({
+      fotoUrl: foto || null, categoria: product?.category || null, marcaPrimaria: paleta.primary || null,
+      nombre: product?.name || null, descripcion: product?.description || null, caracteristicas: product?.features, tipo: product?.kind || null,
+    });
     paleta.dominante = c.dominante || undefined;
     paleta.acentoProducto = c.acento; paleta.sobreAcento = c.sobreAcento; paleta.tinte = c.tinte; paleta.origenAcento = c.origen;
+    paleta.publico = c.publico; paleta.paletaDePublico = c.paletaDePublico;
   } catch {
     if (foto) { const dom = await colorDominanteDeImagen(foto); if (dom) paleta.dominante = dom; }
   }
@@ -734,9 +743,16 @@ CONTEXTO DEL NEGOCIO:
 PALETA DE COLORES (USALA - NO inventes colores al azar):
 ${familia
   ? (paleta?.acentoProducto
-      ? `- El ESTILO VISUAL de abajo pone la composición, la tipografía, el ritmo y los fondos/superficies/texto. El ACENTO (botones, precio, destacados, franjas, iconos) es ${paleta.acentoProducto} — ${paleta.origenAcento === "foto" ? "el color real del producto en su foto" : paleta.origenAcento === "rubro" ? "el color del rubro (el producto es neutro)" : "el color de marca"} — con texto ${paleta.sobreAcento} encima; para fondos de sección suaves usá ${paleta.tinte}. NO uses el acento genérico del estilo si contradice a este. Los colores de marca del negocio son solo para el logo/encabezado.`
+      ? `- El ESTILO VISUAL de abajo pone la composición, la tipografía, el ritmo y los fondos/superficies/texto. El ACENTO (botones, precio, destacados, franjas, iconos) es ${paleta.acentoProducto} — ${paleta.origenAcento === "publico" ? "el color del PÚBLICO del producto (ver PÚBLICO abajo)" : paleta.origenAcento === "foto" ? "el color real del producto en su foto" : paleta.origenAcento === "rubro" ? "el color del rubro (el producto es neutro)" : "el color de marca"} — con texto ${paleta.sobreAcento} encima; para fondos de sección suaves usá ${paleta.tinte}. NO uses el acento genérico del estilo si contradice a este. Los colores de marca del negocio son solo para el logo/encabezado.`
       : `- MANDA la paleta del ESTILO VISUAL de abajo (fondo, superficies, texto y acento). Los colores de marca del negocio son solo para el logo/encabezado o un detalle menor: NO tiñas la página con ellos, y NO uses rosas, lilas ni degradados pastel salvo que el estilo lo indique.`)
-  : (paleta?.acentoProducto ? `- Color primario/acento: ${paleta.acentoProducto} (${paleta.origenAcento === "foto" ? "color real del producto" : "color del rubro"}), texto encima ${paleta.sobreAcento}; tinte para fondos suaves ${paleta.tinte}` : paleta?.primary ? `- Color primario (marca): ${paleta.primary}` : "- Color primario: derivalo del color dominante del producto")}
+  : (paleta?.acentoProducto ? `- Color primario/acento: ${paleta.acentoProducto} (${paleta.origenAcento === "publico" ? "color del público del producto" : paleta.origenAcento === "foto" ? "color real del producto" : "color del rubro"}), texto encima ${paleta.sobreAcento}; tinte para fondos suaves ${paleta.tinte}` : paleta?.primary ? `- Color primario (marca): ${paleta.primary}` : "- Color primario: derivalo del color dominante del producto")}
+${paleta?.paletaDePublico ? `
+PÚBLICO DEL PRODUCTO (manda sobre el estilo visual y los colores de marca): ${paleta.publico?.porque || ""}
+- Tono visual: ${paleta.paletaDePublico.tono}
+- Color secundario (detalles, íconos, subrayados): ${paleta.paletaDePublico.secundario}
+- Cómo hablarle: ${paleta.paletaDePublico.lenguaje}
+- NO uses: ${paleta.paletaDePublico.evitar}
+- Todo tiene que verse profesional y coherente de principio a fin: mismos colores en hero, secciones, botones y formulario.` : ""}
 ${paleta?.primary && familia ? `- Color de marca (solo logo/detalles): ${paleta.primary}` : ""}
 ${paleta?.secondary && !familia ? `- Color secundario: ${paleta.secondary}` : ""}
 ${paleta?.accent && !familia ? `- Color de acento (CTAs/botones): ${paleta.accent}` : ""}
