@@ -242,7 +242,11 @@ export default function Products() {
         </div>
 
         {/* Filters */}
-        <div className="glass-panel p-2 rounded-xl flex flex-col md:flex-row gap-3 items-center justify-between sticky top-[72px] z-10">
+        {/* sticky top-0, no top-[72px]: el que hace scroll es <main>, que YA
+            empieza debajo del encabezado (layout.tsx). Con 72px la barra
+            quedaba flotando en medio de la lista y por encima asomaban las
+            tarjetas que pasaban por atrás (captura del dueño, 23-09-2026). */}
+        <div className="glass-panel p-2 rounded-xl flex flex-col md:flex-row gap-3 items-center justify-between sticky top-0 z-10">
           <div className="flex items-center gap-3 w-full md:w-auto px-2">
             <div className="relative w-full md:w-56">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -292,9 +296,12 @@ export default function Products() {
           <div className="flex items-center gap-2 pl-2 md:pl-4 border-t md:border-t-0 md:border-l border-border/50 pt-2 md:pt-0 w-full md:w-auto shrink-0">
             <Filter className="h-3.5 w-3.5 text-muted-foreground mr-1" />
             <ToggleGroup type="single" value={activeKind} onValueChange={(v) => v && setActiveKind(v as any)} size="sm" className="bg-muted/50 p-1 rounded-full">
-              <ToggleGroupItem value="all" className="rounded-full text-xs h-7 px-3 data-[state=on]:bg-background data-[state=on]:shadow-sm">Todos</ToggleGroupItem>
-              <ToggleGroupItem value="digital" className="rounded-full text-xs h-7 px-3 data-[state=on]:bg-background data-[state=on]:shadow-sm gap-1">⚡ Digital</ToggleGroupItem>
-              <ToggleGroupItem value="physical" className="rounded-full text-xs h-7 px-3 data-[state=on]:bg-background data-[state=on]:shadow-sm gap-1">📦 Físico</ToggleGroupItem>
+              {/* data-[state=on]:text-foreground: el fondo del activo se
+                  cambiaba a blanco pero el texto seguía con el color claro
+                  del estilo base -- "Todos" quedaba blanco sobre blanco. */}
+              <ToggleGroupItem value="all" className="rounded-full text-xs h-7 px-3 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm">Todos</ToggleGroupItem>
+              <ToggleGroupItem value="digital" className="rounded-full text-xs h-7 px-3 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm gap-1">⚡ Digital</ToggleGroupItem>
+              <ToggleGroupItem value="physical" className="rounded-full text-xs h-7 px-3 data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm gap-1">📦 Físico</ToggleGroupItem>
             </ToggleGroup>
           </div>
         </div>
