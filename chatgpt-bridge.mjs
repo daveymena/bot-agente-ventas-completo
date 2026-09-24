@@ -12,7 +12,9 @@
  *   node chatgpt-bridge.mjs --test
  */
 
-const BOT_URL = process.env.BOT_URL || "http://144.91.112.79:8080";
+// HTTPS por el dominio: el puerto 8080 publicaba la app en HTTP plano, por
+// fuera de TLS, y se va a cerrar (auditoría 23-09-2026).
+const BOT_URL = process.env.BOT_URL || "https://ventasproia.com";
 const EMAIL = process.env.BOT_EMAIL || "daveymena16@gmail.com";
 const PASSWORD = process.env.BOT_PASSWORD || "6715320D.";
 
@@ -111,7 +113,7 @@ Usage:
   node chatgpt-bridge.mjs --login    Just login and print cookie
 
 Environment:
-  BOT_URL      Bot URL (default: http://144.91.112.79:8080)
+  BOT_URL      Bot URL (default: https://ventasproia.com)
   BOT_EMAIL    Login email
   BOT_PASSWORD Login password
   `);

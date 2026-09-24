@@ -11,7 +11,7 @@
   },
   "servers": [
     {
-      "url": "http://144.91.112.79:8080",
+      "url": "https://ventasproia.com",
       "description": "Production Server (EasyPanel)"
     }
   ],
