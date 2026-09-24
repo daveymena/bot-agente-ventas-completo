@@ -147,12 +147,60 @@ export async function dropiIntegracion<T = any>(token: string, path: string, bod
   return ultima;
 }
 
+/** IP pública con la que este servidor sale a internet (la que ve Dropi). */
+let ipDeSalidaCache: string | null = null;
+export async function ipDeSalida(): Promise<string | null> {
+  if (ipDeSalidaCache) return ipDeSalidaCache;
+  for (const url of ["https://api.ipify.org", "https://ifconfig.me/ip"]) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      const ip = (await r.text()).trim();
+      if (/^[\d.:a-f]+$/i.test(ip)) return (ipDeSalidaCache = ip);
+    } catch { /* siguiente */ }
+  }
+  return null;
+}
+
+/**
+ * Por qué Dropi rechazó un token, leído del token mismo. Pedido del dueño
+ * (23-09-2026): el token de un segundo negocio "lo niega, parece que por IP".
+ * El JWT de integración trae `ip_url` (IP autorizada) e `integration_url`
+ * (tienda). La tienda la imitamos con cabeceras estilo WordPress; la IP no
+ * se puede imitar: si el negocio creó la integración con la IP de SU hosting,
+ * todo lo que sale de nuestro servidor es "Access denied". El token que sí
+ * funciona (19-09) tiene la IP vacía.
+ */
+async function explicarRechazo(token: string, error: string): Promise<string> {
+  let payload: any = null;
+  try { payload = JSON.parse(Buffer.from(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")); } catch { /* no es JWT */ }
+  if (!payload) return `Dropi rechazó el token (${error}). Eso no parece un token de integración: copialo de Dropi → Mis Integraciones.`;
+  if (!payload.integration_url && /not issued|issued to this api/i.test(error)) {
+    return `Dropi rechazó el token (${error}). Es el token de SESIÓN del panel de Dropi, no el de integración: creá una integración en Dropi → Mis Integraciones y pegá ese token.`;
+  }
+  if (payload.exp && Number(payload.exp) * 1000 < Date.now()) {
+    return `Dropi rechazó el token: venció el ${new Date(Number(payload.exp) * 1000).toISOString().slice(0, 10)}. Generá uno nuevo en Dropi → Mis Integraciones.`;
+  }
+  const ips = [payload.ip_url, payload.ip].flat().filter((x: any) => x != null && String(x).trim() !== "").map(String);
+  const nuestra = await ipDeSalida();
+  if (ips.length && !(nuestra && ips.some((ip) => ip.includes(nuestra)))) {
+    return `Dropi rechazó el token (${error}): la integración está limitada a la IP ${ips.join(", ")} y nuestro servidor sale por ${nuestra || "otra IP"}. ` +
+      `En Dropi → Mis Integraciones, editá (o creá de nuevo) la integración y poné ${nuestra ? `la IP ${nuestra}` : "la IP de nuestro servidor"} o dejá ese campo vacío; después pegá el token nuevo.`;
+  }
+  return `Dropi rechazó el token (${error}). Integración: tienda ${payload.integration_url || "?"}, IP autorizada ${ips.join(", ") || "ninguna"}, nuestro servidor sale por ${nuestra || "?"}.`;
+}
+
 /** ¿El token sirve? Pide un producto del catálogo. */
 export async function probarTokenDropi(token: string): Promise<{ ok: boolean; detalle: string; integracion?: ReturnType<typeof integracionDelToken> }> {
   const t = String(token || "").trim();
   if (!t) return { ok: false, detalle: "Falta el token." };
   const r = await dropiIntegracion(t, "products/index", { startData: 0, pageSize: 1, active: true, no_count: true, integration: true, get_stock: false });
-  if (!r.ok) return { ok: false, detalle: `Dropi rechazó el token: ${r.error}`, integracion: integracionDelToken(t) };
+  if (!r.ok) {
+    const detalle = /exceeded the allowed number/i.test(r.error || "")
+      ? "Dropi frenó por demasiados intentos seguidos. Esperá unos minutos antes de probar de nuevo."
+      : await explicarRechazo(t, r.error || "sin detalle");
+    logger.warn({ error: r.error, integracion: integracionDelToken(t) }, "[DropiDirecto] token rechazado");
+    return { ok: false, detalle, integracion: integracionDelToken(t) };
+  }
   return { ok: true, detalle: "Token válido: Dropi responde el catálogo.", integracion: integracionDelToken(t) };
 }
 
