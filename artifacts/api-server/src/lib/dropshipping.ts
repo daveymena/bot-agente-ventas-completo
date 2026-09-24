@@ -576,10 +576,59 @@ export interface ResultadoDespacho {
    * archivado o sin stock. Distinto de `dropi` (veredicto DESPUÉS de crear).
    */
   noDisponible?: { estado: "archivado" | "sin_stock"; detalle: string; mensajeAlCliente: string };
+  /**
+   * Dropi no cubre ciudad+método para ESTE proveedor (ej. "Cali sin
+   * CON RECAUDO"). No es producto agotado: por otro camino (Woo/Dropify) o
+   * con otro método (transferencia) puede salir. Incluye qué decirle al cliente.
+   */
+  cobertura?: { ciudad: string; metodo: string; detalle: string; mensajeAlCliente: string };
   /** Qué hizo Dropi con el pedido. Solo falta cuando ni siquiera llegó a Woo. */
   dropi?: VeredictoDropi;
   /** true cuando el rechazo dejó el producto fuera del catálogo. */
   productoDesactivado?: boolean;
+}
+
+/**
+ * ¿El rechazo de Dropi es por COBERTURA (ciudad/método de envío) y no por el
+ * producto? Caso medido 24-09-2026, pedido #39: "La ciudad no tiene habilitado
+ * el médoto de envío: CON RECAUDO". La cobertura es por proveedor/bodega, no
+ * por ciudad: rendirse acá impide intentar por Woo/Dropify, que usa otro token
+ * y normaliza distinto — y ese camino sí pasó Cali+contraentrega (#90133857).
+ */
+const ES_ERROR_DE_COBERTURA = /ciudad.*(habilitado|cobertura)|m[eé]todo de env[ií]o|cobertura|sin.*recaudo|recaudo.*no|contraentrega.*no|no.*contraentrega|zona.*(no|sin)/i;
+export function esErrorDeCobertura(detalle: string): boolean {
+  return ES_ERROR_DE_COBERTURA.test(String(detalle || ""));
+}
+
+interface EntradaSinCobertura { ciudad: string; metodo: string; en: string }
+const DIAS_SIN_COBERTURA = 30;
+
+function leerSinCobertura(meta: any): EntradaSinCobertura[] {
+  const lista = meta?.sinCobertura;
+  return Array.isArray(lista) ? lista.filter((e: any) => e && typeof e.ciudad === "string") : [];
+}
+
+/** ¿Este proveedor ya rechazó esta ciudad+método hace poco? (chequeo previo, sin pegar a Dropi). */
+export function hayRechazoDeCobertura(meta: any, ciudad: string, contraentrega: boolean): EntradaSinCobertura | null {
+  const normal = ciudad.trim().toUpperCase();
+  const metodo = contraentrega ? "CON RECAUDO" : "SIN RECAUDO";
+  const limite = Date.now() - DIAS_SIN_COBERTURA * 24 * 3600 * 1000;
+  const vieja = leerSinCobertura(meta).find((e) => e.ciudad === normal && e.metodo === metodo);
+  if (!vieja) return null;
+  if (new Date(vieja.en).getTime() < limite) return null;
+  return vieja;
+}
+
+async function guardarRechazoDeCobertura(productId: number, meta: any, ciudad: string, contraentrega: boolean): Promise<void> {
+  const normal = ciudad.trim().toUpperCase();
+  const metodo = contraentrega ? "CON RECAUDO" : "SIN RECAUDO";
+  const lista = leerSinCobertura(meta).filter((e) => !(e.ciudad === normal && e.metodo === metodo));
+  lista.push({ ciudad: normal, metodo, en: new Date().toISOString() });
+  await db.update(products).set({ metadata: JSON.stringify({ ...meta, sinCobertura: lista.slice(-20) }) } as any).where(eq(products.id, productId));
+}
+
+export function mensajeCoberturaAlCliente(productName: string, ciudad: string): string {
+  return `En ${ciudad} la contraentrega no está disponible para ${productName}. ¿Te sirve pagarlo por transferencia (Nequi, Daviplata o tarjeta) y te lo mando igual?`;
 }
 
 export async function despacharPedido(pedido: PedidoDropshipping): Promise<ResultadoDespacho> {
@@ -598,9 +647,24 @@ export async function despacharPedido(pedido: PedidoDropshipping): Promise<Resul
   // vinculado a Dropi, el pedido se crea directo (ver lib/dropi-directo.ts).
   // WooCommerce queda como respaldo si Dropi rechaza y el producto también
   // existe allá.
+  //
+  // Si el rechazo es por COBERTURA (ciudad/método del proveedor), NO se
+  // vuelve acá: se sigue por Woo/Dropify, que usa otro token y normaliza
+  // distinto — ese camino sí pasó Cali+contraentrega (#90133857) cuando el
+  // directo la rechazó (#39). Rendirse al primer "no" dejaba el pedido muerto
+  // con el mensaje falso de "no se pudo registrar en WooCommerce" sin haberlo
+  // intentado.
   try {
     const directo = await despacharDirectoEnDropi(pedido);
-    if (directo) return directo;
+    if (directo) {
+      if (directo.ok) return directo;
+      if (!directo.cobertura) return directo;
+      logger.warn({ pedidoId: pedido.id, error: directo.error }, "[Dropshipping] Directo sin cobertura; se sigue por WooCommerce/Dropify");
+      await pool.query(
+        `UPDATE dropshipping_orders SET dropi_error = $2, notas = COALESCE(notas, '') || $3, updated_at = now() WHERE id = $1`,
+        [pedido.id, directo.error || "sin detalle", ` | Directo sin cobertura (${new Date().toISOString().slice(0, 16)}): se intenta por Woo`],
+      ).catch(() => null);
+    }
   } catch (e: any) {
     logger.warn({ pedidoId: pedido.id, err: e?.message }, "[Dropshipping] Dropi directo falló; se sigue por WooCommerce");
   }
@@ -785,7 +849,7 @@ async function avisarAlAdmin(pedido: PedidoDropshipping, dropi: VeredictoDropi, 
     const { avisarAlDueno } = await import("./avisos");
     const texto = [
       dropi.estado === "error" ? "⚠️ *Dropi RECHAZÓ un pedido*" : "⚠️ *Pedido sin confirmar en Dropi*",
-      `Pedido #${pedido.id} · Woo #${pedido.wooOrderId} · ${pedido.productName}`,
+      `Pedido #${pedido.id} · Woo ${pedido.wooOrderId != null ? `#${pedido.wooOrderId}` : "— (no llegó a Woo)"} · ${pedido.productName}`,
       `Cliente: ${pedido.nombre} · ${pedido.telefono} · ${pedido.ciudad}, ${pedido.departamento}`,
       `Motivo: ${dropi.detalle}`,
       productoDesactivado ? "Saqué el producto del catálogo para que el bot no lo siga ofreciendo." : "",
@@ -921,6 +985,22 @@ async function despacharDirectoEnDropi(pedido: PedidoDropshipping): Promise<Resu
   const dropiProductId = Number(meta?.dropiProductId);
   if (!dropiProductId) return null;
 
+  const contraentrega = pedido.metodoPago === "contraentrega";
+  const ciudadCli = String(pedido.ciudad || "");
+
+  // ── Chequeo previo: este proveedor ya rechazó esta ciudad+método ──────
+  // No se pega a Dropi para repetir un "no" conocido: se devuelve cobertura
+  // para que el flujo ofrezca transferencia o siga por Woo/Dropify.
+  const previo = hayRechazoDeCobertura(meta, ciudadCli, contraentrega);
+  if (previo && contraentrega) {
+    const detalle = `Dropi ya rechazó ${previo.ciudad} con ${previo.metodo} para este proveedor (caché del ${previo.en.slice(0, 10)}): no se reintenta igual.`;
+    logger.info({ pedidoId: pedido.id, ciudad: previo.ciudad }, "[Dropshipping] Cobertura conocida: se salta el directo");
+    return {
+      ok: false, error: detalle,
+      cobertura: { ciudad: ciudadCli, metodo: previo.metodo, detalle, mensajeAlCliente: mensajeCoberturaAlCliente(String(pedido.productName || "el producto"), ciudadCli) },
+    };
+  }
+
   const r = await crearPedidoDropi(token, {
     dropiProductId,
     nombre: String((prod as any).name),
@@ -929,10 +1009,10 @@ async function despacharDirectoEnDropi(pedido: PedidoDropshipping): Promise<Resu
     variationId: meta?.dropiVariationId ?? null,
   }, {
     nombre: String(pedido.nombre), telefono: String(pedido.telefono), documento: pedido.documento,
-    direccion: String(pedido.direccion), barrio: pedido.barrio, ciudad: String(pedido.ciudad), departamento: String(pedido.departamento),
+    direccion: String(pedido.direccion), barrio: pedido.barrio, ciudad: ciudadCli, departamento: String(pedido.departamento),
     notas: [pedido.notas, "Pedido tomado por VentasPro"].filter(Boolean).join(" | "),
     cantidad: pedido.quantity, precioUnitario: Number(pedido.unitPrice) || 0,
-    contraentrega: pedido.metodoPago === "contraentrega", referencia: `vp-${pedido.id}`,
+    contraentrega, referencia: `vp-${pedido.id}`,
   });
 
   if (r.ok) {
@@ -945,9 +1025,45 @@ async function despacharDirectoEnDropi(pedido: PedidoDropshipping): Promise<Resu
     return { ok: true, dropi: { estado: "sincronizada", dropiOrderId, detalle: `Creado directo en Dropi${dropiOrderId ? ` (orden #${dropiOrderId})` : ""}.` } };
   }
 
-  // Rechazo de Dropi: mismo tratamiento que el veredicto que llega por Woo.
+  // Rechazo por COBERTURA: se guarda en caché y NO se registra veredicto ni
+  // se avisa todavía — quien llama sigue por Woo/Dropify y solo al final,
+  // si todo falló, se avisa una vez con el cuadro completo.
+  if (contraentrega && esErrorDeCobertura(String(r.error || ""))) {
+    await guardarRechazoDeCobertura(pedido.productId!, meta, ciudadCli, contraentrega).catch(() => null);
+    const detalle = `Dropi rechazó el pedido directo: ${r.error}`;
+    logger.warn({ pedidoId: pedido.id, error: r.error }, "[Dropshipping] Directo sin cobertura para este proveedor");
+    return {
+      ok: false, error: detalle,
+      cobertura: { ciudad: ciudadCli, metodo: "CON RECAUDO", detalle, mensajeAlCliente: mensajeCoberturaAlCliente(String(pedido.productName || "el producto"), ciudadCli) },
+    };
+  }
+
+  // Rechazo de Dropi por el producto: mismo tratamiento que el veredicto que llega por Woo.
   const detalle = `Dropi rechazó el pedido directo: ${r.error}`;
   const veredicto: VeredictoDropi = { estado: "error", dropiOrderId: null, detalle };
   const productoDesactivado = await registrarVeredicto(pedido, veredicto);
   return { ok: false, dropi: veredicto, productoDesactivado, error: detalle };
+}
+
+/**
+ * Reintenta un pedido rechazado por cobertura como SIN RECAUDO
+ * (transferencia/prepago). Cambia el método de pago — úsalo cuando el cliente
+ * aceptó pagar por adelantado o el admin lo autoriza. Re-despacha por el flujo
+ * completo (directo + Woo).
+ */
+export async function reintentarSinRecaudo(tenantId: number, pedidoId: number): Promise<ResultadoDespacho & { pedidoId: number }> {
+  const { rows } = await pool.query(`SELECT * FROM dropshipping_orders WHERE id = $1 AND tenant_id = $2 LIMIT 1`, [pedidoId, tenantId]);
+  const pedido = rows[0] ? aPedido(rows[0]) : null;
+  if (!pedido) return { ok: false, pedidoId, error: `No existe el pedido #${pedidoId} de este negocio.` };
+  if (pedido.metodoPago !== "contraentrega") return { ok: false, pedidoId, error: `El pedido #${pedidoId} ya es ${(pedido.metodoPago || "sin método")}: no hay nada que cambiar.` };
+  if (pedido.estado === "despachado") return { ok: true, pedidoId, error: undefined };
+  await pool.query(
+    `UPDATE dropshipping_orders SET metodo_pago = 'transferencia', estado = 'confirmado', dropi_error = NULL, woo_error = NULL, notas = COALESCE(notas, '') || $2, updated_at = now() WHERE id = $1`,
+    [pedidoId, ` | Cambio a transferencia (${new Date().toISOString().slice(0, 16)}): reintento sin recaudo`],
+  );
+  pedido.metodoPago = "transferencia";
+  pedido.estado = "confirmado";
+  logger.info({ pedidoId, tenantId }, "[Dropshipping] Reintento sin recaudo (transferencia)");
+  const r = await despacharPedido(pedido);
+  return { ...r, pedidoId };
 }

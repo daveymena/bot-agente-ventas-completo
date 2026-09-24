@@ -4747,6 +4747,22 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       return { ok: false, summary: `${ref}: ${r.error || r.dropi?.detalle || "sin veredicto"}${r.productoDesactivado ? " · El producto quedó fuera del catálogo." : ""}`, data: r };
     },
   },
+  {
+    name: "dropi_reintentar_sin_recaudo",
+    description: "Cambia un pedido con contraentrega a transferencia y lo re-despacha (directo + Woo). Úsalo cuando Dropi rechazó por cobertura (ciudad sin CON RECAUDO para ese proveedor) y el cliente aceptó pagar por adelantado. Puede crear una orden REAL → requiere confirmación.",
+    args: '{ "pedidoId": number (req, id del pedido del bot) }',
+    run: async (args, ctx) => {
+      const id = num(args?.pedidoId);
+      if (!id) return { ok: false, summary: "Falta 'pedidoId' (el id del pedido del bot)." };
+      const { reintentarSinRecaudo } = await import("./dropshipping");
+      const r = await reintentarSinRecaudo(ctx.tenantId, id);
+      const ref = `Pedido #${r.pedidoId || id}${r.wooOrderId ? ` (Woo #${r.wooOrderId})` : ""}`;
+      if (r.ok) {
+        return { ok: true, summary: `✅ ${ref} aceptado como transferencia${r.dropi?.dropiOrderId ? ` (Dropi #${r.dropi.dropiOrderId})` : ""}.`, data: r };
+      }
+      return { ok: false, summary: `${ref}: ${r.error || r.dropi?.detalle || "sin veredicto"}`, data: r };
+    },
+  },
   // ── 📦 DROPI (dropshipping) ────────────────────────────────────────────────
   {
     name: "lanzar_producto",

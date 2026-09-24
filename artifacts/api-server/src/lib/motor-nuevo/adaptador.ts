@@ -393,6 +393,12 @@ export function servicioDePedidos(p: {
         pedido.estado = "confirmado";
         const r = await ds.despacharPedido(pedido);
         if (!r.ok && r.noDisponible) return { estado: "no_disponible", mensajeAlCliente: r.noDisponible.mensajeAlCliente };
+        if (!r.ok && (r.cobertura || ds.esErrorDeCobertura(r.dropi?.detalle || r.error || ""))) {
+          return {
+            estado: "no_disponible",
+            mensajeAlCliente: r.cobertura?.mensajeAlCliente || ds.mensajeCoberturaAlCliente(String(pedido.productName || "el producto"), String(pedido.ciudad || "tu ciudad")),
+          };
+        }
         if (!r.ok && r.dropi?.estado === "error") return { estado: "rechazado", motivo: r.dropi.detalle, productoDesactivado: !!r.productoDesactivado };
         if (!r.ok) return { estado: "error", motivo: r.error || "no se pudo despachar" };
         const numero = r.dropi?.dropiOrderId || (r.wooOrderId != null ? String(r.wooOrderId) : null);

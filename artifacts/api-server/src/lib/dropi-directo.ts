@@ -459,6 +459,22 @@ export interface PedidoParaDropi {
 }
 
 /**
+ * Normaliza ciudad/departamento para Dropi: mayúsculas, sin acentos ni
+ * puntuación, espacios simples. El formulario guarda "Cali" y Dropi valida
+ * cobertura contra su catálogo ("CALI"); mandarlo crudo es pedir un rechazo
+ * por formato cuando la cobertura existe.
+ */
+export function normalizarCiudadParaDropi(ciudad: string): string {
+  return String(ciudad || "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * El mismo payload que arma Dropify (OrdersModel.php `save`), porque es el
  * que Dropi acepta. `rate_type` "CON RECAUDO" = contraentrega.
  */
@@ -483,8 +499,8 @@ export async function crearPedidoDropi(token: string, producto: { dropiProductId
     name, surname,
     dir: `${pedido.direccion}${pedido.barrio ? ` ${pedido.barrio}` : ""}`,
     country: "CO",
-    state: pedido.departamento,
-    city: pedido.ciudad,
+    state: normalizarCiudadParaDropi(pedido.departamento),
+    city: normalizarCiudadParaDropi(pedido.ciudad),
     phone: pedido.telefono,
     client_email: pedido.email || `${pedido.telefono}@whatsapp.local`,
     payment_method_id: 1,

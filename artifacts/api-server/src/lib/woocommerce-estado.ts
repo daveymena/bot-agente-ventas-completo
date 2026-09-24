@@ -118,6 +118,7 @@ const ESTADO_LEGIBLE: Record<string, string> = {
   enviado: "registrado en WooCommerce",
   despachado: "en Dropi, el proveedor despacha",
   rechazado_dropi: "en WooCommerce pero Dropi lo RECHAZÓ",
+  rechazado_dropi_directo: "Dropi-directo lo RECHAZÓ (no llegó a Woo)",
   cancelado: "cancelado",
 };
 
@@ -135,7 +136,10 @@ export async function estadoWooCommerce(tenantId: number): Promise<EstadoWooComm
     id: r.id, producto: r.product_name, total: r.total, estado: r.estado,
     wooOrderId: r.woo_order_id, wooError: r.woo_error, ciudad: r.ciudad,
     creado: r.created_at instanceof Date ? r.created_at.toISOString() : String(r.created_at),
-  }));
+  })).map((p: any) => (p.estado === "rechazado_dropi" && p.wooOrderId == null
+    // Nunca tocó Woo: el directo lo rechazó (cobertura) y no hubo respaldo.
+    ? { ...p, estado: "rechazado_dropi_directo" as any }
+    : p));
 
   if (!woo) {
     return {
