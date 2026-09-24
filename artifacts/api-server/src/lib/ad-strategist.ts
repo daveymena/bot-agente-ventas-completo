@@ -629,6 +629,32 @@ export class AdStrategist {
     }
   }
 
+  /** Borra el borrador scoped por tenant y su campaña en Meta (si existe).
+   *  Antes deleteDraft borraba sin tenant y dejaba la campaña huérfana ACTIVE. */
+  async deleteDraftWithMeta(draftId: number, tenantId: number): Promise<{ ok: boolean; meta?: string }> {
+    try {
+      const [draft] = await db.select().from(facebookDrafts).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, tenantId))).limit(1);
+      if (!draft) return { ok: false, meta: "Borrador no encontrado" };
+      if ((draft as any).campaignId) {
+        try {
+          const { accessToken } = this.credencialesFb();
+          if (accessToken) {
+            await fetch(`${FB_GRAPH_URL}/${(draft as any).campaignId}`, {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ access_token: accessToken }),
+            }).catch(() => null);
+          }
+        } catch { /* mejor borrar local aunque Meta falle */ }
+      }
+      await db.delete(facebookDrafts).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, tenantId)));
+      return { ok: true, meta: (draft as any).campaignId ? "Campaña eliminada en Meta y borrador local" : "Borrador local eliminado" };
+    } catch (err: any) {
+      logger.error({ err, draftId }, "[AdStrategist] Error deleting draft with Meta");
+      return { ok: false, meta: err?.message };
+    }
+  }
+
   /** Precio real del producto, o null si no se puede leer. Solo para el
    * candado de publishDraft -- no se usa para armar copy. */
   private async precioDelProducto(productId: number | null): Promise<number | null> {

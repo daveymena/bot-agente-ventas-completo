@@ -4754,13 +4754,13 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       "PAQUETE DE LANZAMIENTO completo de un producto, automático: cura la ficha si vino de Dropi, crea y publica la landing con el brief del modelo (dropshipping/digital/servicio), " +
       "redacta copies revisados (WhatsApp, 3 ganchos, Meta, guion de video) y deja el anuncio en BORRADOR (nada sale a Meta ni gasta sin aprobación). Tarda 2-5 minutos; avisa por WhatsApp al terminar. " +
       "Úsala cuando el admin diga 'lanza/promociona/vende X' o pida landing+copy+anuncio de un producto. Crea datos → requiere confirmación.",
-    args: '{ "productId": number (req), "presupuestoDiario": number (opcional, COP), "conAnuncio": boolean (opcional, por defecto true), "forzar": boolean (opcional: regenerar aunque exista) }',
+    args: '{ "productId": number (req), "presupuestoDiario": number (opcional, COP), "conAnuncio": boolean (opcional, por defecto false: solo borrador local), "forzar": boolean (opcional: regenerar aunque exista) }',
     run: async (args, ctx) => {
       const id = num(args?.productId);
       if (!id) return { ok: false, summary: "Falta 'productId'." };
       const { lanzarProducto } = await import("./lanzamiento");
       // Corre en segundo plano: el turno del operador no puede esperar 4 minutos.
-      void lanzarProducto(ctx.tenantId, id, { presupuestoDiario: num(args?.presupuestoDiario) || null, conAnuncio: args?.conAnuncio !== false, forzar: !!args?.forzar, sessionId: ctx.sessionId })
+      void lanzarProducto(ctx.tenantId, id, { presupuestoDiario: num(args?.presupuestoDiario) || null, conAnuncio: args?.conAnuncio === true, forzar: !!args?.forzar, sessionId: ctx.sessionId })
         .catch((e) => logger.error({ productId: id, err: e?.message }, "[Lanzamiento] falló"));
       return { ok: true, summary: `🚀 Lanzamiento del producto ${id} en marcha: ficha → landing → copies → anuncio en borrador. Tarda 2-5 minutos; el resumen con enlaces llega por WhatsApp. Para consultarlo: lanzamiento_estado con productId ${id}.` };
     },

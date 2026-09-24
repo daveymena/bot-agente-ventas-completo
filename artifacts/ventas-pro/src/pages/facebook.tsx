@@ -175,6 +175,7 @@ export default function FacebookAdsPage() {
   const [editingDraft, setEditingDraft] = useState<DraftAd | null>(null);
   const [editHeadline, setEditHeadline] = useState("");
   const [editPrimaryText, setEditPrimaryText] = useState("");
+  const [editDescription, setEditDescription] = useState("");
   const [editBudget, setEditBudget] = useState<number>(5000);
   const [editImages, setEditImages] = useState<string[]>([]);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -536,10 +537,22 @@ export default function FacebookAdsPage() {
   const publishDraft = async (draftId: number) => {
     try {
       const res = await apiRequest(`/facebook/strategist/draft/${draftId}/publish`, { method: "POST" });
-      toast({ title: res.ok ? "Publicado" : "Error", description: res.message });
+      toast({ title: res.ok ? "Publicado" : "Error", description: res.message || (!res.ok ? "Si el borrador aún no está en Meta, usá Subir primero." : undefined) });
       loadDrafts();
     } catch (e: any) {
       toast({ title: "Error", description: describeError(e, "No se pudo publicar el anuncio en Facebook."), variant: "destructive" });
+    }
+  };
+
+  // Sube un borrador LOCAL a Meta en PAUSA (no gasta). publish solo activa
+  // campañas que ya existen, así que sin este paso los locales fallan.
+  const uploadDraft = async (draftId: number) => {
+    try {
+      const res = await apiRequest(`/facebook/strategist/draft/${draftId}/upload`, { method: "POST", body: JSON.stringify({ objetivo: "mensajes" }) });
+      toast({ title: res.ok ? "Subido a Meta en pausa" : "Error", description: res.message || (res.ok ? "Revisalo en Ads Manager y luego Publicar para activar." : undefined) });
+      loadDrafts();
+    } catch (e: any) {
+      toast({ title: "Error", description: describeError(e, "No se pudo subir el borrador a Meta."), variant: "destructive" });
     }
   };
 
@@ -548,6 +561,7 @@ export default function FacebookAdsPage() {
     setEditingDraft(d);
     setEditHeadline(d.headline || "");
     setEditPrimaryText(d.primaryText || "");
+    setEditDescription((d as any).description || "");
     setEditBudget(d.budget || 5000);
     setEditImages(d.images && d.images.length > 0 ? d.images : (d.imageUrl ? [d.imageUrl] : []));
   };
@@ -586,7 +600,7 @@ export default function FacebookAdsPage() {
       setSavingDraft(true);
       const res = await apiRequest(`/facebook/strategist/draft/${editingDraft.id}`, {
         method: "PUT",
-        body: JSON.stringify({ headline: editHeadline, primaryText: editPrimaryText, budget: editBudget, images: editImages }),
+        body: JSON.stringify({ headline: editHeadline, primaryText: editPrimaryText, description: editDescription, budget: editBudget, images: editImages }),
       });
       if (res.metaSync && !res.metaSync.ok) {
         toast({ title: "Guardado, pero Facebook no aceptó el cambio de imagen", description: res.metaSync.message, variant: "destructive" });
@@ -1010,8 +1024,13 @@ export default function FacebookAdsPage() {
                               )}
                             </div>
                             <div className="flex md:flex-col gap-2 shrink-0">
+                              {!d.adId && d.status !== "published" && (
+                                <Button size="sm" variant="outline" onClick={() => uploadDraft(d.id)} title="Subir borrador a Meta en pausa (no gasta)">
+                                  <Globe className="h-4 w-4 mr-1" /> Subir
+                                </Button>
+                              )}
                               {d.status !== "published" && (
-                                <Button size="sm" variant="default" onClick={() => publishDraft(d.id)} title="Publicar anuncio en Facebook" disabled={!d.adId}>
+                                <Button size="sm" variant="default" onClick={() => publishDraft(d.id)} title={d.adId ? "Publicar anuncio en Facebook" : "Primero Subir a Meta, luego Publicar"} disabled={!d.adId}>
                                   <Play className="h-4 w-4 mr-1" /> Publicar
                                 </Button>
                               )}
@@ -1370,6 +1389,11 @@ export default function FacebookAdsPage() {
                   placeholder="Ej: Aprende a tocar piano desde cero..."
                 />
                 <p className="text-xs text-muted-foreground mt-1">{editPrimaryText.length} caracteres (max 500 recomendado)</p>
+              </div>
+              <div>
+                <Label>Descripción (línea del enlace)</Label>
+                <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} maxLength={60} placeholder="Ej: Pago contra entrega en toda Colombia" />
+                <p className="text-xs text-muted-foreground mt-1">Se muestra bajo el titular en Meta.</p>
               </div>
               <div>
                 <Label>Presupuesto diario (COP)</Label>

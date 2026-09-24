@@ -754,7 +754,9 @@ router.get("/strategist/drafts/:id", async (req, res, next) => {
 router.get("/strategist/draft/:id/insights", async (req, res, next) => {
   try {
     const draftId = parseInt(req.params.id);
-    const [draft] = await db.select().from(facebookDrafts).where(eq(facebookDrafts.id, draftId)).limit(1);
+    const tenantId = (req as any).tenant?.id ?? null;
+    if (!tenantId) return res.status(401).json({ message: "No autenticado" });
+    const [draft] = await db.select().from(facebookDrafts).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, tenantId))).limit(1);
     if (!draft) return res.status(404).json({ message: "Borrador no encontrado" });
     if (!draft.campaignId) return res.status(400).json({ message: "Este borrador todavía no tiene campaña creada en Meta" });
 
@@ -770,8 +772,13 @@ router.get("/strategist/draft/:id/insights", async (req, res, next) => {
 router.delete("/strategist/draft/:id", async (req, res, next) => {
   try {
     const draftId = parseInt(req.params.id);
-    const ok = await adStrategist.deleteDraft(draftId);
-    return res.json({ ok });
+    const tenantId = (req as any).tenant?.id ?? null;
+    if (!tenantId) return res.status(401).json({ ok: false, message: "No autenticado" });
+    // Scoped por tenant y con limpieza en Meta: antes borraba solo la fila
+    // local y dejaba la campaña huérfana ACTIVE gastando.
+    const { AdStrategist } = await import("../lib/ad-strategist");
+    const r = await new AdStrategist((req as any).tenant || undefined).deleteDraftWithMeta(draftId, tenantId).catch(async () => ({ ok: await adStrategist.deleteDraft(draftId) }));
+    return res.json(r);
   } catch (e) { return next(e); }
 });
 
@@ -781,6 +788,8 @@ router.delete("/strategist/draft/:id", async (req, res, next) => {
 router.put("/strategist/draft/:id", async (req, res, next) => {
   try {
     const draftId = parseInt(req.params.id);
+    const tenantId = (req as any).tenant?.id ?? null;
+    if (!tenantId) return res.status(401).json({ ok: false, message: "No autenticado" });
     const { headline, primaryText, description, budget, images } = req.body || {};
     const patch: Record<string, any> = { updatedAt: new Date() };
     if (typeof headline === "string") patch.headline = headline;
@@ -799,7 +808,7 @@ router.put("/strategist/draft/:id", async (req, res, next) => {
       patch.images = list;
       if (list[0]) patch.imageUrl = list[0];
     }
-    const [updated] = await db.update(facebookDrafts).set(patch).where(eq(facebookDrafts.id, draftId)).returning();
+    const [updated] = await db.update(facebookDrafts).set(patch).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, tenantId))).returning();
     if (!updated) return res.status(404).json({ ok: false, message: "Borrador no encontrado" });
 
     // Si el borrador ya tiene anuncio real en Meta y se tocó imagen/texto,
@@ -1190,9 +1199,11 @@ router.post("/publish-post", async (req, res, next) => {
 
 router.get("/agent/logs", async (req, res, next) => {
   try {
+    const tenantId = (req as any).tenant?.id ?? null;
+    if (!tenantId) return res.status(401).json({ message: "No autenticado" });
     const { adAgentLogs } = await import("@workspace/db");
     const { desc } = await import("drizzle-orm");
-    const rows = await db.select().from(adAgentLogs).orderBy(desc(adAgentLogs.createdAt)).limit(100);
+    const rows = await db.select().from(adAgentLogs).where(eq(adAgentLogs.tenantId, tenantId)).orderBy(desc(adAgentLogs.createdAt)).limit(100);
     return res.json({ logs: rows });
   } catch (e) { return next(e); }
 });
