@@ -41,9 +41,20 @@
 
 import { createAIClient, getProviderConfig } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
+import { modelosDe } from "./modelos-por-tarea";
 
-/** Los proveedores que se prueban, en orden. El primero que conteste gana. */
-const PROVEEDORES = ["groq", "deepseek", "opencode", "openai"];
+/** Los proveedores que se prueban, en orden. El primero que conteste gana.
+ *  `ollama_local` (gemma4, gratis) va después de Groq y ANTES de DeepSeek:
+ *  medido 8/8 aciertos en 0,57 s (lib/modelos-por-tarea.ts). */
+const PROVEEDORES = ["groq", "ollama_local", "deepseek", "opencode", "openai"];
+
+/** La configuración del proveedor; para Ollama, con el modelo del reparto por tarea. */
+function configDe(proveedor: string): any {
+  const config: any = getProviderConfig(proveedor as any);
+  if (!config || proveedor !== "ollama_local") return config;
+  const modelo = modelosDe("intencion")[0];
+  return modelo ? { ...config, model: modelo } : null;
+}
 
 function construirPrompt(mensaje: string, plan: string): string {
   return [
@@ -86,7 +97,7 @@ export async function esUnSiParaEstePlan(
   for (const proveedor of PROVEEDORES) {
     let config: any = null;
     try {
-      config = getProviderConfig(proveedor as any);
+      config = configDe(proveedor);
     } catch {
       continue;
     }
@@ -200,7 +211,7 @@ export async function queQuiereElAdmin(
   for (const proveedor of PROVEEDORES) {
     let config: any = null;
     try {
-      config = getProviderConfig(proveedor as any);
+      config = configDe(proveedor);
     } catch {
       continue;
     }

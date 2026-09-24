@@ -65,6 +65,17 @@ export async function callMarketingAI<T = unknown>(
     } catch { /* sin claves propias -> siguen las de abajo */ }
   }
 
+  // 0b. Ollama del servidor (gratis), ANTES de los de pago: redactar landings,
+  //     anuncios y análisis es la tarea donde gpt-oss:120b rinde mejor (texto
+  //     más completo y sin inventar, 1,8 s medido) y no usa herramientas, que
+  //     es donde se cuelga. Si se queda sin cuota o devuelve vacío, rota a
+  //     DeepSeek como siempre. Reparto e interruptor: lib/modelos-por-tarea.ts
+  //     (IA_REDACCION).
+  {
+    const { candidatosDeOllama } = await import("../modelos-por-tarea");
+    for (const c of candidatosDeOllama("redaccion")) sumar(c.source, c.config);
+  }
+
   // 1. Proveedores de pago del sistema (la clave llega a process.env vía
   //    cargarClavesEnEntorno() apenas el admin la guarda). Con TODOS sus
   //    modelos: la cuota se agota por modelo, no por cuenta, así que perder el

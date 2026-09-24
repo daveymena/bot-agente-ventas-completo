@@ -21,6 +21,7 @@
 
 import { getProviderConfig } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
+import { modelosDe } from "./modelos-por-tarea";
 
 /**
  * El unico modelo con vision que este proyecto tiene realmente pagado.
@@ -55,7 +56,17 @@ export function modelosDeVision(): Array<{ proveedor: string; modelo: string }> 
   const yaEsta = configurados.some(
     (p) => p.proveedor === VISION_DE_RESERVA.proveedor && p.modelo === VISION_DE_RESERVA.modelo,
   );
-  return yaEsta ? configurados : [...configurados, VISION_DE_RESERVA];
+  const lista = yaEsta ? configurados : [...configurados, VISION_DE_RESERVA];
+
+  // ── gemma4 del Ollama del servidor, PRIMERO ─────────────────────────────
+  // Medido el 24-09-2026 con la foto real del corrector #201: fue el ÚNICO
+  // que la leyó (DeepSeek y gpt-oss la rechazan), en 4,4 s y gratis.
+  // Reparto en lib/modelos-por-tarea.ts; `IA_VISION=off` lo saca.
+  if (!process.env.OLLAMA_LOCAL_URL) return lista;
+  const deOllama = modelosDe("vision")
+    .map((modelo) => ({ proveedor: "ollama_local", modelo }))
+    .filter((o) => !lista.some((p) => p.proveedor === o.proveedor && p.modelo === o.modelo));
+  return [...deOllama, ...lista];
 }
 
 /**

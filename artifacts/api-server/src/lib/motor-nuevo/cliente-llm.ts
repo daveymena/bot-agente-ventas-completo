@@ -125,6 +125,16 @@ export async function armarCadena(opts: {
     return getProviderRotation(proveedor).map((config: AIProviderConfig) => ({ config, source: `${proveedor}/${config.model}` }));
   };
 
+  // ── 0. Ollama del servidor, si está (gratis): lib/modelos-por-tarea.ts ─────
+  // Medido con la venta completa: gemma4:31b 1,7 s por turno contra 2,2 s de
+  // DeepSeek. Si se corta, se queda sin cuota o el plan no lo incluye, la
+  // rotación lo aparta y el turno sigue con DeepSeek. `IA_VENDEDOR=off` lo
+  // saca sin redesplegar código.
+  if (!optimizedRotation.isInCooldown("ollama_local")) {
+    const { candidatosDeOllama } = await import("../modelos-por-tarea");
+    cola.push(...candidatosDeOllama("vendedor"));
+  }
+
   // ── 1. DeepSeek al frente, con TODOS sus modelos ──────────────────────────
   if (
     deepseekVaPrimero({
