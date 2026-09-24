@@ -242,11 +242,15 @@ export default function Products() {
         </div>
 
         {/* Filters */}
-        {/* sticky top-0, no top-[72px]: el que hace scroll es <main>, que YA
-            empieza debajo del encabezado (layout.tsx). Con 72px la barra
-            quedaba flotando en medio de la lista y por encima asomaban las
-            tarjetas que pasaban por atrás (captura del dueño, 23-09-2026). */}
-        <div className="glass-panel p-2 rounded-xl flex flex-col md:flex-row gap-3 items-center justify-between sticky top-0 z-10">
+        {/* Pegada JUSTO debajo del encabezado. El que hace scroll es <main>
+            (layout.tsx), y el navegador respeta su relleno interno (p-3 /
+            sm:p-4 / md:p-6) al pegar un sticky: con top-0 quedaba 24px más
+            abajo y por esa franja pasaban los productos por ENCIMA de la barra
+            (medido en navegador el 24-09-2026: barra en 72px, encabezado en
+            48px). El top negativo compensa ese relleno en cada tamaño, y la
+            sombra del color del fondo tapa la franja y las esquinas redondeadas
+            para que no asome ninguna tarjeta. */}
+        <div className="glass-panel p-2 rounded-xl flex flex-col md:flex-row gap-3 items-center justify-between sticky -top-3 sm:-top-4 md:-top-6 z-10 shadow-[0_-12px_0_12px_hsl(var(--background))]">
           <div className="flex items-center gap-3 w-full md:w-auto px-2">
             <div className="relative w-full md:w-56">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />

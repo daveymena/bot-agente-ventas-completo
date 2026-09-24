@@ -112,7 +112,7 @@ export default function Leads() {
         </div>
 
         {/* Filter Bar */}
-        <div data-tour="leads-stage-filter" className="glass-panel p-2 rounded-2xl flex gap-4 items-center sticky top-0 z-10 overflow-hidden">
+        <div data-tour="leads-stage-filter" className="glass-panel p-2 rounded-2xl flex gap-4 items-center sticky -top-3 sm:-top-4 md:-top-6 z-10 shadow-[0_-12px_0_12px_hsl(var(--background))] overflow-hidden">
           {/* Móvil: desplegable de una línea. Las 7 etapas en fila se salían
               del ancho del teléfono y quedaban ocultas a la derecha. */}
           <div className="md:hidden w-full px-1">
