@@ -100,7 +100,7 @@ describe("la ficha y el video no se repiten", () => {
 
     const segunda = (await ejecutores.mostrar(ctx, { productoId: 1, seccion: "completa" })) as any;
     assert.equal(segunda.ok, false);
-    assert.match(segunda.mensaje, /ya le mandaste/i);
+    assert.match(segunda.mensaje, /ya la recibió/i);
     assert.equal(ctx.partes.filter((p) => p.kind === "card").length, 1, "no se agregó una segunda ficha");
   });
 
@@ -114,14 +114,26 @@ describe("la ficha y el video no se repiten", () => {
     assert.equal(ctx.partes.filter((p) => p.kind === "card").length, 1);
   });
 
-  test("si el cliente la pide de nuevo explícitamente, sí se reenvía", async () => {
+  // Regla del dueño (24-09-2026): la ficha NO se reenvía ni aunque la pida --
+  // si vuelve a preguntar tiene una duda, y se razona (ver maquetas.ts). Lo
+  // accionable (pago, video, tienda) sí, cuando lo pide.
+  test("la ficha no se reenvía ni con reenviar=true: se razona la duda", async () => {
     const ctx = ctxNuevo();
     await ejecutores.mostrar(ctx, { productoId: 1, seccion: "completa" });
 
     const reenvio = (await ejecutores.mostrar(ctx, { productoId: 1, seccion: "completa", reenviar: true })) as any;
 
+    assert.equal(reenvio.ok, false);
+    assert.match(reenvio.mensaje, /DUDA/);
+    assert.equal(ctx.partes.filter((p) => p.kind === "card").length, 1);
+  });
+
+  test("el video sí se reenvía si el cliente lo pide", async () => {
+    const ctx = ctxNuevo();
+    const primero = (await ejecutores.mostrar(ctx, { productoId: 1, seccion: "video" })) as any;
+    if (!primero.ok) return; // el producto de prueba no tiene video: la regla de arriba ya cubre el resto
+    const reenvio = (await ejecutores.mostrar(ctx, { productoId: 1, seccion: "video", reenviar: true })) as any;
     assert.equal(reenvio.ok, true);
-    assert.equal(ctx.partes.filter((p) => p.kind === "card").length, 2);
   });
 
   test("al volver al día siguiente el estado sigue ahí (no hay ventana de 4 horas)", async () => {
@@ -400,7 +412,7 @@ describe("el bucle completo", () => {
 
     assert.equal(r.partes.length, 1);
     assert.equal(r.partes[0].kind, "text");
-    assert.match(r.traza[0].resultado, /ya le mandaste/i);
+    assert.match(r.traza[0].resultado, /ya la recibió/i);
   });
 
   test("una herramienta que explota no tumba la respuesta al cliente", async () => {

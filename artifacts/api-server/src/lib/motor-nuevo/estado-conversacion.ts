@@ -642,7 +642,14 @@ export function describirEstado(
     const nombre = nombrePorProducto(Number(id));
     const cuales = Object.keys(secciones).map((s) => ETIQUETA_SECCION[s] || s);
     if (cuales.length) {
-      l.push(`De ${nombre} ya le enviaste: ${cuales.join(", ")}. No lo repitas salvo que lo pida.`);
+      // Esas maquetas no vuelven a salir (ver maquetas.ts). Si pregunta de
+      // nuevo le quedó una duda: medido 24-09-2026, sin esta línea contestaba
+      // "no te lo repito para no marearte", que suena a portazo.
+      l.push(
+        `De ${nombre} ya le enviaste: ${cuales.join(", ")}. Esas maquetas no se vuelven a mandar. ` +
+          `Si pregunta de nuevo por eso, le quedó una duda: resumile lo clave con tus palabras (2-3 líneas) ` +
+          `y preguntá qué parte no le quedó clara. Nunca le digas que no se lo repetís.`,
+      );
     }
   }
 

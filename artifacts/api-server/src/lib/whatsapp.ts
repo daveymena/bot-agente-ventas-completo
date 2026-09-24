@@ -3343,9 +3343,12 @@ export class WhatsAppManager {
     // Activable con WHATSAPP_AUDIO_ENABLED=true. La voz (Edge TTS es-CO) es
     // gratis; si falla, el turno ya quedó respondido por texto.
     if (String(process.env.WHATSAPP_AUDIO_ENABLED || "").toLowerCase() === "true") {
+      // Las maquetas también hablan: antes la voz leía solo el texto del
+      // modelo ("Este es el valor:") y el precio quedaba mudo. Cada tarjeta
+      // trae su frase (`hablado`, ver motor-nuevo/maquetas.ts), en su orden.
       const textoHablado = parts
-        .filter((p) => p.kind === "text" && (p as any).content)
-        .map((p) => (p as any).content)
+        .map((p) => (p.kind === "text" ? (p as any).content : (p as any).hablado) || "")
+        .filter((t: string) => t.trim())
         .join(" ");
       if (textoHablado.trim().length >= 20) {
         try {

@@ -22,6 +22,7 @@
  * razona con eso para escribir lo que sigue. No es un "ok".
  */
 
+import { sePuedeReenviar, instruccionDeDuda, fraseHablada } from "./maquetas";
 import {
   registrarEnvio,
   registrarOferta,
@@ -92,6 +93,8 @@ export type Parte =
        * el texto del agente, una sola vez.
        */
       sinCierre?: boolean;
+      /** Lo que esta maqueta dice en la nota de voz (ver maquetas.ts). */
+      hablado?: string;
     };
 
 export type Seccion =
@@ -274,7 +277,7 @@ export const definicionesDeHerramientas = [
           },
           reenviar: {
             type: "boolean",
-            description: "true SOLO si el cliente pidió explícitamente que se lo mandes de nuevo.",
+            description: "true SOLO para pago, video o tienda, si el cliente pidió que se lo mandes de nuevo. Ficha, info y precio NUNCA se reenvían: si vuelve a preguntar tiene una duda, y se la respondés con tus palabras.",
           },
         },
         required: ["productoId", "seccion"],
@@ -653,14 +656,10 @@ export const ejecutores: Record<string, Ejecutor> = {
 
     // La regla que antes era una instrucción en el prompt (y que el modelo se
     // saltaba) ahora es imposible de saltar: la herramienta no manda nada.
-    if (yaVio && !reenviar) {
-      return {
-        ok: false,
-        mensaje:
-          `NO se envió: ya le mandaste "${seccion}" de ${p.name}. ` +
-          `Retomá en una línea en vez de repetirlo. ` +
-          `Si te pidió puntualmente que se lo reenvíes, llamá de nuevo con reenviar=true.`,
-      };
+    // Y si ya salió, lo que corresponde es RAZONAR la duda (ver maquetas.ts):
+    // solo lo accionable (pago, video, tienda) se reenvía, y solo si lo pide.
+    if (yaVio && !(reenviar && sePuedeReenviar(sec))) {
+      return { ok: false, mensaje: instruccionDeDuda(p, sec, ctx.guion.hechos) };
     }
 
     // ── No cobrar sin antes decir cuánto cuesta ────────────────────────────
@@ -701,6 +700,7 @@ export const ejecutores: Record<string, Ejecutor> = {
       videoYaEnviado: yaSeEnvio(ctx.estado, p.id, "video"),
       mensajeDelCliente: ctx.mensajeDelCliente,
       yaSabeElPrecio: precioDado(ctx.estado, p.id),
+      hablado: fraseHablada(p, sec),
     });
 
     registrarEnvio(ctx.estado, p.id, sec);
