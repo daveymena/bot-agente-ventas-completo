@@ -45,7 +45,7 @@ import { mintTurnToken } from "../lib/opencode-turn-token";
 import { getAppUrl } from "../lib/app-url";
 import { ENV_POR_PROVEEDOR } from "../lib/ai-keys";
 import { claveDeTurno, empezarTurno, terminarTurno, pedirDetener, hayTurnoEnVuelo, fueDetenido } from "../lib/turnos-en-vuelo";
-import { prepararRuta, cerrarTurnoDeRuta, cargarRuta, detectarInicioDeRuta } from "../lib/ruta-guiada";
+import { prepararRuta, cerrarTurnoDeRuta, cargarRuta, detectarInicioDeRuta, cerrarRuta, separarAccionesDeLaRuta, sinEncabezadoDePaso } from "../lib/ruta-guiada";
 import { enLenguajeDeDueno } from "../lib/lenguaje-de-dueno";
 import { afirmaHaberloHecho } from "../lib/afirma-haberlo-hecho";
 import { mensajeDeCierre } from "../lib/entrega-por-partes";
@@ -2399,9 +2399,22 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       plannedActions = sinAccionesRepetidas(plannedActions);
       // En un paso de la ruta guiada que el servidor ya ejecutó, el modelo no
       // tiene nada que proponer: lo que proponga es un duplicado.
+      // Solo se descarta lo que la ruta hace por su cuenta. Si propuso OTRA
+      // cosa, el admin pidió otra cosa: se conserva y la ruta se cierra, así
+      // su "si" confirma ESO y no avanza un paso (ver LO_QUE_EJECUTA_LA_RUTA).
+      let rutaSigue = !!rutaActiva;
       if (rutaActiva?.paso.sinAcciones && plannedActions.length) {
-        logger.info({ tenantId, paso: rutaActiva.estado.paso, descartadas: plannedActions.length }, "[Ruta] Acciones propuestas en un paso ya ejecutado por el servidor: se descartan");
-        plannedActions = [];
+        const { duplicadas, otroPedido } = separarAccionesDeLaRuta(plannedActions as any[]);
+        if (duplicadas.length) {
+          logger.info({ tenantId, paso: rutaActiva.estado.paso, descartadas: duplicadas.map((a) => a.tool) }, "[Ruta] Acciones que la ruta ya ejecuta: se descartan");
+        }
+        plannedActions = otroPedido as any;
+        if (otroPedido.length) {
+          await cerrarRuta(tenantId, sessionId).catch(() => undefined);
+          rutaSigue = false;
+          finalReplyVerificado = sinEncabezadoDePaso(String(finalReplyVerificado || ""));
+          logger.info({ tenantId, acciones: otroPedido.map((a) => a.tool) }, "[Ruta] El admin pidió otra cosa: se conserva el plan y se cierra la ruta");
+        }
       }
 
       // ── Recién ahora se sabe si quedó algo pendiente ─────────────────────
@@ -2413,7 +2426,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // En la ruta guiada los pasos los ejecuta el SERVIDOR, así que el aviso
       // "no se guardó nada" es falso o irrelevante: el admin lo leía arriba de
       // cada paso (sesión del 14-09) y solo mete ruido.
-      if (avisarQueNoEjecuto && !rutaActiva) {
+      if (avisarQueNoEjecuto && !rutaSigue) {
         finalReplyVerificado = (plannedActions.length > 0
           // Una línea cada uno: el aviso salía en TRES renglones arriba de
           // cada respuesta y el admin lo leía diez veces por sesión (11-09-2026).

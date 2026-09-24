@@ -300,6 +300,27 @@ export async function cerrarRuta(tenantId: number, sessionId: string): Promise<v
     .where(and(eq(architectMemory.tenantId, tenantId), eq(architectMemory.sessionId, sessionId), eq(architectMemory.memoryType, "instruction"), eq(architectMemory.title, TITULO)));
 }
 
+/**
+ * Lo que la ruta ejecuta POR SU CUENTA al entrar a cada paso. Si el modelo lo
+ * propone también, es un duplicado y se descarta. Cualquier OTRA acción es el
+ * admin pidiendo otra cosa (borrar campañas, cambiar un precio): antes se
+ * tiraba igual, en silencio, y Atlas contestaba "dejé preparado el borrado"
+ * sin que hubiera nada que confirmar (sesión del 24-09-2026, cinco veces).
+ */
+export const LO_QUE_EJECUTA_LA_RUTA = new Set(["landing_crear", "landing_publicar", "crear_anuncio", "fb_upload_draft_to_meta"]);
+
+export function separarAccionesDeLaRuta<T extends { tool: string }>(acciones: T[]): { duplicadas: T[]; otroPedido: T[] } {
+  return {
+    duplicadas: acciones.filter((a) => LO_QUE_EJECUTA_LA_RUTA.has(a.tool)),
+    otroPedido: acciones.filter((a) => !LO_QUE_EJECUTA_LA_RUTA.has(a.tool)),
+  };
+}
+
+/** El encabezado "Paso N de N" que pone `cerrarTurnoDeRuta`, para sacarlo si la ruta se cierra en ese mismo turno. */
+export function sinEncabezadoDePaso(texto: string): string {
+  return String(texto || "").replace(ENCABEZADO_DE_PASO, "");
+}
+
 // ── Detección ────────────────────────────────────────────────────────────
 
 const INICIO_PRODUCTO_NUEVO = /\b(vender\s+(un\s+)?(producto\s+)?nuevo|producto\s+nuevo|nuevo\s+producto|quiero\s+(empezar\s+a\s+)?vender|empezar\s+a\s+vender|lanzar\s+(un\s+)?producto|ay[uú]dame\s+a\s+vender)\b/i;
@@ -313,8 +334,20 @@ const GUIA_DIRECTA: Array<{ patron: RegExp; id: Exclude<SiguientePasoId, "produc
 ];
 const SALIDA = /\b(sal[ií]\s+de\s+la\s+ruta|cancel[aá]\s+(la\s+)?ruta|dejemos\s+(esto|la\s+ruta)|olvid[aá]lo|par[aá]\s+la\s+ruta|no\s+sigamos)\b/i;
 
+/**
+ * Un texto largo PEGADO no es el admin pidiendo una ruta. Caso real del
+ * 24-09-2026: pegó la pantalla de Marketing para preguntar por qué se veía
+ * así, esa pantalla trae de ejemplo “quiero vender más el curso de piano”, y
+ * la ruta arrancó sola -- a partir de ahí cada "si" avanzaba un paso en vez
+ * de borrar las campañas que estaba pidiendo. Pedir una ruta es una frase
+ * corta y propia: lo citado entre comillas es un ejemplo, no un pedido.
+ */
+const LARGO_MAXIMO_DE_UN_INICIO = 280;
+
 export function detectarInicioDeRuta(prompt: string): RutaId | null {
-  const t = String(prompt || "");
+  const bruto = String(prompt || "");
+  if (bruto.length > LARGO_MAXIMO_DE_UN_INICIO) return null;
+  const t = bruto.replace(/“[^”]*”|"[^"]*"|«[^»]*»/g, " ");
   if (INICIO_EMPEZAR.test(t) || GUIA_DIRECTA.some((g) => g.patron.test(t))) return "empezar";
   return INICIO_PRODUCTO_NUEVO.test(t) ? "producto-nuevo" : null;
 }
