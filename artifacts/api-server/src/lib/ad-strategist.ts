@@ -746,6 +746,7 @@ export class AdStrategist {
      * = sin plantilla (un solo conjunto, como antes).
      */
     plantilla?: import("./facebook").PlantillaDeCampana | null,
+    preferenciaWeb?: import("./landing/destino-del-producto").PreferenciaWeb | null,
   ): Promise<{ ok: boolean; message?: string; campaignId?: string; plantilla?: string | null }> {
     try {
       const [draft] = await db.select().from(facebookDrafts).where(eq(facebookDrafts.id, draftId)).limit(1);
@@ -800,6 +801,7 @@ export class AdStrategist {
         copy,
         objetivo,
         plantillaUsada,
+        preferenciaWeb,
       );
       // El motivo REAL, no "no aceptó".
       //

@@ -24,3 +24,13 @@ describe("el texto del anuncio tiene que prometer lo que el producto entrega", (
     expect(copyDeOtroModelo("Un buen recurso para tu espalda", "fisico")).toBeNull();
   });
 });
+
+import { leerPreferenciaWeb } from "../landing/destino-del-producto";
+describe("a dónde lleva el anuncio web", () => {
+  it("'landing' es landing y 'tienda' es tienda; lo demás, sin preferencia", () => {
+    expect(leerPreferenciaWeb("landing")).toBe("landing");
+    expect(leerPreferenciaWeb("la página de venta")).toBe("landing");
+    expect(leerPreferenciaWeb("tienda")).toBe("tienda");
+    expect(leerPreferenciaWeb(undefined)).toBeNull();
+  });
+});

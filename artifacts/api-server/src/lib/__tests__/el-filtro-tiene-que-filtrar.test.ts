@@ -249,6 +249,12 @@ describe("ningún tipo de pedido se pasa del presupuesto", () => {
   // 3480 → 3520 el 21-09-2026: medido 3.480 justo (fallaba por 1) al sumar
   // vendedor_motor y vendedor_olvidar, que son de cambio y por eso engordan
   // el resumen que viaja en propose_action.
+  //
+  // 3520 → 3540 el 24-09-2026: la agenda de Atlas (programar_accion,
+  // agenda_cambiar, con mover+cancelar ya fusionadas para ahorrar) y
+  // `destinoWeb` en crear_anuncio/fb_upload_draft_to_meta. Ese contrato va
+  // recortado a 200 caracteres, así que acortar el texto nuevo no baja nada:
+  // solo deja entrar más del resto. Medido 3.522.
   const PEDIDOS: Array<[string, string]> = [
     ["ventas del día", "cómo van las ventas hoy"],
     ["facturación", "cuánto facturé este mes"],
@@ -264,7 +270,7 @@ describe("ningún tipo de pedido se pasa del presupuesto", () => {
   for (const [nombre, pedido] of PEDIDOS) {
     it(`"${nombre}" entra en el minuto de Groq`, () => {
       const t = tokens(buildMcpToolRegistry(pedido));
-      expect(t, `"${pedido}" pesa ~${t} tokens`).toBeLessThan(3520);
+      expect(t, `"${pedido}" pesa ~${t} tokens`).toBeLessThan(3540);
     });
   }
 });

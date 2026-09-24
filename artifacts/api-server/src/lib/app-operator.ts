@@ -3443,7 +3443,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   {
     name: "fb_upload_draft_to_meta",
     description: "Sube a Meta un borrador que hoy solo existe local, CON SU PROPIO TEXTO, y lo deja en PAUSA (no gasta un peso). Es el paso intermedio entre 'borrador guardado acá' y 'campaña gastando': después de esto el admin puede verlo en Ads Manager y activarlo cuando quiera. Usá fb_list_drafts para conseguir el draftId. NO confundir con publicar/activar: esto NO enciende la campaña.",
-    args: '{ "draftId": number (req, id del borrador -- lo da fb_list_drafts), "objetivo": "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — decide A DÓNDE va la gente: "mensajes" abre WhatsApp, "trafico" y "ventas" llevan a la web. Si el admin dijo WhatsApp o tráfico, PASALO; sin ese dato sube como campaña de ventas a la web) , "comoCampana"?: string (campaña cuya estructura se replica; por defecto la más reciente), "sinPlantilla"?: boolean }',
+    args: '{ "draftId": number (req, id del borrador -- lo da fb_list_drafts), "destinoWeb"?: "landing"|"tienda", "objetivo": "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — decide A DÓNDE va la gente: "mensajes" abre WhatsApp, "trafico" y "ventas" llevan a la web. Si el admin dijo WhatsApp o tráfico, PASALO; sin ese dato sube como campaña de ventas a la web) , "comoCampana"?: string (campaña cuya estructura se replica; por defecto la más reciente), "sinPlantilla"?: boolean }',
     run: async (args, ctx) => {
       const draftId = Number(args.draftId);
       if (!draftId) return { ok: false, summary: "Falta el id del borrador (usá fb_list_drafts para obtenerlo)." };
@@ -3489,7 +3489,8 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       let plantilla: any = undefined;
       if (args?.sinPlantilla === true) plantilla = null;
       else if (args?.comoCampana) plantilla = await new FacebookService(tenant || undefined).plantillaDesdeCampana(String(args.comoCampana));
-      const r = await new AdStrategist(tenant || undefined).subirBorradorAMeta(draftId, objetivo, plantilla);
+      const { leerPreferenciaWeb } = await import("./landing/destino-del-producto");
+      const r = await new AdStrategist(tenant || undefined).subirBorradorAMeta(draftId, objetivo, plantilla, leerPreferenciaWeb(args?.destinoWeb));
       const OBJ = OBJETIVOS[objetivo];
       const aDonde = OBJ.destino === "whatsapp" ? "abre WhatsApp" : "lleva a la web";
       return {
@@ -5547,7 +5548,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       "LA FORMA CORRECTA DE CREAR UN ANUNCIO. Hace TODO el trabajo de una sola vez: busca el producto por su nombre, arma el brief con sus datos reales, escribe el copy, lo valida y guarda el borrador. " +
       "Usala SIEMPRE que te pidan un anuncio (\"anunciá mi curso\", \"creá un anuncio para X\") en vez de encadenar list_products + ad_brief + fb_ad_draft: eso son muchas idas y vueltas y el turno se corta antes de terminar. " +
       "Con esto solo tenés que pasar el nombre del producto tal como lo dijo el admin y el presupuesto. Todo lo demás lo resuelve el servidor.",
-    args: '{ "producto": string (req, el nombre del producto como lo dijo el admin, ej: "mi curso de inteligencia artificial"), "dailyBudget": number (req, presupuesto diario en la moneda del negocio), "objetivo"?: "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — decide A DÓNDE va la gente y A QUIÉN le muestra Meta el anuncio: "mensajes" abre WhatsApp, "trafico" lleva a la web buscando clics, "ventas" lleva a la web buscando compradores. Si el admin dijo WhatsApp, mensajes, tráfico o alcance, PASALO; sin ese dato sale de ventas a la web, que es otra campaña distinta), "subirAMeta"?: boolean (por defecto false; si es true, además crea la campaña en Meta EN PAUSA) }',
+    args: '{ "producto": string (req, como lo dijo el admin), "dailyBudget": number (req, diario), "destinoWeb"?: "landing"|"tienda", "objetivo"?: "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — decide A DÓNDE va la gente y A QUIÉN le muestra Meta el anuncio: "mensajes" abre WhatsApp, "trafico" lleva a la web buscando clics, "ventas" lleva a la web buscando compradores. Si el admin dijo WhatsApp, mensajes, tráfico o alcance, PASALO; sin ese dato sale de ventas a la web, que es otra campaña distinta), "subirAMeta"?: boolean (por defecto false; si es true, además crea la campaña en Meta EN PAUSA) }',
     run: async (args, ctx) => {
       const texto = String(args.producto || "").trim();
       const presupuesto = num(args.dailyBudget) || 0;
@@ -5753,7 +5754,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
         // piso. Toda campaña creada por este camino salía de ventas a la web,
         // que es exactamente lo que el admin viene reportando ("todo lo lanza
         // a la web y eso está mal").
-        const subida = await executeAction("fb_upload_draft_to_meta", { draftId, objetivo: args.objetivo }, ctx);
+        const subida = await executeAction("fb_upload_draft_to_meta", { draftId, objetivo: args.objetivo, destinoWeb: args.destinoWeb }, ctx);
         meta = subida.ok
           ? `\n\n📤 ${subida.summary}`
           : `\n\n⚠️ El borrador quedó guardado, pero NO se pudo subir a Meta: ${subida.summary}`;

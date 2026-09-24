@@ -41,8 +41,36 @@ export async function landingPublicadaDelProducto(
   }
 }
 
-/** La URL final del anuncio (destino web): landing publicada o página del producto. */
-export async function destinoWebDelProducto(tenantId: number, productId: number): Promise<{ url: string; landingId: number | null }> {
+export type PreferenciaWeb = "landing" | "tienda";
+
+/**
+ * La URL final del anuncio (destino web).
+ *
+ * Sin preferencia: landing publicada o, si no hay, la página del producto.
+ * Con "tienda": la tienda, aunque haya landing (solo si el admin lo pidió).
+ * Con "landing": la landing y NADA MÁS. Si no está publicada se LANZA con el
+ * motivo, antes de crear nada en Meta. Pedido del dueño (24-09-2026): "cuando
+ * le pida la landing que la ponga y no redirija a la tienda a menos que se lo
+ * pida". Antes una landing en borrador caía a la tienda sin avisar.
+ */
+export async function destinoWebDelProducto(
+  tenantId: number,
+  productId: number,
+  preferencia?: PreferenciaWeb | null,
+): Promise<{ url: string; landingId: number | null }> {
+  if (preferencia === "tienda") return { url: urlDePaginaDeProducto(productId), landingId: null };
   const l = await landingPublicadaDelProducto(tenantId, productId);
-  return l ? { url: l.url, landingId: l.id } : { url: urlDePaginaDeProducto(productId), landingId: null };
+  if (l) return { url: l.url, landingId: l.id };
+  if (preferencia === "landing") {
+    throw new Error("Pediste que el anuncio lleve a la landing, pero este producto no tiene ninguna landing PUBLICADA. Publicala (landing_publicar) o creala primero; no lo mando a la tienda sin que lo pidas.");
+  }
+  return { url: urlDePaginaDeProducto(productId), landingId: null };
+}
+
+/** "landing" / "tienda" desde lo que escribió el modelo o el admin; cualquier otra cosa = sin preferencia. */
+export function leerPreferenciaWeb(v: unknown): PreferenciaWeb | null {
+  const t = String(v ?? "").toLowerCase();
+  if (/landing|p[aá]gina de venta|\/l\//.test(t)) return "landing";
+  if (/tienda|cat[aá]logo|store/.test(t)) return "tienda";
+  return null;
 }

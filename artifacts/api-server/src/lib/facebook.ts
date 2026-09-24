@@ -740,6 +740,8 @@ Responde SOLO con este JSON exacto:
     objetivo: import("./objetivos-campana").ObjetivoCampana = "ventas",
     /** Estructura a replicar (varios conjuntos, mejoras, Instagram). Ver PlantillaDeCampana. */
     plantilla?: PlantillaDeCampana | null,
+    /** A dónde lleva el anuncio web: "landing" (y solo landing), "tienda", o sin preferencia. */
+    preferenciaWeb?: import("./landing/destino-del-producto").PreferenciaWeb | null,
   ): Promise<FbCampaignResult | null> {
     if (!this.config.adAccountId || !this.config.accessToken) return null;
 
@@ -749,19 +751,43 @@ Responde SOLO con este JSON exacto:
 
       const { OBJETIVOS } = await import("./objetivos-campana");
       // El WhatsApp real del negocio, para las campanas de mensajes.
-      const waDelNegocio = String((this.tenant as any)?.whatsappNumber || process.env.WHATSAPP_NUMBER || "").replace(/[^0-9]/g, "");
+      // `tenant.whatsappNumber` NO existe en TenantContext: esto quedaba vacío
+      // y el anuncio de mensajes mandaba a la web con botón de WhatsApp (visto
+      // en Meta el 24-09-2026). El número es el de la sesión conectada.
+      let conectado = "";
+      try {
+        const { getWhatsAppForTenant } = await import("./whatsapp-factory");
+        conectado = String(getWhatsAppForTenant(Number((this.tenant as any)?.id)).getStatus().phoneNumber || "");
+      } catch { conectado = ""; }
+      const waDelNegocio = String(conectado || process.env.WHATSAPP_NUMBER || "").replace(/[^0-9]/g, "");
       const OBJ = OBJETIVOS[objetivo] || OBJETIVOS.ventas;
+      // El destino web se resuelve ANTES de crear nada en Meta: si pidió la
+      // landing y no está publicada, falla acá con el motivo, sin dejar una
+      // campaña a medias.
+      const vaAWhatsApp = OBJ.destino === "whatsapp" && !!waDelNegocio;
+      const destinoWeb = vaAWhatsApp ? "" : (await destinoWebDelProducto(this.tenant.id, productId, preferenciaWeb)).url;
 
       const adAccount = `act_${this.config.adAccountId}`;
       const campaignName = `${product.name} - ${new Date().toLocaleDateString("es-CO")}`;
 
-      const adCopy = copyAprobado?.primaryText?.trim()
+      let adCopy = copyAprobado?.primaryText?.trim()
         ? {
             primaryText: copyAprobado.primaryText,
             headline: copyAprobado.headline || "",
             description: copyAprobado.description || "",
           }
         : await this.generateAdCopy(product);
+      // Última barrera antes de Meta, la cruzan TODOS los caminos: un texto
+      // que promete algo que este producto no entrega no sale (físico con
+      // "acceso de por vida", digital con "pagás al recibir").
+      {
+        const { copyDeOtroModelo, modeloDelProducto } = await import("./anuncio-por-modelo");
+        const motivo = copyDeOtroModelo(`${adCopy.primaryText} ${adCopy.headline} ${adCopy.description}`, modeloDelProducto(product as any));
+        if (motivo) {
+          logger.warn({ productId, motivo }, "[Facebook] El copy no corresponde al producto: se usa el del plan por modelo");
+          adCopy = await this.generateAdCopy(product);
+        }
+      }
 
       // Bug de capacidad: /{adAccount}/adimages requiere la capacidad
       // "adimages" que esta aplicación no tiene (Graph API error #3:
@@ -1151,7 +1177,7 @@ Responde SOLO con este JSON exacto:
             // la página de la tienda. Ver lib/landing/destino-del-producto.ts.
             link: OBJ.destino === "whatsapp" && waDelNegocio
               ? `https://wa.me/${waDelNegocio}?text=${encodeURIComponent(`Hola! Me interesa ${product.name}`)}`
-              : (await destinoWebDelProducto(this.tenant.id, product.id)).url,
+              : destinoWeb,
             message: adCopy.primaryText,
             name: adCopy.headline,
             description: adCopy.description,
@@ -2025,70 +2051,22 @@ Responde SOLO con este JSON exacto:
 
   // ── Generación de copy con IA + estrategia de categoría ────────────────────
 
+  /**
+   * El copy cuando nadie pasó uno aprobado. Es el MISMO plan por modelo que
+   * usa ad-strategist (físico / digital / servicio, AIDA, solo datos reales).
+   * Acá había un tercer generador: pedía el texto a un endpoint que ya no
+   * responde y caía a "Aprende X desde casa. Acceso de por vida" para
+   * CUALQUIER producto -- así salió el corrector a Meta el 24-09-2026.
+   */
   private async generateAdCopy(product: any): Promise<{ primaryText: string; headline: string; description: string }> {
-    const currency = (product.currency || "COP").toUpperCase();
-    // Validar y formatear precio correctamente
-    const price = Number(product.price) || 0;
-    const priceFormatted = price > 0
-      ? price.toLocaleString("es-CO", { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-      : "Consulta";
-
-    const productName = product.name || "Producto";
-    const strategy = this.getCategoryStrategy(productName);
-    const desc = (product.description || "").substring(0, 150);
-
+    const { planDeAnuncio } = await import("./anuncio-por-modelo");
+    let condiciones: any = null;
     try {
-      const prompt = `Copywriter Facebook Ads para Colombia.
-
-Producto: ${productName}
-Precio: ${priceFormatted === "Consulta" ? priceFormatted : `$${priceFormatted} COP`}
-Descripción: ${desc}
-
-Framework: Problema → Solución → Llamado a acción
-
-Responde SOLO con JSON:
-{
-  "primaryText": "Máx 125 caracteres. Directo, persuasivo, urgencia.",
-  "headline": "Máx 40 caracteres con emoji",
-  "description": "Máx 30 caracteres"
-}`;
-
-      const res = await fetch(`${process.env.OPENCODE_API_URL || "https://api.freemodel.dev/v1"}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.OPENCODE_API_KEY || ""}`,
-        },
-        body: JSON.stringify({
-          model: process.env.OPENCODE_MODEL || "gpt-5.5",
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.7,
-          max_tokens: 300,
-        }),
-        signal: AbortSignal.timeout(20000),
-      });
-
-      const data: any = await res.json();
-      const text = data.choices?.[0]?.message?.content || "";
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        const priceDisplay = priceFormatted === "Consulta" ? "Consulta disponible" : `Solo $${priceFormatted} COP`;
-        return {
-          primaryText: parsed.primaryText || `${strategy.hook} ${strategy.emoji} ${productName}. ${priceDisplay}.`,
-          headline: parsed.headline || `${strategy.emoji} ${productName}`,
-          description: parsed.description || priceDisplay,
-        };
-      }
-    } catch (_) {
-      logger.warn({ productId: product.id }, "[Facebook] AI copy fallback a texto genérico");
-    }
-
-    return {
-      primaryText: `${strategy.hook} ${strategy.emoji} Aprende ${productName} desde casa. Acceso de por vida + garantía 7 días. Solo $${priceFormatted} ${currency}.`,
-      headline: `${strategy.emoji} ${productName}`,
-      description: `Solo $${priceFormatted} ${currency}`,
-    };
+      const { getBusinessContext } = await import("./business-context");
+      condiciones = (await getBusinessContext(Number((this.tenant as any)?.id)))?.condiciones ?? null;
+    } catch { condiciones = null; }
+    const plan = planDeAnuncio(product, condiciones);
+    return { primaryText: plan.primaryText, headline: plan.headline, description: plan.description };
   }
 
   // ── Imagen del anuncio ─────────────────────────────────────────────────────
