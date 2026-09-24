@@ -40,6 +40,8 @@ import {
   abrirVisitaNueva,
   registrarHerramienta,
   actualizarResumenDesdeEstado,
+  apilarContexto,
+  ordinalDeMensaje,
   type EstadoConversacion,
   type RepositorioEstado,
 } from "./estado-conversacion";
@@ -332,6 +334,31 @@ export async function responder(params: {
   }
   if (estado.compra === "ninguno" && estado.productoEnFoco != null) estado.compra = "producto_definido";
   else if (estado.compra === "ninguno") estado.compra = "interes";
+
+  // ── Referencia posicional DETERMINÍSTICA ────────────────────────────────
+  // "el primero / la segunda / el 2" se resuelve contra `opcionesMostradas`
+  // (la lista ORDENADA que el bot acaba de mostrar) sin gastar un turno del
+  // modelo. No es "entender" al cliente: es un índice contra una lista propia.
+  const idx = ordinalDeMensaje(mensajeDelCliente);
+  if (idx != null && estado.opcionesMostradas.length > idx) {
+    const id = estado.opcionesMostradas[idx];
+    const anterior = estado.productoEnFoco;
+    if (anterior !== id) {
+      apilarContexto(estado, anterior ? `hablaban de ${nombrePorProducto(anterior)}` : "explorando");
+      estado.productoAnterior = anterior;
+      estado.productoEnFoco = id;
+      estado.opcionesMostradas = [];
+      if (estado.etapa === "saludo" || estado.etapa === "explorando") estado.etapa = "producto_en_foco";
+      if (estado.compra === "interes") estado.compra = "producto_definido";
+      if (estado.ultimaOferta?.productoId != null && estado.ultimaOferta.productoId !== id) estado.ultimaOferta = null;
+      if (params.recargarGuion) {
+        try {
+          const nuevo = await params.recargarGuion(id);
+          Object.assign(guion, nuevo);
+        } catch { /* el cambio de foco no se cae por el guion */ }
+      }
+    }
+  }
 
   const { fijo, delTurno } = partesDelPrompt({ voz, estado, catalogo, guion, nombrePorProducto });
 

@@ -584,6 +584,44 @@ const ETIQUETA_SECCION: Record<string, string> = {
   tienda: "el enlace de la tienda",
 };
 
+/**
+ * El índice (0 = primero) de una referencia posicional del cliente contra las
+ * opciones que el bot ACABA de mostrar en orden (`opcionesMostradas`).
+ * Devuelve null si el mensaje no trae una referencia posicional clara.
+ *
+ * No es "entender" al cliente: es resolver un índice contra una lista ORDENADA
+ * que el propio bot mostró. "El primero" cuando acabás de mostrar 4 fichas en
+ * orden ES la posición 1, sin ambigüedad. Se resuelve determinístico, sin gastar
+ * un turno del modelo.
+ */
+export function ordinalDeMensaje(mensaje: string): number | null {
+  const t = String(mensaje || "").toLowerCase();
+  const pares: Array<[RegExp, number]> = [
+    [/\b(?:el|la)\s+primero\b/, 0],
+    [/\b(?:el|la)\s+primera\b/, 0],
+    [/\b(?:el|la)\s+segundo\b/, 1],
+    [/\b(?:el|la)\s+segunda\b/, 1],
+    [/\b(?:el|la)\s+tercero\b/, 2],
+    [/\b(?:el|la)\s+tercera\b/, 2],
+    [/\b(?:el|la)\s+cuarto\b/, 3],
+    [/\b(?:el|la)\s+cuarta\b/, 3],
+    [/\b(?:el|la)\s+quinto\b/, 4],
+    [/\b(?:el|la)\s+quinta\b/, 4],
+    [/\b(?:el|la)\s+1\b/, 0],
+    [/\b(?:el|la)\s+2\b/, 1],
+    [/\b(?:el|la)\s+3\b/, 2],
+    [/\b(?:el|la)\s+4\b/, 3],
+    [/\bn[uú]mero\s+1\b/, 0],
+    [/\bn[uú]mero\s+2\b/, 1],
+    [/\bn[uú]mero\s+3\b/, 2],
+    [/\bn[uú]mero\s+4\b/, 3],
+  ];
+  for (const [re, idx] of pares) {
+    if (re.test(t)) return idx;
+  }
+  return null;
+}
+
 export function describirEstado(
   estado: EstadoConversacion,
   nombrePorProducto: (id: number) => string,

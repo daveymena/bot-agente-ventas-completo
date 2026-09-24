@@ -15,7 +15,7 @@ const assert = {
   deepEqual: (a: any, b: any, m?: string) => expect(a, m).toEqual(b),
 };
 
-import { estadoInicial } from "../estado-conversacion";
+import { estadoInicial, ordinalDeMensaje } from "../estado-conversacion";
 import { ejecutores, type ContextoHerramientas, type Producto } from "../herramientas";
 import { guionDelNegocio } from "../nicho";
 
@@ -80,5 +80,27 @@ describe("mostrar_opciones (desambiguación visual)", () => {
 
     assert.deepEqual(c.estado.opcionesMostradas, []);
     assert.equal(c.estado.productoEnFoco, 2);
+  });
+});
+
+describe("ordinalDeMensaje (referencia posicional determinística)", () => {
+  test("detecta 'el primero / la segunda / el tercero / la cuarta'", () => {
+    assert.equal(ordinalDeMensaje("el primero"), 0);
+    assert.equal(ordinalDeMensaje("me gusta el primero"), 0);
+    assert.equal(ordinalDeMensaje("la segunda"), 1);
+    assert.equal(ordinalDeMensaje("el tercero"), 2);
+    assert.equal(ordinalDeMensaje("la cuarta"), 3);
+  });
+
+  test("detecta 'el 1 / la 2 / número 3'", () => {
+    assert.equal(ordinalDeMensaje("el 1"), 0);
+    assert.equal(ordinalDeMensaje("la 2"), 1);
+    assert.equal(ordinalDeMensaje("número 3"), 2);
+  });
+
+  test("no confunde 'en un segundo' ni 'primera vez'", () => {
+    assert.equal(ordinalDeMensaje("dame un segundo"), null);
+    assert.equal(ordinalDeMensaje("es mi primera vez comprando"), null);
+    assert.equal(ordinalDeMensaje("hola"), null);
   });
 });
