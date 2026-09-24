@@ -6,6 +6,7 @@ import { eq, desc, and } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
 import { resolveInterestIds, usarAdvantagePlus } from "./facebook";
 import { generateProductImage } from "./ai-product-image";
+import { getOrCreateBudget, getBudgetStatus, canSpendToday } from "./marketing-team/budget-guard";
 
 import { FB_GRAPH_BASE } from "./meta-api-version";
 import { modeloDelProducto } from "./modelo-de-negocio";
@@ -363,6 +364,22 @@ export class AdStrategist {
     };
   }
 
+  /**
+   * Guardrail de presupuesto antes de crear/activar gasto. Antes publish/upload
+   * no consultaban los guardrails del negocio (maxDailySpend), así que el tope
+   * diario configurado nunca se aplicaba en estos caminos.
+   */
+  private async guardPresupuesto(monto: number): Promise<{ allowed: boolean; reason: string }> {
+    try {
+      const guardrails = await getOrCreateBudget(this.tenant.id);
+      const estado = await getBudgetStatus(this.tenant.id);
+      return canSpendToday(guardrails, estado.todaySpend, Number(monto) || 0);
+    } catch {
+      // Si no se puede leer el presupuesto, no se bloquea: se sigue como antes.
+      return { allowed: true, reason: "No se pudo leer el presupuesto; no se bloquea." };
+    }
+  }
+
   getStrategyForProduct(product: any): AdStrategy {
     const name = (product.name || "").toLowerCase();
     const category = (product.category || "").toLowerCase();
@@ -702,6 +719,9 @@ export class AdStrategist {
       }
 
       if (draft.campaignId && draft.adId) {
+        // Guardrail de presupuesto del negocio: activar es empezar a gastar.
+        const guard = await this.guardPresupuesto(Number(draft.budget) || 0);
+        if (!guard.allowed) return falla(`Bloqueado por el tope de gasto: ${guard.reason}`);
         // Token de USUARIO primero (ver TenantContext.facebook.userAccessToken)
         // -- crear/activar campañas es una operación de Marketing API, exige
         // permisos de usuario (ads_management). Un token de página (lo que
@@ -818,6 +838,9 @@ export class AdStrategist {
           logger.warn({ draftId }, "[AdStrategist] Borrador con el texto de la plantilla vieja: se regeneró antes de subirlo");
         }
       }
+      // Guardrail de presupuesto del negocio antes de crear el anuncio en Meta.
+      const guard = await this.guardPresupuesto(Number(draft.budget) || 5000);
+      if (!guard.allowed) return { ok: false, message: `Bloqueado por el tope de gasto: ${guard.reason}` };
       const creado = await fb.createAdForProduct(
         draft.productId,
         Number(draft.budget) || 5000,

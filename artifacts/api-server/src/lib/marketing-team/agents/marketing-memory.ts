@@ -62,14 +62,45 @@ export async function getLearningsForProduct(
   productName?: string,
   limit = 10,
 ): Promise<MemoryRow[]> {
-  const memories = await architectMemoryService.retrieveRelevantMemories(
-    tenantId,
-    productName ?? "marketing",
-    limit,
-  );
-  return memories
-    .filter((m: any) => m.tags?.includes("marketing") || m.memoryType === "marketing_learning")
-    .map(toMemoryRow);
+  const esDeMarketing = (m: any) => m.tags?.includes("marketing") || m.memoryType === "marketing_learning";
+  const vistos = new Set<number | string>();
+  const out: MemoryRow[] = [];
+  const agregar = (m: any) => {
+    const k = (m?.id ?? `${m?.title}|${m?.createdAt}`) as any;
+    if (vistos.has(k)) return;
+    vistos.add(k);
+    out.push(toMemoryRow(m));
+  };
+
+  // 1) Por nombre de producto (búsqueda LIKE sobre content, como antes).
+  if (productName) {
+    const porProducto = await architectMemoryService
+      .retrieveRelevantMemories(tenantId, productName, limit)
+      .catch(() => []);
+    porProducto.filter(esDeMarketing).forEach(agregar);
+  }
+
+  // 2) Relleno con lo más reciente de marketing. Sin esto, un aprendizaje
+  // guardado con el producto en los tags/metadata pero NO en el texto no se
+  // encontraba nunca (auditoría 24-09: learnings siempre vacíos).
+  if (out.length < limit) {
+    const recientes = await architectMemoryService
+      .retrieveRelevantMemories(tenantId, "marketing", limit * 3)
+      .catch(() => []);
+    recientes.filter(esDeMarketing).forEach(agregar);
+  }
+
+  // 3) Filtro final: si pidieron un producto, lo relevante primero.
+  if (productName) {
+    const clave = productName.toLowerCase();
+    out.sort((a, b) => {
+      const ra = String(a.title + " " + a.content).toLowerCase().includes(clave) ? 0 : 1;
+      const rb = String(b.title + " " + b.content).toLowerCase().includes(clave) ? 0 : 1;
+      return ra - rb;
+    });
+  }
+
+  return out.slice(0, limit);
 }
 
 /** Aprendizajes ganadores/perdedores para el reporte del dashboard. */

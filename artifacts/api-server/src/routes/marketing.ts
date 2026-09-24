@@ -366,8 +366,20 @@ router.post("/chat", async (req, res, next) => {
     const message = String(req.body?.message ?? "").trim();
     if (!message) return res.status(400).json({ error: "message es obligatorio" });
 
-    const { detectIntent, planGrowth, runDiagnosticCycle, formatReport } = await import("../lib/marketing-team/orchestrator");
+    const { detectIntent, planGrowth, runDiagnosticCycle, formatReport, AYUDA_MARKETING } = await import("../lib/marketing-team/orchestrator");
     const intent = detectIntent(message);
+
+    // Saludo o "¿qué podés hacer?": antes caía en un 400 que dejaba el chat
+    // inservible. Ahora responde la ayuda con ejemplos reales.
+    if (intent === "help" || intent === "unknown") {
+      return res.json({
+        intent: "help",
+        report: formatReport("QUÉ PUEDO HACER", [
+          { emoji: "💬", label: "Decime qué necesitás", text: AYUDA_MARKETING },
+        ]),
+        ayuda: AYUDA_MARKETING,
+      });
+    }
 
     if (intent === "growth_plan") {
       const { plan, steps } = await planGrowth({

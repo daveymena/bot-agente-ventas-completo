@@ -830,7 +830,20 @@ router.put("/strategist/draft/:id", async (req, res, next) => {
       const { AdStrategist } = await import("../lib/ad-strategist");
       metaSync = await new AdStrategist((req as any).tenant || undefined).updateDraftCreative(draftId);
     }
-    return res.json({ ok: true, draft: updated, metaSync });
+
+    // Presupuesto: guardar en la base no cambia el `daily_budget` real del
+    // conjunto en Meta, así que el panel mostraba un monto y el anuncio seguía
+    // con otro. Si hay adSetId y cambió el presupuesto, se sincroniza.
+    let budgetSync: { ok: boolean; message?: string } | null = null;
+    if (budget !== undefined && budget !== null && budget !== "" && (updated as any).adSetId) {
+      const monto = Number(budget);
+      if (!Number.isNaN(monto)) {
+        const { FacebookService } = await import("../lib/facebook");
+        const r = await new FacebookService((req as any).tenant || undefined).setAdSetBudget((updated as any).adSetId, monto);
+        budgetSync = { ok: r.ok, message: r.message };
+      }
+    }
+    return res.json({ ok: true, draft: updated, metaSync, budgetSync });
   } catch (e) { return next(e); }
 });
 
@@ -903,12 +916,19 @@ router.post("/strategist/draft/:productId", async (req, res, next) => {
     const strategist = new AdStrategist(tenant || undefined);
     const draft = await strategist.createDraftAd(adAccountId, accessToken, productId, grounded, manualImages, destino);
     let published = false;
-    if (publishNow && draft.status === "created") {
-      const rows = await db.select().from(facebookDrafts).where(eq(facebookDrafts.productId, productId));
-      const saved = rows[rows.length - 1];
-      if (saved) published = await strategist.publishDraft(saved.id);
+    let uploaded = false;
+    // publishNow = "ya tengo todo, publicalo". El chequeo viejo era
+    // `draft.status === "created"`, que solo pasa si FB_CREATE_REAL_CAMPAIGNS
+    // === "true" (variable que no existe): publishNow nunca hacía nada. Ahora
+    // se sube (si falta) y se activa el borrador local.
+    if (publishNow && draft.id) {
+      if (!draft.campaignId) {
+        const up = await strategist.subirBorradorAMeta(Number(draft.id), "mensajes");
+        uploaded = up.ok;
+      }
+      published = await strategist.publishDraft(Number(draft.id));
     }
-    return res.json({ ...draft, published });
+    return res.json({ ...draft, uploaded, published });
   } catch (e) { return next(e); }
 });
 
@@ -1210,8 +1230,12 @@ router.get("/agent/logs", async (req, res, next) => {
 
 router.post("/agent/run-now", async (req, res, next) => {
   try {
-    const { runSpendProtectionCheck, runTrendReview } = await import("../lib/ad-growth-agent");
-    await Promise.all([runSpendProtectionCheck(), runTrendReview()]);
+    const tenantId = (req as any).tenant?.id ?? null;
+    if (!tenantId) return res.status(401).json({ message: "No autenticado" });
+    // Solo el negocio que lo pide: antes corría para TODOS los tenants y
+    // pausaba campañas/mandaba avisos ajenos.
+    const { runSpendProtectionForTenant, runTrendReviewForTenant } = await import("../lib/ad-growth-agent");
+    await Promise.all([runSpendProtectionForTenant(tenantId), runTrendReviewForTenant(tenantId)]);
     return res.json({ ok: true, message: "Revisión ejecutada -- si encontró algo, te llega por WhatsApp." });
   } catch (e) { return next(e); }
 });

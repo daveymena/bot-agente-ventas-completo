@@ -74,7 +74,9 @@ async function resumenDelDia(tenantId: number): Promise<string | null> {
   // Solo lo que está mal o en alerta. Lo que anda bien no necesita un
   // WhatsApp: el admin ya tiene el panel para mirarlo cuando quiera.
   const problemas = insights.filter((i) => i.severity === "critical" || i.severity === "warning");
-  const eslabonesRotos = embudo.filter((e) => e.estado === "🔴" || e.estado === "⚠️");
+  // El diagnostic-agent marca los eslabones con 🟢/🟡/🔴; antes solo se
+  // miraban 🔴 y ⚠️, así que los amarillos (🟡) se perdían del reporte.
+  const eslabonesRotos = embudo.filter((e) => e.estado === "🔴" || e.estado === "🟡" || e.estado === "⚠️");
 
   if (problemas.length === 0 && eslabonesRotos.length === 0) return null;
 

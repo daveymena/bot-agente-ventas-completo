@@ -59,8 +59,8 @@ export async function executeBudgetChange(
   tenantId: number,
   current: number,
   next: number,
-  opts?: { autonomous?: boolean; tipo?: "cambio" | "escala" },
-): Promise<{ executed: boolean; proposal?: BudgetProposal; reason?: string }> {
+  opts?: { autonomous?: boolean; tipo?: "cambio" | "escala"; adSetId?: string },
+): Promise<{ executed: boolean; proposal?: BudgetProposal; reason?: string; applied?: boolean }> {
   const proposal = await proposeBudgetChange(tenantId, current, next, opts?.tipo);
   if (!proposal.allowed) {
     return { executed: false, proposal, reason: proposal.reason };
@@ -73,19 +73,37 @@ export async function executeBudgetChange(
     return { executed: false, proposal, reason: `Requiere aprobación: ${proposal.reason}` };
   }
 
-  // Simulación de ejecución contra el guard: en producción el cambio real lo
-  // aplica MetaAdsManager vía FacebookService.setAdSetBudget.
+  // Aplicación REAL en Meta (antes era una "simulación" que escribía SUCCESS
+  // sin cambiar nada: el loop quedaba abierto y el anuncio seguía con el
+  // presupuesto viejo mientras la auditoría decía que se había aplicado).
+  let applied = false;
+  let reason = proposal.reason;
+  if (opts?.adSetId) {
+    try {
+      const { tenantManager } = await import("../../tenantManager");
+      const { FacebookService } = await import("../../facebook");
+      const tenant = await tenantManager.getTenantById(tenantId);
+      const r = await new FacebookService(tenant || undefined).setAdSetBudget(opts.adSetId, next);
+      applied = r.ok;
+      if (!r.ok) reason = `Meta no aceptó el cambio: ${r.message || "sin detalle"}`;
+    } catch (e: any) {
+      reason = `No se pudo aplicar en Meta: ${e?.message || e}`;
+    }
+  }
+
   await writeAuditLog({
     tenantId,
     agent: "BudgetManager",
     action,
+    resource: opts?.adSetId ? `adset:${opts.adSetId}` : undefined,
     before: { budget: current },
-    after: { budget: next, deltaPercent: proposal.deltaPercent },
+    after: { budget: next, deltaPercent: proposal.deltaPercent, applied },
     approval: auto.allowed ? "auto_within_limits" : "pending",
-    reason: proposal.reason,
-    result: "SUCCESS",
+    reason,
+    result: !opts?.adSetId ? "SUCCESS" : applied ? "SUCCESS" : "FAILED",
   });
-  return { executed: true, proposal };
+  if (applied) await recordSpend(tenantId, next).catch(() => undefined);
+  return { executed: applied || !opts?.adSetId, proposal, reason, applied };
 }
 
 /** Estado actual del presupuesto (dashboard). */
