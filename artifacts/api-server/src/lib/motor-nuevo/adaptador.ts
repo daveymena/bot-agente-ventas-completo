@@ -207,6 +207,42 @@ export async function agenteQueAtiende(conversationId: number, tenantId: number,
 }
 
 /**
+ * El producto del anuncio por el que llegó el cliente, o null. Usa la misma
+ * escalera del motor viejo (`productoDelAnuncio`: adId contra
+ * facebook_drafts → link con id → slug) y, si ninguna resuelve, el titular
+ * del anuncio contra el catálogo: un titular de Atlas nombra el producto.
+ */
+export async function productoDelAnuncioDeLaConversacion(
+  conversationId: number,
+  catalogo: Producto[],
+): Promise<Producto | null> {
+  try {
+    const filas = await db
+      .select({ role: messages.role, metadata: messages.metadata, createdAt: messages.createdAt })
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(desc(messages.createdAt), desc(messages.id))
+      .limit(40);
+    const { anuncioDeOrigen, productoDelAnuncio } = await import("../agent");
+    const anuncio = anuncioDeOrigen(filas.reverse() as any);
+    if (!anuncio) return null;
+    const duro = await productoDelAnuncio(anuncio, catalogo as any);
+    if (duro) return catalogo.find((p) => p.id === duro.id) ?? null;
+    const titular = `${anuncio.titulo} ${anuncio.cuerpo}`.trim();
+    if (!titular) return null;
+    const { puntuarCoincidencias } = await import("./herramientas");
+    const [primero, segundo] = puntuarCoincidencias(titular, catalogo, 2);
+    // Solo si gana claro: con un empate es adivinar, y un producto
+    // equivocado en foco es peor que preguntar.
+    if (primero && (!segundo || primero.puntos > segundo.puntos * 1.5)) return primero.p;
+    return null;
+  } catch (e: any) {
+    logger.warn({ err: e?.message, conversationId }, "[MotorV2] no se pudo leer el anuncio de origen");
+    return null;
+  }
+}
+
+/**
  * Los productos que le tocan a la especialidad del agente: el de dropshipping
  * ve lo físico, el digital ve lo que no es físico. Sin especialidad, o si el
  * filtro dejara el catálogo vacío, se ve todo: un vendedor sin productos es
@@ -481,7 +517,29 @@ export async function responderComoVendedor(
   // Quién atiende sale del último mensaje del cliente (el enrutador decide
   // si hay traspaso), y de ahí salen su voz y SUS productos.
   const ultimoMensaje = [...historial].reverse().find((m) => m.role === "customer")?.content ?? "";
-  const agente = await agenteQueAtiende(conversationId, tenantId, ultimoMensaje);
+
+  // ¿Vino de un anuncio? Meta manda "¡Hola! Quiero más información" para
+  // todos; el producto viaja en la metadata del primer mensaje. Conv 221
+  // (24-09-2026): lead `meta_ads` y el bot preguntó "¿qué producto te
+  // interesa?" -- el motor v2 nunca leía el anuncio. Solo fija el foco si
+  // todavía no hay uno: lo que el cliente pida después manda sobre el anuncio.
+  let productoAnuncio: Producto | null = null;
+  if (estado.productoEnFoco == null) {
+    productoAnuncio = await productoDelAnuncioDeLaConversacion(conversationId, catalogoCompleto);
+    if (productoAnuncio) {
+      estado.productoEnFoco = productoAnuncio.id;
+      if (estado.etapa === "saludo" || estado.etapa === "explorando") estado.etapa = "producto_en_foco";
+      logger.info({ conversationId, producto: productoAnuncio.name }, "[MotorV2] producto en foco tomado del anuncio");
+    }
+  }
+
+  // Con el producto del anuncio, el enrutador lo ve nombrado y elige al
+  // agente que lo vende (físico → dropshipping) en vez del "por defecto".
+  const agente = await agenteQueAtiende(
+    conversationId,
+    tenantId,
+    productoAnuncio ? `${ultimoMensaje} ${productoAnuncio.name}`.trim() : ultimoMensaje,
+  );
   const voz = await cargarVozDelNegocio(tenantId, agente);
   let especialidadesActivas: string[] = [];
   try {
@@ -520,6 +578,7 @@ export async function responderComoVendedor(
     estado,
     historial,
     catalogo,
+    catalogoCompleto,
     conocimiento,
     guion,
     voz,

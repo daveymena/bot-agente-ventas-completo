@@ -118,6 +118,14 @@ export type Efecto =
 export interface ContextoHerramientas {
   estado: EstadoConversacion;
   catalogo: Producto[];
+  /**
+   * TODO el catálogo del negocio, sin el filtro por especialidad del agente.
+   * `buscar_en_catalogo` cae acá cuando en `catalogo` no hay nada: conv 221
+   * (24-09-2026), el agente de digitales atendió "El correcto", no vio los
+   * correctores (son físicos, los ve AtlasDrops) y le dijo al cliente que no
+   * los manejábamos. Que otro agente lo venda no es motivo para negarlo.
+   */
+  catalogoCompleto?: Producto[];
   /** Las partes que se van acumulando para enviar al cliente. */
   partes: Parte[];
   /** Conocimiento cargado por el dueño para este negocio. */
@@ -564,7 +572,17 @@ export const ejecutores: Record<string, Ejecutor> = {
       };
     }
 
-    const puntuados = puntuarCoincidencias(String(consulta), ctx.catalogo);
+    let puntuados = puntuarCoincidencias(String(consulta), ctx.catalogo);
+
+    // Nada en lo de este agente: se busca en todo el negocio antes de decir
+    // "no lo manejo". Lo encontrado se suma a su catálogo para que
+    // enfocar_producto / mostrar lo reconozcan en este mismo turno.
+    if (!puntuados.length && ctx.catalogoCompleto?.length) {
+      puntuados = puntuarCoincidencias(String(consulta), ctx.catalogoCompleto);
+      for (const { p } of puntuados) {
+        if (!ctx.catalogo.some((x) => x.id === p.id)) ctx.catalogo.push(p);
+      }
+    }
 
     if (!puntuados.length) {
       return {

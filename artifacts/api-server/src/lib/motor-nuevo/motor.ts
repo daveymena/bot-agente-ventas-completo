@@ -304,6 +304,8 @@ export async function responder(params: {
   estado: EstadoConversacion;
   historial: Mensaje[];
   catalogo: Producto[];
+  /** Todo el negocio, sin filtro por especialidad (ver ContextoHerramientas). */
+  catalogoCompleto?: Producto[];
   conocimiento: { productId: number | null; pregunta: string; disparadores: string[]; respuesta: string | null }[];
   guion: GuionDelNegocio;
   voz: VozDelNegocio;
@@ -369,6 +371,7 @@ export async function responder(params: {
   const ctx: ContextoHerramientas = {
     estado,
     catalogo,
+    catalogoCompleto: params.catalogoCompleto,
     partes: [],
     conocimiento: params.conocimiento || [],
     guion,
