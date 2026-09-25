@@ -86,3 +86,18 @@ describe("el anuncio de origen fija el producto", () => {
     expect(await productoDelAnuncioDeLaConversacion(id, todo)).toBeNull();
   });
 });
+
+describe("simulación 25-09-2026: el titular trae el nombre exacto", () => {
+  test("gana el nombre exacto aunque otras DESCRIPCIONES hablen de hombros y espalda", async () => {
+    const cat: Producto[] = [
+      { id: 201, name: "Corrector de Hombros y Clavícula", description: "Alinea hombros", price: 45000, currency: "COP", kind: "physical", disponible: true },
+      { id: 203, name: "Corrector Postural con Placa Rígida", description: "Corrige hombros caídos, clavícula y espalda encorvada", price: 45000, currency: "COP", kind: "physical", disponible: true },
+      { id: 200, name: "Corrector Espalda Completa Malla Negro", description: "Hombros, clavícula y espalda completa", price: 55000, currency: "COP", kind: "physical", disponible: true },
+    ];
+    const s = `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    const [t] = await db.insert(tenants).values({ name: "Ad2", email: `ad2-${s}@test.local`, slug: `ad2-${s}`, brandName: "Ad2" } as any).returning();
+    const [c] = await db.insert(conversations).values({ tenantId: t.id, contactName: "Juan", contactPhone: `57303${s.slice(-6)}`, status: "ai" } as any).returning();
+    await db.insert(messages).values({ conversationId: c.id, role: "customer", content: "¡Hola! Quiero más información", metadata: { adTitle: "Corrector de Hombros y Clavícula", adBody: "Endereza tu espalda", adUrl: "", adId: "" } } as any);
+    expect((await productoDelAnuncioDeLaConversacion(c.id, cat))?.id).toBe(201);
+  });
+});

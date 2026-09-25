@@ -252,7 +252,7 @@ export function resumenDelPedido(p: PedidoDropshipping, c: CondicionesDelNegocio
     precio > 0 ? `💰 Total: $${precio.toLocaleString("es-CO")} COP (${c.envio.costo === "incluido" ? "envío incluido" : `envío ${c.envio.costo}`})` : "",
     `💵 Pago: ${p.metodoPago === "contraentrega" ? "contraentrega, al recibir" : p.metodoPago}`,
     `👤 ${p.nombre}`,
-    `🪪 Cédula ${p.documento}`,
+    ...(String(p.documento ?? "").trim() && String(p.documento) !== "null" ? [`🪪 Cédula ${p.documento}`] : []),
     `📱 ${p.telefono}`,
     `🏠 ${p.direccion}${p.barrio ? `, barrio ${p.barrio}` : ""}`,
     `🏙️ ${p.ciudad}, ${p.departamento}`,

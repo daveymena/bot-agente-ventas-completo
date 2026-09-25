@@ -59,10 +59,24 @@ export function decideSiMandaVoz(o: OpcionesVoz): boolean {
   if (o.tieneFicha) return false;
 
   const texto = String(o.texto || "").trim();
+  // Precios, cuentas, enlaces o una lista: es información para tener a la
+  // vista, como una ficha. 25-09-2026: una lista de cinco correctores con sus
+  // precios salió en audio y se escuchaba "Corrector de postura… igual…
+  // cuarenta y cinco mil… Corrector de postura…" una y otra vez.
+  if (esParaLeer(texto)) return false;
   const minChars = Number.isFinite(o.minChars as number) ? (o.minChars as number) : MIN_CHARS_POR_DEFECTO;
   if (texto.length < minChars) return false;
 
   const prob = Number.isFinite(o.prob as number) ? (o.prob as number) : PROB_POR_DEFECTO;
   const azar = o.azar ?? Math.random;
   return azar() < Math.min(1, Math.max(0, prob));
+}
+
+/** Texto que se lee, no se escucha: montos, enlaces, números largos o una lista. */
+export function esParaLeer(texto: string): boolean {
+  const t = String(texto || "");
+  if (/\$\s?\d|\bCOP\b|https?:\/\/|\d{6,}/i.test(t)) return true;
+  const lineas = t.split("\n").map((l) => l.trim()).filter(Boolean);
+  const deLista = lineas.filter((l) => /^([-•*✅🔹▪️]|\d+[.)]\s)|\s=\s/.test(l)).length;
+  return deLista >= 2;
 }

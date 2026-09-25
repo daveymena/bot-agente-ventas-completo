@@ -28,6 +28,7 @@
 import {
   definicionesDeHerramientas,
   ejecutores,
+  puntuarCoincidencias,
   type ContextoHerramientas,
   type Efecto,
   type Parte,
@@ -361,8 +362,10 @@ export async function responder(params: {
   // (la lista ORDENADA que el bot acaba de mostrar) sin gastar un turno del
   // modelo. No es "entender" al cliente: es un índice contra una lista propia.
   const idx = ordinalDeMensaje(mensajeDelCliente);
+  let focoFijo: number | null = null;
   if (idx != null && estado.opcionesMostradas.length > idx) {
     const id = estado.opcionesMostradas[idx];
+    focoFijo = id;
     const anterior = estado.productoEnFoco;
     if (anterior !== id) {
       apilarContexto(estado, anterior ? `hablaban de ${nombrePorProducto(anterior)}` : "explorando");
@@ -387,6 +390,7 @@ export async function responder(params: {
     estado,
     catalogo,
     catalogoCompleto: params.catalogoCompleto,
+    focoFijo,
     partes: [],
     conocimiento: params.conocimiento || [],
     guion,
@@ -604,6 +608,35 @@ export async function responder(params: {
     }
   }
 
+  // ── Lista de productos escrita a mano ────────────────────────────────────
+  //
+  // 25-09-2026, conv 218: "tienes corrector de postura" → el modelo listó
+  // "Corrector de postura trenza = $50.000", "ortopédico Back"… productos que
+  // YA NO EXISTEN: los copió de un mensaje suyo viejo del historial. Los
+  // nombres y precios los pone el catálogo, no el modelo: la lista se saca
+  // del texto y salen las fichas reales de lo que se encontró.
+  if (textoFinal && !hayTarjetas() && esListaDeProductosAMano(textoFinal)) {
+    // Primero por NOMBRE: "¿tienes corrector de postura?" pide la categoría
+    // entera, y en el puntaje "corrector" pesa cero justo por estar en todos.
+    const plano = (t: string) => String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+    const palabras = plano(mensajeDelCliente).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 5);
+    const porNombre = catalogo
+      .filter((p) => p.disponible !== false && palabras.some((w) => plano(p.name).includes(w)))
+      .slice(0, 4)
+      .map((p) => p.id);
+    const encontrados = porNombre.length ? porNombre : puntuarCoincidencias(mensajeDelCliente, catalogo, 4).map((x) => x.p.id);
+    try {
+      if (encontrados.length >= 2) await ejecutores.mostrar_opciones(ctx, { productoIds: encontrados });
+      else if (encontrados.length === 1) await ejecutores.mostrar(ctx, { productoId: encontrados[0], seccion: "completa" });
+    } catch { /* sin fichas, al menos no sale la lista inventada */ }
+    textoFinal = textoFinal
+      .split("\n")
+      .filter((l) => !/\$\s?\d|=\s*\$?\s?\d/.test(l) && !/^\s*([-•*]|\d+[.)])\s/.test(l))
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
   // ── Red de seguridad: una cifra de plata que no existe en el catálogo ────
   let corregido = false;
   let invento = montosInventados(textoFinal, catalogo);
@@ -731,7 +764,7 @@ export async function responder(params: {
  */
 export function anunciaUnEnvio(texto: string): boolean {
   return (
-    /\b(ah[ií]|ac[aá]|aqu[ií])\s+(te\s+)?(van|va|dejo|mando|paso|env[ií]o|comparto)\b/i.test(texto) ||
+    /\b(ah[ií]|ac[aá]|aqu[ií])\s+(te\s+)?(van|va|dejo|mando|paso|env[ií]o|comparto|tienes|ten[eé]s)\b/i.test(texto) ||
     /\bte\s+(los|las|lo|la)\s+(dejo|mando|paso|env[ií]o|comparto)\s+(de nuevo|otra vez|nuevamente|ac[aá]|aqu[ií]|abajo)\b/i.test(texto)
   );
 }
@@ -753,6 +786,12 @@ export function quitarNotasInternas(texto: string): string {
     .trim();
   // Si solo quedó puntuación, no hay nada que decirle al cliente.
   return /[\p{L}\p{N}]/u.test(limpio) ? limpio : "";
+}
+
+/** ¿El modelo escribió una lista de productos con precio? (2+ líneas "Nombre = $N" o "- Nombre $N"). */
+export function esListaDeProductosAMano(texto: string): boolean {
+  const lineas = String(texto || "").split("\n");
+  return lineas.filter((l) => /\$\s?\d{1,3}([.,]\d{3})+|\$\s?\d{4,}/.test(l) && /[a-záéíóúñ]{3,}/i.test(l)).length >= 2;
 }
 
 /** El emoji con que termina un texto, o "" si no termina en uno. */

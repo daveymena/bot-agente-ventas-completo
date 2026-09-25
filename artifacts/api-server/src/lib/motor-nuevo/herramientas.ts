@@ -126,6 +126,14 @@ export interface ContextoHerramientas {
    * los manejábamos. Que otro agente lo venda no es motivo para negarlo.
    */
   catalogoCompleto?: Producto[];
+  /**
+   * Producto que el SERVIDOR fijó en este turno ("el primero" contra las
+   * opciones mostradas). Simulación del 25-09-2026: el servidor resolvió el
+   * extractor 213 y el modelo llamó mostrar(152) -- un colgante --, que movió
+   * el foco; el pedido salió de otro producto. Con esto, mostrar y
+   * tomar_pedido no pueden cambiarlo por un id que el cliente no nombró.
+   */
+  focoFijo?: number | null;
   /** Las partes que se van acumulando para enviar al cliente. */
   partes: Parte[];
   /** Conocimiento cargado por el dueño para este negocio. */
@@ -672,6 +680,7 @@ export const ejecutores: Record<string, Ejecutor> = {
   },
 
   async mostrar(ctx, { productoId, seccion, reenviar }) {
+    if (ctx.focoFijo != null && Number(productoId) !== ctx.focoFijo) productoId = ctx.focoFijo;
     const idNumerico = Number(productoId);
     if (!Number.isFinite(idNumerico) || idNumerico <= 0) {
       return {
@@ -950,7 +959,7 @@ export const ejecutores: Record<string, Ejecutor> = {
     if (!ctx.pedidos) {
       return { ok: false, mensaje: "Este negocio no toma pedidos automáticos. Tomá los datos con registrar_dato y decile que una persona le confirma el envío. No digas que el pedido quedó registrado." };
     }
-    const id = Number(args?.productoId) || ctx.estado.productoEnFoco;
+    const id = ctx.focoFijo ?? (Number(args?.productoId) || ctx.estado.productoEnFoco);
     const p = id ? ctx.catalogo.find((x) => x.id === id) : null;
     if (!p) return { ok: false, mensaje: "No sé qué producto compra. Ubicalo con buscar_en_catalogo o enfocar_producto y volvé a llamar." };
     if (String(p.kind || "digital") !== "physical") {

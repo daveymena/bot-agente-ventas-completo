@@ -230,7 +230,22 @@ export async function productoDelAnuncioDeLaConversacion(
     if (duro) return catalogo.find((p) => p.id === duro.id) ?? null;
     const titular = `${anuncio.titulo} ${anuncio.cuerpo}`.trim();
     if (!titular) return null;
+    // 1. El titular trae el nombre EXACTO del producto (así los arma Atlas):
+    //    es ese, sin puntajes. Simulación del 25-09-2026: "Corrector de
+    //    Hombros y Clavícula" empataba con otros correctores porque sus
+    //    DESCRIPCIONES hablan de hombros y espalda, y el cliente del anuncio
+    //    recibía "¿qué producto te interesa?".
+    const plano = (t: string) => String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9ñ]+/g, " ").trim();
+    const tit = ` ${plano(titular)} `;
+    const exactos = catalogo
+      .filter((p) => p.disponible !== false && plano(p.name).length >= 6 && tit.includes(` ${plano(p.name)} `))
+      .sort((a, b) => plano(b.name).length - plano(a.name).length);
+    if (exactos.length) return exactos[0];
+    // 2. Parecido contra los NOMBRES; recién después, con descripciones.
     const { puntuarCoincidencias } = await import("./herramientas");
+    const soloNombres = catalogo.map((p) => ({ ...p, description: "", categoria: "" } as Producto));
+    const [n1, n2] = puntuarCoincidencias(titular, soloNombres, 2);
+    if (n1 && (!n2 || n1.puntos > n2.puntos * 1.5)) return catalogo.find((p) => p.id === n1.p.id) ?? null;
     const [primero, segundo] = puntuarCoincidencias(titular, catalogo, 2);
     // Solo si gana claro: con un empate es adivinar, y un producto
     // equivocado en foco es peor que preguntar.
