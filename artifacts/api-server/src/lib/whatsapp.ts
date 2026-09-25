@@ -1309,6 +1309,8 @@ export interface ContextoDeAnuncio {
   cuerpo: string;
   url: string;
   anuncioId: string;
+  /** Marca de origen de WhatsApp cuando no vino externalAdReply ("ctwa_ad", "fb_ads"). */
+  origen?: string;
 }
 
 /**
@@ -1325,10 +1327,22 @@ export interface ContextoDeAnuncio {
 export function extraerContextoDeAnuncio(msgObj: any): ContextoDeAnuncio | null {
   if (!msgObj || typeof msgObj !== "object") return null;
   // El contextInfo cuelga del sub-mensaje (extendedTextMessage, imageMessage,
-  // videoMessage...) segun con que formato haya salido el anuncio.
-  const candidatos = [msgObj, ...Object.values(msgObj)];
-  for (const c of candidatos) {
-    const ad = (c as any)?.contextInfo?.externalAdReply;
+  // videoMessage...) y a veces DOS niveles más abajo: con mensajes
+  // temporales llega envuelto en ephemeralMessage.message.<tipo>.contextInfo.
+  // Antes se miraba un solo nivel y el anuncio se perdía: el 23-09-2026 la
+  // clienta del anuncio del corrector (conv 219) quedó como lead "whatsapp",
+  // mientras el texto del mismo mensaje sí se leía (ese extractor ya era
+  // recursivo). Se recorre hasta 4 niveles buscando cualquier contextInfo.
+  const contextos: any[] = [];
+  const recorrer = (o: any, nivel: number) => {
+    if (!o || typeof o !== "object" || nivel > 4) return;
+    if (o.contextInfo && typeof o.contextInfo === "object") contextos.push(o.contextInfo);
+    for (const v of Object.values(o)) if (v && typeof v === "object") recorrer(v, nivel + 1);
+  };
+  recorrer(msgObj, 0);
+
+  for (const ci of contextos) {
+    const ad = ci?.externalAdReply;
     if (!ad) continue;
     const ctx: ContextoDeAnuncio = {
       titulo: String(ad.title || "").trim(),
@@ -1337,6 +1351,16 @@ export function extraerContextoDeAnuncio(msgObj: any): ContextoDeAnuncio | null 
       anuncioId: String(ad.sourceId || ad.ctwaClid || "").trim(),
     };
     if (ctx.titulo || ctx.cuerpo || ctx.url || ctx.anuncioId) return ctx;
+  }
+
+  // Sin externalAdReply, WhatsApp igual marca el origen del chat
+  // ("ctwa_ad", "FB_Ads"). No dice qué producto, pero sí que vino de un
+  // anuncio pagado: sin esto ese cliente se contaba como orgánico.
+  for (const ci of contextos) {
+    const origen = `${ci?.entryPointConversionSource || ""} ${ci?.conversionSource || ""} ${ci?.entryPointConversionApp || ""}`.toLowerCase();
+    if (/ctwa|_ad\b|\bads?\b|fb_ads|ig_ads/.test(origen)) {
+      return { titulo: "", cuerpo: "", url: "", anuncioId: "", origen: origen.trim() };
+    }
   }
   return null;
 }

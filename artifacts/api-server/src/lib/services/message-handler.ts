@@ -56,7 +56,7 @@ export class MessageHandler {
     timestamp: Date;
     pushName?: string;
     /** Anuncio de Facebook/Instagram del que llegó este contacto, si llegó de uno. */
-    anuncio?: { titulo: string; cuerpo: string; url: string; anuncioId: string };
+    anuncio?: { titulo: string; cuerpo: string; url: string; anuncioId: string; origen?: string };
     /** Texto del mensaje que el cliente citó al responder. Ver extraerMensajeCitado. */
     citado?: string;
   }): Promise<void> {
@@ -190,6 +190,7 @@ export class MessageHandler {
                 adBody: params.anuncio.cuerpo,
                 adUrl: params.anuncio.url,
                 adId: params.anuncio.anuncioId,
+                ...(params.anuncio.origen ? { adOrigen: params.anuncio.origen } : {}),
               }
             : {}),
           ...(params.citado ? { citado: params.citado } : {}),

@@ -28,6 +28,8 @@ export interface AnuncioContext {
   cuerpo: string;
   url: string;
   anuncioId: string;
+  /** "ctwa_ad"/"fb_ads" cuando WhatsApp marcó el origen sin externalAdReply. */
+  origen?: string;
 }
 
 const CONFIRMED_STATUSES = new Set(["confirmed", "approved"]);
@@ -55,6 +57,7 @@ export async function attachAdContextToLead(
           adTitle: anuncio.titulo || undefined,
           adBody: anuncio.cuerpo || undefined,
           adUrl: anuncio.url || undefined,
+          origen: anuncio.origen || undefined,
           capturedAt: new Date().toISOString(),
         },
       })
