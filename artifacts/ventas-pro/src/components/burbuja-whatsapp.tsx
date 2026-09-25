@@ -18,7 +18,7 @@ export function formatoWhatsApp(texto: string): React.ReactNode[] {
   return texto.split(patron).map((trozo, i) => {
     if (!trozo) return null;
     if (/^https?:\/\//.test(trozo)) {
-      return <a key={i} href={trozo} target="_blank" rel="noopener noreferrer" className="text-[#027eb5] underline break-all">{trozo}</a>;
+      return <a key={i} href={trozo} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-[#027eb5] underline break-all">{trozo}</a>;
     }
     if (/^\*[^*]+\*$/.test(trozo)) return <strong key={i}>{trozo.slice(1, -1)}</strong>;
     if (/^_[^_]+_$/.test(trozo)) return <em key={i}>{trozo.slice(1, -1)}</em>;
@@ -69,7 +69,7 @@ function NotaDeVoz({ texto }: { texto: string }) {
   return (
     <div className="w-64 max-w-full">
       <div className="flex items-center gap-2">
-        <button onClick={alternar} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#00a884] text-white" aria-label={estado === "sonando" ? "Pausar" : "Escuchar nota de voz"}>
+        <button onClick={(e) => { e.stopPropagation(); alternar(); }} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#00a884] text-white" aria-label={estado === "sonando" ? "Pausar" : "Escuchar nota de voz"}>
           {estado === "cargando" ? <Loader2 className="h-4 w-4 animate-spin" /> : estado === "sonando" ? <Pause className="h-4 w-4" /> : <Play className="ml-0.5 h-4 w-4" />}
         </button>
         <div className="flex h-6 flex-1 items-center gap-[2px]" aria-hidden>
@@ -84,20 +84,37 @@ function NotaDeVoz({ texto }: { texto: string }) {
   );
 }
 
-export function BurbujaWhatsApp({ burbuja, deCliente, primera }: { burbuja: Burbuja; deCliente: boolean; primera: boolean }) {
+/**
+ * `alTocar`: la burbuja se puede tocar (chat de prueba: tocar un mensaje del
+ * vendedor lo elige para corregirlo). `elegida` la resalta.
+ */
+export function BurbujaWhatsApp({ burbuja, deCliente, primera, alTocar, elegida }: {
+  burbuja: Burbuja; deCliente: boolean; primera: boolean; alTocar?: () => void; elegida?: boolean;
+}) {
   const conFoto = burbuja.imagen !== undefined;
+  const tocable = alTocar
+    ? {
+        role: "button" as const,
+        tabIndex: 0,
+        title: "Toca para corregir este mensaje",
+        onClick: alTocar,
+        onKeyDown: (e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); alTocar(); } },
+      }
+    : {};
+  const marco = alTocar ? `cursor-pointer transition hover:ring-2 hover:ring-indigo-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${elegida ? "ring-2 ring-indigo-500" : ""}` : "";
   if (burbuja.audio) {
     return (
-      <div className={`rounded-lg bg-white px-2.5 py-2 shadow-sm ${primera ? "rounded-tl-none" : ""}`}>
+      <div {...tocable} className={`rounded-lg bg-white px-2.5 py-2 shadow-sm ${primera ? "rounded-tl-none" : ""} ${marco}`}>
         <NotaDeVoz texto={burbuja.texto} />
       </div>
     );
   }
   return (
     <div
+      {...tocable}
       className={`rounded-lg text-[14.2px] leading-[1.35] shadow-sm whitespace-pre-wrap break-words text-[#111b21] ${
         deCliente ? "self-end bg-[#d9fdd3] rounded-tr-none" : `self-start bg-white ${primera ? "rounded-tl-none" : ""}`
-      } ${conFoto ? "p-1" : "px-2.5 py-1.5"}`}
+      } ${conFoto ? "p-1" : "px-2.5 py-1.5"} ${marco}`}
     >
       {conFoto && <Foto src={burbuja.imagen!} />}
       <div className={conFoto ? "px-1.5 pb-1" : ""}>{formatoWhatsApp(burbuja.texto)}</div>

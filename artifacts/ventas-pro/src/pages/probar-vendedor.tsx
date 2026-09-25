@@ -63,12 +63,30 @@ export default function ProbarVendedorPage() {
   const [pensando, setPensando] = useState(false);
   const [sabe, setSabe] = useState<LoQueSabe | null>(null);
   const [verSabe, setVerSabe] = useState(false);
-  const [corrigiendo, setCorrigiendo] = useState<number | null>(null);
+  // Qué se corrige: la respuesta `i` y, si el dueño tocó una burbuja, cuál (`k`).
+  const [eleccion, setEleccion] = useState<{ i: number; k: number | null } | null>(null);
+  const corrigiendo = eleccion?.i ?? null;
+  const setCorrigiendo = (i: number | null) => setEleccion(i === null ? null : { i, k: null });
   const finRef = useRef<HTMLDivElement>(null);
+  const chatRef = useRef<HTMLDivElement>(null);
+  const contenidoRef = useRef<HTMLDivElement>(null);
+  // Si el dueño no subió a leer algo, el chat queda pegado abajo aunque las
+  // fotos de las fichas terminen de cargar después (antes empujaban el botón
+  // "Corregir" fuera de la pantalla).
+  const pegadoAbajo = useRef(true);
 
   const cargarSabe = () => api<LoQueSabe>("/api/probar-vendedor/sabe").then(setSabe).catch(() => {});
   useEffect(() => { cargarSabe(); }, []);
-  useEffect(() => { finRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [mensajes, pensando]);
+  useEffect(() => { pegadoAbajo.current = true; finRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [mensajes, pensando]);
+  useEffect(() => {
+    const cont = contenidoRef.current;
+    if (!cont || typeof ResizeObserver === "undefined") return;
+    const obs = new ResizeObserver(() => {
+      if (pegadoAbajo.current && chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight;
+    });
+    obs.observe(cont);
+    return () => obs.disconnect();
+  }, []);
 
   const enviar = async (contenido: string) => {
     const limpio = contenido.trim();
@@ -159,7 +177,12 @@ export default function ProbarVendedorPage() {
             <button onClick={reiniciar} disabled={!mensajes.length} className="rounded-full p-2 hover:bg-white/10 disabled:opacity-40" aria-label="Empezar de nuevo" title="Empezar de nuevo"><RotateCcw className="h-5 w-5" /></button>
           </header>
 
-          <div className="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-2">
+          <div
+            ref={chatRef}
+            onScroll={(e) => { const el = e.currentTarget; pegadoAbajo.current = el.scrollHeight - el.scrollTop - el.clientHeight < 140; }}
+            className="flex-1 min-h-0 overflow-y-auto px-3 py-4"
+          >
+          <div ref={contenidoRef} className="space-y-2">
             {mensajes.length === 0 && (
               <div className="mx-auto mt-6 max-w-sm rounded-xl bg-white/90 p-4 text-center shadow-sm">
                 <Wand2 className="mx-auto mb-2 h-6 w-6 text-indigo-600" />
@@ -183,7 +206,14 @@ export default function ProbarVendedorPage() {
                     </details>
                   )}
                   {(m.role === "customer" ? [{ texto: m.content } as Burbuja] : m.burbujas?.length ? m.burbujas : [{ texto: m.content }]).map((b, k) => (
-                    <BurbujaWhatsApp key={k} burbuja={b} deCliente={m.role === "customer"} primera={k === 0} />
+                    <BurbujaWhatsApp
+                      key={k}
+                      burbuja={b}
+                      deCliente={m.role === "customer"}
+                      primera={k === 0}
+                      alTocar={m.role === "agent" ? () => setEleccion({ i, k: m.burbujas?.length ? k : null }) : undefined}
+                      elegida={eleccion?.i === i && eleccion?.k === k}
+                    />
                   ))}
                   {m.role === "agent" && (
                     <button
@@ -203,6 +233,7 @@ export default function ProbarVendedorPage() {
               </div>
             )}
             <div ref={finRef} />
+          </div>
           </div>
 
           <form onSubmit={(e) => { e.preventDefault(); enviar(texto); }} className="flex items-end gap-2 bg-[#f0f2f5] px-2 py-2">
@@ -235,6 +266,7 @@ export default function ProbarVendedorPage() {
         abierto={corrigiendo !== null}
         mensajeCliente={corrigiendo !== null ? [...mensajes.slice(0, corrigiendo)].reverse().find((m) => m.role === "customer")?.content || "" : ""}
         respuestaBot={corrigiendo !== null ? (mensajes[corrigiendo]?.burbujas?.map((b) => b.texto).join("\n\n") || mensajes[corrigiendo]?.content || "") : ""}
+        burbujaElegida={eleccion && eleccion.k !== null ? mensajes[eleccion.i]?.burbujas?.[eleccion.k] ?? null : null}
         productoEnFoco={corrigiendo !== null ? mensajes[corrigiendo]?.productoEnFoco ?? null : null}
         alCerrar={() => setCorrigiendo(null)}
         alCorregir={() => {
@@ -253,10 +285,14 @@ function DialogoCorregir(p: {
   mensajeCliente: string;
   respuestaBot: string;
   productoEnFoco: number | null;
+  /** La burbuja que tocó el dueño (una ficha, un texto, un audio), si tocó una. */
+  burbujaElegida?: Burbuja | null;
   alCerrar: () => void;
   alCorregir: () => void;
 }) {
   const [texto, setTexto] = useState("");
+  const elegida = p.burbujaElegida ?? null;
+  const esFicha = elegida?.imagen !== undefined && elegida !== null;
   const [guardando, setGuardando] = useState(false);
   useEffect(() => { if (p.abierto) setTexto(""); }, [p.abierto]);
 
@@ -266,7 +302,13 @@ function DialogoCorregir(p: {
     try {
       const r = await api<{ mensaje: string; tipo?: "forma" | "dato"; guardado?: string }>("/api/probar-vendedor/corregir", {
         method: "POST",
-        body: JSON.stringify({ correccion: texto, mensajeDelCliente: p.mensajeCliente, respuestaBot: p.respuestaBot, productId: p.productoEnFoco }),
+        body: JSON.stringify({
+          correccion: texto,
+          mensajeDelCliente: p.mensajeCliente,
+          // Si tocó una burbuja, la corrección es sobre ESE mensaje (la ficha, el audio…).
+          respuestaBot: elegida ? `[El dueño señala este mensaje${esFicha ? " (una ficha con foto)" : elegida.audio ? " (una nota de voz)" : ""}]: ${elegida.texto}` : p.respuestaBot,
+          productId: p.productoEnFoco,
+        }),
       });
       toast.success(
         r.tipo === "dato" ? "Guardado como dato del negocio" : "Guardado como regla para tu vendedor",
@@ -290,8 +332,23 @@ function DialogoCorregir(p: {
 
         <div className="space-y-2 rounded-lg bg-slate-50 p-3 text-xs">
           <p className="text-slate-500">Cliente: <span className="text-slate-800">{p.mensajeCliente || "—"}</span></p>
-          <p className="text-slate-500 line-clamp-3">Vendedor: <span className="text-slate-800">{p.respuestaBot || "—"}</span></p>
+          {elegida ? (
+            <div className="flex gap-2">
+              {esFicha && elegida.imagen && <img src={elegida.imagen} alt="" className="h-14 w-14 shrink-0 rounded object-cover" />}
+              <p className="text-slate-500 line-clamp-4">
+                {esFicha ? "Ficha elegida" : elegida.audio ? "Nota de voz elegida" : "Mensaje elegido"}: <span className="text-slate-800">{elegida.texto}</span>
+              </p>
+            </div>
+          ) : (
+            <p className="text-slate-500 line-clamp-3">Vendedor: <span className="text-slate-800">{p.respuestaBot || "—"}</span></p>
+          )}
         </div>
+        {esFicha && (
+          <p className="-mt-1 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+            Los datos de la ficha (precio, descripción, foto, lo que incluye) salen de <a href="/products" className="font-semibold underline">Productos</a>: si algo está mal, cámbialo allá.
+            Aquí corriges <b>cuándo y cómo</b> se manda (ej: "no mandes la ficha completa si solo preguntó el precio").
+          </p>
+        )}
 
         <Textarea
           value={texto}
@@ -300,7 +357,18 @@ function DialogoCorregir(p: {
           maxLength={500}
           placeholder={"¿Qué debió responder o hacer?\nEj: No vuelvas a ofrecer el video si ya lo enviaste.\nEj: Sí tiene garantía de 30 días por defectos de fábrica."}
         />
-        <p className="-mt-2 text-[11px] text-slate-500">Si es una regla de cómo vender, se guarda para todos tus agentes. Si es un dato (garantía, tallas, horarios), queda como respuesta del negocio.</p>
+        <div className="-mt-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] text-slate-500">Si es una regla de cómo vender, se guarda para todos tus agentes. Si es un dato (garantía, tallas, horarios), queda como respuesta del negocio.</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => setTexto(`Debió decir:\n${elegida?.texto ?? p.respuestaBot}`)}
+            className="h-7 text-xs"
+          >
+            <PencilLine className="mr-1 h-3.5 w-3.5" /> Editar este texto
+          </Button>
+        </div>
 
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="ghost" onClick={p.alCerrar}>Cancelar</Button>
