@@ -999,7 +999,7 @@ export class AdStrategist {
     return `https://wa.me/${digitos}`;
   }
 
-  async createDraftAd(adAccountParam: string, accessTokenParam: string, productId: number, grounded?: ResearchGroundedCopy, manualImages?: string[], destino?: { tipo: "whatsapp"; numero: string }, presupuestoDiario?: number): Promise<DraftAd> {
+  async createDraftAd(adAccountParam: string, accessTokenParam: string, productId: number, grounded?: ResearchGroundedCopy, manualImages?: string[], destino?: { tipo: "whatsapp"; numero: string }, presupuestoDiario?: number, opts: { subirSolo?: boolean } = {}): Promise<DraftAd> {
     // Las credenciales se resuelven SIEMPRE acá, no se confía en las que
     // manda quien llama: los tres llamadores (la ruta HTTP, la herramienta
     // fb_ad_draft de Atlas y createDraftsForAllProducts) armaban su propio
@@ -1113,7 +1113,11 @@ export class AdStrategist {
       { productId: product.id, strategy: strategy.niche, draftId: localDraft.id },
       "[AdStrategist] Borrador local creado (sin tocar la cuenta publicitaria)"
     );
-    if (process.env.FB_CREATE_REAL_CAMPAIGNS !== "true" || !localDraft.id) return localDraft;
+    // `subirSolo: false` = el llamador lo sube después con SU objetivo. Prueba
+    // real del 25-09-2026: Atlas pidió formulario, este paso lo subió solo
+    // como tráfico a la landing y la subida pedida falló con "ese borrador ya
+    // existe en Meta".
+    if (process.env.FB_CREATE_REAL_CAMPAIGNS !== "true" || !localDraft.id || opts.subirSolo === false) return localDraft;
 
     if (!accessToken || !adAccount) {
       localDraft.errorDeMeta = "Para subirlo a Meta primero tenés que conectar tu cuenta de Facebook desde la sección Facebook del panel.";

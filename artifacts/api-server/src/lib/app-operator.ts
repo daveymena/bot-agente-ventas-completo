@@ -3377,6 +3377,9 @@ ${explicarObjetivos()}` };
           undefined,
           wa ? { tipo: "whatsapp", numero: wa } : undefined,
           num(args.dailyBudget) || undefined,
+          // Un borrador es un borrador: a Meta se sube una sola vez, con el
+          // objetivo pedido (fb_upload_draft_to_meta / crear_anuncio).
+          { subirSolo: false },
         );
         // Que el admin sepa SIEMPRE sobre qué base se escribió el anuncio.
         // Si se hizo sin investigación externa (porque falló o no había), se
