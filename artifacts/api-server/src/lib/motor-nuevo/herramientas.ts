@@ -994,45 +994,6 @@ export const ejecutores: Record<string, Ejecutor> = {
         };
       }
     }
-  async tomar_pedido(ctx, args) {
-    if (!ctx.pedidos) {
-      return { ok: false, mensaje: "Este negocio no toma pedidos automáticos. Tomá los datos con registrar_dato y decile que una persona le confirma el envío. No digas que el pedido quedó registrado." };
-    }
-    const id = ctx.focoFijo ?? (Number(args?.productoId) || ctx.estado.productoEnFoco);
-    const p = id ? ctx.catalogo.find((x) => x.id === id) : null;
-    if (!p) return { ok: false, mensaje: "No sé qué producto compra. Ubicalo con buscar_en_catalogo o enfocar_producto y volvé a llamar." };
-    if (String(p.kind || "digital") !== "physical") {
-      return { ok: false, mensaje: `${p.name} no es un producto físico: no lleva envío ni pedido. Seguí con mostrar(seccion="pago").` };
-    }
-    // Precio antes que datos: pedir cédula y dirección a quien no sabe
-    // cuesta es la regla que CLAUDE.md prohíbe romper.
-    if (!precioDado(ctx.estado, p.id)) {
-      return { ok: false, mensaje: `Todavía no le mostraste el precio de ${p.name}. Mandá primero mostrar(seccion="precio") y después pedí los datos.` };
-    }
-    // Que QUIERA comprar, no que le interese. Pedido del dueño (25-09-2026):
-    // a "me interesa este" el bot le pidió nombre y cédula. Los datos se piden
-    // cuando el cliente dijo que sí a "¿te lo enviamos?" (en un mensaje
-    // POSTERIOR a esa pregunta), o cuando él mismo dijo que lo compra.
-    if (ctx.estado.compraConfirmada !== p.id) {
-      const preguntado = ctx.estado.preguntoSiCompra;
-      // Preguntado por esta herramienta en un turno anterior, o por el modelo
-      // en su texto ("¿Te lo enviamos?" con que cerró su último mensaje).
-      const preguntoEnElTexto = /env[ií]|pedido|llev[aá]s|llevas|compr|separ|apart|lo quer[eé]s|lo quieres|te animas|te animás/i.test(ctx.estado.ultimaPreguntaAgente || "");
-      const preguntoAntes = (preguntado?.productoId === p.id && ctx.estado.turnos > preguntado.turno) || preguntoEnElTexto;
-      const respondioAlaPregunta = preguntoAntes && !esDudaONegativa(ctx.mensajeDelCliente);
-      if (respondioAlaPregunta || diceQueCompra(ctx.mensajeDelCliente)) {
-        ctx.estado.compraConfirmada = p.id;
-      } else {
-        ctx.estado.preguntoSiCompra = { productoId: p.id, turno: ctx.estado.turnos };
-        return {
-          ok: false,
-          mensaje:
-            `El cliente todavía NO dijo que compra ${p.name} (interesarse no es comprar). NO le pidas datos de envío. ` +
-            `Respondé lo que preguntó y cerrá con UNA pregunta corta de si quiere hacer el pedido (ej: "¿Te lo enviamos?"). ` +
-            `Si responde que sí, volvé a llamar tomar_pedido.`,
-        };
-      }
-    }
     const datos: DatosDelPedido = {};
     for (const k of ["nombre", "telefono", "documento", "departamento", "ciudad", "direccion", "barrio", "notas"] as const) {
       const v = String(args?.[k] ?? "").trim();
