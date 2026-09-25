@@ -7600,6 +7600,117 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       };
     },
   },
+
+  {
+    name: "agentlab_aplicar_ab",
+    description:
+      "Aplica una versión candidata a un porcentaje de tráfico REAL (A/B test). Mide conversión en ambos grupos. " +
+      "10% = 1 de cada 10 clientes nuevos ven el nuevo prompt, 9 ven el actual. DESTRUCTIVE en ese porcentaje.",
+    args: '{ "agentId": number (req), "versionId": number (req), "trafficPercent": number (req, 1-100), "durationDays": number (opt, default 7) }',
+    run: async (args, ctx) => {
+      if (!args?.agentId || !args?.versionId || !args?.trafficPercent) {
+        return { ok: false, summary: 'Faltan "agentId", "versionId" o "trafficPercent"' };
+      }
+
+      if (args.trafficPercent < 1 || args.trafficPercent > 100) {
+        return { ok: false, summary: "trafficPercent debe estar entre 1 y 100" };
+      }
+
+      const { db } = await ensureDbReady();
+      const [agent] = await db.select().from(agents).where(eq(agents.id, args.agentId));
+      const [version] = await db.select().from(prompt_versions).where(eq(prompt_versions.id, args.versionId));
+
+      if (!agent || agent.tenantId !== ctx.tenantId || !version || version.agentId !== args.agentId) {
+        return { ok: false, summary: "Agente o versión no encontrados" };
+      }
+
+      // Guardar estado del A/B test en performance_before (JSON)
+      await db
+        .update(prompt_versions)
+        .set({
+          performanceBefore: {
+            abTestActive: true,
+            trafficPercent: args.trafficPercent,
+            startedAt: new Date().toISOString(),
+            durationDays: args.durationDays || 7,
+            endAt: new Date(Date.now() + (args.durationDays || 7) * 24 * 60 * 60 * 1000).toISOString(),
+            status: "running",
+          },
+        })
+        .where(eq(prompt_versions.id, args.versionId));
+
+      return {
+        ok: true,
+        summary: `✅ A/B test iniciado: versión #${args.versionId} → ${args.trafficPercent}% de tráfico por ${args.durationDays || 7} días. Mide conversión en ambos grupos.`,
+        data: {
+          versionId: args.versionId,
+          trafficPercent: args.trafficPercent,
+          durationDays: args.durationDays || 7,
+          nextStep: "En 7 días: agentlab_comparar_ab para ver resultados reales"
+        },
+      };
+    },
+  },
+
+  {
+    name: "agentlab_rollback",
+    description:
+      "Revierte un agente a su versión anterior. DESTRUCTIVE: todos los clientes verán el prompt viejo de nuevo. " +
+      "Úsalo si una versión aplicada degradó el rendimiento.",
+    args: '{ "agentId": number (req), "versionId": number (opt, si no se pasa revierte a la anterior) }',
+    run: async (args, ctx) => {
+      if (!args?.agentId) {
+        return { ok: false, summary: 'Falta "agentId"' };
+      }
+
+      const { db } = await ensureDbReady();
+      const [agent] = await db.select().from(agents).where(eq(agents.id, args.agentId));
+
+      if (!agent || agent.tenantId !== ctx.tenantId) {
+        return { ok: false, summary: "Agente no encontrado" };
+      }
+
+      // Obtener versión anterior (la más reciente con isActive=true que no sea esta)
+      const versions = await db
+        .select()
+        .from(prompt_versions)
+        .where(and(eq(prompt_versions.agentId, args.agentId), eq(prompt_versions.isActive, true)))
+        .orderBy(desc(prompt_versions.createdAt))
+        .limit(2);
+
+      if (versions.length < 2) {
+        return { ok: false, summary: "No hay versión anterior a la que revertir" };
+      }
+
+      const currentVersion = versions[0];
+      const previousVersion = versions[1];
+
+      // Revertir: restaurar prompt anterior
+      await db
+        .update(agents)
+        .set({
+          systemPrompt: previousVersion.newPrompt,
+          updatedAt: new Date(),
+        })
+        .where(eq(agents.id, args.agentId));
+
+      // Marcar versión actual como inactiva
+      await db
+        .update(prompt_versions)
+        .set({ isActive: false })
+        .where(eq(prompt_versions.id, currentVersion.id));
+
+      return {
+        ok: true,
+        summary: `✅ Rollback completado: agente ${agent.name} revirtió de versión #${currentVersion.id} a versión #${previousVersion.id}. Todos los clientes verán el prompt anterior.`,
+        data: {
+          revertedFrom: currentVersion.id,
+          revertedTo: previousVersion.id,
+          timestamp: new Date().toISOString()
+        },
+      };
+    },
+  },
 ];
 
 /**
