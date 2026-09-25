@@ -24,9 +24,9 @@ describe("cada frase lleva a su objetivo", () => {
 });
 
 describe("lo que todavía no se crea no se desvía a otra cosa", () => {
-  test("formulario: viaja marcado y las herramientas lo rechazan explicando qué falta", async () => {
-    const pedido = pedidoDelAdmin("crea un anuncio con formulario de clientes potenciales");
-    expect(pedido).toBe("no-creable:clientes_potenciales_formulario");
+  test("llamadas: viaja marcado y las herramientas lo rechazan explicando qué falta", async () => {
+    const pedido = pedidoDelAdmin("crea un anuncio para que me llamen");
+    expect(pedido).toBe("no-creable:llamadas");
     expect(interpretarObjetivo(pedido!)).toBeNull(); // no se convierte en ventas/web
     expect(await rechazoPorObjetivoNoCreable(pedido)).toMatch(/todavía NO la puede crear/);
   });
@@ -50,6 +50,13 @@ describe("Atlas puede explicarlos", () => {
   test("la explicación nombra los 6 objetivos de Meta y marca cuáles se crean", () => {
     const t = explicarObjetivos();
     for (const o of ["OUTCOME_AWARENESS", "OUTCOME_TRAFFIC", "OUTCOME_ENGAGEMENT", "OUTCOME_LEADS", "OUTCOME_APP_PROMOTION", "OUTCOME_SALES"]) expect(t).toContain(o);
-    expect(CATALOGO_DE_OBJETIVOS.filter((o) => o.creable).map((o) => o.arma).sort()).toEqual(["mensajes", "reconocimiento", "trafico", "ventas"]);
+    expect(CATALOGO_DE_OBJETIVOS.filter((o) => o.creable).map((o) => o.arma).sort()).toEqual(["formulario", "mensajes", "reconocimiento", "trafico", "ventas"]);
+  });
+});
+
+describe("formulario de clientes potenciales (25-09-2026)", () => {
+  test("se pide y se arma como objetivo propio, no como web", () => {
+    expect(pedidoDelAdmin("crea un anuncio con formulario de clientes potenciales")).toBe("formulario");
+    expect(interpretarObjetivo("campaña para captar datos")).toBe("formulario");
   });
 });

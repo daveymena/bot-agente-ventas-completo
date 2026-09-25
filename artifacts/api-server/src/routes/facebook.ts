@@ -99,98 +99,11 @@ router.post("/lead-ads/webhook", verifyFacebookSignature, async (req: Request, r
           if (!leadgenId) continue;
 
           logger.info({ leadgenId, pageId, formId }, "[Facebook] Nuevo lead recibido");
-
-          // Obtener datos del lead desde Facebook Graph API
-          const tenantId = 1;
-          const [tenant] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
-          const meta = tenant?.metadata ? (typeof tenant.metadata === "string" ? JSON.parse(tenant.metadata) : tenant.metadata) : {};
-          const accessToken = decryptSecret(meta.facebook?.accessToken) || process.env.FB_ACCESS_TOKEN || "";
-
-          if (!accessToken) {
-            logger.warn("[Facebook] No hay token de acceso configurado para obtener lead");
-            continue;
-          }
-
-          let leadData: any = null;
-          try {
-            const response = await fetch(
-              `${FB_GRAPH_BASE}/${leadgenId}?access_token=${accessToken}`
-            );
-            leadData = await response.json();
-            logger.info({ leadData }, "[Facebook] Datos del lead obtenidos");
-          } catch (err: any) {
-            logger.error({ err }, "[Facebook] Error obteniendo datos del lead");
-            continue;
-          }
-
-          if (!leadData || leadData.error) {
-            logger.error({ fbError: leadData?.error }, "[Facebook] Error en respuesta de Graph API");
-            continue;
-          }
-
-          // Extraer campos del lead
-          const fieldData = leadData.field_data || [];
-          const getFieldValue = (name: string): string => {
-            const field = fieldData.find((f: any) => f.name === name);
-            return field?.values?.[0] || "";
-          };
-
-          const fullName = getFieldValue("full_name") || getFieldValue("name") || "Lead Facebook";
-          const phone = getFieldValue("phone_number") || getFieldValue("phone") || getFieldValue("whatsapp") || "";
-          const email = getFieldValue("email") || "";
-          const city = getFieldValue("city") || "";
-          const comments = getFieldValue("comments") || getFieldValue("message") || "";
-
-          if (!phone) {
-            logger.warn({ leadgenId, fullName, email }, "[Facebook] Lead sin teléfono, no se puede contactar por WhatsApp");
-            continue;
-          }
-
-          // Limpiar formato de teléfono
-          const cleanPhone = phone.replace(/[^0-9]/g, "");
-          const phoneWithCountry = cleanPhone.startsWith("57") ? cleanPhone : `57${cleanPhone}`;
-
-          // Crear lead en DB
-          const [newLead] = await db.insert(leads).values({
-            tenantId,
-            name: fullName,
-            phone: phoneWithCountry,
-            email,
-            stage: "new",
-            source: "facebook_lead",
-          }).returning();
-
-          // Crear conversación
-          const [newConversation] = await db.insert(conversations).values({
-            tenantId,
-            contactName: fullName,
-            contactPhone: phoneWithCountry,
-            status: "ai",
-            currentStage: "greeting",
-            leadId: newLead.id,
-          }).returning();
-
-          // Guardar mensaje inicial del lead
-          const initialMessage = comments || `Hola, vi sus productos en Facebook y me interesa recibir información.`;
-          await db.insert(messages).values({
-            conversationId: newConversation.id,
-            role: "customer",
-            content: initialMessage,
-          });
-
-          logger.info(
-            { leadId: newLead.id, conversationId: newConversation.id, phone: phoneWithCountry },
-            "[Facebook] Lead creado y conversación iniciada"
-          );
-
-          // Enviar mensaje de bienvenida por WhatsApp si está conectado
-          if (whatsapp.isConnected()) {
-            const welcomeMessage = `¡Hola ${fullName}! 👋\n\nGracias por tu interés en nuestros productos. Soy ${meta.brandName || "Sofía"}, tu asesora virtual.\n\n¿En qué puedo ayudarte hoy?`;
-            await whatsapp.sendText(phoneWithCountry, welcomeMessage);
-            logger.info({ phone: phoneWithCountry }, "[Facebook] Mensaje de bienvenida enviado por WhatsApp");
-          } else {
-            logger.warn({ phone: phoneWithCountry }, "[Facebook] WhatsApp no conectado, no se pudo enviar bienvenida");
-          }
+          // El negocio sale de la PÁGINA del lead (antes: tenantId = 1 fijo,
+          // y los leads de todos los negocios le llegaban al dueño).
+          const { procesarLeadDeFormulario } = await import("../lib/facebook-leads");
+          const r = await procesarLeadDeFormulario({ leadgenId: String(leadgenId), pageId: String(pageId || ""), formId: formId ? String(formId) : null, adId: change.value?.ad_id ? String(change.value.ad_id) : null });
+          logger.info({ leadgenId, pageId, ...r }, "[Facebook] Lead de formulario procesado");
         }
       }
     }

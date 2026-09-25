@@ -3007,6 +3007,23 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "fb_permisos_formularios",
+    description: "Revisa, sin crear nada, si la conexión de Facebook de ESTE negocio tiene los permisos para campañas de formulario de clientes potenciales (leads_retrieval, pages_manage_ads, pages_show_list, ads_management) y si tiene página conectada. Usala antes de crear una campaña de formulario. Lectura.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Este negocio no tiene Facebook conectado." };
+      const faltan = await fb.permisosFaltantesParaFormularios();
+      const pagina = (fb as any).config?.pageId;
+      if (!pagina) return { ok: false, summary: "Falta conectar la página de Facebook del negocio: sin página no hay formulario." };
+      return faltan.length
+        ? { ok: false, summary: `Faltan permisos para formularios: ${faltan.join(", ")}. Hay que reconectar Facebook aceptándolos.` }
+        : { ok: true, summary: "La conexión tiene todos los permisos para campañas de formulario y la página está conectada." };
+    },
+  },
+  {
     name: "objetivos_de_campana",
     description: "LOS OBJETIVOS DE CAMPAÑA DE META: para qué sirve cada uno (reconocimiento, tráfico a la landing, ventas, mensajes a WhatsApp/Messenger/Instagram, interacción, seguidores, video, formulario de clientes potenciales, llamadas, app), con qué frases se pide y cuáles ya crea este sistema. Usala cuando el admin pida un tipo de campaña que no sea claramente web o WhatsApp, o pregunte cuál le conviene. Con 'pedido' dice cuál corresponde a esa frase. Lectura.",
     args: '{ "pedido"?: string (la frase del admin) }',
@@ -3025,7 +3042,7 @@ ${explicarObjetivos()}` };
   {
     name: "fb_create_ad",
     description: "Crear una campaña de anuncios en Facebook/Instagram para un producto. Se crea SIEMPRE en PAUSA (no gasta hasta que el admin la active en Ads Manager). Meta adapta el creativo a cada tamaño/dispositivo automáticamente. GASTA DINERO al activarse. ⚠️ El 'objetivo' decide A DÓNDE va la gente y A QUIÉN le muestra Meta el anuncio: si el admin dijo WhatsApp, mensajes, tráfico o alcance, PASALO — sin ese dato se crea de ventas apuntando a la web, que es otra campaña distinta.",
-    args: '{ "productId": number (req), "objetivo": "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — "mensajes" abre WhatsApp, "trafico" lleva a la web buscando clics, "ventas" lleva a la web buscando compradores, def "ventas"), "destinoWeb"?: "landing"|"tienda" (si el admin pidió la LANDING pasá "landing" con objetivo "trafico" o "ventas", NUNCA "mensajes"), "dailyBudget": number (opcional, en la moneda de la cuenta, def 5000), "startDate": string opcional ISO, "cities": string[] opcional, "ageMin": number opcional, "ageMax": number opcional }',
+    args: '{ "productId": number (req), "objetivo": "ventas"|"trafico"|"mensajes"|"reconocimiento"|"formulario" (opcional pero IMPORTANTE — "mensajes" abre WhatsApp, "trafico" lleva a la web buscando clics, "ventas" lleva a la web buscando compradores, def "ventas"), "destinoWeb"?: "landing"|"tienda" (si el admin pidió la LANDING pasá "landing" con objetivo "trafico" o "ventas", NUNCA "mensajes"), "dailyBudget": number (opcional, en la moneda de la cuenta, def 5000), "startDate": string opcional ISO, "cities": string[] opcional, "ageMin": number opcional, "ageMax": number opcional }',
     run: async (args, ctx) => {
       if (!args.productId) return { ok: false, summary: "Falta 'productId'" };
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
@@ -3092,7 +3109,7 @@ ${explicarObjetivos()}` };
       // igual que una correcta: "Campaña creada EN PAUSA". Nombrar el destino
       // convierte un error silencioso en uno que se ve antes de activar.
       const OBJ = OBJETIVOS[objetivo];
-      const aDonde = OBJ.destino === "whatsapp" ? "abre WhatsApp" : "lleva a la web";
+      const aDonde = OBJ.destino === "whatsapp" ? "abre WhatsApp" : OBJ.destino === "formulario" ? "abre un formulario dentro de Facebook/Instagram (los leads llegan al CRM y el bot les escribe por WhatsApp)" : "lleva a la web";
       return {
         ok: true,
         summary:
@@ -3476,7 +3493,7 @@ ${explicarObjetivos()}` };
   {
     name: "fb_upload_draft_to_meta",
     description: "Sube a Meta un borrador que hoy solo existe local, CON SU PROPIO TEXTO, y lo deja en PAUSA (no gasta un peso). Es el paso intermedio entre 'borrador guardado acá' y 'campaña gastando': después de esto el admin puede verlo en Ads Manager y activarlo cuando quiera. Usá fb_list_drafts para conseguir el draftId. NO confundir con publicar/activar: esto NO enciende la campaña.",
-    args: '{ "draftId": number (req, id del borrador -- lo da fb_list_drafts), "destinoWeb"?: "landing"|"tienda", "objetivo": "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — decide A DÓNDE va la gente: "mensajes" abre WhatsApp, "trafico" y "ventas" llevan a la web. Si el admin dijo WhatsApp o tráfico, PASALO; sin ese dato sube como campaña de ventas a la web) , "comoCampana"?: string (campaña cuya estructura se replica; por defecto la más reciente), "sinPlantilla"?: boolean }',
+    args: '{ "draftId": number (req, id del borrador -- lo da fb_list_drafts), "destinoWeb"?: "landing"|"tienda", "objetivo": "ventas"|"trafico"|"mensajes"|"reconocimiento"|"formulario" (opcional pero IMPORTANTE — decide A DÓNDE va la gente: "mensajes" abre WhatsApp, "trafico" y "ventas" llevan a la web. Si el admin dijo WhatsApp o tráfico, PASALO; sin ese dato sube como campaña de ventas a la web) , "comoCampana"?: string (campaña cuya estructura se replica; por defecto la más reciente), "sinPlantilla"?: boolean }',
     run: async (args, ctx) => {
       const draftId = Number(args.draftId);
       if (!draftId) return { ok: false, summary: "Falta el id del borrador (usá fb_list_drafts para obtenerlo)." };
@@ -3530,7 +3547,7 @@ ${explicarObjetivos()}` };
       const { leerPreferenciaWeb } = await import("./landing/destino-del-producto");
       const r = await new AdStrategist(tenant || undefined).subirBorradorAMeta(draftId, objetivo, plantilla, leerPreferenciaWeb(ctx.objetivoDelAdmin) ?? leerPreferenciaWeb(args?.destinoWeb) ?? leerPreferenciaWeb(args?.objetivo));
       const OBJ = OBJETIVOS[objetivo];
-      const aDonde = OBJ.destino === "whatsapp" ? "abre WhatsApp" : "lleva a la web";
+      const aDonde = OBJ.destino === "whatsapp" ? "abre WhatsApp" : OBJ.destino === "formulario" ? "abre un formulario dentro de Facebook/Instagram (los leads llegan al CRM y el bot les escribe por WhatsApp)" : "lleva a la web";
       return {
         ok: r.ok,
         summary: r.ok
@@ -7692,6 +7709,7 @@ export async function executeAction(tool: string, args: any, ctx: OperatorContex
 // Mutación: cambian datos → requieren PLAN + confirmación del admin.
 // Destructivas / de dinero: confirmación reforzada.
 export const READ_ONLY_TOOLS = new Set([
+  "fb_permisos_formularios",
   "objetivos_de_campana",
   "dropi_transportadoras_sondeo",
   "embudo_de_ventas",

@@ -100,8 +100,7 @@ export const CATALOGO_DE_OBJETIVOS: ObjetivoDelCatalogo[] = [
     clave: "clientes_potenciales_formulario", nombre: "Clientes potenciales (formulario en Meta)", metaObjective: "OUTCOME_LEADS", optimizationGoal: "LEAD_GENERATION", destinationType: "ON_AD",
     paraQue: "Juntar datos (nombre, teléfono) con un formulario que se abre dentro de Facebook/Instagram, sin salir de la app.",
     cuandoUsar: "'Formulario', 'captar datos', 'leads', 'registros'. Útil para servicios y cotizaciones.",
-    patron: /formulario|clientes potenciales|captar datos|\bleads?\b|registros? de (clientes|interesados)|base de datos de clientes/, creable: false,
-    falta: "Hace falta crear el formulario instantáneo en la página y conectar la descarga de los leads al CRM.",
+    patron: /formulario|clientes potenciales|captar datos|\bleads?\b|registros? de (clientes|interesados)|base de datos de clientes/, creable: true, arma: "formulario",
   },
   {
     clave: "llamadas", nombre: "Llamadas", metaObjective: "OUTCOME_LEADS", optimizationGoal: "QUALITY_CALL", destinationType: "PHONE_CALL",

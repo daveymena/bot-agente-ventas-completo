@@ -785,6 +785,18 @@ Responde SOLO con este JSON exacto:
       // landing y no está publicada, falla acá con el motivo, sin dejar una
       // campaña a medias.
       const vaAWhatsApp = OBJ.destino === "whatsapp" && !!waDelNegocio;
+      // Formulario: permisos y formulario ANTES de crear la campaña, para no
+      // dejar una campaña a medias si falta algo.
+      let formularioId: string | null = null;
+      if (OBJ.destino === "formulario") {
+        const faltan = await this.permisosFaltantesParaFormularios();
+        if (faltan.length) {
+          throw new Error(`La conexión de Facebook de este negocio no tiene permiso para formularios (${faltan.join(", ")}). Hay que reconectar Facebook desde el panel aceptando esos permisos.`);
+        }
+        const fbCfg: any = (this.tenant as any)?.facebook || {};
+        const privacidadUrl = String(fbCfg.privacyUrl || fbCfg.privacidadUrl || "").trim() || `${getAppUrl().replace(/\/$/, "")}/privacidad`;
+        formularioId = await this.formularioDelProducto({ id: Number(product.id), name: String(product.name) }, { privacidadUrl });
+      }
       const destinoWeb = vaAWhatsApp ? "" : (await destinoWebDelProducto(this.tenant.id, productId, preferenciaWeb)).url;
 
       const adAccount = `act_${this.config.adAccountId}`;
@@ -1116,6 +1128,11 @@ Responde SOLO con este JSON exacto:
           adSetBody.destination_type = "WHATSAPP";
           if (this.config.pageId) adSetBody.promoted_object = { page_id: this.config.pageId };
         }
+        if (OBJ.destino === "formulario") {
+          // El formulario se abre DENTRO del anuncio.
+          adSetBody.destination_type = "ON_AD";
+          if (this.config.pageId) adSetBody.promoted_object = { page_id: this.config.pageId };
+        }
         // De la plantilla solo se copia la optimización si es compatible con
         // ESTE objetivo. 25-09-2026: la plantilla es la campaña de mensajes a
         // WhatsApp (CONVERSATIONS) y se copiaba encima de LANDING_PAGE_VIEWS
@@ -1206,7 +1223,9 @@ Responde SOLO con este JSON exacto:
             message: adCopy.primaryText,
             name: adCopy.headline,
             description: adCopy.description,
-            call_to_action: { type: OBJ.destino === "whatsapp" ? "WHATSAPP_MESSAGE" : "SHOP_NOW" },
+            call_to_action: OBJ.destino === "formulario" && formularioId
+              ? { type: "SIGN_UP", value: { lead_gen_form_id: formularioId } }
+              : { type: OBJ.destino === "whatsapp" ? "WHATSAPP_MESSAGE" : "SHOP_NOW" },
           },
         },
         degrees_of_freedom_spec: { creative_features_spec: creativeFeaturesSpec },
@@ -1279,7 +1298,7 @@ Responde SOLO con este JSON exacto:
         adCopy,
         status: "PAUSED",
         previewUrl,
-        destino: vaAWhatsApp ? "whatsapp" : destinoWeb,
+        destino: vaAWhatsApp ? "whatsapp" : OBJ.destino === "formulario" ? "formulario" : destinoWeb,
         objetivo,
         ...(conjuntosExtra.length ? { conjuntosExtra } : {}),
       } as FbCampaignResult;
@@ -2164,6 +2183,71 @@ Responde SOLO con este JSON exacto:
    * algo que se resuelve solo. No se reintenta lo que no mejora reintentando
    * (token inválido, copy rechazado, sin método de pago).
    */
+  // ── Formularios de clientes potenciales (objetivo "formulario") ─────────
+  //
+  // Cada negocio usa SU página: el formulario se crea en ella, con SU política
+  // de privacidad, y los leads vuelven al webhook que los asigna por página
+  // (lib/facebook-leads.ts). Pedido del dueño (25-09-2026): es un SaaS y cada
+  // empresa elige su objetivo.
+
+  /** Permisos que faltan en la conexión del negocio para crear y leer formularios. */
+  async permisosFaltantesParaFormularios(): Promise<string[]> {
+    const necesarios = ["leads_retrieval", "pages_manage_ads", "pages_show_list", "ads_management"];
+    try {
+      const r = await this.fbGet("me/permissions", {}, this.config.userAccessToken);
+      const otorgados = new Set((r?.data || []).filter((x: any) => x.status === "granted").map((x: any) => String(x.permission)));
+      return necesarios.filter((n) => !otorgados.has(n));
+    } catch {
+      return necesarios;
+    }
+  }
+
+  /** Token de la PÁGINA (los formularios se crean con él, no con el de usuario). */
+  private async tokenDePagina(): Promise<string> {
+    try {
+      const r = await this.fbGet(String(this.config.pageId), { fields: "access_token" }, this.config.userAccessToken);
+      if (r?.access_token) return String(r.access_token);
+    } catch { /* se usa el guardado */ }
+    return this.config.accessToken;
+  }
+
+  /**
+   * El formulario del producto en la página del negocio: reusa uno ACTIVO con
+   * el mismo nombre o crea uno (nombre, teléfono, ciudad). Suscribe la página
+   * al aviso de leads para que lleguen al webhook.
+   */
+  async formularioDelProducto(producto: { id: number; name: string }, opts: { privacidadUrl: string; gracias?: string }): Promise<string> {
+    if (!this.config.pageId) throw new Error("El negocio no tiene página de Facebook conectada: sin página no hay formulario.");
+    const token = await this.tokenDePagina();
+    const nombre = `VentasPro · ${producto.name}`.slice(0, 95);
+    try {
+      const existentes = await this.fbGet(`${this.config.pageId}/leadgen_forms`, { fields: "id,name,status", limit: "100" }, token);
+      const ya = (existentes?.data || []).find((f: any) => f.name === nombre && String(f.status || "").toUpperCase() === "ACTIVE");
+      if (ya?.id) {
+        await this.suscribirPaginaALeads(token);
+        return String(ya.id);
+      }
+    } catch { /* si no se puede listar, se intenta crear */ }
+    const creado = await this.fbPost(`${this.config.pageId}/leadgen_forms`, {
+      name: nombre,
+      locale: "es_LA",
+      questions: [{ type: "FULL_NAME" }, { type: "PHONE" }, { type: "CITY" }],
+      privacy_policy: { url: opts.privacidadUrl, link_text: "Política de privacidad" },
+      thank_you_page: { title: "¡Gracias!", body: opts.gracias || "Te escribimos por WhatsApp en unos minutos.", button_type: "NONE" },
+    }, "formulario de clientes potenciales", token);
+    await this.suscribirPaginaALeads(token);
+    return String(creado.id);
+  }
+
+  /** Sin esta suscripción Meta no avisa los leads al webhook. */
+  private async suscribirPaginaALeads(tokenDePagina: string): Promise<void> {
+    try {
+      await this.fbPost(`${this.config.pageId}/subscribed_apps`, { subscribed_fields: ["leadgen"] }, "suscripción a leads", tokenDePagina);
+    } catch (e: any) {
+      logger.warn({ err: e?.message, pageId: this.config.pageId }, "[Facebook] No se pudo suscribir la página a leadgen: los leads no llegarán solos al webhook");
+    }
+  }
+
   private async fbPost(endpoint: string, body: Record<string, any>, step?: string, token?: string): Promise<any> {
     const ESPERAS_MS = [1200, 3000];
     for (let intento = 0; ; intento++) {

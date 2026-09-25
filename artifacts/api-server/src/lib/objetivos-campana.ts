@@ -14,13 +14,13 @@
  */
 import { objetivoDelCatalogo, nombraObjetivoCreable } from "./catalogo-objetivos-meta";
 
-export type ObjetivoCampana = "ventas" | "trafico" | "mensajes" | "reconocimiento";
+export type ObjetivoCampana = "ventas" | "trafico" | "mensajes" | "reconocimiento" | "formulario";
 
 export const OBJETIVOS: Record<ObjetivoCampana, {
   metaObjective: string;
   optimizationGoal: string;
   /** A dónde manda el anuncio. */
-  destino: "web" | "whatsapp";
+  destino: "web" | "whatsapp" | "formulario";
   descripcion: string;
 }> = {
   // Vender: Meta busca compradores. Necesita píxel para optimizar de verdad;
@@ -30,6 +30,15 @@ export const OBJETIVOS: Record<ObjetivoCampana, {
     optimizationGoal: "OFFSITE_CONVERSIONS",
     destino: "web",
     descripcion: "Vender el producto. Manda a la página del producto y Meta busca gente que compra.",
+  },
+  // Clientes potenciales con formulario DENTRO de Facebook/Instagram: nombre,
+  // teléfono y ciudad sin salir de la app. Los leads llegan al webhook, que
+  // los asigna al negocio por su página (lib/facebook-leads.ts).
+  formulario: {
+    metaObjective: "OUTCOME_LEADS",
+    optimizationGoal: "LEAD_GENERATION",
+    destino: "formulario",
+    descripcion: "Juntar datos de interesados con un formulario dentro de Facebook/Instagram; el bot les escribe por WhatsApp.",
   },
   // Tráfico: Meta busca gente que hace clic, no que compra. Mucho más barato
   // por clic y sirve para dar a conocer o llenar el remarketing, pero NO
@@ -82,6 +91,7 @@ function sinWhatsappNegado(t: string): string {
  */
 export function interpretarObjetivo(texto: string): ObjetivoCampana | null {
   const t = String(texto || "").toLowerCase();
+  if (/formulario|clientes potenciales|captar datos|\bleads?\b|registros? de (clientes|interesados)/.test(t)) return "formulario";
   const u = sinWhatsappNegado(t);
   const landing = MENCIONA_LANDING.test(t);
   const whatsapp = /whats?app|wpp|wsp|mensaje|escrib|convers|chat|\bdm\b|direct/.test(u);
