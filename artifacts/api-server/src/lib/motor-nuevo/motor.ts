@@ -49,6 +49,7 @@ import {
   type EstadoConversacion,
   type RepositorioEstado,
 } from "./estado-conversacion";
+import { buscarContextoRelevante } from "./buscar-contexto";
 import { renderGuion, type GuionDelNegocio } from "./nicho";
 import { hablarColombiano } from "../hablar-colombiano";
 import type { ClienteLLM } from "./cliente-llm";
@@ -497,7 +498,21 @@ export async function responder(params: {
       : undefined,
   };
 
-  const charla = historial.slice(-MENSAJES_DE_HISTORIAL).map((m) => ({
+  // Buscar contexto relevante: si el cliente menciona algo del pasado, trae ese contexto
+  const mensajeDelClienteActual = historial
+    .reverse()
+    .find(m => m.role === "customer")?.content || "";
+  const relevantes = await buscarContextoRelevante(historial, mensajeDelClienteActual, undefined, 2);
+  const relevantesIds = new Set(relevantes.map(m => m.content)); // Evitar duplicados
+
+  // Armar charla: relevantes + últimos N mensajes
+  const ultimosMensajes = historial.slice(-MENSAJES_DE_HISTORIAL);
+  const todosUnicos = [
+    ...relevantes.filter(m => !ultimosMensajes.some(u => u.content === m.content)), // Contexto antiguo relevante
+    ...ultimosMensajes, // Contexto reciente
+  ];
+
+  const charla = todosUnicos.map((m) => ({
     role: m.role === "customer" ? "user" : "assistant",
     content: m.content,
   }));

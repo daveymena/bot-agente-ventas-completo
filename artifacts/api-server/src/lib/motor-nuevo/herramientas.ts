@@ -206,6 +206,23 @@ export interface ResultadoHerramienta {
 
 const ahora = () => new Date().toISOString();
 
+/**
+ * La ficha COMPLETA (y el detalle de "info" cuando ya vio el contenido) lleva
+ * el enlace del video adentro: es la misma condición que `construirSeccion`
+ * (whatsapp.ts, "Si el producto tiene video, se comparte UNA vez"). Sin esto
+ * el estado solo anotaba "completa", el video figuraba como NO enviado y el
+ * turno siguiente volvía a ofrecer "¿Quieres ver un pedacito del video?"
+ * (reportado por el dueño en producción, 25-09-2026). Ninguna corrección lo
+ * arreglaba porque esa pregunta la arma el sistema, no el modelo.
+ */
+export function registrarVideoSiLaFichaLoLleva(estado: EstadoConversacion, p: Producto, seccion: string, yaVioContenido: boolean): void {
+  if (!p.videoUrl || yaSeEnvio(estado, p.id, "video")) return;
+  if (seccion === "completa" || (seccion === "info" && yaVioContenido)) {
+    registrarEnvio(estado, p.id, "video");
+    registrarHechoEntregado(estado, `video de ${p.name}`);
+  }
+}
+
 const nombreDe = (ctx: ContextoHerramientas, id: number) =>
   ctx.catalogo.find((p) => p.id === id)?.name ?? `producto #${id}`;
 
@@ -770,13 +787,14 @@ export const ejecutores: Record<string, Ejecutor> = {
       return { ok: false, mensaje: `${p.name} no tiene video cargado. Sigue sin ofrecerle video.` };
     }
 
+    const yaVio = productoPresentado(ctx.estado, p.id);
     ctx.partes.push({
       kind: "card",
       productId: p.id,
       seccion: sec,
       // Lo que el render ya sabía usar y el motor viejo casi nunca le pasaba.
       // Acá sale del estado, sin depender de que el modelo se acuerde.
-      yaVioContenido: productoPresentado(ctx.estado, p.id),
+      yaVioContenido: yaVio,
       sesionNueva: ctx.estado.turnos === 0,
       videoYaEnviado: yaSeEnvio(ctx.estado, p.id, "video"),
       mensajeDelCliente: ctx.mensajeDelCliente,
@@ -785,6 +803,7 @@ export const ejecutores: Record<string, Ejecutor> = {
     });
 
     registrarEnvio(ctx.estado, p.id, sec);
+    registrarVideoSiLaFichaLoLleva(ctx.estado, p, sec, yaVio);
     registrarHechoEntregado(ctx.estado, `${sec} de ${p.name}`);
     marcarPaso(ctx.estado, `mostrar_${sec}_${p.id}`);
     if (ctx.estado.productoEnFoco !== p.id) {
@@ -876,11 +895,12 @@ export const ejecutores: Record<string, Ejecutor> = {
     }
 
     for (const p of prods) {
+      const yaVio = productoPresentado(ctx.estado, p.id);
       ctx.partes.push({
         kind: "card",
         productId: p.id,
         seccion: "info",
-        yaVioContenido: productoPresentado(ctx.estado, p.id),
+        yaVioContenido: yaVio,
         sesionNueva: ctx.estado.turnos === 0,
         videoYaEnviado: yaSeEnvio(ctx.estado, p.id, "video"),
         mensajeDelCliente: ctx.mensajeDelCliente,
@@ -888,6 +908,7 @@ export const ejecutores: Record<string, Ejecutor> = {
         sinCierre: prods.length > 1,
       });
       registrarEnvio(ctx.estado, p.id, "info");
+      registrarVideoSiLaFichaLoLleva(ctx.estado, p, "info", yaVio);
     }
 
     // La lista ordenada queda en el estado: "el primero/el segundo/este/esa"
