@@ -229,16 +229,6 @@ export function derivarFormaDeVenta(
     senales.push(`palabras del catálogo: digital ${d}, físico ${f}, servicio ${s}`);
   }
 
-  // ── El modo que el dueño eligió para el catálogo manda sobre lo demás ─────
-  if (negocio.modoCatalogo === "digital") {
-    senales.push("el dueño configuró el catálogo como digital");
-    return { forma: "digital", confianza: 1, senales };
-  }
-  if (negocio.modoCatalogo === "fisico") {
-    senales.push("el dueño configuró el catálogo como físico");
-    return { forma: "fisico", confianza: 1, senales };
-  }
-
   const total = votos.digital + votos.fisico + votos.servicio;
   if (total === 0) {
     senales.push("sin señales: ni kind, ni enlace de entrega, ni perfil cargado");
@@ -259,6 +249,16 @@ export function derivarFormaDeVenta(
   if (kinds.size > 1) {
     senales.push(`el catálogo tiene productos de más de un tipo (${[...kinds].join(" + ")}) → mixto`);
     return { forma: "mixto", confianza, senales };
+  }
+
+  // ── El modo que el dueño eligió SOLO manda si el catálogo es homogéneo ────
+  if (negocio.modoCatalogo === "digital") {
+    senales.push("el dueño configuró el catálogo como digital");
+    return { forma: "digital", confianza: 1, senales };
+  }
+  if (negocio.modoCatalogo === "fisico") {
+    senales.push("el dueño configuró el catálogo como físico");
+    return { forma: "fisico", confianza: 1, senales };
   }
 
   // ── Con un solo tipo, lo que el DUEÑO configuró decide ──────────────────

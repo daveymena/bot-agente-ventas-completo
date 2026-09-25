@@ -704,6 +704,14 @@ export class AdStrategist {
           );
         }
 
+        // Activar también la campaña y ad set (estaban pausados)
+        const { FacebookService } = await import("./facebook");
+        try {
+          await FacebookService.resumeCampaign(draft.campaignId);
+        } catch (e) {
+          logger.warn({ err: e, campaignId: draft.campaignId }, "[AdStrategist] Aviso: no se pudo activar campaña");
+        }
+
         await db.update(facebookDrafts)
           .set({ status: "published", fbStatus: "ACTIVE" })
           .where(eq(facebookDrafts.id, draftId));

@@ -1090,7 +1090,7 @@ Responde SOLO con este JSON exacto:
         adSetBody.billing_event = "IMPRESSIONS";
         adSetBody.optimization_goal = OBJ.optimizationGoal;
         adSetBody.bid_strategy = "LOWEST_COST_WITHOUT_CAP";
-        if (OBJ.destino === "whatsapp") {
+        if (vaAWhatsApp) {
           // Una campana de mensajes entrega EN WhatsApp: hay que decirle a
           // Meta cual es el destino y de que pagina sale.
           adSetBody.destination_type = "WHATSAPP";
@@ -1181,7 +1181,7 @@ Responde SOLO con este JSON exacto:
             message: adCopy.primaryText,
             name: adCopy.headline,
             description: adCopy.description,
-            call_to_action: { type: OBJ.destino === "whatsapp" ? "WHATSAPP_MESSAGE" : "SHOP_NOW" },
+            call_to_action: { type: vaAWhatsApp ? "WHATSAPP_MESSAGE" : "SHOP_NOW" },
           },
         },
         degrees_of_freedom_spec: { creative_features_spec: creativeFeaturesSpec },
