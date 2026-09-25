@@ -7711,6 +7711,85 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       };
     },
   },
+
+  {
+    name: "agentlab_comparar_ab",
+    description:
+      "Compara resultados REALES del A/B test: conversión del grupo control vs grupo tratamiento. " +
+      "Lee conversaciones de los últimos 7 días, segmenta por A/B test activo, y recomienda: continuar, rollback o aplicar 100%.",
+    args: '{ "agentId": number (req), "versionId": number (req) }',
+    run: async (args, ctx) => {
+      if (!args?.agentId || !args?.versionId) {
+        return { ok: false, summary: 'Faltan "agentId" o "versionId"' };
+      }
+
+      const { db } = await ensureDbReady();
+      const [agent] = await db.select().from(agents).where(eq(agents.id, args.agentId));
+      const [version] = await db.select().from(prompt_versions).where(eq(prompt_versions.id, args.versionId));
+
+      if (!agent || agent.tenantId !== ctx.tenantId || !version) {
+        return { ok: false, summary: "Agente o versión no encontrados" };
+      }
+
+      const abTestConfig = version.performanceBefore as any;
+      if (!abTestConfig?.abTestActive) {
+        return { ok: false, summary: "Este A/B test no está activo" };
+      }
+
+      // Leer conversaciones de los últimos 7 días
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const recentConversations = await db
+        .select()
+        .from(conversations)
+        .where(
+          and(
+            eq(conversations.tenantId, ctx.tenantId),
+            eq(conversations.agentId, args.agentId),
+            gt(conversations.createdAt, sevenDaysAgo)
+          )
+        );
+
+      // Segmentar por A/B test
+      const trafficPercent = abTestConfig.trafficPercent;
+      const control: any[] = [];
+      const treatment: any[] = [];
+
+      for (const conv of recentConversations) {
+        const clientHash = Math.abs((conv.id || 0) % 100);
+        if (clientHash < trafficPercent) {
+          treatment.push(conv);
+        } else {
+          control.push(conv);
+        }
+      }
+
+      // Calcular conversión
+      const conversionControl = control.filter((c) => c.completedAt).length / (control.length || 1);
+      const conversionTreatment = treatment.filter((c) => c.completedAt).length / (treatment.length || 1);
+      const mejora = ((conversionTreatment - conversionControl) / (conversionControl || 1)) * 100;
+
+      // Recomendar acción
+      let recomendacion = "";
+      if (mejora > 5) {
+        recomendacion = "✅ APLICA: mejora detectada. Usa agentlab_aplicar_version para 100%";
+      } else if (mejora < -5) {
+        recomendacion = "❌ ROLLBACK: degradación detectada. Usa agentlab_rollback ahora";
+      } else {
+        recomendacion = "🔄 NEUTRAL: sin diferencia significativa. Extiende test 7 días más";
+      }
+
+      return {
+        ok: true,
+        summary: `A/B Real: Control ${(conversionControl * 100).toFixed(1)}% (${control.filter((c) => c.completedAt).length}/${control.length}) vs Tratamiento ${(conversionTreatment * 100).toFixed(1)}% (${treatment.filter((c) => c.completedAt).length}/${treatment.length}). Mejora: ${mejora > 0 ? "+" : ""}${mejora.toFixed(1)}%. ${recomendacion}`,
+        data: {
+          control: { total: control.length, conversiones: control.filter((c) => c.completedAt).length, tasa: conversionControl },
+          treatment: { total: treatment.length, conversiones: treatment.filter((c) => c.completedAt).length, tasa: conversionTreatment },
+          mejoraReal: mejora,
+          recomendacion,
+        },
+      };
+    },
+  },
 ];
 
 /**
