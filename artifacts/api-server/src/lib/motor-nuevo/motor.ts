@@ -544,6 +544,19 @@ export async function responder(params: {
     textoFinal = esSaludoGenerico(textoJuntoAHerramientas) ? "" : textoJuntoAHerramientas;
   }
 
+  // ── Ficha automática desde anuncio ──────────────────────────────────────
+  //
+  // 25-09-2026: al llegar del anuncio el modelo preguntaba "¿te refieres al...?"
+  // en lugar de mandar la ficha. Si el foco viene del anuncio en este turno
+  // y no hay ninguna ficha en las partes, el servidor manda la completa.
+  const mensajeCliente = params.historial.slice(-1)[0]?.content || "";
+  const tieneAnuncio = (mensajeCliente as any)?.metadata?.adTitle;
+  if (tieneAnuncio && !hayTarjetas()) {
+    try {
+      await ejecutores.mostrar(ctx, { productoId: estado.productoEnFoco, seccion: "completa" });
+    } catch { /* sin producto en foco no hay ficha */ }
+  }
+
   // ── Datos de compra antes del precio ─────────────────────────────────────
   //
   // Conv 219 (23-09-2026): "Sí que vale" (= ¿qué vale?) se leyó como un sí y
