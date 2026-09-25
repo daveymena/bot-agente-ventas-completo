@@ -12,6 +12,8 @@
  * gente que hace clic; con OUTCOME_LEADS, gente que escribe. Elegir mal el
  * objetivo es pagarle a Meta para que busque al público equivocado.
  */
+import { objetivoDelCatalogo, nombraObjetivoCreable } from "./catalogo-objetivos-meta";
+
 export type ObjetivoCampana = "ventas" | "trafico" | "mensajes" | "reconocimiento";
 
 export const OBJETIVOS: Record<ObjetivoCampana, {
@@ -99,8 +101,28 @@ export function interpretarObjetivo(texto: string): ObjetivoCampana | null {
  */
 export function pedidoDelAdmin(texto: string): string | null {
   const t = String(texto || "").toLowerCase();
+  // Un objetivo que el sistema todavía NO arma (formulario, llamadas,
+  // Messenger…) no se convierte en otro: viaja marcado y las herramientas lo
+  // rechazan explicando qué falta (ver catalogo-objetivos-meta.ts).
+  // Solo si NO nombra además uno que sí se arma: "revisá los comentarios y
+  // creá un anuncio a la landing" es un anuncio a la landing.
+  const delCatalogo = objetivoDelCatalogo(t);
+  if (delCatalogo && !delCatalogo.creable && !nombraObjetivoCreable(t)) return `no-creable:${delCatalogo.clave}`;
   const objetivo = interpretarObjetivo(t);
   const landing = MENCIONA_LANDING.test(t) && objetivo !== null;
   const partes = [objetivo, landing ? "landing" : null].filter(Boolean);
   return partes.length ? partes.join(" ") : null;
+}
+
+/** Si el admin pidió un objetivo que todavía no se arma, la explicación; si no, null. */
+export async function rechazoPorObjetivoNoCreable(objetivoDelAdmin: string | null | undefined): Promise<string | null> {
+  const m = String(objetivoDelAdmin || "").match(/^no-creable:(\w+)/);
+  if (!m) return null;
+  const { CATALOGO_DE_OBJETIVOS } = await import("./catalogo-objetivos-meta");
+  const o = CATALOGO_DE_OBJETIVOS.find((x) => x.clave === m[1]);
+  if (!o) return null;
+  return (
+    `El admin pidió una campaña de "${o.nombre}" (${o.paraQue}). Este sistema todavía NO la puede crear: ${o.falta} ` +
+    `No crees otra campaña distinta en su lugar. Explicale esto y, si le sirve, ofrecé la alternativa que sí se crea.`
+  );
 }

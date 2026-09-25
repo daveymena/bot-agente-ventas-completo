@@ -3007,6 +3007,22 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "objetivos_de_campana",
+    description: "LOS OBJETIVOS DE CAMPAÑA DE META: para qué sirve cada uno (reconocimiento, tráfico a la landing, ventas, mensajes a WhatsApp/Messenger/Instagram, interacción, seguidores, video, formulario de clientes potenciales, llamadas, app), con qué frases se pide y cuáles ya crea este sistema. Usala cuando el admin pida un tipo de campaña que no sea claramente web o WhatsApp, o pregunte cuál le conviene. Con 'pedido' dice cuál corresponde a esa frase. Lectura.",
+    args: '{ "pedido"?: string (la frase del admin) }',
+    run: async (args) => {
+      const { explicarObjetivos, objetivoDelCatalogo } = await import("./catalogo-objetivos-meta");
+      const o = args?.pedido ? objetivoDelCatalogo(String(args.pedido)) : null;
+      const cual = o
+        ? `Para "${args.pedido}" corresponde: ${o.nombre} (${o.metaObjective}). ${o.creable ? "Este sistema lo crea." : `Todavía no se crea: ${o.falta}`}
+
+`
+        : "";
+      return { ok: true, summary: `${cual}Objetivos de Meta:
+${explicarObjetivos()}` };
+    },
+  },
+  {
     name: "fb_create_ad",
     description: "Crear una campaña de anuncios en Facebook/Instagram para un producto. Se crea SIEMPRE en PAUSA (no gasta hasta que el admin la active en Ads Manager). Meta adapta el creativo a cada tamaño/dispositivo automáticamente. GASTA DINERO al activarse. ⚠️ El 'objetivo' decide A DÓNDE va la gente y A QUIÉN le muestra Meta el anuncio: si el admin dijo WhatsApp, mensajes, tráfico o alcance, PASALO — sin ese dato se crea de ventas apuntando a la web, que es otra campaña distinta.",
     args: '{ "productId": number (req), "objetivo": "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — "mensajes" abre WhatsApp, "trafico" lleva a la web buscando clics, "ventas" lleva a la web buscando compradores, def "ventas"), "destinoWeb"?: "landing"|"tienda" (si el admin pidió la LANDING pasá "landing" con objetivo "trafico" o "ventas", NUNCA "mensajes"), "dailyBudget": number (opcional, en la moneda de la cuenta, def 5000), "startDate": string opcional ISO, "cities": string[] opcional, "ageMin": number opcional, "ageMax": number opcional }',
@@ -3033,6 +3049,11 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       const { interpretarObjetivo, OBJETIVOS } = await import("./objetivos-campana");
       // El objetivo sale de lo que el ADMIN dijo cuando el modelo no lo pasa
       // o lo pasa mal. Ver `objetivoDelAdmin` en OperatorContext.
+      {
+        const { rechazoPorObjetivoNoCreable } = await import("./objetivos-campana");
+        const rechazo = await rechazoPorObjetivoNoCreable(ctx.objetivoDelAdmin);
+        if (rechazo) return { ok: false, summary: rechazo };
+      }
       // Lo que el ADMIN escribió manda sobre lo que pasa el modelo: pidió
       // la landing y el modelo mandaba "mensajes" (24-09-2026, seis campañas
       // del corrector, todas a WhatsApp).
@@ -3483,6 +3504,11 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
         .limit(1);
       if (!propio) return { ok: false, summary: `No encontré el borrador ${draftId} para este negocio.` };
 
+      {
+        const { rechazoPorObjetivoNoCreable } = await import("./objetivos-campana");
+        const rechazo = await rechazoPorObjetivoNoCreable(ctx.objetivoDelAdmin);
+        if (rechazo) return { ok: false, summary: rechazo };
+      }
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
       const { AdStrategist } = await import("./ad-strategist");
       const { interpretarObjetivo, OBJETIVOS } = await import("./objetivos-campana");
@@ -5591,6 +5617,11 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       "Con esto solo tenés que pasar el nombre del producto tal como lo dijo el admin y el presupuesto. Todo lo demás lo resuelve el servidor.",
     args: '{ "producto": string (req, como lo dijo el admin), "dailyBudget": number (req, diario), "destinoWeb"?: "landing"|"tienda", "objetivo"?: "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — decide A DÓNDE va la gente y A QUIÉN le muestra Meta el anuncio: "mensajes" abre WhatsApp, "trafico" lleva a la web buscando clics, "ventas" lleva a la web buscando compradores. Si el admin dijo WhatsApp, mensajes, tráfico o alcance, PASALO; sin ese dato sale de ventas a la web, que es otra campaña distinta), "subirAMeta"?: boolean (por defecto false; si es true, además crea la campaña en Meta EN PAUSA), "nueva"?: boolean (solo si el admin pide EXPLÍCITAMENTE otra campaña aunque ya exista una del mismo producto al mismo destino), "ignorarMargen"?: boolean (solo si el admin, sabiendo que el producto pierde plata por pedido, pide anunciarlo igual) }',
     run: async (args, ctx) => {
+      {
+        const { rechazoPorObjetivoNoCreable } = await import("./objetivos-campana");
+        const rechazo = await rechazoPorObjetivoNoCreable(ctx.objetivoDelAdmin);
+        if (rechazo) return { ok: false, summary: rechazo };
+      }
       const texto = String(args.producto || "").trim();
       const presupuesto = num(args.dailyBudget) || 0;
       if (!texto) return { ok: false, summary: "Falta 'producto': el nombre del producto a anunciar." };
@@ -7661,6 +7692,7 @@ export async function executeAction(tool: string, args: any, ctx: OperatorContex
 // Mutación: cambian datos → requieren PLAN + confirmación del admin.
 // Destructivas / de dinero: confirmación reforzada.
 export const READ_ONLY_TOOLS = new Set([
+  "objetivos_de_campana",
   "dropi_transportadoras_sondeo",
   "embudo_de_ventas",
   // La agenda: solo lee qué hay programado (ver lib/atlas-agenda.ts).
