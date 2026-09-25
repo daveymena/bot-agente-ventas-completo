@@ -697,9 +697,27 @@ export async function correrEnSombra(params: {
   turnos: string[];
   estadoInicial?: EstadoConversacion;
   llm: ClienteLLM;
+  /**
+   * Probar a UN agente, aunque esté en borrador (inactivo): se simula como si
+   * ya estuviera activo, con su voz y los productos de su especialidad. Solo
+   * existe en la sombra: el router de producción no ve agentes inactivos.
+   */
+  agente?: any | null;
 }) {
-  const catalogo = await cargarCatalogoDelNegocio(params.tenantId);
-  const voz = await cargarVozDelNegocio(params.tenantId);
+  const completo = await cargarCatalogoDelNegocio(params.tenantId);
+  let catalogo = completo;
+  if (params.agente) {
+    let activas: string[] = [];
+    try {
+      activas = (
+        await db.select({ e: agents.especialidad }).from(agents).where(and(eq(agents.tenantId, params.tenantId), eq(agents.isActive, true)))
+      ).map((f: any) => String(f.e || ""));
+    } catch {
+      activas = [];
+    }
+    catalogo = catalogoDeLaEspecialidad(completo, params.agente.especialidad, [...activas, String(params.agente.especialidad || "")]);
+  }
+  const voz = await cargarVozDelNegocio(params.tenantId, params.agente ?? null);
   const conocimiento = await cargarConocimiento(params.tenantId);
   const guion = await cargarGuion(params.tenantId, catalogo, null);
 

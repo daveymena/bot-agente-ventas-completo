@@ -72,9 +72,12 @@ describe("tomar_pedido", () => {
     const { s } = servicioFalso();
     const ctx = ctxCon(s);
     const r = await ejecutores.tomar_pedido(ctx, { nombre: "Ana Pérez", ciudad: "Bogotá" });
-    expect(r.mensaje).toMatch(/Faltan: documento, telefono, direccion, departamento/);
+    expect(r.mensaje).toMatch(/documento, telefono, direccion, departamento/);
     expect(r.mensaje).toMatch(/Ya tenés: nombre, ciudad/);
-    expect(ctx.partes).toHaveLength(0);
+    // La lista la pega el SISTEMA, toda junta y sin cédula (dueño, 24-09-2026).
+    expect(ctx.partes).toHaveLength(1);
+    expect((ctx.partes[0] as any).content).toMatch(/Para enviarte tu pedido necesito/);
+    expect((ctx.partes[0] as any).content).not.toMatch(/[Cc]édula|documento/);
     expect(ctx.estado.pedidoPorConfirmarEnTurno).toBeNull();
   });
 

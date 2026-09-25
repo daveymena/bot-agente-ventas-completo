@@ -116,7 +116,7 @@ export const CAMPOS_DE_ENVIO: Array<{
   },
   {
     campo: "documento",
-    obligatorio: true,
+    obligatorio: false,
     pregunta: [
       "Por último, ¿tu número de cédula? Lo pide la transportadora 🪪",
       "Me falta la cédula de quien recibe (requisito de la transportadora) 🪪",
@@ -166,7 +166,7 @@ export function contextoDeDropshipping(c: CondicionesDelNegocio = CONDICIONES_DE
     costo,
     pago,
     "• NO se entrega por Google Drive ni por link: esto se despacha físicamente.",
-    `• Para despacharlo necesitas: nombre completo, ${esColombia(c.pais) ? "cédula" : "documento de identidad"}, celular, dirección con barrio, ciudad, ${esColombia(c.pais) ? "departamento" : "estado o provincia"} y un punto de referencia.`,
+    `• Para despacharlo necesitas: nombre completo, celular, dirección con barrio, ciudad, ${esColombia(c.pais) ? "departamento" : "estado o provincia"} y un punto de referencia.`,
     "  Cuando el cliente quiera comprar, pedíselos TODOS JUNTOS en una lista numerada (el sistema te dice cuáles faltan).",
     "  Después se verifican, se le muestra el resumen y se registra SOLO cuando él confirma con un sí.",
     "• Nunca inventes número de guía ni fecha exacta de llegada: solo el rango de arriba.",
@@ -193,7 +193,9 @@ const ETIQUETA_DEL_DATO: Record<keyof DatosDeEnvio, string> = {
  */
 export function listaDeDatosQueFaltan(d: DatosDeEnvio): string {
   const orden: Array<keyof DatosDeEnvio> = [
-    "nombre", "documento", "telefono", "direccion", "barrio", "ciudad", "departamento", "notas",
+    // Sin "documento": el dueño lo sacó el 24-09-2026, no es necesario (Dropi
+    // lo lleva solo como nota) y es el dato que más fricción genera.
+    "nombre", "telefono", "direccion", "barrio", "ciudad", "departamento", "notas",
   ];
   const faltan = orden.filter((c) => !String(d[c] ?? "").trim());
   return faltan.map((c, i) => `${i + 1}. ${ETIQUETA_DEL_DATO[c]}`).join("\n");

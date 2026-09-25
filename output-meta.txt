@@ -1,0 +1,945 @@
+﻿node.exe : npm warn Unknown project config "auto-install-peers". This will stop working in the next major version of 
+npm. See `npm help npmrc` for supported config options.
+En línea: 1 Carácter: 1
++ & "C:\Program Files\nodejs/node.exe" "C:\Users\ADMIN\AppData\Roaming\ ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm warn Unknow...config options.:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm warn Unknown project config "strict-peer-dependencies". This will stop working in the next major version of npm. 
+See `npm help npmrc` for supported config options.
+npm warn Unknown project config "block-exotic-subdeps". This will stop working in the next major version of npm. See 
+`npm help npmrc` for supported config options.
+npm warn Unknown project config "allow-build". This will stop working in the next major version of npm. See `npm help 
+npmrc` for supported config options.
+npm warn Unknown project config "enable-pre-post-scripts". This will stop working in the next major version of npm. 
+See `npm help npmrc` for supported config options.
+­ƒöì [DOTENV] Buscando configuraci├│n en: C:\Users\ADMIN\Videos\Agent-Sales-Bot\.env
+[DB-ENV] USE_SQLITE=true
+[DB-ENV] DATABASE_URL=postgres://PostgreSQL:6715320D...
+[DB-ENV] CWD=C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server
+ÔÅ│ [DB] Esperando inicializaci├│n...
+­ƒôª [SQLite] Base existente cargada: C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\data\local\meta.db
+Ô£à [SQLite] Todas las tablas creadas/verificadas
+Ô£à [DB] Inicializado (USE_SQLITE=true, ready=true)
+Ô£à [DB] Lista para usar
+[G4F Config] Deshabilitado
+[AI Fallback] Order: groq
+[2026-09-18 08:18:35] [32mINFO[39m: [36m[AgentRouter] Agente seleccionado[39m
+    [35mconversationId[39m: 13
+    [35mselectedAgent[39m: "Sof├¡a"
+    [35mconfidence[39m: "100.0"
+    [35mreason[39m: "├Ünico agente activo"
+    [35mallScores[39m: [
+      {
+        "name": "Sof├¡a",
+        "score": 100
+      }
+    ]
+[2026-09-18 08:18:35] [32mINFO[39m: [36m[AgentRouter] Conversaci├│n asignada[39m
+    [35mconversationId[39m: 13
+    [35magentId[39m: 1
+[2026-09-18 08:18:35] [32mINFO[39m: [36m[FollowUpScheduler] Starting scheduler[39m
+    [35mintervalMinutes[39m: 30
+[2026-09-18 08:18:35] [33mWARN[39m: [36m[LeadScoring] AI provider failed, trying next[39m
+    [35msource[39m: "database"
+    err: {
+      "type": "APIConnectionError",
+      "message": "Connection error.: fetch failed: ",
+      "stack":
+          Error: Connection error.
+              at OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:845:13)
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: TypeError: fetch failed
+              at node:internal/deps/undici/undici:13510:13
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async OpenAI.fetchWithTimeout (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:1029:14)
+              at async OpenAI.fetchWithAuth (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:994:22)
+              at async OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:795:22)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: AggregateError [ECONNREFUSED]: 
+              at internalConnectMultiple (node:net:1134:18)
+              at afterConnectMultiple (node:net:1715:7)
+    }
+[2026-09-18 08:18:36] [33mWARN[39m: [36m[LeadScoring] AI provider failed, trying next[39m
+    [35msource[39m: "environment"
+    err: {
+      "type": "APIConnectionError",
+      "message": "Connection error.: fetch failed: getaddrinfo ENOTFOUND models.inference.ai.azure.com",
+      "stack":
+          Error: Connection error.
+              at OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:845:13)
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: TypeError: fetch failed
+              at node:internal/deps/undici/undici:13510:13
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async OpenAI.fetchWithTimeout (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:1029:14)
+              at async OpenAI.fetchWithAuth (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:994:22)
+              at async OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:795:22)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: Error: getaddrinfo ENOTFOUND models.inference.ai.azure.com
+              at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:122:26)
+    }
+[2026-09-18 08:18:36] [33mWARN[39m: [36m[LeadScoring] All AI providers failed, using keyword fallback[39m
+[2026-09-18 08:18:36] [32mINFO[39m: [36m[LeadScoring] Score calculated via AI[39m
+    [35mconversationId[39m: 13
+    [35mstage[39m: "warm"
+    [35mtotalScore[39m: 30
+    [35mreasoning[39m: "Clasificaci├│n por palabras clave (IA no disponible)"
+    [35mmessageCount[39m: 1
+[2026-09-18 08:18:36] [32mINFO[39m: [36m[LeadScoring] Lead score persisted[39m
+    [35mconversationId[39m: 13
+    [35mleadId[39m: 13
+    [35mnewStage[39m: "warm"
+    [35mtotalScore[39m: 30
+[2026-09-18 08:18:36] [32mINFO[39m: [36m[FollowUpScheduler] Follow-up scheduled in DB[39m
+    [35mfollowUpId[39m: 7
+    [35mconversationId[39m: 13
+    [35mstage[39m: "warm"
+[2026-09-18 08:18:36] [32mINFO[39m: [36m[LeadScoring] Follow-up scheduled[39m
+    [35mconversationId[39m: 13
+    [35mfollowUpId[39m: 7
+    [35mstage[39m: "warm"
+    [35mscheduledFor[39m: "2026-09-19T13:18:36.724Z"
+[2026-09-18 08:18:38] [32mINFO[39m: [36m[Entender] comprensi├│n contextual del cliente[39m
+    [35mproveedor[39m: "groq"
+    [35mintencion[39m: "product_query"
+    [35msubintencion[39m: null
+    [35mproductoId[39m: 123
+    [35mconfianza[39m: 0.5
+    [35mresponderDirectamente[39m: false
+    [35mreformulaPregunta[39m: false
+[2026-09-18 08:18:38] [32mINFO[39m: [36m[AdvancedIntelligence] Intention analyzed[39m
+    [35mprimaryIntent[39m: "purchase_intent"
+    [35mcategory[39m: "purchase"
+    [35murgency[39m: "low"
+    [35msentiment[39m: "neutral"
+    [35mconfidence[39m: 90
+[2026-09-18 08:18:38] [33mWARN[39m: [36m[OptimizedRotation] ÔÜá´©Å  Failure detected[39m
+    [35mprovider[39m: "nvidia_nim_bridge"
+    [35mclase[39m: "desconocido"
+    [35mfailureCount[39m: 1
+    error: "Connection error."
+[2026-09-18 08:18:39] [33mWARN[39m: [36m[OptimizedRotation] ÔÅ©´©Å  Proveedor apartado[39m
+    [35mprovider[39m: "opencode"
+    [35mclase[39m: "sin_clave"
+    [35mminutos[39m: 360
+    [35mfailureCount[39m: 1
+    error: "401 \"Unauthorized - Invalid token\""
+[2026-09-18 08:18:39] [33mWARN[39m: [36m[Copilot] Exchange failed[39m
+    [35mstatus[39m: 401
+[2026-09-18 08:18:40] [33mWARN[39m: [36m[Copilot] Exchange failed[39m
+    [35mstatus[39m: 401
+[2026-09-18 08:18:40] [33mWARN[39m: [36m[OptimizedRotation] ÔÅ©´©Å  Proveedor apartado[39m
+    [35mprovider[39m: "github_copilot_internal"
+    [35mclase[39m: "sin_clave"
+    [35mminutos[39m: 360
+    [35mfailureCount[39m: 1
+    error: "401 unauthorized: AuthenticateToken authentication failed\n"
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+­ƒæñ Hola me interesa el cirso de piano
+   (modelo crudo: ­ƒÄ╣ *CURSO DE PIANO COMPLETO* Lamentablemente no lo tenemos en nuestro cat├ílogo por el momento. Ô£à Podemos recomendarte el **Curso de Guitarra Ac├║stica** (ID 96) para iniciar con un instrumento mel├│dico)
+[2026-09-18 08:18:42] [32mINFO[39m: [36m[OptimizedRotation] Ô£à Success[39m
+    [35mprovider[39m: "groq"
+    [35mresponseTime[39m: 2110
+    [35mavgTime[39m: 2110
+[2026-09-18 08:18:43] [32mINFO[39m: [36m[Payment] MercadoPago link created successfully[39m
+    [35mtenantId[39m: 1
+    [35mproductId[39m: 123
+    [35mclientPhone[39m: "573001111333"
+    [35mestimatedSuccess[39m: 95
+[2026-09-18 08:18:44] [32mINFO[39m: [36m[ExchangeRate] Live rate fetched[39m
+    [35mcopRate[39m: 3128.800779
+
+­ƒñû [ficha "completa" + FOTO]
+­ƒÄ╝ *CURSO DE PIANO COMPLETO*
+
+­ƒôª Curso completo de piano de cero a avanzado. Aprende a tocar desde la primera clase con 19 m├│dulos en video: presentaci├│n, ejercicios b├ísicos, independencia de manos, 5 valses de Alberto Mart├¡nez, piezas para piano, teor├¡a musical aplicada,ÔÇª
+   ÔöÇÔöÇ
+┬┐Quieres saber cu├ínto est├í? ­ƒÆ░
+   ÔöÇÔöÇ
+[2026-09-18 08:18:44] [32mINFO[39m: [36m[Payment] PayPal link created successfully[39m
+    [35mtenantId[39m: 1
+    [35mproductId[39m: 123
+    [35mclientPhone[39m: "573001111333"
+    [35mamountUSD[39m: 19.17667638115862
+    [35mestimatedSuccess[39m: 90
+[2026-09-18 08:18:44] [32mINFO[39m: [36m[Payment] Payment links generated[39m
+    [35mtenantId[39m: 1
+    [35mproductId[39m: 123
+    [35mclientPhone[39m: "573001111333"
+    [35mavailableMethods[39m: [
+      "transfer",
+      "mercadopago",
+      "paypal"
+    ]
+    [35mvalidationResults[39m: [
+      {
+        "service": "mercadopago",
+        "valid": true,
+        "success": 95
+      },
+      {
+        "service": "paypal",
+        "valid": true,
+        "success": 90
+      },
+      {
+        "service": "transfer",
+        "valid": true,
+        "success": 95
+      }
+    ]
+[2026-09-18 08:18:52] [32mINFO[39m: [36m[AgentRouter] Agente seleccionado[39m
+    [35mconversationId[39m: 13
+    [35mselectedAgent[39m: "Sof├¡a"
+    [35mconfidence[39m: "100.0"
+    [35mreason[39m: "├Ünico agente activo"
+    [35mallScores[39m: [
+      {
+        "name": "Sof├¡a",
+        "score": 100
+      }
+    ]
+[2026-09-18 08:18:52] [33mWARN[39m: [36m[LeadScoring] AI provider failed, trying next[39m
+    [35msource[39m: "database"
+    err: {
+      "type": "APIConnectionError",
+      "message": "Connection error.: fetch failed: ",
+      "stack":
+          Error: Connection error.
+              at OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:845:13)
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: TypeError: fetch failed
+              at node:internal/deps/undici/undici:13510:13
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async OpenAI.fetchWithTimeout (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:1029:14)
+              at async OpenAI.fetchWithAuth (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:994:22)
+              at async OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:795:22)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: AggregateError [ECONNREFUSED]: 
+              at internalConnectMultiple (node:net:1134:18)
+              at afterConnectMultiple (node:net:1715:7)
+    }
+[2026-09-18 08:18:53] [33mWARN[39m: [36m[LeadScoring] AI provider failed, trying next[39m
+    [35msource[39m: "environment"
+    err: {
+      "type": "APIConnectionError",
+      "message": "Connection error.: fetch failed: getaddrinfo ENOTFOUND models.inference.ai.azure.com",
+      "stack":
+          Error: Connection error.
+              at OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:845:13)
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: TypeError: fetch failed
+              at node:internal/deps/undici/undici:13510:13
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async OpenAI.fetchWithTimeout (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:1029:14)
+              at async OpenAI.fetchWithAuth (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:994:22)
+              at async OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:795:22)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: Error: getaddrinfo ENOTFOUND models.inference.ai.azure.com
+              at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:122:26)
+    }
+[2026-09-18 08:18:53] [33mWARN[39m: [36m[LeadScoring] All AI providers failed, using keyword fallback[39m
+[2026-09-18 08:18:53] [32mINFO[39m: [36m[LeadScoring] Score calculated via AI[39m
+    [35mconversationId[39m: 13
+    [35mstage[39m: "warm"
+    [35mtotalScore[39m: 30
+    [35mreasoning[39m: "Clasificaci├│n por palabras clave (IA no disponible)"
+    [35mmessageCount[39m: 3
+[2026-09-18 08:18:53] [32mINFO[39m: [36m[LeadScoring] Lead score persisted[39m
+    [35mconversationId[39m: 13
+    [35mleadId[39m: 13
+    [35mnewStage[39m: "warm"
+    [35mtotalScore[39m: 30
+[2026-09-18 08:18:53] [32mINFO[39m: [36m[FollowUpScheduler] Ya hay un seguimiento pendiente para esta conversaci├│n; no se agrega otro[39m
+    [35mconversationId[39m: 13
+    [35mfollowUpId[39m: 7
+[2026-09-18 08:18:54] [33mWARN[39m: [36m[Entender] no se pudo entender el mensaje: el agente decide con los patrones[39m
+    [35mtimeout[39m: 8000
+[2026-09-18 08:18:54] [32mINFO[39m: [36m[AdvancedIntelligence] Intention analyzed[39m
+    [35mprimaryIntent[39m: "general_inquiry"
+    [35mcategory[39m: "question"
+    [35murgency[39m: "low"
+    [35msentiment[39m: "neutral"
+    [35mconfidence[39m: 20
+[2026-09-18 08:18:54] [33mWARN[39m: [36m[OptimizedRotation] ÔÅ©´©Å  Proveedor apartado[39m
+    [35mprovider[39m: "nvidia_nim_bridge"
+    [35mclase[39m: "desconocido"
+    [35mminutos[39m: 1
+    [35mfailureCount[39m: 2
+    error: "Connection error."
+[2026-09-18 08:18:54] [33mWARN[39m: [36m[OptimizedRotation] ÔÅ©´©Å  Proveedor apartado[39m
+    [35mprovider[39m: "groq"
+    [35mclase[39m: "sin_credito"
+    [35mminutos[39m: 360
+    [35mfailureCount[39m: 1
+    error: "429 Rate limit reached for model `openai/gpt-oss-120b` in organization `org_01k8pxtct2fbsb3zkd25pz9yta` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 4421, Requested 6109. Please try again in 18.974999999s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing"
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+­ƒæñ Si
+
+­ƒñû ­ƒøí´©Å Estoy teniendo problemas t├®cnicos. Por favor intenta de nuevo en unos minutos. ­ƒÖÅ
+[2026-09-18 08:18:54] [31mERROR[39m: [36m[FallbackSystem] AI failed, activating fallback[39m
+    [35mconversationId[39m: 13
+    [35mstack[39m: "Error: Todos los proveedores fallaron\n    at <anonymous> (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\agent.ts:3227:23)\n    at async retryWithBackoff (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\fallbackSystem.ts:196:22)\n    at async executeWithFallback (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\fallbackSystem.ts:300:12)\n    at async runAgentReply (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\agent.ts:2800:18)\n    at async <anonymous> (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\scripts\probar-vs-meta.ts:59:13)"
+    error: "Todos los proveedores fallaron"
+[2026-09-18 08:18:54] [31mERROR[39m: [36m[FallbackSystem] fallo de IA[39m
+    [35mconversationId[39m: 13
+    [35merrorType[39m: "AI_API_FAILURE"
+    [35merrorDetails[39m: "Todos los proveedores fallaron"
+    [35mcustomerInfo[39m: {
+      "name": "Cliente Meta",
+      "phone": "573001111333"
+    }
+[2026-09-18 08:19:02] [32mINFO[39m: [36m[AgentRouter] Agente seleccionado[39m
+    [35mconversationId[39m: 13
+    [35mselectedAgent[39m: "Sof├¡a"
+    [35mconfidence[39m: "100.0"
+    [35mreason[39m: "├Ünico agente activo"
+    [35mallScores[39m: [
+      {
+        "name": "Sof├¡a",
+        "score": 100
+      }
+    ]
+[2026-09-18 08:19:02] [33mWARN[39m: [36m[LeadScoring] AI provider failed, trying next[39m
+    [35msource[39m: "database"
+    err: {
+      "type": "APIConnectionError",
+      "message": "Connection error.: fetch failed: ",
+      "stack":
+          Error: Connection error.
+              at OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:845:13)
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: TypeError: fetch failed
+              at node:internal/deps/undici/undici:13510:13
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async OpenAI.fetchWithTimeout (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:1029:14)
+              at async OpenAI.fetchWithAuth (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:994:22)
+              at async OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:795:22)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: AggregateError [ECONNREFUSED]: 
+              at internalConnectMultiple (node:net:1134:18)
+              at afterConnectMultiple (node:net:1715:7)
+    }
+[2026-09-18 08:19:04] [33mWARN[39m: [36m[LeadScoring] AI provider failed, trying next[39m
+    [35msource[39m: "environment"
+    err: {
+      "type": "APIConnectionError",
+      "message": "Connection error.: fetch failed: getaddrinfo ENOTFOUND models.inference.ai.azure.com",
+      "stack":
+          Error: Connection error.
+              at OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:845:13)
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: TypeError: fetch failed
+              at node:internal/deps/undici/undici:13510:13
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async OpenAI.fetchWithTimeout (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:1029:14)
+              at async OpenAI.fetchWithAuth (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:994:22)
+              at async OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:795:22)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: Error: getaddrinfo ENOTFOUND models.inference.ai.azure.com
+              at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:122:26)
+    }
+[2026-09-18 08:19:04] [33mWARN[39m: [36m[LeadScoring] All AI providers failed, using keyword fallback[39m
+[2026-09-18 08:19:04] [32mINFO[39m: [36m[LeadScoring] Score calculated via AI[39m
+    [35mconversationId[39m: 13
+    [35mstage[39m: "warm"
+    [35mtotalScore[39m: 30
+    [35mreasoning[39m: "Clasificaci├│n por palabras clave (IA no disponible)"
+    [35mmessageCount[39m: 5
+[2026-09-18 08:19:04] [32mINFO[39m: [36m[LeadScoring] Lead score persisted[39m
+    [35mconversationId[39m: 13
+    [35mleadId[39m: 13
+    [35mnewStage[39m: "warm"
+    [35mtotalScore[39m: 30
+[2026-09-18 08:19:04] [32mINFO[39m: [36m[FollowUpScheduler] Ya hay un seguimiento pendiente para esta conversaci├│n; no se agrega otro[39m
+    [35mconversationId[39m: 13
+    [35mfollowUpId[39m: 7
+[2026-09-18 08:19:04] [32mINFO[39m: [36m[Entender] comprensi├│n contextual del cliente[39m
+    [35mproveedor[39m: "groq"
+    [35mintencion[39m: "confirmation"
+    [35msubintencion[39m: null
+    [35mproductoId[39m: 123
+    [35mconfianza[39m: 0.6
+    [35mresponderDirectamente[39m: false
+    [35mreformulaPregunta[39m: false
+[2026-09-18 08:19:04] [32mINFO[39m: [36m[AdvancedIntelligence] Intention analyzed[39m
+    [35mprimaryIntent[39m: "general_inquiry"
+    [35mcategory[39m: "question"
+    [35murgency[39m: "low"
+    [35msentiment[39m: "neutral"
+    [35mconfidence[39m: 20
+[2026-09-18 08:19:04] [31mERROR[39m: [36m[HealthMonitor] Service entering COOLDOWN due to multiple failures[39m
+    [35mservice[39m: "AI_OP_CONV_13"
+    [35mconsecutiveFailures[39m: 3
+    [35mcooldownUntil[39m: "2026-09-18T13:24:04.276Z"
+[2026-09-18 08:19:04] [31mERROR[39m: [36m[FallbackSystem] fallo de IA[39m
+    [35mconversationId[39m: 0
+    [35merrorType[39m: "CIRCUIT_BREAKER_AI_OP_CONV_13"
+    [35merrorDetails[39m: "El servicio ha sido desactivado temporalmente por fallas consecutivas: Todos los proveedores fallaron"
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+­ƒæñ Si
+
+­ƒñû ­ƒøí´©Å Estoy teniendo problemas t├®cnicos. Por favor intenta de nuevo en unos minutos. ­ƒÖÅ
+[2026-09-18 08:19:04] [31mERROR[39m: [36m[HealthMonitor] Service entering COOLDOWN due to multiple failures[39m
+    [35mservice[39m: "AI_OP_CONV_13"
+    [35mconsecutiveFailures[39m: 4
+    [35mcooldownUntil[39m: "2026-09-18T13:24:04.786Z"
+[2026-09-18 08:19:04] [31mERROR[39m: [36m[FallbackSystem] fallo de IA[39m
+    [35mconversationId[39m: 0
+    [35merrorType[39m: "CIRCUIT_BREAKER_AI_OP_CONV_13"
+    [35merrorDetails[39m: "El servicio ha sido desactivado temporalmente por fallas consecutivas: Todos los proveedores fallaron"
+[2026-09-18 08:19:04] [31mERROR[39m: [36m[FallbackSystem] AI failed, activating fallback[39m
+    [35mconversationId[39m: 13
+    [35mstack[39m: "Error: Todos los proveedores fallaron\n    at <anonymous> (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\agent.ts:3227:23)\n    at async retryWithBackoff (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\fallbackSystem.ts:196:22)\n    at async executeWithFallback (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\fallbackSystem.ts:300:12)\n    at async runAgentReply (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\agent.ts:2800:18)\n    at async <anonymous> (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\scripts\probar-vs-meta.ts:59:13)"
+    error: "Todos los proveedores fallaron"
+[2026-09-18 08:19:04] [31mERROR[39m: [36m[FallbackSystem] fallo de IA[39m
+    [35mconversationId[39m: 13
+    [35merrorType[39m: "AI_API_FAILURE"
+    [35merrorDetails[39m: "Todos los proveedores fallaron"
+    [35mcustomerInfo[39m: {
+      "name": "Cliente Meta",
+      "phone": "573001111333"
+    }
+[2026-09-18 08:19:12] [32mINFO[39m: [36m[AgentRouter] Agente seleccionado[39m
+    [35mconversationId[39m: 13
+    [35mselectedAgent[39m: "Sof├¡a"
+    [35mconfidence[39m: "100.0"
+    [35mreason[39m: "├Ünico agente activo"
+    [35mallScores[39m: [
+      {
+        "name": "Sof├¡a",
+        "score": 100
+      }
+    ]
+[2026-09-18 08:19:12] [33mWARN[39m: [36m[LeadScoring] AI provider failed, trying next[39m
+    [35msource[39m: "database"
+    err: {
+      "type": "APIConnectionError",
+      "message": "Connection error.: fetch failed: ",
+      "stack":
+          Error: Connection error.
+              at OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:845:13)
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: TypeError: fetch failed
+              at node:internal/deps/undici/undici:13510:13
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async OpenAI.fetchWithTimeout (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:1029:14)
+              at async OpenAI.fetchWithAuth (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:994:22)
+              at async OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:795:22)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: AggregateError [ECONNREFUSED]: 
+              at internalConnectMultiple (node:net:1134:18)
+              at afterConnectMultiple (node:net:1715:7)
+    }
+[2026-09-18 08:19:13] [33mWARN[39m: [36m[LeadScoring] AI provider failed, trying next[39m
+    [35msource[39m: "environment"
+    err: {
+      "type": "APIConnectionError",
+      "message": "Connection error.: fetch failed: getaddrinfo ENOTFOUND models.inference.ai.azure.com",
+      "stack":
+          Error: Connection error.
+              at OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:845:13)
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: TypeError: fetch failed
+              at node:internal/deps/undici/undici:13510:13
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async OpenAI.fetchWithTimeout (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:1029:14)
+              at async OpenAI.fetchWithAuth (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:994:22)
+              at async OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:795:22)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: Error: getaddrinfo ENOTFOUND models.inference.ai.azure.com
+              at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:122:26)
+    }
+[2026-09-18 08:19:13] [33mWARN[39m: [36m[LeadScoring] All AI providers failed, using keyword fallback[39m
+[2026-09-18 08:19:13] [32mINFO[39m: [36m[LeadScoring] Score calculated via AI[39m
+    [35mconversationId[39m: 13
+    [35mstage[39m: "warm"
+    [35mtotalScore[39m: 30
+    [35mreasoning[39m: "Clasificaci├│n por palabras clave (IA no disponible)"
+    [35mmessageCount[39m: 7
+[2026-09-18 08:19:13] [32mINFO[39m: [36m[LeadScoring] Lead score persisted[39m
+    [35mconversationId[39m: 13
+    [35mleadId[39m: 13
+    [35mnewStage[39m: "warm"
+    [35mtotalScore[39m: 30
+[2026-09-18 08:19:13] [32mINFO[39m: [36m[FollowUpScheduler] Ya hay un seguimiento pendiente para esta conversaci├│n; no se agrega otro[39m
+    [35mconversationId[39m: 13
+    [35mfollowUpId[39m: 7
+[2026-09-18 08:19:14] [32mINFO[39m: [36m[Entender] comprensi├│n contextual del cliente[39m
+    [35mproveedor[39m: "groq"
+    [35mintencion[39m: "details_query"
+    [35msubintencion[39m: "delivery_question"
+    [35mproductoId[39m: 96
+    [35mconfianza[39m: 0.6
+    [35mresponderDirectamente[39m: true
+    [35mreformulaPregunta[39m: false
+[2026-09-18 08:19:14] [32mINFO[39m: [36m[AdvancedIntelligence] Intention analyzed[39m
+    [35mprimaryIntent[39m: "general_inquiry"
+    [35mcategory[39m: "question"
+    [35murgency[39m: "low"
+    [35msentiment[39m: "neutral"
+    [35mconfidence[39m: 40
+[2026-09-18 08:19:14] [31mERROR[39m: [36m[HealthMonitor] Service entering COOLDOWN due to multiple failures[39m
+    [35mservice[39m: "AI_OP_CONV_13"
+    [35mconsecutiveFailures[39m: 5
+    [35mcooldownUntil[39m: "2026-09-18T13:24:14.177Z"
+[2026-09-18 08:19:14] [31mERROR[39m: [36m[FallbackSystem] fallo de IA[39m
+    [35mconversationId[39m: 0
+    [35merrorType[39m: "CIRCUIT_BREAKER_AI_OP_CONV_13"
+    [35merrorDetails[39m: "El servicio ha sido desactivado temporalmente por fallas consecutivas: Todos los proveedores fallaron"
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+­ƒæñ Como lo recibo
+
+­ƒñû ­ƒøí´©Å Estoy teniendo problemas t├®cnicos. Por favor intenta de nuevo en unos minutos. ­ƒÖÅ
+[2026-09-18 08:19:14] [31mERROR[39m: [36m[HealthMonitor] Service entering COOLDOWN due to multiple failures[39m
+    [35mservice[39m: "AI_OP_CONV_13"
+    [35mconsecutiveFailures[39m: 6
+    [35mcooldownUntil[39m: "2026-09-18T13:24:14.682Z"
+[2026-09-18 08:19:14] [31mERROR[39m: [36m[FallbackSystem] fallo de IA[39m
+    [35mconversationId[39m: 0
+    [35merrorType[39m: "CIRCUIT_BREAKER_AI_OP_CONV_13"
+    [35merrorDetails[39m: "El servicio ha sido desactivado temporalmente por fallas consecutivas: Todos los proveedores fallaron"
+[2026-09-18 08:19:14] [31mERROR[39m: [36m[FallbackSystem] AI failed, activating fallback[39m
+    [35mconversationId[39m: 13
+    [35mstack[39m: "Error: Todos los proveedores fallaron\n    at <anonymous> (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\agent.ts:3227:23)\n    at async retryWithBackoff (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\fallbackSystem.ts:196:22)\n    at async executeWithFallback (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\fallbackSystem.ts:300:12)\n    at async runAgentReply (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\agent.ts:2800:18)\n    at async <anonymous> (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\scripts\probar-vs-meta.ts:59:13)"
+    error: "Todos los proveedores fallaron"
+[2026-09-18 08:19:14] [31mERROR[39m: [36m[FallbackSystem] fallo de IA[39m
+    [35mconversationId[39m: 13
+    [35merrorType[39m: "AI_API_FAILURE"
+    [35merrorDetails[39m: "Todos los proveedores fallaron"
+    [35mcustomerInfo[39m: {
+      "name": "Cliente Meta",
+      "phone": "573001111333"
+    }
+[2026-09-18 08:19:22] [32mINFO[39m: [36m[AgentRouter] Agente seleccionado[39m
+    [35mconversationId[39m: 13
+    [35mselectedAgent[39m: "Sof├¡a"
+    [35mconfidence[39m: "100.0"
+    [35mreason[39m: "├Ünico agente activo"
+    [35mallScores[39m: [
+      {
+        "name": "Sof├¡a",
+        "score": 100
+      }
+    ]
+[2026-09-18 08:19:22] [33mWARN[39m: [36m[LeadScoring] AI provider failed, trying next[39m
+    [35msource[39m: "database"
+    err: {
+      "type": "APIConnectionError",
+      "message": "Connection error.: fetch failed: ",
+      "stack":
+          Error: Connection error.
+              at OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:845:13)
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: TypeError: fetch failed
+              at node:internal/deps/undici/undici:13510:13
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async OpenAI.fetchWithTimeout (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:1029:14)
+              at async OpenAI.fetchWithAuth (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:994:22)
+              at async OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:795:22)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: AggregateError [ECONNREFUSED]: 
+              at internalConnectMultiple (node:net:1134:18)
+              at afterConnectMultiple (node:net:1715:7)
+    }
+[2026-09-18 08:19:23] [33mWARN[39m: [36m[Entender] proveedor r├ípido no respondi├│[39m
+    [35mproveedor[39m: "groq"
+    err: "429 Rate limit reached for model `openai/gpt-oss-20b` in organization `org_01k8pxtct2fbsb3zkd25pz9yta` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 5857, Requested 3039. Please try again in 6.72s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing"
+[2026-09-18 08:19:23] [33mWARN[39m: [36m[Entender] no se pudo entender el mensaje: el agente decide con los patrones[39m
+    [35mtimeout[39m: 8000
+[2026-09-18 08:19:23] [32mINFO[39m: [36m[AdvancedIntelligence] Intention analyzed[39m
+    [35mprimaryIntent[39m: "warranty_inquiry"
+    [35mcategory[39m: "question"
+    [35murgency[39m: "low"
+    [35msentiment[39m: "neutral"
+    [35mconfidence[39m: 70
+[2026-09-18 08:19:23] [31mERROR[39m: [36m[HealthMonitor] Service entering COOLDOWN due to multiple failures[39m
+    [35mservice[39m: "AI_OP_CONV_13"
+    [35mconsecutiveFailures[39m: 7
+    [35mcooldownUntil[39m: "2026-09-18T13:24:23.039Z"
+[2026-09-18 08:19:23] [31mERROR[39m: [36m[FallbackSystem] fallo de IA[39m
+    [35mconversationId[39m: 0
+    [35merrorType[39m: "CIRCUIT_BREAKER_AI_OP_CONV_13"
+    [35merrorDetails[39m: "El servicio ha sido desactivado temporalmente por fallas consecutivas: Todos los proveedores fallaron"
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+­ƒæñ Que garant├¡a tengo ?
+
+­ƒñû ­ƒøí´©Å Estoy teniendo problemas t├®cnicos. Por favor intenta de nuevo en unos minutos. ­ƒÖÅ
+[2026-09-18 08:19:23] [31mERROR[39m: [36m[HealthMonitor] Service entering COOLDOWN due to multiple failures[39m
+    [35mservice[39m: "AI_OP_CONV_13"
+    [35mconsecutiveFailures[39m: 8
+    [35mcooldownUntil[39m: "2026-09-18T13:24:23.549Z"
+[2026-09-18 08:19:23] [31mERROR[39m: [36m[FallbackSystem] fallo de IA[39m
+    [35mconversationId[39m: 0
+    [35merrorType[39m: "CIRCUIT_BREAKER_AI_OP_CONV_13"
+    [35merrorDetails[39m: "El servicio ha sido desactivado temporalmente por fallas consecutivas: Todos los proveedores fallaron"
+[2026-09-18 08:19:23] [31mERROR[39m: [36m[FallbackSystem] AI failed, activating fallback[39m
+    [35mconversationId[39m: 13
+    [35mstack[39m: "Error: Todos los proveedores fallaron\n    at <anonymous> (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\agent.ts:3227:23)\n    at async retryWithBackoff (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\fallbackSystem.ts:196:22)\n    at async executeWithFallback (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\fallbackSystem.ts:300:12)\n    at async runAgentReply (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\agent.ts:2800:18)\n    at async <anonymous> (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\scripts\probar-vs-meta.ts:59:13)"
+    error: "Todos los proveedores fallaron"
+[2026-09-18 08:19:23] [31mERROR[39m: [36m[FallbackSystem] fallo de IA[39m
+    [35mconversationId[39m: 13
+    [35merrorType[39m: "AI_API_FAILURE"
+    [35merrorDetails[39m: "Todos los proveedores fallaron"
+    [35mcustomerInfo[39m: {
+      "name": "Cliente Meta",
+      "phone": "573001111333"
+    }
+[2026-09-18 08:19:23] [33mWARN[39m: [36m[LeadScoring] AI provider failed, trying next[39m
+    [35msource[39m: "environment"
+    err: {
+      "type": "APIConnectionError",
+      "message": "Connection error.: fetch failed: getaddrinfo ENOTFOUND models.inference.ai.azure.com",
+      "stack":
+          Error: Connection error.
+              at OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:845:13)
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: TypeError: fetch failed
+              at node:internal/deps/undici/undici:13510:13
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async OpenAI.fetchWithTimeout (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:1029:14)
+              at async OpenAI.fetchWithAuth (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:994:22)
+              at async OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:795:22)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: Error: getaddrinfo ENOTFOUND models.inference.ai.azure.com
+              at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:122:26)
+    }
+[2026-09-18 08:19:23] [33mWARN[39m: [36m[LeadScoring] All AI providers failed, using keyword fallback[39m
+[2026-09-18 08:19:23] [32mINFO[39m: [36m[LeadScoring] Score calculated via AI[39m
+    [35mconversationId[39m: 13
+    [35mstage[39m: "warm"
+    [35mtotalScore[39m: 30
+    [35mreasoning[39m: "Clasificaci├│n por palabras clave (IA no disponible)"
+    [35mmessageCount[39m: 9
+[2026-09-18 08:19:23] [32mINFO[39m: [36m[LeadScoring] Lead score persisted[39m
+    [35mconversationId[39m: 13
+    [35mleadId[39m: 13
+    [35mnewStage[39m: "warm"
+    [35mtotalScore[39m: 30
+[2026-09-18 08:19:23] [32mINFO[39m: [36m[FollowUpScheduler] Ya hay un seguimiento pendiente para esta conversaci├│n; no se agrega otro[39m
+    [35mconversationId[39m: 13
+    [35mfollowUpId[39m: 7
+[2026-09-18 08:19:31] [32mINFO[39m: [36m[AgentRouter] Agente seleccionado[39m
+    [35mconversationId[39m: 13
+    [35mselectedAgent[39m: "Sof├¡a"
+    [35mconfidence[39m: "100.0"
+    [35mreason[39m: "├Ünico agente activo"
+    [35mallScores[39m: [
+      {
+        "name": "Sof├¡a",
+        "score": 100
+      }
+    ]
+[2026-09-18 08:19:31] [33mWARN[39m: [36m[LeadScoring] AI provider failed, trying next[39m
+    [35msource[39m: "database"
+    err: {
+      "type": "APIConnectionError",
+      "message": "Connection error.: fetch failed: ",
+      "stack":
+          Error: Connection error.
+              at OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:845:13)
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: TypeError: fetch failed
+              at node:internal/deps/undici/undici:13510:13
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async OpenAI.fetchWithTimeout (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:1029:14)
+              at async OpenAI.fetchWithAuth (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:994:22)
+              at async OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:795:22)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: AggregateError [ECONNREFUSED]: 
+              at internalConnectMultiple (node:net:1134:18)
+              at afterConnectMultiple (node:net:1715:7)
+    }
+[2026-09-18 08:19:32] [33mWARN[39m: [36m[LeadScoring] AI provider failed, trying next[39m
+    [35msource[39m: "environment"
+    err: {
+      "type": "APIConnectionError",
+      "message": "Connection error.: fetch failed: getaddrinfo ENOTFOUND models.inference.ai.azure.com",
+      "stack":
+          Error: Connection error.
+              at OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:845:13)
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: TypeError: fetch failed
+              at node:internal/deps/undici/undici:13510:13
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async OpenAI.fetchWithTimeout (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:1029:14)
+              at async OpenAI.fetchWithAuth (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:994:22)
+              at async OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:795:22)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: Error: getaddrinfo ENOTFOUND models.inference.ai.azure.com
+              at GetAddrInfoReqWrap.onlookupall [as oncomplete] (node:dns:122:26)
+    }
+[2026-09-18 08:19:32] [33mWARN[39m: [36m[LeadScoring] All AI providers failed, using keyword fallback[39m
+[2026-09-18 08:19:32] [32mINFO[39m: [36m[LeadScoring] Score calculated via AI[39m
+    [35mconversationId[39m: 13
+    [35mstage[39m: "warm"
+    [35mtotalScore[39m: 30
+    [35mreasoning[39m: "Clasificaci├│n por palabras clave (IA no disponible)"
+    [35mmessageCount[39m: 11
+[2026-09-18 08:19:32] [32mINFO[39m: [36m[LeadScoring] Lead score persisted[39m
+    [35mconversationId[39m: 13
+    [35mleadId[39m: 13
+    [35mnewStage[39m: "warm"
+    [35mtotalScore[39m: 30
+[2026-09-18 08:19:32] [32mINFO[39m: [36m[FollowUpScheduler] Ya hay un seguimiento pendiente para esta conversaci├│n; no se agrega otro[39m
+    [35mconversationId[39m: 13
+    [35mfollowUpId[39m: 7
+[2026-09-18 08:19:33] [33mWARN[39m: [36m[Entender] no se pudo entender el mensaje: el agente decide con los patrones[39m
+    [35mtimeout[39m: 8000
+[2026-09-18 08:19:33] [32mINFO[39m: [36m[AdvancedIntelligence] Intention analyzed[39m
+    [35mprimaryIntent[39m: "general_inquiry"
+    [35mcategory[39m: "question"
+    [35murgency[39m: "low"
+    [35msentiment[39m: "neutral"
+    [35mconfidence[39m: 70
+[2026-09-18 08:19:33] [31mERROR[39m: [36m[HealthMonitor] Service entering COOLDOWN due to multiple failures[39m
+    [35mservice[39m: "AI_nvidia_nim_bridge_conv_13"
+    [35mconsecutiveFailures[39m: 3
+    [35mcooldownUntil[39m: "2026-09-18T13:24:33.088Z"
+[2026-09-18 08:19:33] [31mERROR[39m: [36m[FallbackSystem] fallo de IA[39m
+    [35mconversationId[39m: 0
+    [35merrorType[39m: "CIRCUIT_BREAKER_AI_NVIDIA_NIM_BRIDGE_CONV_13"
+    [35merrorDetails[39m: "El servicio ha sido desactivado temporalmente por fallas consecutivas: Connection error."
+[2026-09-18 08:19:33] [33mWARN[39m: [36m[OptimizedRotation] ÔÜá´©Å  Failure detected[39m
+    [35mprovider[39m: "nvidia_nim_bridge"
+    [35mclase[39m: "desconocido"
+    [35mfailureCount[39m: 1
+    error: "Connection error."
+[2026-09-18 08:19:33] [31mERROR[39m: [36m[HealthMonitor] Service entering COOLDOWN due to multiple failures[39m
+    [35mservice[39m: "AI_OP_CONV_13"
+    [35mconsecutiveFailures[39m: 9
+    [35mcooldownUntil[39m: "2026-09-18T13:24:33.088Z"
+[2026-09-18 08:19:33] [31mERROR[39m: [36m[FallbackSystem] fallo de IA[39m
+    [35mconversationId[39m: 0
+    [35merrorType[39m: "CIRCUIT_BREAKER_AI_OP_CONV_13"
+    [35merrorDetails[39m: "El servicio ha sido desactivado temporalmente por fallas consecutivas: Todos los proveedores fallaron"
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+­ƒæñ Ti pero que contiene cuantas clases horas todo eso ?
+
+­ƒñû ­ƒøí´©Å Estoy teniendo problemas t├®cnicos. Por favor intenta de nuevo en unos minutos. ­ƒÖÅ
+[2026-09-18 08:19:33] [31mERROR[39m: [36m[HealthMonitor] Service entering COOLDOWN due to multiple failures[39m
+    [35mservice[39m: "AI_nvidia_nim_bridge_conv_13"
+    [35mconsecutiveFailures[39m: 4
+    [35mcooldownUntil[39m: "2026-09-18T13:24:33.603Z"
+[2026-09-18 08:19:33] [31mERROR[39m: [36m[FallbackSystem] fallo de IA[39m
+    [35mconversationId[39m: 0
+    [35merrorType[39m: "CIRCUIT_BREAKER_AI_NVIDIA_NIM_BRIDGE_CONV_13"
+    [35merrorDetails[39m: "El servicio ha sido desactivado temporalmente por fallas consecutivas: Connection error."
+[2026-09-18 08:19:33] [33mWARN[39m: [36m[OptimizedRotation] ÔÅ©´©Å  Proveedor apartado[39m
+    [35mprovider[39m: "nvidia_nim_bridge"
+    [35mclase[39m: "desconocido"
+    [35mminutos[39m: 1
+    [35mfailureCount[39m: 2
+    error: "Connection error."
+[2026-09-18 08:19:33] [31mERROR[39m: [36m[HealthMonitor] Service entering COOLDOWN due to multiple failures[39m
+    [35mservice[39m: "AI_OP_CONV_13"
+    [35mconsecutiveFailures[39m: 10
+    [35mcooldownUntil[39m: "2026-09-18T13:24:33.603Z"
+[2026-09-18 08:19:33] [31mERROR[39m: [36m[FallbackSystem] fallo de IA[39m
+    [35mconversationId[39m: 0
+    [35merrorType[39m: "CIRCUIT_BREAKER_AI_OP_CONV_13"
+    [35merrorDetails[39m: "El servicio ha sido desactivado temporalmente por fallas consecutivas: Todos los proveedores fallaron"
+[2026-09-18 08:19:33] [31mERROR[39m: [36m[FallbackSystem] AI failed, activating fallback[39m
+    [35mconversationId[39m: 13
+    [35mstack[39m: "Error: Todos los proveedores fallaron\n    at <anonymous> (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\agent.ts:3227:23)\n    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)\n    at async retryWithBackoff (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\fallbackSystem.ts:196:22)\n    at async executeWithFallback (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\fallbackSystem.ts:300:12)\n    at async runAgentReply (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\agent.ts:2800:18)\n    at async <anonymous> (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\scripts\probar-vs-meta.ts:59:13)"
+    error: "Todos los proveedores fallaron"
+[2026-09-18 08:19:33] [31mERROR[39m: [36m[FallbackSystem] fallo de IA[39m
+    [35mconversationId[39m: 13
+    [35merrorType[39m: "AI_API_FAILURE"
+    [35merrorDetails[39m: "Todos los proveedores fallaron"
+    [35mcustomerInfo[39m: {
+      "name": "Cliente Meta",
+      "phone": "573001111333"
+    }
+[2026-09-18 08:19:41] [32mINFO[39m: [36m­ƒôÜ Learning recorded[39m
+    [35mmemoryId[39m: 6
+    [35mtitle[39m: "Lecci├│n: sale_progress ÔÇö CURSO DE PIANO COMPLETO"
+    [35mtags[39m: [
+      "lesson",
+      "outcome:sale_progress",
+      "product:curso de piano completo",
+      "intent:payment_intent"
+    ]
+[2026-09-18 08:19:41] [32mINFO[39m: [36m[Learning] Lecci├│n guardada[39m
+    [35mtenantId[39m: 1
+    [35moutcome[39m: "sale_progress"
+    [35mtags[39m: [
+      "lesson",
+      "outcome:sale_progress",
+      "product:curso de piano completo",
+      "intent:payment_intent"
+    ]
+[2026-09-18 08:19:41] [32mINFO[39m: [36m[AgentRouter] Agente seleccionado[39m
+    [35mconversationId[39m: 13
+    [35mselectedAgent[39m: "Sof├¡a"
+    [35mconfidence[39m: "100.0"
+    [35mreason[39m: "├Ünico agente activo"
+    [35mallScores[39m: [
+      {
+        "name": "Sof├¡a",
+        "score": 100
+      }
+    ]
+[2026-09-18 08:19:41] [33mWARN[39m: [36m[LeadScoring] AI provider failed, trying next[39m
+    [35msource[39m: "database"
+    err: {
+      "type": "APIConnectionError",
+      "message": "Connection error.: fetch failed: ",
+      "stack":
+          Error: Connection error.
+              at OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:845:13)
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: TypeError: fetch failed
+              at node:internal/deps/undici/undici:13510:13
+              at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+              at async OpenAI.fetchWithTimeout (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:1029:14)
+              at async OpenAI.fetchWithAuth (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:994:22)
+              at async OpenAI.makeRequest (C:\Users\ADMIN\Videos\Agent-Sales-Bot\node_modules\.pnpm\openai@6.49.0_ws@8.21.1_zod@3.25.76\node_modules\openai\src\client.ts:795:22)
+              at async analyzeLeadWithAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:158:26)
+              at async callAI (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:30:12)
+              at async LeadScoringEngine.calculateLeadScore (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:285:24)
+              at async LeadScoringEngine.processMessageForScoring (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\leadScoring.ts:378:25)
+          caused by: AggregateError [ECONNREFUSED]: 
+              at internalConnectMultiple (node:net:1134:18)
+              at afterConnectMultiple (node:net:1715:7)
+    }
+[2026-09-18 08:19:41] [33mWARN[39m: [36m[Entender] proveedor r├ípido no respondi├│[39m
+    [35mproveedor[39m: "groq"
+    err: "429 Rate limit reached for model `openai/gpt-oss-20b` in organization `org_01k8pxtct2fbsb3zkd25pz9yta` service tier `on_demand` on tokens per minute (TPM): Limit 8000, Used 6420, Requested 2996. Please try again in 10.62s. Need more tokens? Upgrade to Dev Tier today at https://console.groq.com/settings/billing"
+[2026-09-18 08:19:41] [33mWARN[39m: [36m[Entender] no se pudo entender el mensaje: el agente decide con los patrones[39m
+    [35mtimeout[39m: 8000
+[2026-09-18 08:19:41] [32mINFO[39m: [36m[AdvancedIntelligence] Intention analyzed[39m
+    [35mprimaryIntent[39m: "general_inquiry"
+    [35mcategory[39m: "question"
+    [35murgency[39m: "low"
+    [35msentiment[39m: "neutral"
+    [35mconfidence[39m: 30
+[2026-09-18 08:19:41] [31mERROR[39m: [36m[HealthMonitor] Service entering COOLDOWN due to multiple failures[39m
+    [35mservice[39m: "AI_OP_CONV_13"
+    [35mconsecutiveFailures[39m: 11
+    [35mcooldownUntil[39m: "2026-09-18T13:24:41.964Z"
+[2026-09-18 08:19:41] [31mERROR[39m: [36m[FallbackSystem] fallo de IA[39m
+    [35mconversationId[39m: 0
+    [35merrorType[39m: "CIRCUIT_BREAKER_AI_OP_CONV_13"
+    [35merrorDetails[39m: "El servicio ha sido desactivado temporalmente por fallas consecutivas: Todos los proveedores fallaron"
+
+ÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉÔòÉ
+­ƒæñ Por nequi
+
+­ƒñû ­ƒøí´©Å Estoy teniendo problemas t├®cnicos. Por favor intenta de nuevo en unos minutos. ­ƒÖÅ
+[2026-09-18 08:19:42] [31mERROR[39m: [36m[HealthMonitor] Service entering COOLDOWN due to multiple failures[39m
+    [35mservice[39m: "AI_OP_CONV_13"
+    [35mconsecutiveFailures[39m: 12
+    [35mcooldownUntil[39m: "2026-09-18T13:24:42.466Z"
+[2026-09-18 08:19:42] [31mERROR[39m: [36m[FallbackSystem] fallo de IA[39m
+    [35mconversationId[39m: 0
+    [35merrorType[39m: "CIRCUIT_BREAKER_AI_OP_CONV_13"
+    [35merrorDetails[39m: "El servicio ha sido desactivado temporalmente por fallas consecutivas: Todos los proveedores fallaron"
+[2026-09-18 08:19:42] [31mERROR[39m: [36m[FallbackSystem] AI failed, activating fallback[39m
+    [35mconversationId[39m: 13
+    [35mstack[39m: "Error: Todos los proveedores fallaron\n    at <anonymous> (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\agent.ts:3227:23)\n    at async retryWithBackoff (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\fallbackSystem.ts:196:22)\n    at async executeWithFallback (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\fallbackSystem.ts:300:12)\n    at async runAgentReply (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\src\lib\agent.ts:2800:18)\n    at async <anonymous> (C:\Users\ADMIN\Videos\Agent-Sales-Bot\artifacts\api-server\scripts\probar-vs-meta.ts:59:13)"
+    error: "Todos los proveedores fallaron"
+[2026-09-18 08:19:42] [31mERROR[39m: [36m[FallbackSystem] fallo de IA[39m
+    [35mconversationId[39m: 13
+    [35merrorType[39m: "AI_API_FAILURE"
+    [35merrorDetails[39m: "Todos los proveedores fallaron"
+    [35mcustomerInfo[39m: {
+      "name": "Cliente Meta",
+      "phone": "573001111333"
+    }

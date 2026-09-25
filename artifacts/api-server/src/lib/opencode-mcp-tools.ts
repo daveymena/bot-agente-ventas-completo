@@ -169,6 +169,24 @@ const TOOL_SCHEMAS: Record<string, object> = {
     },
     additionalProperties: false,
   },
+  agente_disenar: {
+    type: "object",
+    properties: {
+      especialidad: { type: "string", enum: ["digital", "dropshipping"], description: "La línea que va a atender" },
+      name: { type: "string", description: "El nombre que tendría (para detectar duplicados)" },
+    },
+    required: ["especialidad"],
+    additionalProperties: false,
+  },
+  agente_probar_borrador: {
+    type: "object",
+    properties: {
+      agentId: { type: "number", description: "El agente a probar (puede estar en borrador)" },
+      turnos: { type: "array", items: { type: "string" }, description: "Opcional: mensajes del cliente. Sin esto se arman con los productos reales" },
+    },
+    required: ["agentId"],
+    additionalProperties: false,
+  },
   get_settings: { type: "object", properties: {}, additionalProperties: false },
   get_store: { type: "object", properties: {}, additionalProperties: false },
   payment_status: { type: "object", properties: {}, additionalProperties: false },
@@ -1143,7 +1161,7 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
   {
     // Entrenar / corregir / probar al vendedor: la prueba real va con el agente.
     patron: /vendedor|\bagente\b|\bbot\b|entren|prob[aá]|corr[ie]g|c[oó]mo (responde|contesta)|responde mal|contesta mal/i,
-    herramientas: ["agente_probar_chat", "get_agent"],
+    herramientas: ["agente_probar_chat", "get_agent", "agente_disenar", "agente_probar_borrador"],
   },
   {
     // Código fuente: leer/arreglar el programa. Se activa cuando el admin pide
@@ -1462,7 +1480,7 @@ export function buildMcpToolRegistry(pedido?: string): McpToolDef[] {
 const FAMILIAS_DE_CONSULTA: Array<{ tema: string; herramientas: string[] }> = [
   { tema: "Catalogo y tienda", herramientas: ["list_products", "list_categories", "get_store", "search_product_images", "optimize_price", "optimize_copy"] },
   { tema: "Ventas y clientes", herramientas: ["dashboard_summary", "list_recent_conversations", "list_pending_transfers", "list_duplicate_contacts", "predict_customer", "analyze_channel_performance"] },
-  { tema: "WhatsApp y agente", herramientas: ["whatsapp_status", "get_agent", "configurar_mi_agente", "get_settings", "agente_inspectar", "agente_configurar", "agente_perfil_negocio", "agente_conocimiento", "agente_mensaje", "agente_probar_chat", "vendedor_diagnosticar", "vendedor_motor_ver", "vendedor_probar"] },
+  { tema: "WhatsApp y agente", herramientas: ["whatsapp_status", "get_agent", "configurar_mi_agente", "get_settings", "agente_inspectar", "agente_configurar", "agente_perfil_negocio", "agente_conocimiento", "agente_mensaje", "agente_probar_chat", "agente_disenar", "agente_probar_borrador", "vendedor_diagnosticar", "vendedor_motor_ver", "vendedor_probar"] },
   { tema: "Facebook Ads", herramientas: ["fb_status", "fb_list_campaigns", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics", "fb_why_not_delivering", "fb_page_can_post", "fb_page_preview", "fb_suggest_audience", "fb_pixel_status", "fb_ad_library", "fb_agent_logs", "que_hago_con_la_campana", "ad_brief"] },
   { tema: "Marketing y contenido", herramientas: ["marketing_diagnostico", "marketing_aprendizajes", "marketing_attribution", "plan_de_contenido", "generate_image", "web_scrape_images"] },
   { tema: "Investigacion en internet", herramientas: ["web_search", "web_fetch", "deep_research", "research_start", "research_check"] },

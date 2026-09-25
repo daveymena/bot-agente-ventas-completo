@@ -22,7 +22,7 @@
  * razona con eso para escribir lo que sigue. No es un "ok".
  */
 
-import { sePuedeReenviar, instruccionDeDuda, fraseHablada } from "./maquetas";
+import { sePuedeReenviar, instruccionDeDuda, fraseHablada, maquetaDeDatosDeEnvio } from "./maquetas";
 import {
   registrarEnvio,
   registrarOferta,
@@ -366,7 +366,7 @@ export const definicionesDeHerramientas = [
           productoId: { type: "number", description: "El producto que compra. Si no lo pasás, se usa el que está en foco." },
           cantidad: { type: "number" },
           nombre: { type: "string", description: "Nombre y apellido de quien recibe." },
-          documento: { type: "string", description: "Cédula o documento." },
+          documento: { type: "string", description: "Cédula, SOLO si el cliente la dio sin que se la pidas (no se pide)." },
           telefono: { type: "string", description: "Celular de contacto." },
           direccion: { type: "string", description: "Calle/carrera, número, torre, apto." },
           barrio: { type: "string" },
@@ -927,13 +927,26 @@ export const ejecutores: Record<string, Ejecutor> = {
         ctx.estado.pedidoPorConfirmarEnTurno = null;
         ctx.estado.accionPendiente = "pedir_datos_envio";
         ctx.estado.entregaEstado = "pendiente_datos";
-        return {
-          ok: true,
-          mensaje:
-            `Pedido de ${p.name} abierto. ` +
-            (r.yaTiene.length ? `Ya tenés: ${r.yaTiene.join(", ")} (no los vuelvas a pedir). ` : "") +
-            `Faltan: ${r.faltan.join(", ")}. Pedíselos TODOS juntos, en una lista corta, en un solo mensaje. No registres nada todavía.`,
-        };
+        {
+          // La lista la pega el SISTEMA (maquetaDeDatosDeEnvio): completa la
+          // primera vez, solo lo que falta después. El modelo ya no la redacta
+          // -- redactándola, a veces pedía los datos de a uno.
+          const primeraVez = !yaSeEnvio(ctx.estado, p.id, "datos_envio" as Seccion);
+          const maqueta = maquetaDeDatosDeEnvio(r.faltan, primeraVez);
+          if (maqueta) {
+            ctx.partes.push({ kind: "text", content: maqueta });
+            registrarEnvio(ctx.estado, p.id, "datos_envio" as Seccion);
+          }
+          return {
+            ok: true,
+            mensaje:
+              `Pedido de ${p.name} abierto. ` +
+              (r.yaTiene.length ? `Ya tenés: ${r.yaTiene.join(", ")} (no los vuelvas a pedir). ` : "") +
+              (maqueta
+                ? `El SISTEMA ya le mandó la lista de datos que faltan (${r.faltan.join(", ")}). Escribí SOLO una frase corta de intro, sin listar los datos vos y sin pedir la cédula. No registres nada todavía.`
+                : `No falta nada obligatorio. No pidas la cédula.`),
+          };
+        }
       case "zona":
         ctx.estado.pedidoPorConfirmarEnTurno = null;
         ctx.estado.accionPendiente = "confirmar_zona";

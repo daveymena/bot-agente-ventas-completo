@@ -85,7 +85,8 @@ describe("todos los datos de una vez (decisión del dueño)", () => {
     const lista = listaDeDatosQueFaltan({ nombre: "Juan Pérez", telefono: "3001234567" });
     expect(lista).not.toMatch(/Nombre/);
     expect(lista).not.toMatch(/Celular/);
-    expect(lista).toMatch(/1\. Cédula/);
+    expect(lista).not.toMatch(/Cédula/); // no se pide (dueño, 24-09-2026)
+    expect(lista).toMatch(/1\. Dirección/);
     expect(lista).toMatch(/Dirección/);
     expect(lista).toMatch(/punto de referencia/i);
   });

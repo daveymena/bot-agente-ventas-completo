@@ -65,6 +65,11 @@ export function evaluarChat(turnos: TurnoEvaluado[], catalogo: ProductoParaEvalu
   let agenteAnterior: string | null = null;
   let focoAnterior: number | null = null;
   let clienteDijoQuePago = false;
+  // Preguntas que el agente ya hizo, normalizadas: repetirle la misma al
+  // cliente (visto el 25-09 con un borrador: "¿Es para vos o para otra
+  // persona?" en tres turnos seguidos) es ignorar lo que ya contestó o no
+  // quiso contestar.
+  const yaPreguntadas = new Map<string, number>();
 
   turnos.forEach((t, i) => {
     const n = i + 1;
@@ -138,6 +143,13 @@ export function evaluarChat(turnos: TurnoEvaluado[], catalogo: ProductoParaEvalu
     if (GENERICO.test(texto)) out.push({ turno: n, regla: "respuesta-generica", detalle: "Salió la pregunta genérica: el texto del modelo se vació" });
     if (URL.test(texto) && !/drive\.google\.com|youtu/.test(texto)) out.push({ turno: n, regla: "url-en-texto", detalle: "URL escrita en el texto (los enlaces van en la ficha)" });
     if (!texto.trim() && t.tarjetas.length === 0) out.push({ turno: n, regla: "silencio", detalle: "No salió nada" });
+
+    for (const q of texto.match(/¿[^?¿]{6,}\?/g) ?? []) {
+      const clave = norm(q).replace(/[^a-zñ0-9 ]/g, "").replace(/\s+/g, " ").trim();
+      const antes = yaPreguntadas.get(clave);
+      if (antes != null) out.push({ turno: n, regla: "pregunta-repetida", detalle: `Repite "${q}", que ya preguntó en el turno ${antes}` });
+      else yaPreguntadas.set(clave, n);
+    }
 
     // Estado para el siguiente turno.
     if (t.agente) agenteAnterior = t.agente;

@@ -1938,6 +1938,13 @@ export const TOOLS: ToolDef[] = [
       const SOPORTADOS = ["agentId", "name", "role", "tone", "indicaciones", "systemPrompt", "especialidad", "metadata", "isActive"] as const;
       const recibidos = Object.keys(args || {}).filter((k) => args[k] !== undefined && args[k] !== null);
       const noSoportados = recibidos.filter((k) => !(SOPORTADOS as readonly string[]).includes(k));
+      // Misma regla que al crear: las indicaciones no traen datos del negocio.
+      if (args.indicaciones !== undefined) {
+        const { validarIndicaciones } = await import("./disenar-agente");
+        const v = validarIndicaciones(args.indicaciones);
+        if (!v.ok) return { ok: false, summary: `No lo guardé: las indicaciones ${v.errores.join(" Además, las indicaciones ")}` };
+        args = { ...args, indicaciones: v.texto };
+      }
       const patch: Record<string, any> = {};
       for (const k of ["name", "role", "tone", "systemPrompt"]) if (args[k] !== undefined) patch[k] = args[k];
       if (args.especialidad !== undefined) patch.especialidad = args.especialidad;
@@ -2036,21 +2043,30 @@ export const TOOLS: ToolDef[] = [
   // de producto que pide el cliente. Acá solo se crea la fila con la identidad
   // y el prompt; el enrutado ya vive en otro lado y no se duplica.
   {
+    name: "agente_disenar",
+    description:
+      "PRIMER PASO para crear un agente nuevo. Solo LEE: arma el diseño con los datos REALES del negocio -- qué productos va a vender, " +
+      "qué forma de venta, objeciones y cierre ya pone el sistema solo (no hay que escribirlos), qué datos faltan para que venda completo, " +
+      "a qué agente existente le cambia el catálogo, y si hay algo que impide crearlo. " +
+      "Mostrale el diseño al admin y redactá las indicaciones A PARTIR de él antes de proponer agente_crear.",
+    args: '{ "especialidad": "digital"|"dropshipping" (req), "name"?: string }',
+    run: async (args, ctx) => {
+      const { disenarAgente } = await import("./disenar-agente");
+      const d = await disenarAgente(ctx.tenantId, args || {});
+      return { ok: d.bloqueos.length === 0, summary: d.resumen, data: d };
+    },
+  },
+  {
     name: "agente_crear",
     description:
-      "Crea un agente de ventas NUEVO y ESPECIALIZADO, separado del que ya existe. " +
-      "Úsalo cuando el admin quiera un agente aparte para atender una línea de negocio distinta " +
-      "(por ejemplo, uno de dropshipping para producto físico además del de cursos digitales). " +
-      "'especialidad' es obligatoria y es lo que decide el flujo: 'dropshipping' pide dirección y cédula " +
-      "para despachar por transportadora; 'digital' entrega con enlace sin pedir envío. " +
-      "Cada agente ve SOLO los productos de su especialidad y el sistema lo enruta automáticamente " +
-      "cuando un cliente pide un producto de ese tipo. " +
-      "'indicaciones' es lo que el vendedor de WhatsApp LEE en cada respuesta: escribí ahí, corto y concreto, " +
-      "cómo trata al cliente y las reglas propias de ESTE agente (qué pregunta antes de cerrar, qué nunca promete). " +
-      "No repitas lo que el sistema ya hace solo (precios, pagos, fichas, no inventar): eso sale de la base. " +
-      "'systemPrompt' solo lo usa el motor viejo (v1); si no lo dictás, se usa una plantilla. " +
-      "⚠️ Va por propose_action: crear un agente es una acción real.",
-    args: '{ "name": string (req), "role"?: string, "especialidad": "digital"|"dropshipping" (req), "tone"?: string, "indicaciones"?: string, "systemPrompt"?: string, "isActive"?: boolean }',
+      "Crea un agente de ventas NUEVO y ESPECIALIZADO, separado del que ya existe. ANTES llamá agente_disenar y mostrale el diseño al admin. " +
+      "'especialidad' es obligatoria y decide el flujo: 'dropshipping' pide dirección y cédula para despachar por transportadora; " +
+      "'digital' entrega con enlace sin pedir envío. Cada agente ve SOLO los productos de su especialidad. " +
+      "'indicaciones' es lo que el vendedor LEE en cada respuesta: solo lo PROPIO de este agente (a quién le habla, cómo abre, qué pregunta antes de recomendar, " +
+      "qué nunca hace), en segunda persona, máximo 1200 caracteres. PROHIBIDO poner precios, porcentajes o plazos: se rechazan, esos datos salen de la base. " +
+      "El agente nace en BORRADOR (no atiende a nadie): después va agente_probar_borrador y, si el admin aprueba cómo habla, se activa con update_agent { agentId, isActive: true }. " +
+      "⚠️ Va por propose_action.",
+    args: '{ "name": string (req), "role"?: string, "especialidad": "digital"|"dropshipping" (req), "tone"?: string, "indicaciones"?: string, "systemPrompt"?: string }',
     run: async (args, ctx) => {
       if (!args.name || !String(args.name).trim()) {
         return { ok: false, summary: "Falta 'name' (el nombre del agente nuevo)" };
@@ -2065,6 +2081,16 @@ export const TOOLS: ToolDef[] = [
         };
       }
 
+      // Lo que un profesional revisa antes de crear: se revisa acá también,
+      // por si el modelo se saltó agente_disenar.
+      const { disenarAgente, validarIndicaciones } = await import("./disenar-agente");
+      const diseno = await disenarAgente(ctx.tenantId, { especialidad, name: args.name });
+      if (diseno.bloqueos.length) return { ok: false, summary: `No lo creé: ${diseno.bloqueos.join(" ")}`, data: diseno };
+      const ind = validarIndicaciones(args.indicaciones);
+      if (!ind.ok) {
+        return { ok: false, summary: `No lo creé: las indicaciones ${ind.errores.join(" Además, las indicaciones ")} Corregilas y volvé a proponerlo.` };
+      }
+
       // El límite del plan se comprueba ACA, no solo en la ruta HTTP. Igual que
       // en update_agent: el middleware de límites no cubre este camino.
       const { puedeCrear } = await import("./limites-plan");
@@ -2077,6 +2103,9 @@ export const TOOLS: ToolDef[] = [
         [args.name, args.role, especialidad, args.descripcion].filter(Boolean).join(" "),
       );
 
+      // Nace en BORRADOR. Antes nacía activo y atendía clientes reales sin
+      // una sola prueba; y al activarse le quitaba productos al agente que ya
+      // estaba (ver los avisos del diseño).
       const [row] = await db.insert(agents).values({
         tenantId: ctx.tenantId,
         name: String(args.name).trim(),
@@ -2086,25 +2115,38 @@ export const TOOLS: ToolDef[] = [
         especialidad,
         systemPrompt: args.systemPrompt || plantilla.systemPrompt,
         stages: plantilla.stages,
-        metadata: args.indicaciones ? { indicaciones: String(args.indicaciones).trim().slice(0, 2000) } : {},
-        isActive: args.isActive !== false,
+        metadata: ind.texto ? { indicaciones: ind.texto } : {},
+        isActive: false,
       } as any).returning();
 
-      // Lo que pasa DE VERDAD, sin promesas: el vendedor de WhatsApp (motor
-      // v2) usa nombre, rol, especialidad (qué productos ve) e indicaciones.
-      // Antes esto decía "con N etapas de venta" -- el motor v2 no usa etapas.
       return {
         ok: true,
         summary:
-          `Agente nuevo creado: #${row.id} ${row.name} (${row.role}) — especialidad ${especialidad}` +
-          `${row.isActive ? "" : " (inactivo)"}. ` +
-          `Atiende cuando un cliente pide un producto ${especialidad === "dropshipping" ? "físico (con envío)" : "digital (con enlace)"} ` +
-          `y solo ve los productos de su especialidad. ` +
-          (args.indicaciones
-            ? "Sus indicaciones ya las lee el vendedor en cada respuesta."
-            : "No tiene indicaciones propias: habla con el tono general del negocio. Si querés reglas propias, cargalas con update_agent (agentId, indicaciones)."),
-        data: { id: row.id, especialidad, plantilla: plantilla.agentType },
+          `Agente creado en BORRADOR: #${row.id} ${row.name} (${row.role}) — especialidad ${especialidad}. Todavía NO atiende a nadie. ` +
+          `Va a vender ${diseno.catalogo.cuantos} productos. ` +
+          (ind.texto ? "Tiene indicaciones propias. " : "Sin indicaciones propias: hablará con el tono general del negocio. ") +
+          (diseno.avisos.length ? `Al activarlo: ${diseno.avisos.join(" ")} ` : "") +
+          `Siguiente paso: agente_probar_borrador { "agentId": ${row.id} } y mostrarle al admin cómo responde.`,
+        data: { id: row.id, especialidad, plantilla: plantilla.agentType, estado: "borrador", pruebas: diseno.pruebas },
       };
+    },
+  },
+  {
+    name: "agente_probar_borrador",
+    description:
+      "Prueba a UN agente (en borrador o activo) antes de dejarlo atender: simula una conversación con preguntas armadas con los productos REALES " +
+      "(o las que mandes en 'turnos'), con su voz, sus indicaciones y su catálogo, y marca los fallos. No le escribe a ningún cliente. " +
+      "Usala después de agente_crear y después de cambiarle las indicaciones. Mostrale al admin las respuestas tal cual.",
+    args: '{ "agentId": number (req), "turnos"?: string[] }',
+    run: async (args, ctx) => {
+      const agentId = num(args?.agentId);
+      if (!agentId) return { ok: false, summary: "Falta 'agentId' (el agente a probar; list_agents muestra los ids)." };
+      const turnos: string[] = Array.isArray(args?.turnos) ? args.turnos.map((t: any) => String(t || "")).filter(Boolean) : [];
+      const { probarAgente } = await import("./disenar-agente");
+      const { armarCadena, crearClienteLLM } = await import("./motor-nuevo/cliente-llm");
+      const llm = crearClienteLLM({ cadena: await armarCadena({ tenantId: ctx.tenantId }), tenantId: ctx.tenantId });
+      const r = await probarAgente(ctx.tenantId, agentId, llm, turnos);
+      return { ok: r.ok, summary: r.resumen, data: { turnos: r.turnos, hallazgos: r.hallazgos } };
     },
   },
 
@@ -6657,14 +6699,29 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       const estilo = bp.estiloDeVenta || {};
       const wh = settings_.workingHours;
 
+      // Qué motor atiende define qué campos llegan al cliente: mostrar un
+      // campo que el motor no lee como si estuviera activo es lo que hacía
+      // que Atlas confirmara cambios que el bot ignoraba.
+      const { motorDelTenant } = await import("./motor-nuevo/activacion");
+      const motor = await motorDelTenant(ctx.tenantId);
+      let metaAgente: Record<string, any> = {};
+      try {
+        metaAgente = typeof a?.metadata === "string" ? JSON.parse(a.metadata) : (a?.metadata as any) || {};
+      } catch { metaAgente = {}; }
+      const indicaciones = typeof metaAgente.indicaciones === "string" ? metaAgente.indicaciones.trim() : "";
+      // En v2 no tiene sentido pedirlo: se rechazaría al guardarlo.
+      const iEstilo = faltantes.indexOf("estilo de venta");
+      if (motor === "v2" && iEstilo >= 0) faltantes.splice(iEstilo, 1);
+      const corto = (x: string) =>`"${x.slice(0, 100)}${x.length > 100 ? "..." : ""}"`;
+
       const lines = [
         `🤖 AGENTE: ${a ? `${a.name} (${a.role}) — modelo ${a.model}` : "NO HAY AGENTE CREADO"}`,
-        `激活: ${a?.isActive ? "SÍ" : "NO"}`,
+        `⚙️ MOTOR QUE ATIENDE: ${motor}`,
+        `Activo: ${a?.isActive ? "SÍ" : "NO"}`,
         ``,
         `📋 IDENTIDAD`,
         `  Marca: ${t.brandName || "(sin nombre)"}`,
         `  Nombre del agente: ${t.agentName || "(sin nombre)"}`,
-        `  Personalidad: ${t.agentPersonality || "professional"}`,
         ``,
         `🎭 PERFIL DEL NEGOCIO`,
         `  Descripción: ${bp.descripcion || "❌ NO CONFIGURADO"}`,
@@ -6679,13 +6736,17 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
         `🔑 ACCESO: ${bp.acceso ? `${bp.acceso.tipo} — ${bp.acceso.descripcion || ""}` : "❌ NO CONFIGURADO"}`,
         ``,
         `💰 VENTA`,
-        `  Estilo: ${estilo.calificacion || "salvo_si_pidio_dato"} | Video: ${estilo.ganchoVideo !== false ? "sí" : "no"} | Ante la duda: ${estilo.anteLaDuda || "algo_concreto"}`,
+        motor === "v1"
+          ? `  Estilo: ${estilo.calificacion || "salvo_si_pidio_dato"} | Video: ${estilo.ganchoVideo !== false ? "sí" : "no"} | Ante la duda: ${estilo.anteLaDuda || "algo_concreto"}`
+          : `  Estilo: (el motor v2 todavía no lo lee)`,
         `  Negocia precio: ${bp.negociaPrecio === true ? "SÍ" : "NO"}`,
         ``,
         `🚫 NO PUEDE: ${bp.noPuede?.length ? bp.noPuede.join(", ") : "❌ NO CONFIGURADO"}`,
         `📖 SABER: ${bp.loQueDebeSaber?.length ? bp.loQueDebeSaber.join("; ") : "❌ NO CONFIGURADO"}`,
         `🎭 TONO: ${bp.tono || "No especificado"}`,
-        `📝 PROMPT LIBRE: ${t.agentPrompt ? `"${t.agentPrompt.slice(0, 100)}${t.agentPrompt.length > 100 ? "..." : ""}"` : "(vacío)"}`,
+        motor === "v1"
+          ? `📝 PROMPT LIBRE: ${t.agentPrompt ? corto(t.agentPrompt) : "(vacío)"}`
+          : `📝 INDICACIONES${a ? ` DE ${a.name}` : ""} (lo que lee el v2): ${indicaciones ? corto(indicaciones) : "(vacías)"}`,
       ];
 
       if (faltantes.length > 0) {
@@ -6699,7 +6760,9 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
           agente: a ? { id: a.id, name: a.name, role: a.role, tone: a.tone, model: a.model, isActive: a.isActive } : null,
           marca: { brandName: t.brandName, agentName: t.agentName, agentPersonality: t.agentPersonality },
           perfilDelNegocio: bp,
+          motor,
           promptLibre: t.agentPrompt || "",
+          indicaciones,
           faltantes,
           catalogo: { digitales, fisicos },
         },
@@ -6710,62 +6773,22 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   {
     name: "agente_configurar",
     description:
-      "Modifica la configuración del agente de WhatsApp: nombre, personalidad, tono, prompt libre, modelo, " +
-      "estilo de venta, o si negocia precios. MANDÁ solo los campos que querés cambiar; lo que no mandes NO se toca. " +
+      "Modifica la configuración del agente de WhatsApp: nombre, marca, tono, instrucciones libres, política de descuentos o estilo de venta. " +
+      "MANDÁ solo los campos que querés cambiar; lo que no mandes NO se toca. " +
+      "Cada campo se guarda donde lo lee el motor que atiende a ESTE negocio (v1 o v2); lo que ese motor no lee NO se guarda y el resultado lo dice en 'NO aplicado': " +
+      "repetile eso al admin tal cual, nunca le digas que quedó activo algo que salió en 'NO aplicado'. " +
+      "'prompt' en el motor v2 va a las indicaciones del agente principal (o del 'agentId' que mandes). " +
       "⚠️ Va por propose_action: cambia cómo el bot le habla a TODOS los clientes. " +
       "Mostrá primero el estado con agente_inspectar ANTES de proponer un cambio, para que el admin vea qué tiene y qué cambia.",
-    args: '{ "agentName"?: string, "brandName"?: string, "agentPersonality"?: "professional"|"casual"|"enthusiastic"|"consultative", "prompt"?: string, "promptLibre"?: string, "tono"?: string, "negociaPrecio"?: boolean, "estiloDeVenta"?: { "calificacion"?: "siempre"|"salvo_si_pidio_dato"|"nunca", "ganchoVideo"?: boolean, "anteLaDuda"?: "dar_espacio"|"algo_concreto"|"preguntar_que_frena" } }',
+    args: '{ "agentName"?: string, "brandName"?: string, "prompt"?: string, "agentId"?: number, "tono"?: string, "negociaPrecio"?: boolean, "estiloDeVenta"?: { "calificacion"?: "siempre"|"salvo_si_pidio_dato"|"nunca", "ganchoVideo"?: boolean, "anteLaDuda"?: "dar_espacio"|"algo_concreto"|"preguntar_que_frena" } }',
     run: async (args, ctx) => {
-      const [t] = await db.select().from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
-      if (!t) return { ok: false, summary: "No se encontró el negocio." };
-
-      const patch: Record<string, any> = {};
-      if (args.agentName !== undefined) patch.agentName = String(args.agentName);
-      if (args.brandName !== undefined) patch.brandName = String(args.brandName);
-      if (args.agentPersonality !== undefined) {
-        const validos = ["professional", "casual", "enthusiastic", "consultative"];
-        if (!validos.includes(args.agentPersonality)) {
-          return { ok: false, summary: `Personalidad inválida. Las válidas son: ${validos.join(", ")}` };
-        }
-        patch.agentPersonality = args.agentPersonality;
-      }
-      if (args.prompt !== undefined) patch.agentPrompt = String(args.prompt);
-      if (args.promptLibre !== undefined && args.prompt === undefined) patch.agentPrompt = String(args.promptLibre);
-
-      // Estilo de venta: se mezcla con el existente
-      if (args.estiloDeVenta !== undefined || args.negociaPrecio !== undefined || args.tono !== undefined) {
-        const meta = ((t as any).metadata || {}) as Record<string, any>;
-        const bp = (meta.businessProfile || {}) as Record<string, any>;
-        const nuevoBp: Record<string, any> = { ...bp };
-
-        if (args.estiloDeVenta) {
-          nuevoBp.estiloDeVenta = { ...(bp.estiloDeVenta || {}), ...args.estiloDeVenta };
-        }
-        if (args.negociaPrecio !== undefined) {
-          nuevoBp.negociaPrecio = !!args.negociaPrecio;
-        }
-        if (args.tono !== undefined) {
-          nuevoBp.tono = String(args.tono);
-        }
-
-        patch.metadata = { ...meta, businessProfile: nuevoBp };
-      }
-
-      if (Object.keys(patch).length === 0) {
-        return { ok: false, summary: "No mandaste ningún campo para cambiar. Campos disponibles: agentName, brandName, agentPersonality, prompt, tono, negociaPrecio, estiloDeVenta." };
-      }
-
-      patch.updatedAt = dbNow();
-      await db.update(tenants).set(patch).where(eq(tenants.id, ctx.tenantId));
-
-      // Invalidar caches
-      const { invalidarContextoDeNegocio } = await import("./business-context");
-      invalidarContextoDeNegocio(ctx.tenantId);
-
+      // La regla de qué campo lee cada motor vive en configurar-agente.ts (probada).
+      const { configurarAgente } = await import("./configurar-agente");
+      const r = await configurarAgente(ctx.tenantId, args || {});
       return {
-        ok: true,
-        summary: `Agente configurado: ${Object.keys(patch).filter(k => k !== "updatedAt").join(", ")}. El cambio ya está activo en la próxima conversación.`,
-        data: { camposModificados: Object.keys(patch).filter(k => k !== "updatedAt") },
+        ok: r.ok,
+        summary: r.summary,
+        data: { motor: r.motor, aplicados: r.aplicados, ignorados: r.ignorados, anterior: r.anterior },
       };
     },
   },
@@ -7379,6 +7402,175 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       }
     },
   },
+
+  // ─── AGENT LAB: Simulación y mejora de agentes (Fase 1) ───
+  {
+    name: "agentlab_simular",
+    description:
+      "Simula clientes con diferentes arquetipos (normal, desconfiado, precio-sensible, impulsivo, etc.) " +
+      "conversando contra el vendedor de este negocio. Detecta automáticamente problemas de respuesta, " +
+      "claridad, lógica y cumplimiento de reglas. No escribe en conversaciones reales ni toca al agente. " +
+      "Úsalo para entrenar antes de cambios de prompt.",
+    args: '{ "productoId": number (req), "arquetipos": string[] (req, ej: ["NORMAL", "DESCONFIADO", "PRECIO_SENSIBLE"]), "maxTurnos": number (opt, default 8) }',
+    run: async (args, ctx) => {
+      const { correrMultiplesSimulaciones } = await import("./motor-nuevo/simulador-agente");
+      const { obtenerPerfil } = await import("./motor-nuevo/cliente-simulado");
+      const { armarCadena, crearClienteLLM } = await import("./motor-nuevo/cliente-llm");
+
+      if (!args?.productoId || !args?.arquetipos?.length) {
+        return { ok: false, summary: 'Faltan "productoId" y/o "arquetipos"' };
+      }
+
+      const arquetipos = (Array.isArray(args.arquetipos) ? args.arquetipos : [args.arquetipos])
+        .map((k: string) => obtenerPerfil(k));
+
+      const llmConfig = { cadena: await armarCadena({ tenantId: ctx.tenantId }), tenantId: ctx.tenantId };
+
+      const resultados = await correrMultiplesSimulaciones({
+        tenantId: ctx.tenantId,
+        perfiles: arquetipos,
+        productoId: args.productoId,
+        llmConfig,
+        maxTurnos: args?.maxTurnos || 8,
+      });
+
+      const totalTurnos = resultados.reduce((s, r) => s + r.turnos.length, 0);
+      const cierres = resultados.map((r) => r.cerroEn);
+      const compras = cierres.filter((c) => c === "compra").length;
+      const problemas = resultados.flatMap((r) => r.resumenProblemas);
+
+      return {
+        ok: true,
+        summary: `Simuladas ${resultados.length} conversaciones (${totalTurnos} turnos totales). Compras: ${compras}/${resultados.length}. Problemas detectados: ${problemas.length}`,
+        data: { simulaciones: resultados.length, turnos: totalTurnos, compras, problemasTotal: problemas.length, problemas: problemas.slice(0, 10) },
+      };
+    },
+  },
+
+  {
+    name: "agentlab_mejorar",
+    description:
+      "Agrupa hallazgos de simulaciones recientes y conversaciones reales, luego propone un prompt mejorado. " +
+      "Genera una versión candidata en `prompt_versions` (no toca el prompt actual). Úsalo después de `agentlab_simular` " +
+      "cuando detectes patrones repetidos.",
+    args: '{ "agentId": number (req), "hallazgosSimulacion": any[] (opt), "diasConversacionesReales": number (opt, default 7) }',
+    run: async (args, ctx) => {
+      if (!args?.agentId) return { ok: false, summary: 'Falta "agentId"' };
+
+      const { db } = await ensureDbReady();
+      const [agent] = await db.select().from(agents).where(eq(agents.id, args.agentId));
+
+      if (!agent || agent.tenantId !== ctx.tenantId) {
+        return { ok: false, summary: "Agente no encontrado o no pertenece a este negocio" };
+      }
+
+      const { extraerHallazgosDeSimulaciones, proponerMejora, guardarVersionCandidata } = await import("./agent-lab-mejora");
+      const { armarCadena, crearClienteLLM } = await import("./motor-nuevo/cliente-llm");
+
+      const hallazgos = args?.hallazgosSimulacion || [];
+      const llmConfig = { cadena: await armarCadena({ tenantId: ctx.tenantId }), tenantId: ctx.tenantId };
+      const llm = crearClienteLLM(llmConfig);
+
+      const { nuevoprompt, resumenDeCambios } = await proponerMejora({
+        tenantId: ctx.tenantId,
+        agentId: args.agentId,
+        promptActual: agent.systemPrompt,
+        hallazgos,
+        llmForGeneration: llm,
+      });
+
+      const versionId = await guardarVersionCandidata({
+        tenantId: ctx.tenantId,
+        agentId: args.agentId,
+        promptAnterior: agent.systemPrompt,
+        promptNuevo: nuevoprompt,
+        resumenDeCambios,
+      });
+
+      return {
+        ok: true,
+        summary: `Versión candidata creada (#${versionId}). ${resumenDeCambios.split("\n")[0]}. Proximos pasos: agentlab_comparar → agentlab_aplicar_version`,
+        data: { versionId, cambios: resumenDeCambios.slice(0, 200) },
+      };
+    },
+  },
+
+  {
+    name: "agentlab_comparar",
+    description:
+      "Compara el prompt actual contra una versión candidata usando el mismo set de simulaciones. " +
+      "Muestra tasa de éxito lado a lado y porcentaje de mejora. Úsalo ANTES de aplicar una versión.",
+    args: '{ "agentId": number (req), "versionId": number (req) }',
+    run: async (args, ctx) => {
+      if (!args?.agentId || !args?.versionId) {
+        return { ok: false, summary: 'Faltan "agentId" y/o "versionId"' };
+      }
+
+      const { db } = await ensureDbReady();
+      const [agent] = await db.select().from(agents).where(eq(agents.id, args.agentId));
+      const [version] = await db.select().from(prompt_versions).where(eq(prompt_versions.id, args.versionId));
+
+      if (!agent || agent.tenantId !== ctx.tenantId || !version || version.agentId !== args.agentId) {
+        return { ok: false, summary: "Agente o versión no encontrados" };
+      }
+
+      const { compararVersiones } = await import("./agent-lab-mejora");
+      const { armarCadena, crearClienteLLM } = await import("./motor-nuevo/cliente-llm");
+
+      const llmConfig = { cadena: await armarCadena({ tenantId: ctx.tenantId }), tenantId: ctx.tenantId };
+      const llm = crearClienteLLM(llmConfig);
+
+      const simulacionesTest: any[] = []; // TODO: implementar con arquetipos reales
+      const resultado = await compararVersiones({
+        versionAnterior: { promptActual: agent.systemPrompt, nombreVersion: "Actual" },
+        versionCandidata: { promptNuevo: version.newPrompt, idVersion: version.id },
+        simulacionesAComparar: simulacionesTest,
+        llmForComparison: llm,
+      });
+
+      const mejora = resultado.mejoroEn > 0 ? `✅ +${resultado.mejoroEn.toFixed(1)}%` : `⚠️ ${resultado.mejoroEn.toFixed(1)}%`;
+
+      return {
+        ok: true,
+        summary: `Comparación: Actual ${(resultado.actual.tasa * 100).toFixed(0)}% vs Candidata ${(resultado.candidata.tasa * 100).toFixed(0)}% (${mejora})`,
+        data: resultado,
+      };
+    },
+  },
+
+  {
+    name: "agentlab_aplicar_version",
+    description:
+      "Aplica una versión candidata a producción. DESTRUCTIVE: cambia cómo le responde el bot a TODOS los clientes. " +
+      "Corré agentlab_comparar primero y muéstrale al admin qué mejora esperas ANTES de llamar esto.",
+    args: '{ "agentId": number (req), "versionId": number (req) }',
+    run: async (args, ctx) => {
+      if (!args?.agentId || !args?.versionId) {
+        return { ok: false, summary: 'Faltan "agentId" y/o "versionId"' };
+      }
+
+      const { db } = await ensureDbReady();
+      const [agent] = await db.select().from(agents).where(eq(agents.id, args.agentId));
+      const [version] = await db.select().from(prompt_versions).where(eq(prompt_versions.id, args.versionId));
+
+      if (!agent || agent.tenantId !== ctx.tenantId || !version || version.agentId !== args.agentId) {
+        return { ok: false, summary: "Agente o versión no encontrados" };
+      }
+
+      if (version.isActive) {
+        return { ok: false, summary: "Esta versión ya está activa en producción" };
+      }
+
+      const { aplicarVersionCandidata } = await import("./agent-lab-mejora");
+      await aplicarVersionCandidata({ agentId: args.agentId, versionId: args.versionId, aprobadoPor: ctx.sessionId || "admin" });
+
+      return {
+        ok: true,
+        summary: `✅ Versión #${args.versionId} aplicada al agente ${agent.name}. Cambio en vivo: todos los clientes nuevos verán el nuevo prompt a partir de ahora.`,
+        data: { agentId: args.agentId, versionId: args.versionId },
+      };
+    },
+  },
 ];
 
 /**
@@ -7603,6 +7795,10 @@ export const READ_ONLY_TOOLS = new Set([
   "vendedor_diagnosticar", "vendedor_motor_ver", "vendedor_probar",
   // Probar al vendedor crea una conversación de PRUEBA y no le escribe a nadie: es lectura.
   "agente_probar_chat",
+  "agente_disenar", "agente_probar_borrador",
+  // Agent Lab: simular y mejorar agentes sin tocar producción es lectura.
+  // Solo aplicar versión es DESTRUCTIVE (la única herramienta que toca el prompt actual).
+  "agentlab_simular", "agentlab_mejorar", "agentlab_comparar",
   // Terabox: listar carpetas es lectura pura, no cambia nada.
   //
   // terabox_create_share_link NO va acá, aunque estuvo un rato. Se justificaba
@@ -7663,6 +7859,8 @@ export const DESTRUCTIVE_TOOLS = new Set([
   "vendedor_motor",
   // Borra lo aprendido y reemplaza el prompt de los agentes: confirmación reforzada.
   "agente_reentrenar",
+  // Agent Lab: aplicar una versión candidata cambia el prompt en TODOS los clientes → confirmación reforzada
+  "agentlab_aplicar_version",
   // fb_create_ad crea objetos reales en Meta y puede gastar al activarse → confirmación reforzada
   "fb_create_ad",
   // fb_page_publish es público e irreversible desde la app (borrar hay que

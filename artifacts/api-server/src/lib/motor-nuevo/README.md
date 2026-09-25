@@ -135,6 +135,41 @@ Desde Atlas: `vendedor_diagnosticar` (lee conversaciones reales, sin gastar
 tokens) → `vendedor_probar` (sombra) → `vendedor_motor` (prender, con aprobación
 del admin).
 
+## Qué configuración lee cada motor
+
+Atlas reconfigura al vendedor con `agente_configurar`, que guarda cada campo
+donde lo lee el motor de ESE negocio (`lib/configurar-agente.ts`, probado en
+`__tests__/configurar-agente.test.ts`). Lo que el motor no lee no se guarda y
+Atlas lo reporta como "NO aplicado".
+
+| Campo              | v1                    | v2                              |
+|--------------------|-----------------------|---------------------------------|
+| agentName, brandName | tenants             | tenants                         |
+| tono, negociaPrecio | businessProfile      | businessProfile                 |
+| prompt (libre)     | `tenants.agentPrompt` | `agents.metadata.indicaciones`  |
+| estiloDeVenta      | businessProfile       | todavía no lo lee               |
+| agentPersonality   | no lo lee             | no lo lee                       |
+
+Todo lo que se guarda en la base se ve desde el **siguiente mensaje**, sin
+redesplegar (las cachés de 60 s se vacían al guardar). Solo los cambios de
+código o de variables de entorno necesitan despliegue o reinicio.
+
+## Cómo crea Atlas un agente nuevo
+
+`lib/disenar-agente.ts` (probado en `__tests__/disenar-agente.test.ts`):
+
+1. `agente_disenar` (solo lee): qué productos va a vender, qué forma de venta,
+   objeciones y cierre ya pone el sistema, qué datos faltan, a qué agente
+   existente le cambia el catálogo, y si hay algo que impide crearlo (nombre
+   repetido, línea sin productos).
+2. `agente_crear`: repite esas revisiones, rechaza indicaciones con precios,
+   porcentajes, plazos o restos de la plantilla v1 (también `update_agent` y
+   `agente_configurar`), y crea el agente en **borrador** (inactivo).
+3. `agente_probar_borrador`: corre la sombra del v2 con ESE agente como si
+   estuviera activo (su voz, sus indicaciones, su catálogo) y el evaluador de
+   chats marca los fallos. No le escribe a nadie.
+4. Se activa con `update_agent { agentId, isActive: true }`, con aprobación.
+
 ## Lo que se retira cuando el v2 quede prendido para todos
 
 Marcado en el código con `RETIRAR CON EL V1`. Hoy siguen vivos y son el camino
