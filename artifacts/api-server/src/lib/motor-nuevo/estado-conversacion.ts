@@ -182,6 +182,15 @@ export interface EstadoConversacion {
   ultimaOferta: Oferta | null;
 
   /**
+   * Se le PREGUNTÓ si quiere hacer el pedido de este producto, en el turno
+   * `turno`. Pedido del dueño (25-09-2026): "me interesa este" no es querer
+   * comprar; los datos de envío se piden recién cuando el cliente dice que sí.
+   */
+  preguntoSiCompra: { productoId: number; turno: number } | null;
+  /** El cliente confirmó que compra este producto (id). Lo fija tomar_pedido, no el modelo. */
+  compraConfirmada: number | null;
+
+  /**
    * El modelo NUNCA puede poner esto en true. Solo una persona, desde el panel.
    * Así es estructuralmente imposible que el bot diga "ya confirmé tu pago"
    * cuando no lo confirmó nadie — que era lo que la regex AFIRMA_PAGO_CONFIRMADO
@@ -281,6 +290,8 @@ export function estadoInicial(conversationId: number): EstadoConversacion {
     opcionesMostradas: [],
     seccionesEnviadas: {},
     ultimaOferta: null,
+    preguntoSiCompra: null,
+    compraConfirmada: null,
     pagoConfirmadoPorHumano: false,
     comprobanteRecibido: false,
     datos: {},
@@ -363,6 +374,11 @@ export function normalizarEstado(crudo: unknown, conversationId: number): Estado
     pagoMetodo: typeof c.pagoMetodo === "string" ? c.pagoMetodo : null,
     entregaMetodo: typeof c.entregaMetodo === "string" ? c.entregaMetodo : null,
     pedidoPorConfirmarEnTurno: typeof c.pedidoPorConfirmarEnTurno === "number" ? c.pedidoPorConfirmarEnTurno : null,
+    preguntoSiCompra:
+      c.preguntoSiCompra && typeof c.preguntoSiCompra === "object" && typeof (c.preguntoSiCompra as any).productoId === "number"
+        ? (c.preguntoSiCompra as EstadoConversacion["preguntoSiCompra"])
+        : null,
+    compraConfirmada: typeof c.compraConfirmada === "number" ? c.compraConfirmada : null,
   };
 }
 

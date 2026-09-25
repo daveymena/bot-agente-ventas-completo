@@ -119,3 +119,41 @@ export function fraseHablada(p: Producto, seccion: string): string {
       return "";
   }
 }
+
+/**
+ * La maqueta de los DATOS DE ENVÍO (físico / dropshipping).
+ *
+ * Pedido del dueño (24-09-2026): "a veces en vez de enviar todos los datos
+ * que necesita para envío pide uno por uno; envía una maqueta con todos los
+ * datos, omitiendo cédula ya que no es necesaria". Antes el modelo recibía
+ * "pedíselos todos juntos" y los redactaba él -- a veces de a uno. Ahora la
+ * lista la pega el SISTEMA: completa la primera vez, y si después falta algo,
+ * solo eso. La cédula no se pide: Dropi la lleva solo como nota.
+ */
+const LINEA_DEL_DATO: Record<string, string> = {
+  "nombre completo": "👤 Nombre y apellido",
+  "celular": "📱 Celular",
+  "dirección": "🏠 Dirección (calle o carrera, número, apto o casa)",
+  "barrio": "📍 Barrio",
+  "ciudad": "🏙️ Ciudad",
+  "departamento": "🗺️ Departamento",
+  "punto de referencia": "📌 Un punto de referencia (opcional)",
+};
+
+export function maquetaDeDatosDeEnvio(faltan: string[], primeraVez: boolean): string {
+  let pedidos = faltan.filter((f) => f !== "cédula" && f !== "documento");
+  // La primera vez se piden también los que ayudan al mensajero (opcionales).
+  if (primeraVez) for (const extra of ["barrio", "punto de referencia"]) if (!pedidos.includes(extra)) pedidos.push(extra);
+  const orden = ["nombre completo", "celular", "dirección", "barrio", "ciudad", "departamento", "punto de referencia"];
+  pedidos = [...new Set(pedidos)].sort((a, b) => (orden.indexOf(a) + 1 || 99) - (orden.indexOf(b) + 1 || 99));
+  const lineas: string[] = [];
+  for (const d of pedidos) {
+    if (d === "departamento" && pedidos.includes("ciudad")) continue;
+    if (d === "ciudad" && pedidos.includes("departamento")) { lineas.push("🏙️ Ciudad y departamento"); continue; }
+    lineas.push(LINEA_DEL_DATO[d] || `• ${d.charAt(0).toUpperCase()}${d.slice(1)}`);
+  }
+  if (!lineas.length) return "";
+  return primeraVez
+    ? `📦 *Para enviarte tu pedido necesito:*\n\n${lineas.join("\n")}\n\nEnvíamelos todos en un solo mensaje y te confirmo el pedido 🙌`
+    : `📝 *Solo me falta:*\n\n${lineas.join("\n")}\n\nCon eso te confirmo el pedido.`;
+}

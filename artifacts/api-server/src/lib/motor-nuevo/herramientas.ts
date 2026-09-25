@@ -22,7 +22,7 @@
  * razona con eso para escribir lo que sigue. No es un "ok".
  */
 
-import { sePuedeReenviar, instruccionDeDuda, fraseHablada } from "./maquetas";
+import { sePuedeReenviar, instruccionDeDuda, fraseHablada, maquetaDeDatosDeEnvio } from "./maquetas";
 import {
   registrarEnvio,
   registrarOferta,
@@ -377,7 +377,7 @@ export const definicionesDeHerramientas = [
           productoId: { type: "number", description: "El producto que compra. Si no lo pasás, se usa el que está en foco." },
           cantidad: { type: "number" },
           nombre: { type: "string", description: "Nombre y apellido de quien recibe." },
-          documento: { type: "string", description: "Cédula o documento." },
+          documento: { type: "string", description: "Cédula, SOLO si el cliente la dio sin que se la pidas (no se pide)." },
           telefono: { type: "string", description: "Celular de contacto." },
           direccion: { type: "string", description: "Calle/carrera, número, torre, apto." },
           barrio: { type: "string" },
@@ -929,6 +929,30 @@ export const ejecutores: Record<string, Ejecutor> = {
     if (!precioDado(ctx.estado, p.id)) {
       return { ok: false, mensaje: `Todavía no le mostraste el precio de ${p.name}. Mandá primero mostrar(seccion="precio") y después pedí los datos.` };
     }
+    // Que QUIERA comprar, no que le interese. Pedido del dueño (25-09-2026):
+    // a "me interesa este" el bot le pidió nombre y cédula. Los datos se piden
+    // cuando el cliente dijo que sí a "¿te lo enviamos?" (en un mensaje
+    // POSTERIOR a esa pregunta), o cuando él mismo dijo que lo compra.
+    if (ctx.estado.compraConfirmada !== p.id) {
+      const preguntado = ctx.estado.preguntoSiCompra;
+      // Preguntado por esta herramienta en un turno anterior, o por el modelo
+      // en su texto ("¿Te lo enviamos?" con que cerró su último mensaje).
+      const preguntoEnElTexto = /env[ií]|pedido|llev[aá]s|llevas|compr|separ|apart|lo quer[eé]s|lo quieres|te animas|te animás/i.test(ctx.estado.ultimaPreguntaAgente || "");
+      const preguntoAntes = (preguntado?.productoId === p.id && ctx.estado.turnos > preguntado.turno) || preguntoEnElTexto;
+      const respondioAlaPregunta = preguntoAntes && !esDudaONegativa(ctx.mensajeDelCliente);
+      if (respondioAlaPregunta || diceQueCompra(ctx.mensajeDelCliente)) {
+        ctx.estado.compraConfirmada = p.id;
+      } else {
+        ctx.estado.preguntoSiCompra = { productoId: p.id, turno: ctx.estado.turnos };
+        return {
+          ok: false,
+          mensaje:
+            `El cliente todavía NO dijo que compra ${p.name} (interesarse no es comprar). NO le pidas datos de envío. ` +
+            `Respondé lo que preguntó y cerrá con UNA pregunta corta de si quiere hacer el pedido (ej: "¿Te lo enviamos?"). ` +
+            `Si responde que sí, volvé a llamar tomar_pedido.`,
+        };
+      }
+    }
     const datos: DatosDelPedido = {};
     for (const k of ["nombre", "telefono", "documento", "departamento", "ciudad", "direccion", "barrio", "notas"] as const) {
       const v = String(args?.[k] ?? "").trim();
@@ -948,13 +972,26 @@ export const ejecutores: Record<string, Ejecutor> = {
         ctx.estado.pedidoPorConfirmarEnTurno = null;
         ctx.estado.accionPendiente = "pedir_datos_envio";
         ctx.estado.entregaEstado = "pendiente_datos";
-        return {
-          ok: true,
-          mensaje:
-            `Pedido de ${p.name} abierto. ` +
-            (r.yaTiene.length ? `Ya tenés: ${r.yaTiene.join(", ")} (no los vuelvas a pedir). ` : "") +
-            `Faltan: ${r.faltan.join(", ")}. Pedíselos TODOS juntos, en una lista corta, en un solo mensaje. No registres nada todavía.`,
-        };
+        {
+          // La lista la pega el SISTEMA (maquetaDeDatosDeEnvio): completa la
+          // primera vez, solo lo que falta después. El modelo ya no la redacta
+          // -- redactándola, a veces pedía los datos de a uno.
+          const primeraVez = !yaSeEnvio(ctx.estado, p.id, "datos_envio" as Seccion);
+          const maqueta = maquetaDeDatosDeEnvio(r.faltan, primeraVez);
+          if (maqueta) {
+            ctx.partes.push({ kind: "text", content: maqueta });
+            registrarEnvio(ctx.estado, p.id, "datos_envio" as Seccion);
+          }
+          return {
+            ok: true,
+            mensaje:
+              `Pedido de ${p.name} abierto. ` +
+              (r.yaTiene.length ? `Ya tenés: ${r.yaTiene.join(", ")} (no los vuelvas a pedir). ` : "") +
+              (maqueta
+                ? `El SISTEMA ya le mandó la lista de datos que faltan (${r.faltan.join(", ")}). Escribí SOLO una frase corta de intro, sin listar los datos vos y sin pedir la cédula. No registres nada todavía.`
+                : `No falta nada obligatorio. No pidas la cédula.`),
+          };
+        }
       case "zona":
         ctx.estado.pedidoPorConfirmarEnTurno = null;
         ctx.estado.accionPendiente = "confirmar_zona";
@@ -1195,4 +1232,20 @@ function tipoDeOferta(seccion: Seccion): Oferta["tipo"] {
   if (seccion === "entrega") return "entrega";
   if (seccion === "info" || seccion === "completa") return "ficha";
   return "pregunta";
+}
+
+/**
+ * ¿El cliente dice, con sus palabras, que COMPRA? Solo frases explícitas:
+ * "me interesa", "me gusta", "este" NO cuentan (pedido del dueño 25-09-2026).
+ */
+export function diceQueCompra(mensaje: string): boolean {
+  const t = String(mensaje || "").toLowerCase();
+  if (esDudaONegativa(t)) return false;
+  return /\b(lo|la|los|las) (quiero|compro|pido|llevo)\b|\bquiero (comprar|pedir|ordenar|hacer el pedido|encargar)|\bme (lo|la|los|las) (llevo|env[ií]as?|mand[aá]s?)\b|\b(env[ií]a|mand[aá])(me)?(lo|la|los|las)\b|\bhagamos el pedido\b|\bh[aá]gamelo\b|\bpedido\b.*\bconfirm/i.test(t);
+}
+
+/** Una duda o un no: no es un sí aunque venga después de "¿te lo enviamos?". */
+export function esDudaONegativa(mensaje: string): boolean {
+  const t = String(mensaje || "").toLowerCase().trim();
+  return /\?|^\s*no\b|\bno (gracias|todav[ií]a|por ahora|s[eé])\b|\b(lo voy a pensar|lo pienso|despu[eé]s|m[aá]s tarde|luego te|d[eé]jame (ver|pensar)|todav[ií]a no)\b/i.test(t);
 }

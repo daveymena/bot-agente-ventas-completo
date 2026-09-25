@@ -27,6 +27,8 @@ describe("precio antes que datos, también en el texto", () => {
     expect(pideDatosDeCompra("Mientras tanto, pasame tu nombre completo y cédula para ir armando el envío.")).toBe(true);
     expect(pideDatosDeCompra("¿Me das tu dirección con barrio?")).toBe(true);
     expect(pideDatosDeCompra("Llega contraentrega en 3 a 5 días.")).toBe(false);
+    // conv 218, 25-09-2026: la forma que se escapó.
+    expect(pideDatosDeCompra("Excelente elección. Para coordinar el envío, ¿me podrías dar tu nombre completo y número de cédula?")).toBe(true);
   });
 
   test('"Sí que vale" sin precio dado: el precio sale igual aunque el modelo insista en pedir la cédula', async () => {
@@ -37,5 +39,17 @@ describe("precio antes que datos, también en el texto", () => {
     const mostroPrecio = r.partes.some((p: any) => p.kind === "card" && String(p.seccion) === "precio")
       || r.partes.some((p: any) => p.kind === "text" && /45\.?000/.test(String(p.content)));
     expect(mostroPrecio).toBe(true);
+  });
+});
+
+describe("conv 218 (25-09-2026): interesarse no es comprar", () => {
+  test('"Me interesa este" con precio ya dado: el texto final NO pide nombre ni cédula', async () => {
+    const e = estadoInicial(218);
+    e.productoEnFoco = 1;
+    e.seccionesEnviadas = { 1: { precio: new Date().toISOString() } } as any;
+    const llm = clienteFalso([{ content: "Excelente elección. Para coordinar el envío, ¿me podrías dar tu nombre completo y número de cédula?" }]);
+    const r = await responder({ llm, estado: e, historial: [{ role: "customer", content: "Me interesa este", createdAt: new Date() }], catalogo: corrector, conocimiento: [], guion: guion(), voz: VOZ });
+    const texto = r.partes.filter((p: any) => p.kind === "text").map((p: any) => p.content).join(" ");
+    expect(texto).not.toMatch(/c[eé]dula|nombre completo/i);
   });
 });

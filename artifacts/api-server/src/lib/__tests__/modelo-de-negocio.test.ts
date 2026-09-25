@@ -100,9 +100,10 @@ describe("otro país no se frena contra la lista de Colombia", () => {
     expect(esColombia("México")).toBe(false);
   });
 
-  it("fuera de Colombia se pide 'documento' y 'estado o provincia', no cédula y departamento", () => {
+  // Desde el 24-09-2026 no se pide documento en ningún país (decisión del dueño).
+  it("fuera de Colombia se pide 'estado o provincia', no departamento, y ningún documento", () => {
     const ctx = contextoDeDropshipping(condicionesDesdePerfil({ pais: "MX", envio: { plazo: "5 días" } }));
-    expect(ctx).toMatch(/documento de identidad/);
+    expect(ctx).not.toMatch(/documento de identidad/);
     expect(ctx).toMatch(/estado o provincia/);
     expect(ctx).not.toMatch(/cédula/);
   });

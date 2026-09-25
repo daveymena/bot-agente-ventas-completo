@@ -299,6 +299,7 @@ export async function cargarVozDelNegocio(tenantId: number, elegido?: any | null
     rolAgente: agente?.role || "asesor comercial",
     nombreNegocio: ctx.businessName || "nuestro equipo",
     instruccionesExtra: indicaciones || null,
+    pais: (ctx.condiciones as any)?.pais ?? null,
   };
 }
 

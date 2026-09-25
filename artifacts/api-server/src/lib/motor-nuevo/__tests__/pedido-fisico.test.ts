@@ -44,6 +44,8 @@ function ctxCon(pedidos?: ServicioDePedidos, precioYaDado = true): ContextoHerra
   const e = estadoInicial(1);
   e.productoEnFoco = 7;
   if (precioYaDado) e.seccionesEnviadas = { 7: { precio: new Date().toISOString() } };
+  // El cliente ya dijo que compra (ver "interesarse no es comprar" abajo).
+  e.compraConfirmada = 7;
   return { estado: e, catalogo: CAT, partes: [], conocimiento: [], guion: guion(), mensajeDelCliente: "", efectos: [], pedidos };
 }
 
@@ -72,9 +74,12 @@ describe("tomar_pedido", () => {
     const { s } = servicioFalso();
     const ctx = ctxCon(s);
     const r = await ejecutores.tomar_pedido(ctx, { nombre: "Ana Pérez", ciudad: "Bogotá" });
-    expect(r.mensaje).toMatch(/Faltan: documento, telefono, direccion, departamento/);
+    expect(r.mensaje).toMatch(/documento, telefono, direccion, departamento/);
     expect(r.mensaje).toMatch(/Ya tenés: nombre, ciudad/);
-    expect(ctx.partes).toHaveLength(0);
+    // La lista la pega el SISTEMA, toda junta y sin cédula (dueño, 24-09-2026).
+    expect(ctx.partes).toHaveLength(1);
+    expect((ctx.partes[0] as any).content).toMatch(/Para enviarte tu pedido necesito/);
+    expect((ctx.partes[0] as any).content).not.toMatch(/[Cc]édula|documento/);
     expect(ctx.estado.pedidoPorConfirmarEnTurno).toBeNull();
   });
 
@@ -138,6 +143,7 @@ describe("de punta a punta con el motor", () => {
     const e = estadoInicial(1);
     e.productoEnFoco = 7;
     e.seccionesEnviadas = { 7: { precio: new Date().toISOString() } };
+    e.compraConfirmada = 7;
 
     const t1 = await responder({
       llm: clienteFalso([
@@ -160,5 +166,43 @@ describe("de punta a punta con el motor", () => {
     });
     expect(llamadas.confirmar).toBe(1);
     expect(t2.estado.compra).toBe("pedido_creado");
+  });
+});
+
+describe("interesarse no es comprar (pedido del dueño, 25-09-2026)", () => {
+  const sinConfirmar = (mensaje: string) => {
+    const ctx = ctxCon(servicioFalso().s);
+    ctx.estado.compraConfirmada = null;
+    ctx.mensajeDelCliente = mensaje;
+    return ctx;
+  };
+
+  test('"Me interesa este" no abre el pedido: pide preguntar si lo quiere', async () => {
+    const ctx = sinConfirmar("Me interesa este");
+    const r = await ejecutores.tomar_pedido(ctx, {});
+    expect(r.ok).toBe(false);
+    expect(r.mensaje).toMatch(/NO dijo que compra/);
+    expect(ctx.estado.preguntoSiCompra?.productoId).toBe(7);
+  });
+
+  test('"sí" a "¿Te lo enviamos?" del turno anterior sí abre el pedido', async () => {
+    const ctx = sinConfirmar("sí");
+    ctx.estado.ultimaPreguntaAgente = "Va en $45.000 con envío contraentrega. ¿Te lo enviamos?";
+    const r = await ejecutores.tomar_pedido(ctx, {});
+    expect(ctx.estado.compraConfirmada).toBe(7);
+    expect(r.mensaje).not.toMatch(/NO dijo que compra/);
+  });
+
+  test('"lo quiero" explícito abre el pedido sin preguntar otra vez', async () => {
+    const ctx = sinConfirmar("dale, lo quiero");
+    await ejecutores.tomar_pedido(ctx, {});
+    expect(ctx.estado.compraConfirmada).toBe(7);
+  });
+
+  test("una duda después de la pregunta no es un sí", async () => {
+    const ctx = sinConfirmar("¿y cuánto demora en llegar?");
+    ctx.estado.ultimaPreguntaAgente = "¿Te lo enviamos?";
+    const r = await ejecutores.tomar_pedido(ctx, {});
+    expect(r.ok).toBe(false);
   });
 });

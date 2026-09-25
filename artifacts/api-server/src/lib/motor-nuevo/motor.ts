@@ -61,6 +61,20 @@ export interface VozDelNegocio {
   nombreNegocio: string;
   /** Ajustes de tono que el dueño escribió. Corto y opcional. */
   instruccionesExtra?: string | null;
+  /** País del negocio: decide si se tutea o se vosea al cliente. */
+  pais?: string | null;
+}
+
+/**
+ * Cómo se le habla al cliente según el país. Este prompt está escrito en
+ * voseo y el modelo lo imitaba: a clientes de Colombia les llegaba "Tené en
+ * cuenta", "decime", "acá tenés" (prueba en producción, 25-09-2026). El
+ * voseo es solo para Argentina y Uruguay; en el resto se tutea.
+ */
+export function tratamientoDelCliente(pais: string | null | undefined): string {
+  const p = String(pais || "").toLowerCase();
+  if (/argentin|uruguay/.test(p)) return "Al cliente tratalo de vos (voseo rioplatense).";
+  return 'Al cliente TUTÉALO (tú): "tienes", "dime", "aquí tienes", "te lo envío". NUNCA voseo ("tenés", "decime", "acá tenés", "pasame"), aunque estas instrucciones estén escritas así.';
 }
 
 /** Cuántos mensajes del historial se mandan. Uno solo, en un solo lugar. */
@@ -128,7 +142,7 @@ export function partesDelPrompt(params: ParamsDelPrompt): { fijo: string; delTur
 
 CÓMO HABLÁS
 Como una persona que sabe de lo que vende. Mensajes de 2 a 4 frases, en el
-español del país del negocio, cálido y directo. Nada de listas con viñetas,
+español del país del negocio, cálido y directo. ${tratamientoDelCliente(voz.pais)} Nada de listas con viñetas,
 nada de títulos ni de fichas armadas a mano: esto es un chat, no un folleto.
 Un emoji suelto está bien; cinco no. No empieces todas las respuestas con
 "Perfecto", "Claro", "Excelente" ni con el nombre del cliente. No repitas lo
@@ -560,6 +574,36 @@ export async function responder(params: {
     }
   }
 
+  // ── Datos de envío sin que el cliente haya dicho que compra ──────────────
+  //
+  // Conv 218 (25-09-2026): "Me interesa este" → "Excelente elección. Para
+  // coordinar el envío, ¿me podrías dar tu nombre completo y número de
+  // cédula?". Interesarse no es comprar (pedido del dueño). Si el texto pide
+  // datos y la compra no quedó confirmada por tomar_pedido, se le pide que
+  // pregunte primero; si insiste, se sacan las frases que piden datos.
+  const focoFisico = foco != null && String(catalogo.find((p) => p.id === foco)?.kind || "") === "physical";
+  if (textoFinal && focoFisico && estado.compraConfirmada !== foco && pideDatosDeCompra(textoFinal)) {
+    messages.push({ role: "assistant", content: textoFinal });
+    messages.push({
+      role: "system",
+      content:
+        "El cliente todavía NO dijo que compra: interesarse no es comprar. No le pidas nombre, dirección ni ningún dato de envío. " +
+        "Respondé lo que preguntó y cerrá con UNA pregunta corta de si quiere hacer el pedido. No le hables de este aviso al cliente.",
+    });
+    const original = textoFinal;
+    textoFinal = "";
+    try {
+      await bucle(2);
+    } catch {
+      /* se resuelve abajo */
+    }
+    if (!textoFinal && !hayTarjetas()) textoFinal = original;
+    if (pideDatosDeCompra(textoFinal) && estado.compraConfirmada !== foco) {
+      const frases = textoFinal.split(/(?<=[.!?¿¡\n])\s+/).filter((f) => !pideDatosDeCompra(f));
+      textoFinal = frases.join(" ").trim();
+    }
+  }
+
   // ── Red de seguridad: una cifra de plata que no existe en el catálogo ────
   let corregido = false;
   let invento = montosInventados(textoFinal, catalogo);
@@ -647,6 +691,9 @@ export async function responder(params: {
     if (!estado.preguntaPendiente) estado.preguntaPendiente = textoFinal.slice(-300);
   } else if (textoFinal) {
     estado.preguntaPendiente = null;
+    // Si este mensaje no terminó en pregunta, un "sí" del cliente ya no
+    // contesta la pregunta de hace varios mensajes.
+    estado.ultimaPreguntaAgente = null;
   }
   // FASE 8/14: si el modelo no dejó siguiente acción, se deriva de lo pendiente.
   if (!estado.siguienteAccion) {
@@ -705,9 +752,14 @@ export function esSaludoGenerico(texto: string): boolean {
  */
 export function pideDatosDeCompra(texto: string): boolean {
   const t = String(texto || "");
-  const pide = /\b(p[aá]same|pasame|p[aá]sa(me)?|dame|env[ií]ame|mand[aá]me|compart[ií]|necesito|me\s+(das|pas[aá]s|confirm[aá]s|dec[ií]s)|dec[ií]me|regal[aá]me)\b/i;
-  const dato = /\b(c[eé]dula|nombre completo|direcci[oó]n|barrio|datos de env[ií]o|datos para (el )?env[ií]o)\b/i;
-  return pide.test(t) && dato.test(t);
+  // El dato de compra nombrado + cualquier forma de pedirlo. La primera
+  // versión listaba verbos ("pásame", "dame") y se le escapó "¿me podrías
+  // dar tu nombre completo y número de cédula?" (conv 218, 25-09-2026): el
+  // español tiene demasiadas formas de pedir. Una pregunta que nombra el dato
+  // ya es pedirlo.
+  const dato = /\b(c[eé]dula|nombre completo|nombre y apellido|direcci[oó]n|barrio|datos de env[ií]o|datos para (el )?env[ií]o)\b/i;
+  const pide = /\?|\b(p[aá]same|dame|dar(me)?|pod[eé]s|podr[ií]as|necesito|env[ií]a(me)?|mand[aá](me)?|compart[ií]|dec[ií]me|regal[aá]me|indic[aá]me|confirm[aá]me|escrib[ií]me)\b/i;
+  return dato.test(t) && pide.test(t);
 }
 
 /** Saca las frases que contienen un monto inventado. Último recurso, medido. */
