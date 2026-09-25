@@ -42,6 +42,7 @@ import {
   actualizarResumenDesdeEstado,
   apilarContexto,
   ordinalDeMensaje,
+  precioDado,
   type EstadoConversacion,
   type RepositorioEstado,
 } from "./estado-conversacion";
@@ -510,6 +511,40 @@ export async function responder(params: {
     if (!textoFinal && !hayTarjetas()) textoFinal = original;
   }
 
+  // ── Datos de compra antes del precio ─────────────────────────────────────
+  //
+  // Conv 219 (23-09-2026): "Sí que vale" (= ¿qué vale?) se leyó como un sí y
+  // el modelo ESCRIBIÓ "pasame tu nombre completo y cédula" sin haber dado
+  // nunca el precio. El candado de tomar_pedido no saltó porque no se llamó
+  // ninguna herramienta: el pedido de datos iba en el texto. La clienta se fue.
+  const foco = estado.productoEnFoco;
+  if (textoFinal && foco != null && !precioDado(estado, foco) && pideDatosDeCompra(textoFinal)) {
+    messages.push({ role: "assistant", content: textoFinal });
+    messages.push({
+      role: "system",
+      content:
+        "Le pediste datos para comprar (nombre, cédula, dirección) y todavía NO le mostraste el precio. " +
+        'Primero mandá mostrar(seccion="precio") y respondé lo que preguntó; los datos se piden después, cuando sepa cuánto cuesta. ' +
+        "No le hables de este aviso al cliente.",
+    });
+    const original = textoFinal;
+    textoFinal = "";
+    try {
+      await bucle(2);
+    } catch {
+      /* se resuelve abajo */
+    }
+    if (!textoFinal && !hayTarjetas()) textoFinal = original;
+    // Si ni así lo dio, el precio lo pone el servidor: es un hecho de la base.
+    if (!precioDado(estado, foco)) {
+      try {
+        await ejecutores.mostrar(ctx, { productoId: foco, seccion: "precio" });
+      } catch {
+        /* sin precio en la base no hay nada que mostrar */
+      }
+    }
+  }
+
   // ── Red de seguridad: una cifra de plata que no existe en el catálogo ────
   let corregido = false;
   let invento = montosInventados(textoFinal, catalogo);
@@ -619,6 +654,18 @@ export function anunciaUnEnvio(texto: string): boolean {
     /\b(ah[ií]|ac[aá]|aqu[ií])\s+(te\s+)?(van|va|dejo|mando|paso|env[ií]o|comparto)\b/i.test(texto) ||
     /\bte\s+(los|las|lo|la)\s+(dejo|mando|paso|env[ií]o|comparto)\s+(de nuevo|otra vez|nuevamente|ac[aá]|aqu[ií]|abajo)\b/i.test(texto)
   );
+}
+
+/**
+ * ¿El texto le PIDE al cliente datos para comprar? Mismo tipo de chequeo que
+ * `anunciaUnEnvio`: sobre lo que afirma el modelo, no sobre el cliente.
+ * "Pasame tu nombre completo y cédula", "¿me das tu dirección?".
+ */
+export function pideDatosDeCompra(texto: string): boolean {
+  const t = String(texto || "");
+  const pide = /\b(p[aá]same|pasame|p[aá]sa(me)?|dame|env[ií]ame|mand[aá]me|compart[ií]|necesito|me\s+(das|pas[aá]s|confirm[aá]s|dec[ií]s)|dec[ií]me|regal[aá]me)\b/i;
+  const dato = /\b(c[eé]dula|nombre completo|direcci[oó]n|barrio|datos de env[ií]o|datos para (el )?env[ií]o)\b/i;
+  return pide.test(t) && dato.test(t);
 }
 
 /** Saca las frases que contienen un monto inventado. Último recurso, medido. */
