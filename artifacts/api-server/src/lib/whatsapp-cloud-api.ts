@@ -164,7 +164,9 @@ export async function sendAgentPartsCloud(phone: string, pushName: string, parts
   }
 
   for (const part of unidas) {
-    if (part.kind === "text") {
+    // La nota de voz (`explicar_con_nota_de_voz`) sale escrita por la API
+    // oficial: sin esto caía en la rama de la ficha y la explicación se perdía.
+    if (part.kind === "text" || (part as any).kind === "voz") {
       await sendTextCloud(phone, part.content || "");
     } else {
       const product = cardCache.get(part.productId!);

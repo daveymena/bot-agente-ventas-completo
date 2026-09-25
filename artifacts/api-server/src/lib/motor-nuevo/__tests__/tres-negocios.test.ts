@@ -188,7 +188,7 @@ describe("cada negocio recibe su propia verdad", () => {
   test("lo que el dueño cargó aparece, y lo que no cargó se declara faltante", () => {
     const s = systemDe(CURSOS, MEDIOS_CURSOS);
     assert.match(s, /Cursos 100% digitales/);
-    assert.match(s, /NO TENÉS ESTOS DATOS/);
+    assert.match(s, /NO TIENES ESTOS DATOS/);
   });
 
   test("ningún negocio hereda el dato de otro (el bug de TecnoVariedades)", () => {

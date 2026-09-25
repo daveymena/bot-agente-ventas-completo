@@ -76,8 +76,8 @@ export function instruccionDeDuda(p: Producto, seccion: string, hechosDelNegocio
   return (
     `NO se volvió a enviar la maqueta "${seccion}" de ${p.name}: ya la recibió. ` +
     `Si vuelve a preguntar es porque le quedó una DUDA. Identificá cuál es (lo que pregunta AHORA, no lo que ya leyó) ` +
-    `y respondela con tus palabras, razonando con estos datos reales, en 2-4 frases, sin copiar los renglones de la maqueta. ` +
-    `Si el dato para su duda no está acá, decilo con honestidad y ofrecé averiguarlo: no inventes.\n\n` +
+    `y respóndela con tus palabras, razonando con estos datos reales, en 2-4 frases, sin copiar los renglones de la maqueta. ` +
+    `Si el dato para su duda no está acá, dilo con honestidad y ofrece averiguarlo: no inventes.\n\n` +
     `DATOS:\n${datosParaRazonar(p, seccion, hechosDelNegocio)}`
   );
 }
@@ -110,7 +110,7 @@ export function fraseHablada(p: Producto, seccion: string): string {
         ? `Te dejé por escrito cómo te llega y en cuánto tiempo.`
         : modelo === "servicio" || modelo === "cotizacion"
           ? `Te dejé por escrito cómo coordinamos.`
-          : `Te dejé por escrito cómo recibís el acceso.`;
+          : `Te dejé por escrito cómo recibes el acceso.`;
     case "video":
       return `Te mandé un video para que lo veas en acción.`;
     case "tienda":

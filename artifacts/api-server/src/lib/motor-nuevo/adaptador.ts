@@ -735,9 +735,11 @@ export async function responderComoVendedor(
   await repositorio.guardar(resultado.estado);
 
   // ── Persistir la respuesta igual que el motor viejo ──────────────────────
+  // La nota de voz también queda en el historial: el vendedor tiene que
+  // recordar qué explicó en el audio.
   const texto = resultado.partes
-    .filter((p) => p.kind === "text")
-    .map((p) => String((p as any).content || ""))
+    .filter((p) => p.kind === "text" || p.kind === "voz")
+    .map((p) => (p.kind === "voz" ? `🎙️ (nota de voz) ${(p as any).content || ""}` : String((p as any).content || "")))
     .join("\n\n")
     .trim();
   const cardProductIds = resultado.partes.filter((p) => p.kind === "card").map((p) => (p as any).productId);
@@ -971,8 +973,8 @@ export async function correrEnSombra(params: {
       error = String(e?.message || e);
     }
     const texto = partes
-      .filter((p) => p.kind === "text")
-      .map((p) => String(p.content || ""))
+      .filter((p) => p.kind === "text" || p.kind === "voz")
+      .map((p) => (p.kind === "voz" ? `🎙️ (nota de voz) ${p.content || ""}` : String(p.content || "")))
       .join("\n\n");
     historial.push({ role: "agent", content: texto || "[ficha]", createdAt: new Date() });
     salida.push({

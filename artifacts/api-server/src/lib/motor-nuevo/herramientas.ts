@@ -76,6 +76,11 @@ export interface ItemDeConocimiento {
  */
 export type Parte =
   | { kind: "text"; content: string }
+  /**
+   * Una explicación que sale como NOTA DE VOZ (y como texto si la voz falla).
+   * Solo la emite `explicar_con_nota_de_voz`, cuando el cliente no entendió.
+   */
+  | { kind: "voz"; content: string }
   | {
       kind: "card";
       productId: number;
@@ -258,8 +263,8 @@ export const definicionesDeHerramientas = [
     function: {
       name: "buscar_en_catalogo",
       description:
-        "Busca productos en el catálogo por nombre, tema o palabra clave. Usala cuando el cliente " +
-        "mencione algo que querés ubicar, cuando no estés seguro de si existe, o cuando pida algo " +
+        "Busca productos en el catálogo por nombre, tema o palabra clave. Úsala cuando el cliente " +
+        "mencione algo que quieres ubicar, cuando no estés seguro de si existe, o cuando pida algo " +
         "que no aparece en el listado del sistema.",
       parameters: {
         type: "object",
@@ -275,8 +280,8 @@ export const definicionesDeHerramientas = [
     function: {
       name: "enfocar_producto",
       description:
-        "Marca de qué producto están hablando. Llamala apenas quede claro cuál le interesa al cliente. " +
-        "Si el cliente cambia de producto, llamala de nuevo con el nuevo.",
+        "Marca de qué producto están hablando. Llámala apenas quede claro cuál le interesa al cliente. " +
+        "Si el cliente cambia de producto, llámala de nuevo con el nuevo.",
       parameters: {
         type: "object",
         properties: { productoId: { type: "number" } },
@@ -290,7 +295,7 @@ export const definicionesDeHerramientas = [
       name: "mostrar",
       description:
         "Pega una MAQUETA visual (ficha, precio, medios de pago, entrega) debajo de tu texto. " +
-        "Vos redactá una frase natural para introducirla (ej. 'Este es el valor:') y el SISTEMA " +
+        "Tú redactá una frase natural para introducirla (ej. 'Este es el valor:') y el SISTEMA " +
         "escribe los datos duros reales. NUNCA escribas los precios ni repitas los datos en tu texto.",
       parameters: {
         type: "object",
@@ -307,7 +312,7 @@ export const definicionesDeHerramientas = [
           },
           reenviar: {
             type: "boolean",
-            description: "true SOLO para pago, video o tienda, si el cliente pidió que se lo mandes de nuevo. Ficha, info y precio NUNCA se reenvían: si vuelve a preguntar tiene una duda, y se la respondés con tus palabras.",
+            description: "true SOLO para pago, video o tienda, si el cliente pidió que se lo mandes de nuevo. Ficha, info y precio NUNCA se reenvían: si vuelve a preguntar tiene una duda, y se la respondes con tus palabras.",
           },
         },
         required: ["productoId", "seccion"],
@@ -320,9 +325,9 @@ export const definicionesDeHerramientas = [
       name: "mostrar_opciones",
       description:
         "OBLIGATORIA cuando lo que pide el cliente coincide con DOS o más productos (varios modelos del mismo tipo). " +
-        "Buscá primero con buscar_en_catalogo, después llamala con los ids. El SISTEMA pega debajo de tu texto la ficha de cada opción " +
+        "Busca primero con buscar_en_catalogo, después llámala con los ids. El SISTEMA pega debajo de tu texto la ficha de cada opción " +
         "con su FOTO, NOMBRE y PRECIO reales del catálogo. Por eso en tu texto NUNCA escribas nombres de productos ni precios: " +
-        "solo una frase de intro (ej. 'Te muestro los modelos que tengo:') y la pregunta de cierre. Si listás a mano, los nombres salen " +
+        "solo una frase de intro (ej. 'Te muestro los modelos que tengo:') y la pregunta de cierre. Si listas a mano, los nombres salen " +
         "viejos y sin foto.",
       parameters: {
         type: "object",
@@ -340,10 +345,31 @@ export const definicionesDeHerramientas = [
   {
     type: "function" as const,
     function: {
+      name: "explicar_con_nota_de_voz",
+      description:
+        "Manda una NOTA DE VOZ con una explicación. Úsala SOLO cuando el cliente muestra que no entendió algo " +
+        "que ya le explicaste (\"no entiendo\", \"¿cómo así?\", repite la misma duda, se confunde con los pasos " +
+        "o con cómo funciona). No la uses para saludar, dar el precio ni en respuestas normales. La explicación " +
+        "sale solo como audio: no la repitas por escrito.",
+      parameters: {
+        type: "object",
+        properties: {
+          explicacion: {
+            type: "string",
+            description: "Lo que vas a decir en el audio: claro, sencillo, como se lo explicarías en persona. 2 a 5 frases.",
+          },
+        },
+        required: ["explicacion"],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "consultar_conocimiento",
       description:
         "Busca en lo que el DUEÑO del negocio cargó como respuestas (qué incluye, duración, " +
-        "garantías, preguntas frecuentes). Usala antes de decir 'no sé' o 'déjame confirmarte'.",
+        "garantías, preguntas frecuentes). Úsala antes de decir 'no sé' o 'déjame confirmarte'.",
       parameters: {
         type: "object",
         properties: {
@@ -379,8 +405,8 @@ export const definicionesDeHerramientas = [
     function: {
       name: "que_falta_para_cerrar",
       description:
-        "Te dice qué dato le falta a este negocio para poder concretar la venta. Usala cuando el " +
-        "cliente ya quiere comprar: así pedís lo justo y no parecés un formulario.",
+        "Te dice qué dato le falta a este negocio para poder concretar la venta. Úsala cuando el " +
+        "cliente ya quiere comprar: así pides lo justo y no pareces un formulario.",
       parameters: { type: "object", properties: {}, required: [] },
     },
   },
@@ -391,13 +417,13 @@ export const definicionesDeHerramientas = [
       description:
         "Para productos FÍSICOS con envío, apenas el cliente quiere comprarlo (y ya sabe el precio), AUNQUE todavía " +
         "no te haya dado ningún dato: el SISTEMA le manda la lista ordenada de los datos de envío que faltan, así que " +
-        "vos no los pedís por texto. Pasale los datos que el cliente te dio, tal como los entendiste (aunque vengan todos " +
+        "tú no los pides por texto. Pásale los datos que el cliente te dio, tal como los entendiste (aunque vengan todos " +
         "en un mensaje o en desorden). Cuando están todos, verifica la zona y le MANDA el resumen para confirmar. " +
-        "Llamala otra vez cada vez que te dé o corrija un dato.",
+        "Llámala otra vez cada vez que te dé o corrija un dato.",
       parameters: {
         type: "object",
         properties: {
-          productoId: { type: "number", description: "El producto que compra. Si no lo pasás, se usa el que está en foco." },
+          productoId: { type: "number", description: "El producto que compra. Si no lo pasas, se usa el que está en foco." },
           cantidad: { type: "number" },
           nombre: { type: "string", description: "Nombre y apellido de quien recibe." },
           documento: { type: "string", description: "Cédula, SOLO si el cliente la dio sin que se la pidas (no se pide)." },
@@ -405,7 +431,7 @@ export const definicionesDeHerramientas = [
           direccion: { type: "string", description: "Calle/carrera, número, torre, apto." },
           barrio: { type: "string" },
           ciudad: { type: "string" },
-          departamento: { type: "string", description: "Departamento (o estado/provincia). Si solo dijo la ciudad, dejalo vacío." },
+          departamento: { type: "string", description: "Departamento (o estado/provincia). Si solo dijo la ciudad, déjalo vacío." },
           notas: { type: "string", description: "Punto de referencia u otra indicación de entrega." },
         },
         required: [],
@@ -437,8 +463,8 @@ export const definicionesDeHerramientas = [
     function: {
       name: "registrar_pago_reportado",
       description:
-        "Llamala cuando el cliente diga que ya pagó o mande un comprobante. Deja el caso marcado " +
-        "para que una persona lo verifique. NO confirma el pago: vos nunca podés dar un pago por " +
+        "Llámala cuando el cliente diga que ya pagó o mande un comprobante. Deja el caso marcado " +
+        "para que una persona lo verifique. NO confirma el pago: tú nunca puedes dar un pago por " +
         "confirmado, eso lo hace una persona del equipo.",
       parameters: {
         type: "object",
@@ -455,8 +481,8 @@ export const definicionesDeHerramientas = [
     function: {
       name: "escalar_a_humano",
       description:
-        "Pasa la conversación a una persona del equipo. Usala si el cliente se queja en serio, pide " +
-        "hablar con alguien, reclama un reembolso, o si algo se sale de lo que podés resolver.",
+        "Pasa la conversación a una persona del equipo. Úsala si el cliente se queja en serio, pide " +
+        "hablar con alguien, reclama un reembolso, o si algo se sale de lo que puedes resolver.",
       parameters: {
         type: "object",
         properties: { motivo: { type: "string" } },
@@ -470,7 +496,7 @@ export const definicionesDeHerramientas = [
       name: "anotar_contexto",
       description:
         "Anota intención y pendiente del turno (para que el próximo 'sí/ese/dale/cuánto' se resuelva sin releer texto). " +
-        "Llamala cuando quede claro qué quiere el cliente o qué le preguntaste. No envía nada al cliente.",
+        "Llámala cuando quede claro qué quiere el cliente o qué le preguntaste. No envía nada al cliente.",
       parameters: {
         type: "object",
         properties: {
@@ -481,10 +507,10 @@ export const definicionesDeHerramientas = [
               "preguntar_entrega", "comprar", "pagar", "reportar_pago", "objecion", "despedida", "otra",
             ],
           },
-          preguntaPendiente: { type: "string", description: "Lo último que le preguntaste, si esperás respuesta." },
+          preguntaPendiente: { type: "string", description: "Lo último que le preguntaste, si esperas respuesta." },
           accionPendiente: { type: "string", description: "Lo que quedó pendiente (ej. pedir_ciudad, enviar_pago)." },
           siguienteAccion: { type: "string", description: "Qué vas a hacer después." },
-          objecion: { type: "string", description: "Si puso una duda, anotala para no repetir la explicación." },
+          objecion: { type: "string", description: "Si puso una duda, anótala para no repetir la explicación." },
         },
         required: [],
       },
@@ -495,7 +521,7 @@ export const definicionesDeHerramientas = [
     function: {
       name: "consultar_disponibilidad",
       description:
-        "Consulta inventario REAL del producto (columna stock). Usala antes de afirmar que hay stock, " +
+        "Consulta inventario REAL del producto (columna stock). Úsala antes de afirmar que hay stock, " +
         "una variante o una cantidad. Si no hay inventario configurado, te dice que lo confirmes: nunca inventes.",
       parameters: {
         type: "object",
@@ -535,7 +561,7 @@ export const definicionesDeHerramientas = [
       name: "solicitar_cotizacion",
       description:
         "Marca la cotización/propuesta como en proceso para que una persona la prepare. " +
-        "Usala cuando el precio depende del alcance (consultoría, servicio con visita, instalación). No inventa el valor.",
+        "Úsala cuando el precio depende del alcance (consultoría, servicio con visita, instalación). No inventa el valor.",
       parameters: {
         type: "object",
         properties: { resumen: { type: "string", description: "Qué incluirá la cotización." } },
@@ -627,7 +653,7 @@ export const ejecutores: Record<string, Ejecutor> = {
             .slice(0, 12)
             .map((p) => `#${p.id} ${p.name}`)
             .join(", ")}. ` +
-          `Decile con naturalidad que ese no lo manejás y ofrecele lo que sí hay. Nunca inventes un producto.`,
+          `Dile con naturalidad que ese no lo manejas y ofrécele lo que sí hay. Nunca inventes un producto.`,
       };
     }
 
@@ -645,7 +671,7 @@ export const ejecutores: Record<string, Ejecutor> = {
 
   async enfocar_producto(ctx, { productoId }) {
     const p = ctx.catalogo.find((x) => x.id === Number(productoId));
-    if (!p) return { ok: false, mensaje: `No existe el producto #${productoId}. Buscá en el catálogo primero.` };
+    if (!p) return { ok: false, mensaje: `No existe el producto #${productoId}. Busca en el catálogo primero.` };
 
     const anterior = ctx.estado.productoEnFoco;
     if (anterior === p.id) {
@@ -700,11 +726,11 @@ export const ejecutores: Record<string, Ejecutor> = {
         ok: false,
         mensaje:
           "No me pasaste un id de producto válido. No llames a mostrar sin id: " +
-          "buscá primero con buscar_en_catalogo lo que pidió el cliente y usá el id que te devuelva.",
+          "busca primero con buscar_en_catalogo lo que pidió el cliente y usa el id que te devuelva.",
       };
     }
     const p = ctx.catalogo.find((x) => x.id === idNumerico);
-    if (!p) return { ok: false, mensaje: `No existe el producto #${idNumerico}. Buscá en el catálogo primero.` };
+    if (!p) return { ok: false, mensaje: `No existe el producto #${idNumerico}. Busca en el catálogo primero.` };
 
     const sec = String(seccion || "completa") as Seccion;
     const yaVio = yaSeEnvio(ctx.estado, p.id, sec);
@@ -734,14 +760,14 @@ export const ejecutores: Record<string, Ejecutor> = {
         ok: false,
         mensaje:
           `NO se envió: este negocio no cargó cómo entrega ni en qué plazo. ` +
-          `No inventes un plazo ni una transportadora: decile que lo confirmás y le pasás el dato. ` +
+          `No inventes un plazo ni una transportadora: dile que lo confirmas y le pasas el dato. ` +
           `Si insiste, escalá a humano.`,
       };
     }
 
     // ── Video: solo si existe ──────────────────────────────────────────────
     if (sec === "video" && !p.videoUrl) {
-      return { ok: false, mensaje: `${p.name} no tiene video cargado. Seguí sin ofrecerle video.` };
+      return { ok: false, mensaje: `${p.name} no tiene video cargado. Sigue sin ofrecerle video.` };
     }
 
     ctx.partes.push({
@@ -823,7 +849,7 @@ export const ejecutores: Record<string, Ejecutor> = {
           ? `Se envió la ficha COMPLETA de ${p.name}: foto, qué es, precio, envío, pago contraentrega y la pregunta "¿Te lo enviamos?". ` +
             `NO escribas nada más en este turno (o como mucho un saludo de una línea si es el primer mensaje). No ofrezcas el precio: ya lo tiene.`
           : `Se envió "${seccion}" de ${p.name}. Los datos (precio, cuentas, enlaces) los puso el sistema: ` +
-            `no los repitas en tu texto. Seguí con lo que sigue naturalmente.`,
+            `no los repitas en tu texto. Sigue con lo que sigue naturalmente.`,
     };
   },
 
@@ -841,12 +867,12 @@ export const ejecutores: Record<string, Ejecutor> = {
       .filter(Boolean) as string[];
 
     if (ids.length < 2) {
-      return { ok: false, mensaje: "mostrar_opciones es para DOS o más productos. Si es uno solo, usá mostrar." };
+      return { ok: false, mensaje: "mostrar_opciones es para DOS o más productos. Si es uno solo, usa mostrar." };
     }
 
     const prods = ids.map((id) => ctx.catalogo.find((p) => p.id === id)).filter((p): p is Producto => !!p);
     if (prods.length < 2) {
-      return { ok: false, mensaje: "No encontré esos ids en el catálogo. Buscá primero con buscar_en_catalogo y usá los ids que devuelva." };
+      return { ok: false, mensaje: "No encontré esos ids en el catálogo. Busca primero con buscar_en_catalogo y usa los ids que devuelva." };
     }
 
     for (const p of prods) {
@@ -873,12 +899,27 @@ export const ejecutores: Record<string, Ejecutor> = {
       ok: true,
       mensaje:
         `Mostré ${prods.length} opciones, en este orden: ${orden}. ` +
-        `Decile al cliente que elija cuál, sin repetir lo que ya sale en las fichas.` +
+        `Dile al cliente que elija cuál, sin repetir lo que ya sale en las fichas.` +
         (afuera.length
           ? ` Entran hasta 4 fichas: NO se mostró ${afuera.join(", ")}. No lo nombres como si estuviera arriba; ` +
-            `si querés, decile en una frase que también hay ${afuera.length === 1 ? "otro modelo" : "otros modelos"} y que se lo mostrás si le interesa.`
+            `si quieres, dile en una frase que también hay ${afuera.length === 1 ? "otro modelo" : "otros modelos"} y que se lo muestras si le interesa.`
           : ""),
     };
+  },
+
+  explicar_con_nota_de_voz(ctx, { explicacion }) {
+    const texto = String(explicacion || "").trim().slice(0, 700);
+    if (texto.length < 20) return { ok: false, mensaje: "La explicación está vacía o es muy corta. Escríbela completa." };
+    // Una sola por turno y no en dos turnos seguidos: el audio es para destrabar
+    // una duda, no una forma nueva de contestar todo.
+    if (ctx.partes.some((p) => p.kind === "voz")) return { ok: false, mensaje: "Ya va una nota de voz en esta respuesta." };
+    const ultima = ctx.estado.notaDeVozEnTurno;
+    if (ultima != null && ctx.estado.turnos - ultima <= 1) {
+      return { ok: false, mensaje: "Acabas de mandarle un audio. Esta vez explícaselo por escrito, más corto y con un ejemplo." };
+    }
+    ctx.partes.push({ kind: "voz", content: texto });
+    ctx.estado.notaDeVozEnTurno = ctx.estado.turnos;
+    return { ok: true, mensaje: "La nota de voz sale con esa explicación. No la repitas por escrito: si acaso, una frase corta de cierre." };
   },
 
   consultar_conocimiento(ctx, { pregunta, productoId }) {
@@ -906,7 +947,7 @@ export const ejecutores: Record<string, Ejecutor> = {
         ok: true,
         mensaje:
           `El dueño no cargó nada sobre "${pregunta}". ` +
-          `No inventes: decile que lo confirmás con el equipo y le respondés.`,
+          `No inventes: dile que lo confirmas con el equipo y le respondes.`,
       };
     }
 
@@ -915,7 +956,7 @@ export const ejecutores: Record<string, Ejecutor> = {
         ok: true,
         mensaje:
           `El dueño cargó que los clientes preguntan "${mejor.item.pregunta}" pero NO dejó respuesta. ` +
-          `Está marcado como sin dato: decile que lo confirmás. No inventes.`,
+          `Está marcado como sin dato: dile que lo confirmas. No inventes.`,
       };
     }
 
@@ -947,7 +988,7 @@ export const ejecutores: Record<string, Ejecutor> = {
     if (!faltan.length) {
       ctx.estado.accionPendiente = null;
       ctx.estado.siguienteAccion = "cerrar_y_enviar_pago";
-      return { ok: true, mensaje: "No falta ningún dato: podés cerrar. Pedile la confirmación y mandale los medios de pago." };
+      return { ok: true, mensaje: "No falta ningún dato: puedes cerrar. Pídele la confirmación y mándale los medios de pago." };
     }
     // FASE 7: si falta un dato, se pide ÚNICAMENTE ese dato.
     ctx.estado.accionPendiente = `pedir_${faltan[0].campo}`;
@@ -957,34 +998,34 @@ export const ejecutores: Record<string, Ejecutor> = {
       ok: true,
       mensaje:
         `Para poder concretar falta: ${faltan.map((d) => `${d.campo} (${d.porque})`).join("; ")}. ` +
-        `Pedí UNO por mensaje, y siempre DESPUÉS de contestar lo que el cliente acaba de decir. ` +
+        `Pide UNO por mensaje, y siempre DESPUÉS de contestar lo que el cliente acaba de decir. ` +
         `Nunca los pidas todos juntos: en WhatsApp eso se lee como un formulario.`,
     };
   },
 
   async estado_de_mi_pedido(ctx) {
     if (!ctx.pedidos?.estado) {
-      return { ok: false, mensaje: "No puedo consultar pedidos desde acá. Decile que una persona le confirma el estado en un momento y usá escalar_a_humano. No inventes guía ni fecha." };
+      return { ok: false, mensaje: "No puedo consultar pedidos desde acá. Dile que una persona le confirma el estado en un momento y usa escalar_a_humano. No inventes guía ni fecha." };
     }
     const r = await ctx.pedidos.estado();
-    if (!r.hay) return { ok: true, mensaje: "Esta conversación no tiene ningún pedido hecho. Preguntale con qué nombre o número lo hizo, sin inventar." };
-    return { ok: true, mensaje: `${r.texto} Decíselo con tus palabras; si no hay guía todavía, decile que se la pasás apenas la transportadora la asigne.` };
+    if (!r.hay) return { ok: true, mensaje: "Esta conversación no tiene ningún pedido hecho. Pregúntale con qué nombre o número lo hizo, sin inventar." };
+    return { ok: true, mensaje: `${r.texto} Díselo con tus palabras; si no hay guía todavía, dile que se la pasas apenas la transportadora la asigne.` };
   },
 
   async tomar_pedido(ctx, args) {
     if (!ctx.pedidos) {
-      return { ok: false, mensaje: "Este negocio no toma pedidos automáticos. Tomá los datos con registrar_dato y decile que una persona le confirma el envío. No digas que el pedido quedó registrado." };
+      return { ok: false, mensaje: "Este negocio no toma pedidos automáticos. Toma los datos con registrar_dato y dile que una persona le confirma el envío. No digas que el pedido quedó registrado." };
     }
     const id = ctx.focoFijo ?? (Number(args?.productoId) || ctx.estado.productoEnFoco);
     const p = id ? ctx.catalogo.find((x) => x.id === id) : null;
-    if (!p) return { ok: false, mensaje: "No sé qué producto compra. Ubicalo con buscar_en_catalogo o enfocar_producto y volvé a llamar." };
+    if (!p) return { ok: false, mensaje: "No sé qué producto compra. Ubícalo con buscar_en_catalogo o enfocar_producto y volvé a llamar." };
     if (String(p.kind || "digital") !== "physical") {
-      return { ok: false, mensaje: `${p.name} no es un producto físico: no lleva envío ni pedido. Seguí con mostrar(seccion="pago").` };
+      return { ok: false, mensaje: `${p.name} no es un producto físico: no lleva envío ni pedido. Sigue con mostrar(seccion="pago").` };
     }
     // Precio antes que datos: pedir cédula y dirección a quien no sabe cuánto
     // cuesta es la regla que CLAUDE.md prohíbe romper.
     if (!precioDado(ctx.estado, p.id)) {
-      return { ok: false, mensaje: `Todavía no le mostraste el precio de ${p.name}. Mandá primero mostrar(seccion="precio") y después pedí los datos.` };
+      return { ok: false, mensaje: `Todavía no le mostraste el precio de ${p.name}. Manda primero mostrar(seccion="precio") y después pide los datos.` };
     }
     // Que QUIERA comprar, no que le interese. Pedido del dueño (25-09-2026):
     // a "me interesa este" el bot le pidió nombre y cédula. Los datos se piden
@@ -1005,7 +1046,7 @@ export const ejecutores: Record<string, Ejecutor> = {
           ok: false,
           mensaje:
             `El cliente todavía NO dijo que compra ${p.name} (interesarse no es comprar). NO le pidas datos de envío. ` +
-            `Respondé lo que preguntó y cerrá con UNA pregunta corta de si quiere hacer el pedido (ej: "¿Te lo enviamos?"). ` +
+            `Responde lo que preguntó y cierra con UNA pregunta corta de si quiere hacer el pedido (ej: "¿Te lo enviamos?"). ` +
             `Si responde que sí, volvé a llamar tomar_pedido.`,
         };
       }
@@ -1056,16 +1097,16 @@ export const ejecutores: Record<string, Ejecutor> = {
             ok: true,
             mensaje:
               `Pedido de ${p.name} abierto. ` +
-              (r.yaTiene.length ? `Ya tenés: ${r.yaTiene.join(", ")} (no los vuelvas a pedir). ` : "") +
+              (r.yaTiene.length ? `Ya tienes: ${r.yaTiene.join(", ")} (no los vuelvas a pedir). ` : "") +
               (maqueta
-                ? `El SISTEMA ya le mandó la lista de datos que faltan (${r.faltan.join(", ")}). Escribí SOLO una frase corta de intro, sin listar los datos vos y sin pedir la cédula. No registres nada todavía.`
+                ? `El SISTEMA ya le mandó la lista de datos que faltan (${r.faltan.join(", ")}). Escribe SOLO una frase corta de intro, sin listar los datos tú y sin pedir la cédula. No registres nada todavía.`
                 : `No falta nada obligatorio. No pidas la cédula.`),
           };
         }
       case "zona":
         ctx.estado.pedidoPorConfirmarEnTurno = null;
         ctx.estado.accionPendiente = "confirmar_zona";
-        return { ok: true, mensaje: `Los datos están, pero la zona no verifica: ${r.motivo}. Pedile que confirme la ciudad y el departamento. No registres nada.` };
+        return { ok: true, mensaje: `Los datos están, pero la zona no verifica: ${r.motivo}. Pídele que confirme la ciudad y el departamento. No registres nada.` };
       case "listo":
         // El resumen sale en el mismo turno en que llegan los datos, y el "sí"
         // que confirma tiene que llegar en un mensaje POSTERIOR: por eso se
@@ -1084,19 +1125,19 @@ export const ejecutores: Record<string, Ejecutor> = {
             "TODAVÍA NO está registrado: no digas que quedó registrado ni inventes número de pedido.",
         };
       default:
-        return { ok: false, mensaje: `No se pudo abrir el pedido (${r.motivo}). Decile que tomaste sus datos y que una persona le confirma. No digas que quedó registrado.` };
+        return { ok: false, mensaje: `No se pudo abrir el pedido (${r.motivo}). Dile que tomaste sus datos y que una persona le confirma. No digas que quedó registrado.` };
     }
   },
 
   async confirmar_pedido(ctx) {
     if (!ctx.pedidos) {
-      return { ok: false, mensaje: "Este negocio no toma pedidos automáticos: decile que una persona le confirma el envío. No digas que quedó registrado." };
+      return { ok: false, mensaje: "Este negocio no toma pedidos automáticos: dile que una persona le confirma el envío. No digas que quedó registrado." };
     }
     if (ctx.estado.pedidoPorConfirmarEnTurno == null) {
       return { ok: false, mensaje: "No hay un resumen de pedido esperando confirmación. Primero tomar_pedido con los datos; cuando el sistema le mande el resumen y el cliente diga que sí, recién ahí confirmar_pedido." };
     }
     if (ctx.estado.pedidoPorConfirmarEnTurno >= ctx.estado.turnos) {
-      return { ok: false, mensaje: "El resumen se le está mandando en ESTE mismo mensaje: el cliente todavía no lo leyó. Esperá su respuesta." };
+      return { ok: false, mensaje: "El resumen se le está mandando en ESTE mismo mensaje: el cliente todavía no lo leyó. Espera su respuesta." };
     }
     const r = await ctx.pedidos.confirmar();
     ctx.estado.pedidoPorConfirmarEnTurno = null;
@@ -1125,18 +1166,18 @@ export const ejecutores: Record<string, Ejecutor> = {
             "Tu texto: UNA línea cálida de agradecimiento, sin repetir esos datos y sin decir que la confirmación llega después. NO le pidas más datos. NO inventes número de guía.",
         };
       case "no_disponible":
-        return { ok: false, mensaje: `NO SE TOMÓ EL PEDIDO: el proveedor no puede despachar este producto. Decile algo como: "${r.mensajeAlCliente}". No le prometas despacho; ofrecele una alternativa del catálogo si la hay.` };
+        return { ok: false, mensaje: `NO SE TOMÓ EL PEDIDO: el proveedor no puede despachar este producto. Dile algo como: "${r.mensajeAlCliente}". No le prometas despacho; ofrécele una alternativa del catálogo si la hay.` };
       case "rechazado":
         return {
           ok: false,
           mensaje: r.productoDesactivado
-            ? `El proveedor rechazó el pedido (${r.motivo}) y el producto se agotó. Decíselo con honestidad y sin tecnicismos, pedile disculpas y ofrecele una alternativa parecida. No prometas despacho ni inventes número de guía.`
-            : `El proveedor tuvo un problema para despachar (${r.motivo}). Decile que ya avisaste al equipo y que le confirmás por acá apenas se resuelva. No prometas despacho ni inventes número de guía.`,
+            ? `El proveedor rechazó el pedido (${r.motivo}) y el producto se agotó. Díselo con honestidad y sin tecnicismos, pídele disculpas y ofrécele una alternativa parecida. No prometas despacho ni inventes número de guía.`
+            : `El proveedor tuvo un problema para despachar (${r.motivo}). Dile que ya avisaste al equipo y que le confirmas por acá apenas se resuelva. No prometas despacho ni inventes número de guía.`,
         };
       case "sin_pedido":
         return { ok: false, mensaje: "No encontré el pedido de esta conversación. Volvé a tomar_pedido con sus datos." };
       default:
-        return { ok: false, mensaje: `El cliente confirmó pero el pedido NO se pudo registrar (${r.motivo}). Decile que ya tenés sus datos y que en un momento le confirmás el despacho. NO inventes número de pedido.` };
+        return { ok: false, mensaje: `El cliente confirmó pero el pedido NO se pudo registrar (${r.motivo}). Dile que ya tienes sus datos y que en un momento le confirmas el despacho. NO inventes número de pedido.` };
     }
   },
 
@@ -1154,7 +1195,7 @@ export const ejecutores: Record<string, Ejecutor> = {
       mensaje:
         "Quedó marcado para que una persona lo verifique. " +
         "IMPORTANTE: no le digas que el pago está confirmado ni que ya lo verificaste — no lo está. " +
-        "Decile que ya está en verificación y que en cuanto quede confirmado le llega el acceso. " +
+        "Dile que ya está en verificación y que en cuanto quede confirmado le llega el acceso. " +
         "No prometas un tiempo exacto.",
     };
   },
@@ -1168,7 +1209,7 @@ export const ejecutores: Record<string, Ejecutor> = {
     return {
       ok: true,
       mensaje:
-        `Escalado registrado (${motivo}). Decile en una línea que ya le pasás el caso a alguien del ` +
+        `Escalado registrado (${motivo}). Dile en una línea que ya le pasas el caso a alguien del ` +
         `equipo, sin prometer tiempos exactos.`,
     };
   },
@@ -1194,13 +1235,13 @@ export const ejecutores: Record<string, Ejecutor> = {
       const o = objecion.trim().slice(0, 200);
       if (!ctx.estado.objecionesVistas.includes(o)) ctx.estado.objecionesVistas.push(o);
     }
-    return { ok: true, mensaje: "Contexto anotado. No le muestres esto al cliente; seguí la conversación." };
+    return { ok: true, mensaje: "Contexto anotado. No le muestres esto al cliente; sigue la conversación." };
   },
 
   consultar_disponibilidad(ctx, { productoId, variante, cantidad }) {
     const id = Number(productoId);
     const p = ctx.catalogo.find((x) => x.id === id);
-    if (!p) return { ok: false, mensaje: `No existe el producto #${productoId}. Buscá en el catálogo primero.` };
+    if (!p) return { ok: false, mensaje: `No existe el producto #${productoId}. Busca en el catálogo primero.` };
     const det = (ctx.estado.detalleProducto[p.id] ??= {});
     if (typeof variante === "string" && variante.trim()) {
       det.variante = variante.trim().slice(0, 120);
@@ -1217,7 +1258,7 @@ export const ejecutores: Record<string, Ejecutor> = {
         ok: true,
         mensaje:
           `El catálogo no trae la variante "${det.variante}" para ${p.name} (opciones: ${p.opciones.join(", ")}). ` +
-          `No afirmes que existe: decí que lo confirmás.`,
+          `No afirmes que existe: di que lo confirmas.`,
       };
     }
     if (p.stock == null) {
@@ -1226,21 +1267,21 @@ export const ejecutores: Record<string, Ejecutor> = {
         ok: true,
         mensaje:
           `${p.name} no tiene inventario configurado. No afirmes stock ni disponibilidad: ` +
-          `decí que revisás existencias y confirmás.`,
+          `di que revisas existencias y confirmas.`,
       };
     }
     det.stock = p.stock;
     if (p.stock <= 0) {
       det.stockEstado = "agotado";
-      return { ok: true, mensaje: `${p.name} figura sin stock. No lo ofrezcas como disponible: explícalo y ofrecele alternativa real.` };
+      return { ok: true, mensaje: `${p.name} figura sin stock. No lo ofrezcas como disponible: explícalo y ofrécele alternativa real.` };
     }
     if (det.cantidad != null && det.cantidad > p.stock) {
       det.stockEstado = "por_confirmar";
-      return { ok: true, mensaje: `Pide ${det.cantidad} pero hay ${p.stock} en inventario. No confirmes: decí que lo verificás.` };
+      return { ok: true, mensaje: `Pide ${det.cantidad} pero hay ${p.stock} en inventario. No confirmes: di que lo verificas.` };
     }
     det.stockEstado = "disponible";
     marcarPaso(ctx.estado, `stock_${p.id}`);
-    return { ok: true, mensaje: `${p.name}: ${p.stock} unidad(es) en inventario. Podés ofrecerlo.` };
+    return { ok: true, mensaje: `${p.name}: ${p.stock} unidad(es) en inventario. Puedes ofrecerlo.` };
   },
 
   registrar_caso(ctx, { tipo, necesidad, alcance, cuando, problema, objetivo }) {
@@ -1280,7 +1321,7 @@ export const ejecutores: Record<string, Ejecutor> = {
     if (!c.cotizacion) c.cotizacion = "pendiente";
     registrarIntencion(ctx.estado, "explorar");
     marcarPaso(ctx.estado, "caso_consultoria");
-    return { ok: true, mensaje: "Caso de consultoría registrado. Entendé problema y objetivo antes de cotizar; no inventes precio fijo." };
+    return { ok: true, mensaje: "Caso de consultoría registrado. Entiende problema y objetivo antes de cotizar; no inventes precio fijo." };
   },
 
   solicitar_cotizacion(ctx, { resumen }) {
@@ -1293,7 +1334,7 @@ export const ejecutores: Record<string, Ejecutor> = {
       ok: true,
       mensaje:
         `Cotización marcada en proceso${typeof resumen === "string" && resumen.trim() ? `: ${resumen.trim().slice(0, 200)}` : ""}. ` +
-        `Decile que preparás la propuesta con esos datos, sin inventar el valor.`,
+        `Dile que preparas la propuesta con esos datos, sin inventar el valor.`,
     };
   },
 };

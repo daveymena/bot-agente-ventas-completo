@@ -80,7 +80,7 @@ describe("el formato es para leer en un teléfono", () => {
    */
   it("las reglas de formato están en el prompt del vendedor que corre (motor v2)", () => {
     const motor = readFileSync(join(__dirname, "..", "motor-nuevo", "motor.ts"), "utf8");
-    expect(motor).toMatch(/CÓMO HABLÁS/);
+    expect(motor).toMatch(/CÓMO HABLAS/);
     expect(motor).toMatch(/Mensajes de 2 a 4 frases/);
     expect(motor).toMatch(/No empieces todas las respuestas con/);
     expect(motor).toMatch(/Un emoji suelto está bien; cinco no/);

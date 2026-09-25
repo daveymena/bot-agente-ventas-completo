@@ -201,9 +201,9 @@ export function condicionesDesdePerfil(perfil: any): CondicionesDelNegocio {
 /** Frase corta de cómo se paga lo que se despacha, para prompts y fichas. */
 export function frasePagoEnvio(c: CondicionesDelNegocio): string {
   switch (c.envio.pago) {
-    case "contraentrega": return "Pagás contraentrega, cuando lo recibís";
+    case "contraentrega": return "Pagas contraentrega, cuando lo recibes";
     case "anticipado": return "Se paga antes del despacho";
-    case "ambos": return "Podés pagar antes o contraentrega, como prefieras";
+    case "ambos": return "Puedes pagar antes o contraentrega, como prefieras";
   }
 }
 
@@ -229,27 +229,27 @@ export function bloqueTrasElSi(modelo: ModeloDeNegocio, c: CondicionesDelNegocio
       return [
         "🗓️ ESTO ES UN SERVICIO DE ATENCIÓN PERSONAL, NO UN PRODUCTO QUE SE ENTREGA",
         "• No se manda por Google Drive ni por transportadora: se AGENDA. Nunca hables de \"acceso\", \"descarga\", \"envío\" ni \"entrega\".",
-        c.agenda ? `• Cómo se agenda en este negocio: ${c.agenda}` : "• Cuando el cliente quiera tomarlo, pedile nombre, y el día y la franja horaria que prefiere. Decile que el negocio le confirma la hora por este mismo chat.",
-        "• NUNCA confirmes una fecha u hora como definitiva: no ves la agenda. Decí \"te confirmo apenas lo revise\".",
-        "• Si es a domicilio, pedí también la dirección. Si no lo sabés, no lo asumas.",
+        c.agenda ? `• Cómo se agenda en este negocio: ${c.agenda}` : "• Cuando el cliente quiera tomarlo, pídele nombre, y el día y la franja horaria que prefiere. Dile que el negocio le confirma la hora por este mismo chat.",
+        "• NUNCA confirmes una fecha u hora como definitiva: no ves la agenda. Di \"te confirmo apenas lo revise\".",
+        "• Si es a domicilio, pide también la dirección. Si no lo sabes, no lo asumas.",
       ].join("\n");
     case "suscripcion":
       return [
         "🔁 ESTO ES UNA SUSCRIPCIÓN: acceso por período, no una compra única",
-        "• Decí con claridad cada cuánto se cobra y que se renueva; nunca lo presentes como \"pago único\" ni \"de por vida\".",
-        "• El primer pago se hace como cualquier otro (enlace o transferencia); la renovación la coordina el negocio. No inventes cómo se cancela: si te preguntan, decí que lo confirmás.",
+        "• Di con claridad cada cuánto se cobra y que se renueva; nunca lo presentes como \"pago único\" ni \"de por vida\".",
+        "• El primer pago se hace como cualquier otro (enlace o transferencia); la renovación la coordina el negocio. No inventes cómo se cancela: si te preguntan, di que lo confirmas.",
       ].join("\n");
     case "cotizacion":
       return [
         "🧾 ESTE PRODUCTO SE COTIZA: no tiene un precio cerrado",
-        "• NUNCA digas un precio ni un rango. Lo que hacés es levantar lo que hace falta para cotizar: qué necesita exactamente, cantidad, medidas o alcance, plazo y ciudad.",
-        "• Cuando tengas eso, decile que el negocio le manda la cotización por este chat. No prometas cuándo.",
+        "• NUNCA digas un precio ni un rango. Lo que haces es levantar lo que hace falta para cotizar: qué necesita exactamente, cantidad, medidas o alcance, plazo y ciudad.",
+        "• Cuando tengas eso, dile que el negocio le manda la cotización por este chat. No prometas cuándo.",
       ].join("\n");
     case "captacion":
       return [
         "🤝 ESTE NEGOCIO CIERRA CON UNA PERSONA, NO EN EL CHAT",
         "• Tu trabajo es entender qué necesita, para cuándo y cómo contactarlo, y pasárselo a un asesor. No cobres, no entregues, no agendes.",
-        "• Decile que un asesor lo contacta por este mismo número. No prometas plazo ni resultado.",
+        "• Dile que un asesor lo contacta por este mismo número. No prometas plazo ni resultado.",
       ].join("\n");
     default:
       return "";

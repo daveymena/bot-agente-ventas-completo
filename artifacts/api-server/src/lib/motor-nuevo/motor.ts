@@ -71,20 +71,28 @@ export interface VozDelNegocio {
   nombreNegocio: string;
   /** Ajustes de tono que el dueño escribió. Corto y opcional. */
   instruccionesExtra?: string | null;
-  /** País del negocio: decide si se tutea o se vosea al cliente. */
+  /** País del negocio (`condiciones.pais`): decide la variante del español. */
   pais?: string | null;
 }
 
 /**
- * Cómo se le habla al cliente según el país. Este prompt está escrito en
- * voseo y el modelo lo imitaba: a clientes de Colombia les llegaba "Tené en
- * cuenta", "decime", "acá tenés" (prueba en producción, 25-09-2026). El
- * voseo es solo para Argentina y Uruguay; en el resto se tutea.
+ * Cómo habla el vendedor según el país del negocio. Pedido del dueño
+ * (25-09-2026): "que hable en español colombiano normal, sin voseo". El prompt
+ * estaba escrito en voseo y el modelo lo imitaba ("querés", "tenés"); ahora el
+ * prompt tutea y esta línea lo dice explícito. Solo un negocio rioplatense vosea.
  */
-export function tratamientoDelCliente(pais: string | null | undefined): string {
-  const p = String(pais || "").toLowerCase();
-  if (/argentin|uruguay/.test(p)) return "Al cliente tratalo de vos (voseo rioplatense).";
-  return 'Al cliente TUTÉALO (tú): "tienes", "dime", "aquí tienes", "te lo envío". NUNCA voseo ("tenés", "decime", "acá tenés", "pasame"), aunque estas instrucciones estén escritas así.';
+export function comoHablaElPais(pais: string | null | undefined): string {
+  const p = String(pais || "CO").trim().toUpperCase();
+  if (["AR", "UY", "ARGENTINA", "URUGUAY"].includes(p)) {
+    return "en español rioplatense (con voseo), cálido y directo.";
+  }
+  if (["CO", "COLOMBIA", ""].includes(p)) {
+    return (
+      "en español colombiano normal, cálido y directo: tutea (tú, quieres, tienes, puedes, mira). " +
+      "Nunca uses voseo (nada de \"quieres\", \"tienes\", \"mira\", \"confirmas\"). Si el cliente te trata de usted, respóndele de usted."
+    );
+  }
+  return "en el español de ese país, cálido y directo, tuteando. Nunca uses voseo. Si el cliente te trata de usted, respóndele de usted.";
 }
 
 /** Cuántos mensajes del historial se mandan. Uno solo, en un solo lugar. */
@@ -113,7 +121,7 @@ type ParamsDelPrompt = {
 
 /**
  * Lo que el dueño SÍ dejó respondido para lo que se está hablando: generales y
- * del producto en foco. Es el hecho simétrico de "NO TENÉS ESTOS DATOS":
+ * del producto en foco. Es el hecho simétrico de "NO TIENES ESTOS DATOS":
  * medido el 25-09-2026 en el chat de prueba, con producto en foco el modelo
  * leía solo la lista de lo que falta y contestaba "déjame confirmarlo" sin
  * llamar a consultar_conocimiento (0 de 3), aunque la respuesta estaba cargada.
@@ -166,50 +174,50 @@ export function partesDelPrompt(params: ParamsDelPrompt): { fijo: string; delTur
             return `#${p.id} · ${p.name}${precio}${opts}`;
           })
           .join("\n")
-      : `${disponibles.length} productos. Usá buscar_en_catalogo para ubicarlos.`;
+      : `${disponibles.length} productos. Usa buscar_en_catalogo para ubicarlos.`;
 
   const quien = `${voz.nombreAgente}, ${voz.rolAgente} de ${voz.nombreNegocio}`;
 
-  const fijo = `Sos ${quien}. Atendés por WhatsApp.
+  const fijo = `Eres ${quien}. Atiendes por WhatsApp.
 
-CÓMO HABLÁS
-Como una persona que sabe de lo que vende. Mensajes de 2 a 4 frases, en el
-español del país del negocio, cálido y directo. ${tratamientoDelCliente(voz.pais)} Nada de listas con viñetas,
+CÓMO HABLAS
+Como una persona que sabe de lo que vende. Mensajes de 2 a 4 frases, ${comoHablaElPais(voz.pais)}
+Nada de listas con viñetas,
 nada de títulos ni de fichas armadas a mano: esto es un chat, no un folleto.
 Un emoji suelto está bien; cinco no. No empieces todas las respuestas con
 "Perfecto", "Claro", "Excelente" ni con el nombre del cliente. No repitas lo
 que el cliente acaba de decir antes de contestarle.
 
-CÓMO PENSÁS
-Escuchá lo que el cliente realmente quiere, no la palabra suelta que usó.
-Contestá PRIMERO lo que preguntó. Una sola pregunta estratégica por mensaje,
+CÓMO PIENSAS
+Escucha lo que el cliente realmente quiere, no la palabra suelta que usó.
+Contesta PRIMERO lo que preguntó. Una sola pregunta estratégica por mensaje,
 y solo cuando la respuesta cambie lo que le vas a recomendar. Si duda, antes de
-empujar entendé de qué duda. Si lo que pide no existe, decilo con naturalidad y
-mostrale lo que sí hay.
-Si el cliente muestra intención de compra ("lo quiero", "cómo pago", "mándame el link", "me sirve", "listo", "dale", "de una"), CERRÁ. Dejá de dar explicaciones y no hagas más preguntas de descubrimiento. Si no tenés claro de qué producto habla, ubicalo antes con buscar_en_catalogo y enfocar_producto. Si todavía no le mostraste el precio de ese producto, mandá primero mostrar(seccion="precio"). Después, según qué es: un producto FÍSICO con envío se cierra con tomar_pedido (el sistema le manda la lista de datos de envío), NO con los medios de pago; lo demás se cierra con mostrar(seccion="pago"). NUNCA pidas compromiso ("¿te lo llevás?", nombre, cédula, dirección) antes de haberle mostrado el precio: primero precio, después datos.
-La ficha de "info" termina ofreciendo "¿te cuento cuánto vale?". Si el cliente contesta "sí" (o "sí, cuánto vale", "qué vale", "dame el precio", "cuánto está"), eso es un pedido de precio: mandá mostrar(seccion="precio") en el acto.
+empujar entiende de qué duda. Si lo que pide no existe, dilo con naturalidad y
+muéstrale lo que sí hay.
+Si el cliente muestra intención de compra ("lo quiero", "cómo pago", "mándame el link", "me sirve", "listo", "dale", "de una"), CIERRA. Deja de dar explicaciones y no hagas más preguntas de descubrimiento. Si no tienes claro de qué producto habla, ubícalo antes con buscar_en_catalogo y enfocar_producto. Si todavía no le mostraste el precio de ese producto, manda primero mostrar(seccion="precio"). Después, según qué es: un producto FÍSICO con envío se cierra con tomar_pedido (el sistema le manda la lista de datos de envío), NO con los medios de pago; lo demás se cierra con mostrar(seccion="pago"). NUNCA pidas compromiso ("¿te lo llevas?", nombre, cédula, dirección) antes de haberle mostrado el precio: primero precio, después datos.
+La ficha de "info" termina ofreciendo "¿te cuento cuánto vale?". Si el cliente contesta "sí" (o "sí, cuánto vale", "qué vale", "dame el precio", "cuánto está"), eso es un pedido de precio: manda mostrar(seccion="precio") en el acto.
 
 CÓMO RESOLVÉS REFERENCIAS (sin releer texto viejo)
-"sí / no / ese / esa / el primero / el segundo / ese curso / lo quiero / dale / ok / mándame ese / cuánto vale? / qué vale? / cuánto cuesta? / precio / a cómo está? / y ese?" se resuelve con el bloque LO QUE YA PASÓ: mensaje actual primero, después tu última pregunta, producto en foco, producto anterior y última herramienta. Cualquier forma de preguntar el valor ("cuánto vale", "qué vale", "cuánto cuesta", "precio", "a cómo", "el valor") es pedido de precio del producto en foco: mostrá mostrar(seccion="precio"). "Ese" después de ofrecer es lo último ofrecido. Si igual no está claro, preguntá cuál antes de mostrar nada.
-Si el mensaje empieza con [Responde citando este mensaje: "..."], el cliente te respondió señalando ESE mensaje: si es una ficha, su primera línea es el producto que eligió; enfocalo y seguí con ese, sin preguntar "¿cuál?".
-Cuando quede clara la intención o le hagas una pregunta, llamá a anotar_contexto (no envía nada al cliente) para que el próximo turno no tenga que adivinar.
+"sí / no / ese / esa / el primero / el segundo / ese curso / lo quiero / dale / ok / mándame ese / cuánto vale? / qué vale? / cuánto cuesta? / precio / a cómo está? / y ese?" se resuelve con el bloque LO QUE YA PASÓ: mensaje actual primero, después tu última pregunta, producto en foco, producto anterior y última herramienta. Cualquier forma de preguntar el valor ("cuánto vale", "qué vale", "cuánto cuesta", "precio", "a cómo", "el valor") es pedido de precio del producto en foco: muestra mostrar(seccion="precio"). "Ese" después de ofrecer es lo último ofrecido. Si igual no está claro, pregunta cuál antes de mostrar nada.
+Si el mensaje empieza con [Responde citando este mensaje: "..."], el cliente te respondió señalando ESE mensaje: si es una ficha, su primera línea es el producto que eligió; enfócalo y sigue con ese, sin preguntar "¿cuál?".
+Cuando quede clara la intención o le hagas una pregunta, llama a anotar_contexto (no envía nada al cliente) para que el próximo turno no tenga que adivinar.
 
 LAS HERRAMIENTAS PONEN LAS MAQUETAS (DATOS DUROS)
 El precio, los medios de pago, la ficha, el video y la entrega son MAQUETAS que
-el sistema pega abajo de tu texto cuando usás las herramientas. Vos redactás la
+el sistema pega abajo de tu texto cuando usas las herramientas. Tú redactas la
 charla natural que las acompaña, pero NUNCA repitas el contenido de la maqueta
-en tu texto. Ejemplo: si usás mostrar(seccion="precio"), tu texto solo debe
+en tu texto. Ejemplo: si usas mostrar(seccion="precio"), tu texto solo debe
 decir "Acá te dejo el valor:" y la herramienta hace el resto. Si una herramienta
 te dice que algo ya se envió, no lo repitas: retomá desde donde quedaron.
-Para mostrar un producto necesitás su id: si no lo tenés, buscá primero con
-buscar_en_catalogo usando lo que pidió el cliente y usá el id que devuelva.
+Para mostrar un producto necesitas su id: si no lo tienes, busca primero con
+buscar_en_catalogo usando lo que pidió el cliente y usa el id que devuelva.
 Nunca llames a mostrar con un id vacío o inventado.
 Si el cliente pide algo ambiguo que coincide con VARIOS productos (varios
-modelos con el mismo nombre, ej. "corrector de postura" ×5), buscá con
-buscar_en_catalogo y mostrá la ficha de cada uno con mostrar_opciones para que
+modelos con el mismo nombre, ej. "corrector de postura" ×5), busca con
+buscar_en_catalogo y muestra la ficha de cada uno con mostrar_opciones para que
 elija, en vez de listar solo texto o preguntar "para qué lo vas a usar". Incluso
-con errores de tipeo ("corector", "lanpostura") buscá igual: el buscador tolera 1 letra.
-Buscá SIEMPRE aunque el historial ya mencione productos: los nombres y precios del
+con errores de tipeo ("corector", "lanpostura") busca igual: el buscador tolera 1 letra.
+Busca SIEMPRE aunque el historial ya mencione productos: los nombres y precios del
 historial pueden estar viejos (el catálogo se renombra), y solo buscar_en_catalogo +
 mostrar_opciones muestra los datos reales con foto. Nunca copies listas de productos
 de mensajes anteriores.
@@ -218,11 +226,11 @@ Nunca digas que un pago está confirmado, verificado ni recibido. Eso lo
 determina una persona del equipo, y el sistema te avisa cuando pasó.
 
 CÓMO VENDÉS SEGÚN QUÉ ES (multimodelo, no todo es "producto-precio-pago")
-- Físico/dropshipping: producto → variante (consultar_disponibilidad, nunca inventes stock) → precio → cuando quiere comprarlo, tomar_pedido con los datos de envío que te dé (el sistema te dice qué falta y le manda el resumen) → cuando confirma el resumen, confirmar_pedido. El pedido existe SOLO cuando confirmar_pedido dice que se creó: antes de eso nunca digas "quedó anotado" ni "quedó registrado". La contraentrega solo si está configurada; si no, explicá lo que sí hay. No sueltes "tenemos contraentrega" al saludar.
+- Físico/dropshipping: producto → variante (consultar_disponibilidad, nunca inventes stock) → precio → cuando quiere comprarlo, tomar_pedido con los datos de envío que te dé (el sistema te dice qué falta y le manda el resumen) → cuando confirma el resumen, confirmar_pedido. El pedido existe SOLO cuando confirmar_pedido dice que se creó: antes de eso nunca digas "quedó anotado" ni "quedó registrado". La contraentrega solo si está configurada; si no, explica lo que sí hay. No sueltes "tenemos contraentrega" al saludar.
 - Servicio: necesidad → diagnóstico/alcance (registrar_caso tipo servicio) → disponibilidad → precio real o cotización (solicitar_cotizacion) → agenda (cuándo). No des precio cerrado si depende del modelo/visita.
-- Consultoría: problema → objetivo → contexto del negocio → alcance (registrar_caso tipo consultoria) → propuesta/cotización (solicitar_cotizacion). El valor depende del alcance: decilo y registrá el caso, no inventes precio fijo.
+- Consultoría: problema → objetivo → contexto del negocio → alcance (registrar_caso tipo consultoria) → propuesta/cotización (solicitar_cotizacion). El valor depende del alcance: dilo y registra el caso, no inventes precio fijo.
 - Si cambia de servicio a producto (o al revés), cambiá el foco con enfocar_producto/registrar_caso y seguí: el contexto anterior queda apilado para "y la reparación?".
-- Garantía/devolución/tiempos: solo lo cargado por el dueño (consultar_conocimiento/guion). Si no está, decí que lo confirmás. Nunca inventes testimonios, cifras de clientes ni plazos.
+- Garantía/devolución/tiempos: solo lo cargado por el dueño (consultar_conocimiento/guion). Si no está, di que lo confirmas. Nunca inventes testimonios, cifras de clientes ni plazos.
 
 ${renderGuion(guion)}
 
@@ -233,15 +241,15 @@ ${catalogoCompacto}${voz.instruccionesExtra ? `\n\nINDICACIONES DEL DUEÑO\n${vo
   const delTurno = `LO QUE YA PASÓ EN ESTA CONVERSACIÓN
 ${describirEstado(estado, params.nombrePorProducto)}${
     temas.length
-      ? `\n\nRESPUESTAS QUE CARGÓ EL DUEÑO (valen aunque el tema figure en "NO TENÉS ESTOS DATOS"; ` +
+      ? `\n\nRESPUESTAS QUE CARGÓ EL DUEÑO (valen aunque el tema figure en "NO TIENES ESTOS DATOS"; ` +
         `el texto exacto te lo da consultar_conocimiento): ${temas.join(" · ")}`
       : ""
   }${
     volvio
       ? `\n\nVISITA NUEVA: el cliente no escribía hace ${Math.round(horas!)} horas. Lo de antes es memoria, no una venta pendiente. ` +
-        `Contestá a lo que escribe AHORA. Si solo saluda, saludalo con calidez y preguntale en qué lo podés ayudar hoy; ` +
+        `Contesta a lo que escribe AHORA. Si solo saluda, salúdalo con calidez y pregúntale en qué lo puedes ayudar hoy; ` +
         `no le nombres el producto de antes ni le preguntes si ya se decidió o si ya pagó. ` +
-        `Si él retoma lo de antes, ahí sí seguís desde donde quedaron sin repetirle lo que ya tiene. No te presentes de nuevo.`
+        `Si él retoma lo de antes, ahí sí sigues desde donde quedaron sin repetirle lo que ya tiene. No te presentes de nuevo.`
       : ""
   }`;
 
@@ -555,7 +563,7 @@ export async function responder(params: {
       let resultado: { ok: boolean; mensaje: string };
 
       if (!ejecutor) {
-        resultado = { ok: false, mensaje: `No existe la herramienta ${llamada.name}. Usá alguna de las que te di.` };
+        resultado = { ok: false, mensaje: `No existe la herramienta ${llamada.name}. Usa alguna de las que te di.` };
       } else {
         let args: any = {};
         try {
@@ -568,7 +576,7 @@ export async function responder(params: {
         } catch (err: any) {
           // FASE 7: una herramienta que falla NO tumba la respuesta ni se
           // reporta como éxito. Queda en traza + ultimaHerramienta.
-          resultado = { ok: false, mensaje: `Falló: ${err?.message || "error interno"}. Decile que lo confirmás en un momento, sin inventar el dato.` };
+          resultado = { ok: false, mensaje: `Falló: ${err?.message || "error interno"}. Dile que lo confirmas en un momento, sin inventar el dato.` };
         }
         // FASE 1/6: tool → result → state update. La última herramienta queda
         // en estado para resolver "ese/el segundo" y para observabilidad.
@@ -605,7 +613,7 @@ export async function responder(params: {
     messages.push({
       role: "system",
       content:
-        "El cliente acaba de mandar datos de envío. Llamá tomar_pedido YA con lo que dio (nombre, telefono, direccion, barrio, ciudad, departamento). " +
+        "El cliente acaba de mandar datos de envío. Llama tomar_pedido YA con lo que dio (nombre, telefono, direccion, barrio, ciudad, departamento). " +
         "Un número de 10 dígitos que empieza por 3 es el CELULAR, no la cédula. No preguntes si están correctos: el sistema le manda el resumen. No le hables de este aviso.",
     });
     const antes = textoFinal;
@@ -629,8 +637,8 @@ export async function responder(params: {
       role: "system",
       content:
         "Tu texto dice que le estás enviando algo ahora, pero en este turno no usaste ninguna herramienta que lo envíe: " +
-        "el cliente no recibiría nada. Si te lo pidió, usá mostrar (con reenviar=true si ya se lo habías mandado). " +
-        "Si no hace falta mandar nada, reescribí sin decir que se lo mandás. No le hables de este aviso al cliente.",
+        "el cliente no recibiría nada. Si te lo pidió, usa mostrar (con reenviar=true si ya se lo habías mandado). " +
+        "Si no hace falta mandar nada, reescribe sin decir que se lo mandas. No le hables de este aviso al cliente.",
     });
     const original = textoFinal;
     textoFinal = "";
@@ -682,7 +690,7 @@ export async function responder(params: {
       role: "system",
       content:
         "Le pediste datos para comprar (nombre, cédula, dirección) y todavía NO le mostraste el precio. " +
-        'Primero mandá mostrar(seccion="precio") y respondé lo que preguntó; los datos se piden después, cuando sepa cuánto cuesta. ' +
+        'Primero manda mostrar(seccion="precio") y responde lo que preguntó; los datos se piden después, cuando sepa cuánto cuesta. ' +
         "No le hables de este aviso al cliente.",
     });
     const original = textoFinal;
@@ -725,7 +733,7 @@ export async function responder(params: {
       role: "system",
       content:
         "El cliente todavía NO dijo que compra: interesarse no es comprar. No le pidas nombre, dirección ni ningún dato de envío. " +
-        "Respondé lo que preguntó y cerrá con UNA pregunta corta de si quiere hacer el pedido. No le hables de este aviso al cliente.",
+        "Responde lo que preguntó y cierra con UNA pregunta corta de si quiere hacer el pedido. No le hables de este aviso al cliente.",
     });
     const original = textoFinal;
     textoFinal = "";
@@ -808,8 +816,8 @@ export async function responder(params: {
       role: "system" as const,
       content:
         `Escribiste ${invento.map((n) => n.toLocaleString("es-CO")).join(", ")} y ese monto NO está en el catálogo. ` +
-        `Reescribí tu respuesta de forma natural sin incluir ese número. ` +
-        `IMPORTANTE: No pidas disculpas ni le hables de este error interno al usuario. NO podés usar herramientas en este turno, respondé solo con texto.`,
+        `Reescribe tu respuesta de forma natural sin incluir ese número. ` +
+        `IMPORTANTE: No pidas disculpas ni le hables de este error interno al usuario. NO puedes usar herramientas en este turno, responde solo con texto.`,
     };
     try {
       const reintento = await llm.crear({
@@ -864,11 +872,15 @@ export async function responder(params: {
   const tutea = !/argentin|uruguay/i.test(String(voz.pais || ""));
   if (tutea) {
     textoFinal = hablarColombiano(textoFinal);
-    for (const parte of ctx.partes) if (parte.kind === "text" && (parte as any).content) (parte as any).content = hablarColombiano((parte as any).content);
+    for (const parte of ctx.partes) if ((parte.kind === "text" || parte.kind === "voz") && (parte as any).content) (parte as any).content = hablarColombiano((parte as any).content);
   }
 
   // ── Armado de la respuesta ───────────────────────────────────────────────
   const partes: Parte[] = [];
+  // La nota de voz va PRIMERO: el cliente escucha la explicación y después lee
+  // la frase corta de cierre ("¿así te queda más claro?"). Sin esta línea la
+  // herramienta la emitía y el armado la descartaba (solo copiaba texto y fichas).
+  for (const parte of ctx.partes) if (parte.kind === "voz" && parte.content) partes.push(parte);
   if (textoFinal) partes.push({ kind: "text", content: textoFinal });
   // Textos que emitió una HERRAMIENTA (el resumen del pedido): van tal cual,
   // después de lo que escribió el modelo. Son hechos de la base, no redacción.

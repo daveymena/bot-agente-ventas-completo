@@ -83,8 +83,14 @@ async function mensajesComoEnWhatsApp(tenantId: number, partes: any[]) {
     }
   }
 
-  const salida: { imagen?: string; texto: string; productoId?: number }[] = [];
+  const salida: { imagen?: string; texto: string; productoId?: number; audio?: boolean }[] = [];
   for (const parte of juntas) {
+    if (parte.kind === "voz") {
+      // Nota de voz: se ve como audio; el texto es lo que dice (para escucharla
+      // con /voz o leerla). Por WhatsApp sale solo en audio.
+      salida.push({ audio: true, texto: String(parte.content || "") });
+      continue;
+    }
     if (parte.kind === "text") {
       const texto = presentarParaWhatsApp(String(parte.content || ""));
       if (texto.trim()) salida.push({ texto });
@@ -147,6 +153,27 @@ router.post("/mensaje", async (req: TenantRequest, res) => {
   } catch (e: any) {
     logger.error({ tenantId, err: e?.message }, "[ProbarVendedor] error");
     return res.status(500).json({ error: "No se pudo correr el vendedor" });
+  }
+});
+
+/**
+ * POST /api/probar-vendedor/voz { texto } → la nota de voz en mp3, con la misma
+ * voz y ritmo que salen por WhatsApp.
+ */
+router.post("/voz", async (req: TenantRequest, res) => {
+  const tenantId = req.tenant?.id;
+  if (!tenantId) return res.status(401).json({ error: "Sin sesión" });
+  const texto = String(req.body?.texto || "").trim().slice(0, 700);
+  if (!texto) return res.status(400).json({ error: "Sin texto" });
+  try {
+    const { hablar, vozParaGenero } = await import("../lib/voz-de-atlas");
+    const audio = await hablar(texto, process.env.WHATSAPP_AUDIO_VOICE || vozParaGenero(null), "+0%");
+    if (!audio) return res.status(502).json({ error: "No se pudo generar la voz" });
+    res.setHeader("Content-Type", "audio/mpeg");
+    return res.send(audio);
+  } catch (e: any) {
+    logger.warn({ tenantId, err: e?.message }, "[ProbarVendedor] voz");
+    return res.status(502).json({ error: "No se pudo generar la voz" });
   }
 });
 

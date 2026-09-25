@@ -84,7 +84,7 @@ export const whatsapp = {
 };
 
 export type AgentReplyPart = {
-  kind: "text" | "card";
+  kind: "text" | "card" | "voz";
   content?: string;
   productId?: number;
   paymentOnly?: boolean;

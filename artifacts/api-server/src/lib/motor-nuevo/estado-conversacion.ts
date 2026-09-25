@@ -210,6 +210,9 @@ export interface EstadoConversacion {
   /** Cuántas respuestas lleva dadas el agente en esta conversación. */
   turnos: number;
 
+  /** En qué turno salió la última nota de voz (`explicar_con_nota_de_voz`). */
+  notaDeVozEnTurno?: number | null;
+
   /** Última vez que el cliente escribió. Para saludar distinto si volvió al otro día. */
   ultimoMensajeCliente: string | null;
   /** Última vez que el AGENTE escribió. Para saber si la charla se enfrió. */
@@ -663,8 +666,8 @@ export function describirEstado(
       // "no te lo repito para no marearte", que suena a portazo.
       l.push(
         `De ${nombre} ya le enviaste: ${cuales.join(", ")}. Esas maquetas no se vuelven a mandar. ` +
-          `Si pregunta de nuevo por eso, le quedó una duda: resumile lo clave con tus palabras (2-3 líneas) ` +
-          `y preguntá qué parte no le quedó clara. Nunca le digas que no se lo repetís.`,
+          `Si pregunta de nuevo por eso, le quedó una duda: resúmele lo clave con tus palabras (2-3 líneas) ` +
+          `y pregunta qué parte no le quedó clara. Nunca le digas que no se lo repites.`,
       );
     }
   }
@@ -675,7 +678,7 @@ export function describirEstado(
       `LO ÚLTIMO QUE LE OFRECISTE: ${estado.ultimaOferta.resumen}. ` +
         `Si el cliente responde afirmativamente de cualquier forma ("sí", "dale", ` +
         `"listo", "obvio", "de una", un pulgar arriba, un emoji), está aceptando ESO y nada más. ` +
-        `Si dice que sí a una pregunta que vos no hiciste, no inventes: preguntá.`,
+        `Si dice que sí a una pregunta que tú no hiciste, no inventes: pregunta.`,
     );
   }
 
@@ -691,7 +694,7 @@ export function describirEstado(
     l.push(
       `Le mostraste ${estado.opcionesMostradas.length} opciones EN ESTE ORDEN: ${orden}. ` +
         `Si el cliente dice "el primero/el segundo/la tercera/este/ese/esa/me gusta este", ` +
-        `mapealo a esa posición y usá enfocar_producto con el id de esa posición. NO vuelvas a preguntar "¿cuál?".`,
+        `relaciónalo con esa posición y usa enfocar_producto con el id de esa posición. NO vuelvas a preguntar "¿cuál?".`,
     );
   }
   if (estado.ultimaPreguntaAgente) {
@@ -714,7 +717,7 @@ export function describirEstado(
     );
   }
   if (estado.intencionActual) {
-    l.push(`Intención actual: ${estado.intencionActual}. Si cambia de producto o de intención, actualizala con anotar_contexto.`);
+    l.push(`Intención actual: ${estado.intencionActual}. Si cambia de producto o de intención, actualízala con anotar_contexto.`);
   }
   if (estado.accionPendiente || estado.siguienteAccion) {
     l.push(`Lo próximo: ${estado.accionPendiente || estado.siguienteAccion}. No saltes al cierre ni repitas lo ya entregado.`);
@@ -742,7 +745,7 @@ export function describirEstado(
   if (estado.servicio?.necesidad) {
     l.push(
       `Caso de servicio: ${estado.servicio.necesidad}${estado.servicio.alcance ? `; alcance: ${estado.servicio.alcance}` : ""}` +
-        `${estado.servicio.citaCuando ? `; cita: ${estado.servicio.citaCuando}` : ""}. Primero diagnosticá, después cotizás.`,
+        `${estado.servicio.citaCuando ? `; cita: ${estado.servicio.citaCuando}` : ""}. Primero diagnosticá, después cotizas.`,
     );
   }
   if (estado.consultoria?.problema || estado.consultoria?.objetivo) {
@@ -750,13 +753,13 @@ export function describirEstado(
       `Consultoría: problema=${estado.consultoria.problema || "?"}, objetivo=${estado.consultoria.objetivo || "?"}` +
         `${estado.consultoria.alcance ? `, alcance=${estado.consultoria.alcance}` : ""}` +
         `${estado.consultoria.cotizacion ? `, cotización=${estado.consultoria.cotizacion}` : ""}. ` +
-        `Entendé el problema antes de cotizar; si el precio depende del alcance, decilo y registrá el caso.`,
+        `Entiende el problema antes de cotizar; si el precio depende del alcance, dilo y registra el caso.`,
     );
   }
   if (estado.pedidoPorConfirmarEnTurno != null) {
     l.push(
       "Le mostraste el RESUMEN del pedido y está esperando su confirmación. Si dice que sí (de cualquier forma), " +
-        "llamá a confirmar_pedido. Si corrige un dato, llamá a tomar_pedido con el dato corregido.",
+        "llama a confirmar_pedido. Si corrige un dato, llama a tomar_pedido con el dato corregido.",
     );
   }
   if (estado.pasosCompletados.length) {
@@ -775,12 +778,12 @@ export function describirEstado(
   if (estado.comprobanteRecibido && !estado.pagoConfirmadoPorHumano) {
     l.push(
       "El cliente dice que ya pagó, pero NINGUNA persona lo verificó todavía. " +
-        "No afirmes que el pago está confirmado ni entregues el producto: avisá que lo están verificando.",
+        "No afirmes que el pago está confirmado ni entregues el producto: avisa que lo están verificando.",
     );
   }
 
   if (estado.pagoConfirmadoPorHumano) {
-    l.push("El pago fue verificado por una persona del equipo. Podés entregar el acceso.");
+    l.push("El pago fue verificado por una persona del equipo. Puedes entregar el acceso.");
   }
 
   if (estado.escalado) {

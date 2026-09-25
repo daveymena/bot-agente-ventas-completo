@@ -75,7 +75,7 @@ export const CAMPOS_DE_ENVIO: Array<{
     pregunta: [
       "¿A nombre de quién hacemos el envío? 📦",
       "Perfecto 🙌 ¿Cuál es el nombre completo de quien recibe?",
-      "Genial, ¿me confirmás el nombre completo para el envío? 😊",
+      "Genial, ¿me confirmas el nombre completo para el envío? 😊",
     ],
   },
   {
@@ -101,8 +101,8 @@ export const CAMPOS_DE_ENVIO: Array<{
     obligatorio: true,
     pregunta: [
       "¿Cuál es la dirección exacta? (calle, número, apto si aplica) 🏠",
-      "Pasame la dirección completa para la entrega 🏠",
-      "¿A qué dirección llegamos? Poné calle y número 📮",
+      "Pásame la dirección completa para la entrega 🏠",
+      "¿A qué dirección llegamos? Pon calle y número 📮",
     ],
   },
   {
@@ -110,7 +110,7 @@ export const CAMPOS_DE_ENVIO: Array<{
     obligatorio: true,
     pregunta: [
       "¿A qué número te llama el transportador? 📱",
-      "Dejame un celular de contacto para la entrega 📱",
+      "Déjame un celular de contacto para la entrega 📱",
       "¿Qué número le doy al mensajero? 📞",
     ],
   },
@@ -155,19 +155,19 @@ export function contextoDeDropshipping(c: CondicionesDelNegocio = CONDICIONES_DE
     ? "• Pago CONTRA ENTREGA: el cliente paga cuando recibe el paquete. No se cobra por adelantado."
     : c.envio.pago === "anticipado"
       ? "• El envío se paga ANTES del despacho (enlace o transferencia). No ofrezcas contraentrega."
-      : "• Se puede pagar antes del despacho o contraentrega: preguntale cuál prefiere.";
+      : "• Se puede pagar antes del despacho o contraentrega: pregúntale cuál prefiere.";
   const costo = c.envio.costo === "incluido"
     ? "• El envío va INCLUIDO en el precio: no se cobra aparte ni se cotiza por ciudad."
-    : `• Costo de envío: ${c.envio.costo}. Decilo tal cual; no lo estimes por ciudad.`;
+    : `• Costo de envío: ${c.envio.costo}. Dilo tal cual; no lo estimes por ciudad.`;
   return [
     "🚚 PRODUCTO FÍSICO — ENTREGA A DOMICILIO",
     `• Tiempo de entrega: ${c.envio.plazo}, cobertura: ${c.envio.cobertura}.`,
-    `  Es un dato ${c.fuente === "perfil" ? "confirmado por el negocio" : "FIJO del negocio"}: decilo con seguridad y NUNCA lo cambies según la ciudad ni lo estimes.`,
+    `  Es un dato ${c.fuente === "perfil" ? "confirmado por el negocio" : "FIJO del negocio"}: dilo con seguridad y NUNCA lo cambies según la ciudad ni lo estimes.`,
     costo,
     pago,
     "• NO se entrega por Google Drive ni por link: esto se despacha físicamente.",
     `• Para despacharlo necesitas: nombre completo, celular, dirección con barrio, ciudad, ${esColombia(c.pais) ? "departamento" : "estado o provincia"} y un punto de referencia.`,
-    "  Cuando el cliente quiera comprar, pedíselos TODOS JUNTOS en una lista numerada (el sistema te dice cuáles faltan).",
+    "  Cuando el cliente quiera comprar, pídeselos TODOS JUNTOS en una lista numerada (el sistema te dice cuáles faltan).",
     "  Después se verifican, se le muestra el resumen y se registra SOLO cuando él confirma con un sí.",
     "• Nunca inventes número de guía ni fecha exacta de llegada: solo el rango de arriba.",
     "• Nunca digas que el pedido quedó registrado si el sistema no te lo confirma abajo.",
@@ -973,7 +973,7 @@ export async function cancelarPedido(tenantId: number, pedidoId: number, motivo 
       return { ok: false, wooOrderId: pedido.wooOrderId, error: `No se pudo cancelar en WooCommerce: ${e?.message || e}` };
     }
     if (pedido.dropiEstado === "sincronizada" && pedido.dropiOrderId) {
-      aviso = `Dropi ya lo tenía como orden #${pedido.dropiOrderId}: cancelalo también en el panel de Dropi, Dropify no lo hace solo.`;
+      aviso = `Dropi ya lo tenía como orden #${pedido.dropiOrderId}: cancélalo también en el panel de Dropi, Dropify no lo hace solo.`;
     }
   }
   await pool.query(

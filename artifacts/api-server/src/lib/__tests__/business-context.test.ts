@@ -114,7 +114,7 @@ describe("El bloque de negocio que lee el prompt", () => {
 
   it("convierte cada dato faltante en una prohibición explícita de inventarlo", () => {
     const bloque = renderBloqueNegocio(VACIO);
-    expect(bloque).toContain("DATOS QUE NO TENÉS");
+    expect(bloque).toContain("DATOS QUE NO TIENES");
     expect(bloque).toContain("cómo se entrega");
     expect(bloque).toContain("si hay garantía");
     expect(bloque).toContain("NO lo inventes");

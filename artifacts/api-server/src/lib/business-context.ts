@@ -491,7 +491,7 @@ export function renderBloqueNegocio(ctx: BusinessContext): string {
   l.push(`🏢 EL NEGOCIO PARA EL QUE TRABAJÁS`);
   l.push(`━━━━━━━━━━━━━━━━━━━━━━━`);
   l.push(`• Negocio: ${quien}`);
-  if (ctx.agentName) l.push(`• Vos sos: ${ctx.agentName}`);
+  if (ctx.agentName) l.push(`• Tú eres: ${ctx.agentName}`);
   if (ctx.nicho) l.push(`• Rubro: ${ctx.nicho}`);
   if (ctx.descripcion) l.push(`• Qué hace: ${ctx.descripcion}`);
   if (ctx.cobertura) l.push(`• Alcance: ${ctx.cobertura}`);
@@ -549,14 +549,14 @@ export function renderBloqueNegocio(ctx: BusinessContext): string {
   }
 
   if (sinConfirmar.length > 0) {
-    l.push(`\n⚠️ DATOS QUE NO TENÉS: ${sinConfirmar.join("; ")}.`);
+    l.push(`\n⚠️ DATOS QUE NO TIENES: ${sinConfirmar.join("; ")}.`);
     l.push(`   Si el cliente pregunta por eso, NO lo inventes y NO lo des por supuesto.`);
-    l.push(`   Decilo con naturalidad: que lo confirmás y le respondés. Nunca afirmes un plazo,`);
+    l.push(`   Dilo con naturalidad: que lo confirmas y le respondes. Nunca afirmes un plazo,`);
     l.push(`   un método de entrega ni una garantía que no figure arriba.`);
   }
 
   l.push(`\n🚨 Todo lo que afirmes sobre ${quien} tiene que salir de este bloque o del catálogo.`);
-  l.push(`   Si no está acá, no lo sabés.`);
+  l.push(`   Si no está acá, no lo sabes.`);
 
   return l.join("\n");
 }

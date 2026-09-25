@@ -184,7 +184,7 @@ function diagnoseMessage(msgObj: any): {
 }
 
 export type AgentReplyPart = {
-  kind: "text" | "card";
+  kind: "text" | "card" | "voz";
   content?: string;
   productId?: number;
   paymentOnly?: boolean;
@@ -368,7 +368,7 @@ async function resumenDeRespaldo(p: { name?: string | null; kind?: string | null
     }
     case "servicio": return "Atención personalizada: se agenda por este chat.";
     case "suscripcion": return "Acceso por período, con renovación.";
-    case "cotizacion": return "Se cotiza según lo que necesités.";
+    case "cotizacion": return "Se cotiza según lo que necesites.";
     case "captacion": return "Un asesor te acompaña por este mismo número.";
     default: return "Formación práctica para llevar tus habilidades al siguiente nivel.";
   }
@@ -508,12 +508,12 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   const modeloFicha = modeloDe(p as any);
   const esDigital = modeloFicha === "digital";
   lines.push(
-    modeloFicha === "fisico" ? variante([`📦 *Cómo lo recibís:*`, `📦 *Entrega:*`, `📦 *Envío:*`], sem)
+    modeloFicha === "fisico" ? variante([`📦 *Cómo lo recibes:*`, `📦 *Entrega:*`, `📦 *Envío:*`], sem)
     : modeloFicha === "servicio" ? variante([`🗓️ *Cómo funciona:*`, `🗓️ *Modalidad:*`], sem)
     : modeloFicha === "suscripcion" ? `🔁 *Cómo funciona:*`
     : modeloFicha === "cotizacion" ? `🧾 *Cómo funciona:*`
     : modeloFicha === "captacion" ? `🤝 *Cómo funciona:*`
-    : variante([`💻 *Modalidad:*`, `💻 *Cómo funciona:*`, `💻 *Acceso:*`, `💻 *Cómo lo recibís:*`], sem),
+    : variante([`💻 *Modalidad:*`, `💻 *Cómo funciona:*`, `💻 *Acceso:*`, `💻 *Cómo lo recibes:*`], sem),
   );
   if (estandar.length > 0) {
     for (const f of estandar.slice(0, 4)) lines.push(`${emojiDeCaracteristica(f, p.name)} ${f}`);
@@ -528,7 +528,7 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   } else if (modeloFicha === "suscripcion") {
     lines.push(`🔁 Acceso por período, se renueva`);
   } else if (modeloFicha === "cotizacion") {
-    lines.push(`🧾 Precio según lo que necesités: te cotizamos por aquí`);
+    lines.push(`🧾 Precio según lo que necesites: te cotizamos por aquí`);
   } else {
     lines.push(`🤝 Un asesor te contacta por este número`);
   }
@@ -550,7 +550,7 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
       `🎬 *Mira cómo son las clases:*`,
       `🎬 *Así se ve por dentro:*`,
       `🎬 *Te dejo la primera clase para que veas:*`,
-      `🎬 *Mirá un pedacito antes de decidir:*`,
+      `🎬 *Mira un pedacito antes de decidir:*`,
     ], sem));
     lines.push(videoMuestra);
     lines.push("");
@@ -561,7 +561,7 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   // eligió para una encuesta, es su línea real.
   lines.push(`💰 *PRECIO: ${mon.precioTexto}*`);
   if (!mon.esColombia && mon.pais) {
-    lines.push(`🌎 Precio para ${mon.pais} — pagás en línea, acceso inmediato.`);
+    lines.push(`🌎 Precio para ${mon.pais} — pagas en línea, acceso inmediato.`);
   }
   lines.push("");
   lines.push("━━━━━━━━━━━━━━━━━━");
@@ -579,7 +579,7 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
     // Las condiciones son del NEGOCIO dueño del producto, no de la plataforma.
     const c = await condicionesDelProducto(p);
     const { fraseCostoEnvio, frasePagoEnvio } = await import("./modelo-de-negocio");
-    lines.push(variante([`🚚 *ENVÍO Y PAGO*`, `🚚 *Cómo lo recibís*`, `🚚 *Entrega y pago*`], sem));
+    lines.push(variante([`🚚 *ENVÍO Y PAGO*`, `🚚 *Cómo lo recibes*`, `🚚 *Entrega y pago*`], sem));
     lines.push("");
     lines.push(`📦 ${fraseCostoEnvio(c)}, ${c.envio.cobertura}`);
     lines.push(`⏱️ Llega en ${c.envio.plazo}`);
@@ -589,9 +589,9 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
     // Pago anticipado: siguen los medios de pago normales.
     if (c.envio.pago === "contraentrega") {
       lines.push(variante([
-        `🚀 *¿Te tomo el pedido? Me pasás tus datos de envío y lo dejamos listo.*`,
+        `🚀 *¿Te tomo el pedido? Me pasas tus datos de envío y lo dejamos listo.*`,
         `🚀 *¿Lo pedimos? Solo necesito tus datos de envío.*`,
-        `🚀 *¿Te lo envío? Decime y te pido los datos para el despacho.*`,
+        `🚀 *¿Te lo envío? Dime y te pido los datos para el despacho.*`,
       ], sem));
       return lines.join("\n");
     }
@@ -630,7 +630,7 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   // ahí ve el producto con su foto y su ficha completa. El enlace corto /p/<id>
   // redirige a la página real y ya trae vista previa con imagen al compartirse.
   const urlTienda = `${(process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "")}/p/${p.id}`;
-  lines.push(variante([`🛒 *O comprá directo en la tienda:*`, `🛒 *También puedes comprarlo acá:*`, `🛒 *Directo desde la web:*`, `🛒 *Si preferís, desde la tienda:*`], sem));
+  lines.push(variante([`🛒 *O comprá directo en la tienda:*`, `🛒 *También puedes comprarlo acá:*`, `🛒 *Directo desde la web:*`, `🛒 *Si prefieres, desde la tienda:*`], sem));
   lines.push(urlTienda);
   lines.push("");
 
@@ -1053,7 +1053,7 @@ export async function construirSeccion(
     // Se reenvía en un solo caso: que el cliente lo pida de nuevo con todas
     // las letras. Ahí no es repetir, es contestar.
     if (videoYaEnviado && !pidioElVideo(mensajeDelCliente)) {
-      return { conFoto: false, mensajes: [`Te lo mandé recién, mirá un poquito más arriba 👆 ${cierre}`] };
+      return { conFoto: false, mensajes: [`Te lo mandé recién, mira un poquito más arriba 👆 ${cierre}`] };
     }
     return { conFoto: false, mensajes: [`🎬 Mira cómo son las clases:\n${urlVideo}`, cierre] };
   }
@@ -1068,7 +1068,7 @@ export async function construirSeccion(
       : modelo === "servicio"
         ? `🗓️ Es un servicio: se agenda por acá${c.agenda ? ` (${c.agenda})` : ""} y el negocio te confirma la hora.\n\n${cierre}`
         : modelo === "cotizacion"
-          ? `🧾 Este se cotiza según lo que necesités: contame qué buscás y el negocio te manda la cotización por acá.\n\n${cierre}`
+          ? `🧾 Este se cotiza según lo que necesites: cuéntame qué buscas y el negocio te manda la cotización por acá.\n\n${cierre}`
           : modelo === "captacion"
             ? `🤝 Un asesor te contacta por este mismo número para acompañarte.\n\n${cierre}`
             // Tres pasos, como los explicó el agente de Meta (16-09-2026). No
@@ -2731,7 +2731,7 @@ export class WhatsAppManager {
                        .where(eq(conversations.id, r.paraElCliente.conversationId))
                        .limit(1);
                      if (!c?.phone) {
-                       avisoAlCliente = `\n\n⚠️ No pude avisarle al cliente: la conversacion ${r.paraElCliente.conversationId} no tiene telefono. Escribile vos.`;
+                       avisoAlCliente = `\n\n⚠️ No pude avisarle al cliente: la conversacion ${r.paraElCliente.conversationId} no tiene telefono. Escríbele tú.`;
                        console.error(`❌ [PAGO] Sin telefono para la conversacion ${r.paraElCliente.conversationId}: el cliente NO fue avisado`);
                      } else {
                        try {
@@ -2748,7 +2748,7 @@ export class WhatsAppManager {
                          );
                          console.log(`💬 [PAGO] Cliente ${c.phone} avisado: ${r.paraElCliente.entregar ? "aprobado y entregado" : "rechazado"}`);
                        } catch (errCliente: any) {
-                         avisoAlCliente = `\n\n⚠️ NO pude avisarle al cliente (${errCliente?.message || "fallo el envio"}). Escribile vos.`;
+                         avisoAlCliente = `\n\n⚠️ NO pude avisarle al cliente (${errCliente?.message || "fallo el envio"}). Escríbele tú.`;
                          console.error(`❌ [PAGO] No se le pudo avisar al cliente ${c.phone}: ${errCliente?.message}`);
                        }
                      }
@@ -3013,7 +3013,7 @@ export class WhatsAppManager {
     } catch (e: any) {
       // Sin lectura el aviso igual sale: es preferible que el admin revise su
       // cuenta a mano, a que nadie se entere del pago.
-      bloqueLeido = "🔍 No pude leer el comprobante (falló la revisión automática): revisalo vos.";
+      bloqueLeido = "🔍 No pude leer el comprobante (falló la revisión automática): revísalo tú.";
       console.error(`[Pago] no se pudo leer el comprobante: ${e?.message}`);
     }
 
@@ -3372,6 +3372,32 @@ export class WhatsAppManager {
         console.log(`💬 [WA-TEXT] Enviando texto: "${part.content?.substring(0, 50)}..." - ${timestamp}`);
         await this.sendText(phone, part.content || "", originalJid);
         console.log(`✅ [WA-TEXT] Texto enviado exitosamente - ${timestamp}`);
+      } else if (part.kind === "voz") {
+        // ── Nota de voz: SOLO cuando el cliente no entendió algo ───────────
+        // Pedido del dueño (25-09-2026): antes, con WHATSAPP_AUDIO_ENABLED,
+        // CADA respuesta salía también en audio. Ahora la decide el vendedor
+        // con `explicar_con_nota_de_voz`. Si la voz falla o está apagada
+        // (WHATSAPP_AUDIO_ENABLED=false), la explicación sale escrita: el
+        // cliente nunca se queda sin respuesta.
+        const explicacion = String(part.content || "").trim();
+        let salioEnAudio = false;
+        if (explicacion && String(process.env.WHATSAPP_AUDIO_ENABLED || "").toLowerCase() !== "false") {
+          try {
+            const { hablar, generoDeNombre, vozParaGenero } = await import("./voz-de-atlas");
+            // Ritmo natural (+0%) y voz según el género del cliente.
+            // WHATSAPP_AUDIO_VOICE fuerza una fija.
+            const voz = process.env.WHATSAPP_AUDIO_VOICE || vozParaGenero(generoDeNombre(pushName));
+            const audio = await hablar(explicacion, voz, "+0%");
+            if (audio) {
+              await this.sendAudio(phone, audio, "audio/mpeg", originalJid);
+              salioEnAudio = true;
+              console.log(`🎙️ [WA-VOZ] Nota de voz enviada (${Math.round(audio.length / 1024)} KB) - ${timestamp}`);
+            }
+          } catch (e: any) {
+            logger.warn({ err: e?.message }, "[WA-Voz] No se pudo generar/enviar la nota de voz; sale escrita");
+          }
+        }
+        if (!salioEnAudio && explicacion) await this.sendText(phone, explicacion, originalJid);
        } else {
          const product = cardCache.get(part.productId!);
          if (!product) {

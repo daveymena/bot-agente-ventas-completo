@@ -76,7 +76,7 @@ describe("tomar_pedido", () => {
     const r = await ejecutores.tomar_pedido(ctx, { nombre: "Ana Pérez", ciudad: "Bogotá" });
     expect(r.mensaje).toMatch(/telefono, direccion, departamento/);
     expect(r.mensaje).not.toMatch(/documento/);
-    expect(r.mensaje).toMatch(/Ya tenés: nombre, ciudad/);
+    expect(r.mensaje).toMatch(/Ya tienes: nombre, ciudad/);
     // La lista la pega el SISTEMA, toda junta y sin cédula (dueño, 24-09-2026).
     expect(ctx.partes).toHaveLength(1);
     expect((ctx.partes[0] as any).content).toMatch(/Para enviarte tu pedido necesito/);

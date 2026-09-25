@@ -123,7 +123,7 @@ describe("lo que se puede afirmar", () => {
     const guion = guionDelNegocio({ catalogo: DIGITALES, negocio: { nombre: "Sin Datos" } });
     const texto = renderGuion(guion);
 
-    assert.match(texto, /NO TENÉS ESTOS DATOS/);
+    assert.match(texto, /NO TIENES ESTOS DATOS/);
     assert.ok(guion.prohibiciones.some((p) => /No prometas ninguna forma de entrega/.test(p)), guion.prohibiciones.join(" | "));
   });
 

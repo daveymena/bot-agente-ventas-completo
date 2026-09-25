@@ -630,8 +630,8 @@ export function invitacionesDe(
       return yaVioContenido
         ? (tieneVideo
             ? (esFisico
-                ? ["¿Te muestro cómo se ve en uso? 🎬", "¿Querés verlo en video antes de decidir? 🎬"]
-                : ["¿Te muestro cómo es por dentro? 🎬", "¿Querés ver un pedacito antes de decidir? 🎬"])
+                ? ["¿Te muestro cómo se ve en uso? 🎬", "¿Quieres verlo en video antes de decidir? 🎬"]
+                : ["¿Te muestro cómo es por dentro? 🎬", "¿Quieres ver un pedacito antes de decidir? 🎬"])
             // Ya vio qué trae y preguntó el precio: eso es señal de compra. El
             // agente de Meta (16-09) sigue con "¿te envío los medios de pago?"
             // en vez de abrir otra duda, y el dueño quiere eso.

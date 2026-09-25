@@ -346,7 +346,7 @@ export function hechosYProhibiciones(
   } else {
     sinConfirmar.push("cómo se entrega y cuánto tarda");
     prohibiciones.push(
-      "No prometas ninguna forma de entrega ni ningún plazo: el negocio no lo cargó. Si te preguntan, decí que lo confirmás.",
+      "No prometas ninguna forma de entrega ni ningún plazo: el negocio no lo cargó. Si te preguntan, di que lo confirmas.",
     );
   }
 
@@ -356,7 +356,7 @@ export function hechosYProhibiciones(
   } else {
     sinConfirmar.push("si hay garantía o devolución");
     prohibiciones.push(
-      "No prometas garantía, devolución ni cambios: no hay ninguna cargada. Si pregunta, decí que lo confirmás.",
+      "No prometas garantía, devolución ni cambios: no hay ninguna cargada. Si pregunta, di que lo confirmas.",
     );
   }
 
@@ -370,12 +370,12 @@ export function hechosYProhibiciones(
     prohibiciones.push(
       `No ofrezcas ningún medio de pago que no esté en esa lista (${medios
         .map((m) => m.etiqueta)
-        .join(", ")}). Si el cliente pide otro, decile cuáles hay.`,
+        .join(", ")}). Si el cliente pide otro, dile cuáles hay.`,
     );
   } else {
     sinConfirmar.push("con qué se puede pagar");
     prohibiciones.push(
-      "No des números de cuenta ni enlaces de pago: el negocio no tiene ningún medio cargado. Decile que le pasás los datos apenas los confirmes.",
+      "No des números de cuenta ni enlaces de pago: el negocio no tiene ningún medio cargado. Dile que le pasas los datos apenas los confirmes.",
     );
   }
 
@@ -408,7 +408,7 @@ export function hechosYProhibiciones(
   }
   if (forma === "mixto") {
     prohibiciones.push(
-      "El catálogo mezcla productos que se entregan distinto. Antes de decir cómo llega, asegurate de CUÁL producto están hablando.",
+      "El catálogo mezcla productos que se entregan distinto. Antes de decir cómo llega, asegúrate de CUÁL producto están hablando.",
     );
   }
 
@@ -510,27 +510,27 @@ export function objecionesDe(
 ): ObjecionPrevista[] {
   const objeciones: ObjecionPrevista[] = [
     { suena: "está caro / muy caro", como: "volvé al valor concreto que ya vio; nunca rebajes por tu cuenta" },
-    { suena: "lo voy a pensar", como: "no te despidas: preguntá QUÉ es lo que le frena, que casi nunca es el precio" },
-    { suena: "no conozco, ¿será estafa?", como: "mostrá lo verificable que tengas (medios de pago, garantía, datos del negocio): nunca inventes testimonios ni cifras de clientes" },
+    { suena: "lo voy a pensar", como: "no te despidas: pregunta QUÉ es lo que le frena, que casi nunca es el precio" },
+    { suena: "no conozco, ¿será estafa?", como: "muestra lo verificable que tengas (medios de pago, garantía, datos del negocio): nunca inventes testimonios ni cifras de clientes" },
   ];
 
   if (forma === "fisico") {
     objeciones.push(
-      { suena: "¿cuánto demora?", como: "el plazo real que tengas cargado; si no está cargado, decí que lo confirmás" },
-      { suena: "¿pago contraentrega?", como: "solo si el negocio lo tiene configurado; si no, explicá lo que sí hay" },
-      { suena: "¿y si no me queda / no me sirve?", como: "la garantía o política de cambios cargada; si no hay, decilo" },
+      { suena: "¿cuánto demora?", como: "el plazo real que tengas cargado; si no está cargado, di que lo confirmas" },
+      { suena: "¿pago contraentrega?", como: "solo si el negocio lo tiene configurado; si no, explica lo que sí hay" },
+      { suena: "¿y si no me queda / no me sirve?", como: "la garantía o política de cambios cargada; si no hay, dilo" },
     );
   }
   if (forma === "digital") {
     objeciones.push(
-      { suena: "¿y si no me sirve / no es lo que esperaba?", como: "la garantía cargada; si no hay ninguna, decilo" },
+      { suena: "¿y si no me sirve / no es lo que esperaba?", como: "la garantía cargada; si no hay ninguna, dilo" },
       { suena: "¿cuándo me llega?", como: "el plazo de entrega cargado; nunca prometas 'ya mismo' si no está escrito" },
     );
   }
   if (forma === "servicio") {
     objeciones.push(
       { suena: "¿y si no resulta?", como: "no prometas resultados: contá cómo trabaja el negocio y qué incluye el servicio" },
-      { suena: "¿a dónde van / cubren mi zona?", como: "la cobertura cargada; si no hay, decí que lo confirmás" },
+      { suena: "¿a dónde van / cubren mi zona?", como: "la cobertura cargada; si no hay, di que lo confirmas" },
     );
   }
 
@@ -539,8 +539,8 @@ export function objecionesDe(
     objeciones.push({
       suena: "¿puedo pagar en cuotas / a credito?",
       como: negocio.negociaPrecio
-        ? "el dueño autoriza a negociar: preguntale qué propone y decile que lo confirmás con él"
-        : "decí los medios que sí hay y que no manejás cuotas salvo que el negocio lo diga",
+        ? "el dueño autoriza a negociar: pregúntale qué propone y dile que lo confirmas con él"
+        : "di los medios que sí hay y que no manejas cuotas salvo que el negocio lo diga",
     });
   }
 
@@ -555,31 +555,31 @@ export function cierreDe(forma: FormaDeVenta, vocabulario: Vocabulario, medios: 
   const lineas: string[] = [];
   if (forma === "fisico") {
     lineas.push(
-      "Para cerrar necesitás nombre, ciudad y dirección. Juntalos mientras hablan, sin sonar a formulario: uno por mensaje, y siempre después de contestar lo que preguntó.",
+      "Para cerrar necesitas nombre, ciudad y dirección. Juntalos mientras hablan, sin sonar a formulario: uno por mensaje, y siempre después de contestar lo que preguntó.",
     );
   } else if (forma === "servicio") {
     lineas.push(
-      "Para cerrar necesitás saber qué necesita y cuándo. La agenda es el cierre: proponé un momento concreto.",
+      "Para cerrar necesitas saber qué necesita y cuándo. La agenda es el cierre: proponé un momento concreto.",
     );
   } else if (forma === "digital") {
     lineas.push("Para cerrar alcanza con el producto y el pago: no le pidas datos que no hacen falta para enviar un acceso.");
   } else {
-    lineas.push("Para cerrar depende de QUÉ producto quedó en foco: si es físico pedí dirección, si no, no.");
+    lineas.push("Para cerrar depende de QUÉ producto quedó en foco: si es físico pide dirección, si no, no.");
   }
 
   if (medios.length) {
     lineas.push(
-      `Cuando esté listo para pagar, dejá de explicar y mandale los medios con la herramienta. Los datos concretos los pone el sistema: ${medios
+      `Cuando esté listo para pagar, deja de explicar y mándale los medios con la herramienta. Los datos concretos los pone el sistema: ${medios
         .map((m) => m.etiqueta)
         .join(", ")}.`,
     );
   } else {
-    lineas.push("Cuando esté listo para pagar, decile que le confirmás los datos de pago: este negocio no tiene ninguno cargado todavía.");
+    lineas.push("Cuando esté listo para pagar, dile que le confirmas los datos de pago: este negocio no tiene ninguno cargado todavía.");
   }
 
   lineas.push(
     `Nunca digas que un pago está confirmado, verificado ni recibido. Eso lo confirma una persona del equipo, y el sistema te avisa.`,
-    `Vocabulario: decí "${vocabulario.producto}", "${vocabulario.entregar}", "${vocabulario.comprar}", o mejor, las palabras que usó el cliente.`,
+    `Vocabulario: di "${vocabulario.producto}", "${vocabulario.entregar}", "${vocabulario.comprar}", o mejor, las palabras que usó el cliente.`,
   );
 
   return lineas;
@@ -629,7 +629,7 @@ export function renderGuion(guion: GuionDelNegocio): string {
   l.push(`FORMA DE VENTA: ${guion.forma} (confianza ${Math.round(guion.confianza * 100)}%)`);
 
   if (guion.hechos.length) {
-    l.push("", "DATOS REALES DE ESTE NEGOCIO (podés afirmarlos con seguridad):");
+    l.push("", "DATOS REALES DE ESTE NEGOCIO (puedes afirmarlos con seguridad):");
     for (const h of guion.hechos) l.push(`• ${h}`);
   }
 
@@ -639,8 +639,8 @@ export function renderGuion(guion: GuionDelNegocio): string {
   }
 
   if (guion.sinConfirmar.length) {
-    l.push("", `NO TENÉS ESTOS DATOS: ${guion.sinConfirmar.join("; ")}.`);
-    l.push("Si te preguntan por algo de esa lista, no lo inventes: decí que lo confirmás y le respondés.");
+    l.push("", `NO TIENES ESTOS DATOS: ${guion.sinConfirmar.join("; ")}.`);
+    l.push("Si te preguntan por algo de esa lista, no lo inventes: di que lo confirmas y le respondes.");
   }
 
   l.push("", "PROHIBIDO (esto es lo que hace que un bot pierda una venta o meta al negocio en un problema):");

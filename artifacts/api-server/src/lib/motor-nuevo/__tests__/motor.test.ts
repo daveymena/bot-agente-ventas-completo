@@ -327,6 +327,36 @@ describe("el conocimiento del dueño", () => {
     assert.match(r.mensaje, /no cargó nada/i);
   });
 
+  test("la nota de voz sale solo cuando el vendedor la pide, y no en turnos seguidos", () => {
+    const ctx = ctxNuevo();
+    ctx.estado.turnos = 4;
+    const explicacion = "Mira, es muy sencillo: te lo pones como un chaleco y ajustas el velcro atrás.";
+    const r = ejecutores.explicar_con_nota_de_voz(ctx, { explicacion }) as any;
+    assert.equal(r.ok, true);
+    assert.deepEqual(ctx.partes.filter((p: any) => p.kind === "voz"), [{ kind: "voz", content: explicacion }]);
+
+    // Otra en la misma respuesta: no.
+    assert.equal((ejecutores.explicar_con_nota_de_voz(ctx, { explicacion }) as any).ok, false);
+
+    // En el turno siguiente: tampoco (el audio destraba una duda, no reemplaza el chat).
+    const siguiente = ctxNuevo();
+    siguiente.estado = ctx.estado;
+    siguiente.estado.turnos = 5;
+    assert.equal((ejecutores.explicar_con_nota_de_voz(siguiente, { explicacion }) as any).ok, false);
+
+    // Dos turnos después, sí.
+    const despues = ctxNuevo();
+    despues.estado = ctx.estado;
+    despues.estado.turnos = 6;
+    assert.equal((ejecutores.explicar_con_nota_de_voz(despues, { explicacion }) as any).ok, true);
+  });
+
+  test("una nota de voz vacía no sale", () => {
+    const ctx = ctxNuevo();
+    assert.equal((ejecutores.explicar_con_nota_de_voz(ctx, { explicacion: "ok" }) as any).ok, false);
+    assert.equal(ctx.partes.length, 0);
+  });
+
   test("una palabra de relleno no trae la respuesta de otro tema", () => {
     // Chat de prueba, 25-09-2026: "¿y tiene envío?" devolvía la respuesta de
     // "Tiene certificado" solo por compartir "tiene".
@@ -366,7 +396,7 @@ describe("los datos del cliente", () => {
     ctx.estado.datos.nombre = "Duvier";
 
     const r = ejecutores.que_falta_para_cerrar(ctx, {}) as any;
-    assert.match(r.mensaje, /Pedí UNO por mensaje/);
+    assert.match(r.mensaje, /Pide UNO por mensaje/);
     assert.doesNotMatch(r.mensaje, /nombre/);
   });
 });
@@ -396,6 +426,22 @@ async function correr(params: {
 }
 
 describe("el bucle completo", () => {
+  test("la nota de voz llega hasta las partes que se envían, antes del texto de cierre", async () => {
+    // Chat de prueba, 25-09-2026: la herramienta la emitía y el armado final
+    // solo copiaba texto y fichas, así que el audio nunca salía.
+    const explicacion = "Mira, te lo pones como una chaqueta: metes los brazos y ajustas el velcro atrás.";
+    const r = await correr({
+      llm: clienteFalso([
+        { toolCalls: [{ id: "a", name: "explicar_con_nota_de_voz", arguments: JSON.stringify({ explicacion }) }] },
+        { content: "¿Así te queda más claro?" },
+      ]),
+      historial: [{ role: "customer", content: "no entiendo, ¿cómo me lo pongo?", createdAt: new Date() }],
+    });
+    assert.equal(r.partes[0].kind, "voz");
+    assert.match(String((r.partes[0] as any).content), /chaqueta/);
+    assert.equal(r.partes[1].kind, "text");
+  });
+
   test("texto del modelo + partes de las herramientas, en orden", async () => {
     const r = await correr({
       llm: clienteFalso([
