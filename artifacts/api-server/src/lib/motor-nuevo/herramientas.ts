@@ -1051,9 +1051,9 @@ export const ejecutores: Record<string, Ejecutor> = {
         ctx.estado.accionPendiente = "confirmar_zona";
         return { ok: true, mensaje: `Los datos están, pero la zona no verifica: ${r.motivo}. Pedile que confirme la ciudad y el departamento. No registres nada.` };
       case "listo":
-        // 25-09-2026: el resumen sale en el mismo turno que los datos llegan.
-        // No ponemos pedidoPorConfirmarEnTurno = ctx.estado.turnos para evitar que el
-        // cliente tenga que responder "sí" en un turno nuevo si ya lo hizo en el mismo.
+        // El resumen sale en el mismo turno en que llegan los datos, y el "sí"
+        // que confirma tiene que llegar en un mensaje POSTERIOR: por eso se
+        // marca el turno (confirmar_pedido rechaza un sí del mismo turno).
         ctx.estado.pedidoPorConfirmarEnTurno = ctx.estado.turnos;
         ctx.estado.accionPendiente = "confirmar_pedido";
         ctx.estado.entregaEstado = "datos_listos";
