@@ -499,7 +499,10 @@ export async function responder(params: {
   };
 
   // Buscar contexto relevante: si el cliente menciona algo del pasado, trae ese contexto
-  const mensajeDelClienteActual = historial
+  // ⚠️ Copia antes de invertir: `historial.reverse()` invertía EN SITIO la
+  // charla que después se le manda al modelo, que la leía al revés (y rompía
+  // el caché del prefijo y el corte de "visita nueva").
+  const mensajeDelClienteActual = [...historial]
     .reverse()
     .find(m => m.role === "customer")?.content || "";
   const relevantes = await buscarContextoRelevante(historial, mensajeDelClienteActual, undefined, 2);
