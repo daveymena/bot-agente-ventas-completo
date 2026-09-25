@@ -5645,7 +5645,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
           .where(and(eq(facebookDrafts.tenantId, ctx.tenantId), eq(facebookDrafts.productId, prod.id)))
           .orderBy(desc(facebookDrafts.id))
           .limit(20);
-        const enMeta = previas.filter((d: any) => d.campaignId);
+        const enMeta = previas.filter((d: any) => d.campaignId && !/DELETED|ARCHIVED/i.test(String(d.fbStatus || "")));
         const destinoDe = (d: any) => String((d.strategy as any)?.destino || "");
         const igual = enMeta.find((d: any) => destinoDe(d) && (destinoDe(d) === "whatsapp") === vaAWhatsApp);
         if (igual) {
@@ -6501,6 +6501,16 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       // avisar después sería avisar de algo que ya no tiene arreglo.
       const r = await fb.borrarCampana(campaignId, { permitirConGasto: args.borrarAunqueTengaGasto === true });
       if (!r.ok) return { ok: false, summary: r.message };
+
+      // El borrador local se entera. Sin esto quedaban "PAUSED" en el panel
+      // campañas que Meta ya había borrado (25-09-2026: cinco de las seis del
+      // corrector), y Atlas las seguía listando como vivas.
+      try {
+        await db
+          .update(facebookDrafts)
+          .set({ fbStatus: "DELETED", updatedAt: new Date() } as any)
+          .where(and(eq(facebookDrafts.tenantId, ctx.tenantId), eq(facebookDrafts.campaignId, campaignId)));
+      } catch { /* el borrado en Meta ya ocurrió; esto es solo el reflejo local */ }
 
       const detalle = [
         r.nombre ? `"${r.nombre}"` : `id ${campaignId}`,
