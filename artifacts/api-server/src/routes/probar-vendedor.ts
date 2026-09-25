@@ -185,4 +185,84 @@ router.delete("/indicacion/:indice", async (req: TenantRequest, res) => {
   return res.status(r.ok ? 200 : 400).json(r);
 });
 
+/* ── Aprender de un ejemplo (ver lib/aprender-de-ejemplo.ts) ──────────────── */
+
+/** Tope del archivo: un README de conversación no pasa de unas páginas. */
+const MAX_EJEMPLO = 30_000;
+
+/** POST /api/probar-vendedor/ejemplo/analizar { texto } → comparación + propuestas. */
+router.post("/ejemplo/analizar", async (req: TenantRequest, res) => {
+  const tenantId = req.tenant?.id;
+  if (!tenantId) return res.status(401).json({ error: "Sin sesión" });
+  const texto = String(req.body?.texto || "");
+  if (!texto.trim()) return res.status(400).json({ ok: false, mensaje: "El archivo está vacío." });
+  if (texto.length > MAX_EJEMPLO) return res.status(400).json({ ok: false, mensaje: "El archivo es muy largo: sube solo la conversación." });
+  try {
+    const { analizarEjemplo } = await import("../lib/aprender-de-ejemplo");
+    const r: any = await analizarEjemplo(tenantId, texto);
+    if (r.ok) {
+      // "Hoy" se muestra como le llega al cliente: la ficha con foto, precio…
+      const hoy: any[] = [];
+      for (const t of r.partesHoy) {
+        hoy.push({ role: "customer", content: t.mensaje });
+        hoy.push({ role: "agent", burbujas: await mensajesComoEnWhatsApp(tenantId, t.partes) });
+      }
+      r.hoy = hoy;
+      delete r.partesHoy;
+    }
+    return res.status(r.ok ? 200 : 400).json(r);
+  } catch (e: any) {
+    logger.error({ tenantId, err: e?.message }, "[AprenderDeEjemplo] error");
+    return res.status(500).json({ ok: false, mensaje: "No se pudo analizar el ejemplo." });
+  }
+});
+
+/**
+ * POST /api/probar-vendedor/ejemplo/aplicar { propuestas: [{tipo, texto, pregunta?, productoId?}] }
+ * Solo forma y dato se aplican; cada una con el mismo camino que "Corregir".
+ */
+router.post("/ejemplo/aplicar", async (req: TenantRequest, res) => {
+  const tenantId = req.tenant?.id;
+  if (!tenantId) return res.status(401).json({ error: "Sin sesión" });
+  const lista: any[] = Array.isArray(req.body?.propuestas) ? req.body.propuestas.slice(0, 20) : [];
+  const resultados: { texto: string; ok: boolean; mensaje: string }[] = [];
+  for (const p of lista) {
+    const texto = String(p?.texto || "");
+    // Una por una y en orden: cada forma se suma a las indicaciones que dejó la anterior.
+    const r =
+      p?.tipo === "forma"
+        ? await corregirForma(tenantId, texto)
+        : p?.tipo === "dato"
+          ? await corregirDato(tenantId, { mensajeDelCliente: String(p.pregunta || ""), respuestaCorrecta: texto, productId: Number(p.productoId) || null })
+          : { ok: false, mensaje: "Esta propuesta es solo informativa." };
+    resultados.push({ texto, ...r });
+  }
+  logger.info({ tenantId, aplicadas: resultados.filter((r) => r.ok).length, total: resultados.length }, "[AprenderDeEjemplo] aplicar");
+  return res.json({ resultados });
+});
+
+/** POST /api/probar-vendedor/ejemplo/probar { turnos: string[] } → cómo responde ahora. */
+router.post("/ejemplo/probar", async (req: TenantRequest, res) => {
+  const tenantId = req.tenant?.id;
+  if (!tenantId) return res.status(401).json({ error: "Sin sesión" });
+  const { MAX_TURNOS_DE_CLIENTE } = await import("../lib/aprender-de-ejemplo");
+  const turnos = (Array.isArray(req.body?.turnos) ? req.body.turnos : []).map((t: any) => String(t || "")).filter(Boolean).slice(0, MAX_TURNOS_DE_CLIENTE);
+  if (!turnos.length) return res.status(400).json({ ok: false, mensaje: "No hay mensajes para probar." });
+  try {
+    const { correrEnSombra } = await import("../lib/motor-nuevo/adaptador");
+    const { armarCadena, crearClienteLLM } = await import("../lib/motor-nuevo/cliente-llm");
+    const llm = crearClienteLLM({ cadena: await armarCadena({ tenantId }), tenantId });
+    const r = await correrEnSombra({ tenantId, turnos, llm });
+    const conversacion: { role: string; content?: string; burbujas?: any[] }[] = [];
+    for (const s of r.salida as any[]) {
+      conversacion.push({ role: "customer", content: s.mensaje });
+      conversacion.push({ role: "agent", burbujas: await mensajesComoEnWhatsApp(tenantId, s.partes || []) });
+    }
+    return res.json({ ok: true, conversacion });
+  } catch (e: any) {
+    logger.error({ tenantId, err: e?.message }, "[AprenderDeEjemplo] probar");
+    return res.status(500).json({ ok: false, mensaje: "No se pudo probar." });
+  }
+});
+
 export default router;

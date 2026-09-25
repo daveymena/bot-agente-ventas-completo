@@ -15,12 +15,10 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
-import { ArrowLeft, BookOpen, Loader2, MessageSquareWarning, Package, PencilLine, RotateCcw, Send, Trash2, Wand2 } from "lucide-react";
+import { ArrowLeft, BookOpen, Loader2, MessageSquareWarning, Package, PencilLine, RotateCcw, Send, Trash2, Wand2, GraduationCap } from "lucide-react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
-
-/** Un mensaje tal como llega por WhatsApp: con `imagen` es una foto con pie. */
-type Burbuja = { imagen?: string; texto: string; productoId?: number };
+import { BurbujaWhatsApp, type Burbuja } from "@/components/burbuja-whatsapp";
 
 type Mensaje = {
   role: "customer" | "agent";
@@ -31,36 +29,6 @@ type Mensaje = {
   corregido?: boolean;
   productoEnFoco?: number | null;
 };
-
-/**
- * El formato de WhatsApp: *negrita*, _cursiva_, ~tachado~ y enlaces. Se arma
- * con nodos de React (nada de HTML crudo): el texto viene del modelo.
- */
-function formatoWhatsApp(texto: string): React.ReactNode[] {
-  const patron = /(https?:\/\/[^\s]+|\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~)/g;
-  return texto.split(patron).map((trozo, i) => {
-    if (!trozo) return null;
-    if (/^https?:\/\//.test(trozo)) {
-      return <a key={i} href={trozo} target="_blank" rel="noopener noreferrer" className="text-[#027eb5] underline break-all">{trozo}</a>;
-    }
-    if (/^\*[^*]+\*$/.test(trozo)) return <strong key={i}>{trozo.slice(1, -1)}</strong>;
-    if (/^_[^_]+_$/.test(trozo)) return <em key={i}>{trozo.slice(1, -1)}</em>;
-    if (/^~[^~]+~$/.test(trozo)) return <s key={i}>{trozo.slice(1, -1)}</s>;
-    return <span key={i}>{trozo}</span>;
-  });
-}
-
-function Foto({ src }: { src: string }) {
-  const [rota, setRota] = useState(!src);
-  if (rota) {
-    return (
-      <div className="mb-1 flex h-28 items-center justify-center rounded-md bg-slate-100 text-xs text-slate-400">
-        <Package className="mr-1.5 h-4 w-4" /> Sin foto: por WhatsApp sale solo el texto
-      </div>
-    );
-  }
-  return <img src={src} alt="" onError={() => setRota(true)} className="mb-1 max-h-72 w-full rounded-md object-cover" />;
-}
 
 type LoQueSabe = {
   agente: { id: number; nombre: string } | null;
@@ -133,6 +101,7 @@ export default function ProbarVendedorPage() {
               <p className="truncate text-sm font-semibold">{sabe?.agente?.nombre || "Tu vendedor"}</p>
               <p className="truncate text-[11px] text-white/75">{pensando ? "escribiendo…" : "Modo prueba · no le llega a ningún cliente"}</p>
             </div>
+            <button onClick={() => setLocation("/ensenar-con-ejemplo")} className="rounded-full p-2 hover:bg-white/10" aria-label="Enseñar con un ejemplo" title="Enseñar con un ejemplo"><GraduationCap className="h-5 w-5" /></button>
             <button onClick={() => setVerSabe(true)} className="lg:hidden rounded-full p-2 hover:bg-white/10" aria-label="Lo que ya sabe"><BookOpen className="h-5 w-5" /></button>
             <button onClick={reiniciar} disabled={!mensajes.length} className="rounded-full p-2 hover:bg-white/10 disabled:opacity-40" aria-label="Empezar de nuevo" title="Empezar de nuevo"><RotateCcw className="h-5 w-5" /></button>
           </header>
@@ -155,15 +124,7 @@ export default function ProbarVendedorPage() {
               <div key={i} className={`flex ${m.role === "customer" ? "justify-end" : "justify-start"}`}>
                 <div className="flex max-w-[85%] flex-col gap-1 sm:max-w-[70%]">
                   {(m.role === "customer" ? [{ texto: m.content } as Burbuja] : m.burbujas?.length ? m.burbujas : [{ texto: m.content }]).map((b, k) => (
-                    <div
-                      key={k}
-                      className={`rounded-lg text-[14.2px] leading-[1.35] shadow-sm whitespace-pre-wrap break-words ${
-                        m.role === "customer" ? "self-end bg-[#d9fdd3] rounded-tr-none" : `self-start bg-white ${k === 0 ? "rounded-tl-none" : ""}`
-                      } ${b.imagen !== undefined ? "p-1" : "px-2.5 py-1.5"} text-[#111b21]`}
-                    >
-                      {b.imagen !== undefined && <Foto src={b.imagen} />}
-                      <div className={b.imagen !== undefined ? "px-1.5 pb-1" : ""}>{formatoWhatsApp(b.texto)}</div>
-                    </div>
+                    <BurbujaWhatsApp key={k} burbuja={b} deCliente={m.role === "customer"} primera={k === 0} />
                   ))}
                   {m.role === "agent" && (
                     <button
