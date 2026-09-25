@@ -48,3 +48,23 @@ describe("no volver a saludar en mitad de la venta", () => {
     expect((r.partes[0] as any).content).toMatch(/Hola/);
   });
 });
+
+import { emojiDelFinal } from "../motor";
+
+describe("el mismo emoji al final de cada mensaje", () => {
+  test("detecta el emoji final", () => {
+    expect(emojiDelFinal("¿Te gustaría pedirlo? 😊")).toBe("😊");
+    expect(emojiDelFinal("Sin emoji.")).toBe("");
+  });
+
+  test("si el mensaje anterior cerró con 🎹, este va sin él", async () => {
+    const llm = clienteFalso([{ content: "Tenés 7 días de garantía. ¿Te animás a probarlo? 🎹" }]);
+    const historial = [
+      { role: "customer" as const, content: "está caro", createdAt: new Date() },
+      { role: "agent" as const, content: "Entiendo. El acceso es de por vida. 🎹", createdAt: new Date() },
+      { role: "customer" as const, content: "y si no me gusta?", createdAt: new Date() },
+    ];
+    const r = await responder({ llm, estado: estadoInicial(1), historial, catalogo: piano, conocimiento: [], guion: guion(), voz: VOZ });
+    expect((r.partes[0] as any).content).toBe("Tenés 7 días de garantía. ¿Te animás a probarlo?");
+  });
+});

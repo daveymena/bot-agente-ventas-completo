@@ -600,6 +600,18 @@ export async function responder(params: {
     .replace(/<\|\|DSML[\s\S]*/g, "")
     .trim();
 
+  // ── El mismo emoji al final de cada mensaje ──────────────────────────────
+  // Prueba en producción (25-09-2026): cinco respuestas seguidas terminadas
+  // en "🎹", otras cuatro en "😊". Leído de corrido parece un bot. Si el
+  // mensaje anterior del agente cerró con el mismo, este va sin él.
+  {
+    const previo = [...params.historial].reverse().find((m) => m.role === "agent")?.content || "";
+    const final = emojiDelFinal(textoFinal);
+    if (final && final === emojiDelFinal(previo)) {
+      textoFinal = textoFinal.replace(/\s*(\p{Extended_Pictographic}️?)\s*$/u, "").trim();
+    }
+  }
+
   // ── Armado de la respuesta ───────────────────────────────────────────────
   const partes: Parte[] = [];
   if (textoFinal) partes.push({ kind: "text", content: textoFinal });
@@ -669,6 +681,11 @@ export function anunciaUnEnvio(texto: string): boolean {
     /\b(ah[ií]|ac[aá]|aqu[ií])\s+(te\s+)?(van|va|dejo|mando|paso|env[ií]o|comparto)\b/i.test(texto) ||
     /\bte\s+(los|las|lo|la)\s+(dejo|mando|paso|env[ií]o|comparto)\s+(de nuevo|otra vez|nuevamente|ac[aá]|aqu[ií]|abajo)\b/i.test(texto)
   );
+}
+
+/** El emoji con que termina un texto, o "" si no termina en uno. */
+export function emojiDelFinal(texto: string): string {
+  return String(texto || "").trim().match(/(\p{Extended_Pictographic})️?$/u)?.[1] || "";
 }
 
 /**
