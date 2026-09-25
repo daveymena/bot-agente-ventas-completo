@@ -19,7 +19,7 @@ const CURSO: Producto = { id: 8, name: "Curso de piano", description: "", price:
 const CAT = [CORRECTOR, CURSO];
 const guion = () => guionDelNegocio({ catalogo: CAT, negocio: { nombre: "T" }, medios: [] });
 
-/** Un servicio falso que se comporta como dropshipping.ts: exige 6 datos. */
+/** Un servicio falso que se comporta como dropshipping.ts: exige 5 datos (la cédula ya no, 24-09-2026). */
 function servicioFalso() {
   const guardado: DatosDelPedido = {};
   const llamadas = { tomar: 0, confirmar: 0 };
@@ -27,7 +27,7 @@ function servicioFalso() {
     async tomar({ datos }) {
       llamadas.tomar++;
       Object.assign(guardado, datos);
-      const requeridos = ["nombre", "documento", "telefono", "direccion", "ciudad", "departamento"] as const;
+      const requeridos = ["nombre", "telefono", "direccion", "ciudad", "departamento"] as const;
       const faltan = requeridos.filter((k) => !guardado[k]);
       if (faltan.length) return { estado: "faltan", faltan: [...faltan], yaTiene: requeridos.filter((k) => guardado[k]) };
       return { estado: "listo", resumen: `📦 Corrector de postura × 1\n👤 ${guardado.nombre}\n🏠 ${guardado.direccion}` };
@@ -74,7 +74,8 @@ describe("tomar_pedido", () => {
     const { s } = servicioFalso();
     const ctx = ctxCon(s);
     const r = await ejecutores.tomar_pedido(ctx, { nombre: "Ana Pérez", ciudad: "Bogotá" });
-    expect(r.mensaje).toMatch(/documento, telefono, direccion, departamento/);
+    expect(r.mensaje).toMatch(/telefono, direccion, departamento/);
+    expect(r.mensaje).not.toMatch(/documento/);
     expect(r.mensaje).toMatch(/Ya tenés: nombre, ciudad/);
     // La lista la pega el SISTEMA, toda junta y sin cédula (dueño, 24-09-2026).
     expect(ctx.partes).toHaveLength(1);
@@ -204,5 +205,33 @@ describe("interesarse no es comprar (pedido del dueño, 25-09-2026)", () => {
     ctx.estado.ultimaPreguntaAgente = "¿Te lo enviamos?";
     const r = await ejecutores.tomar_pedido(ctx, {});
     expect(r.ok).toBe(false);
+  });
+});
+
+describe("simulación 25-09-2026: cierre del pedido", () => {
+  test("un 3xxxxxxxxx mandado como documento es el celular, y la cédula no se guarda", async () => {
+    const { s } = servicioFalso();
+    let recibido: any = null;
+    const espia = { ...s, async tomar(p: any) { recibido = p.datos; return s.tomar(p); } };
+    const ctx = ctxCon(espia as any);
+    ctx.mensajeDelCliente = "Juan Pérez, 3001234567, Calle 10 # 20-30, Cali";
+    await ejecutores.tomar_pedido(ctx, { nombre: "Juan Pérez", documento: "3001234567", direccion: "Calle 10 # 20-30", ciudad: "Cali" });
+    expect(recibido.telefono).toBe("3001234567");
+    expect(recibido.documento).toBeUndefined();
+  });
+
+  test("compra confirmada y el modelo pide 'nombre completo y cédula': sale la lista del sistema, sin cédula", async () => {
+    const { s } = servicioFalso();
+    const e = estadoInicial(1);
+    e.productoEnFoco = 7;
+    e.seccionesEnviadas = { 7: { precio: new Date().toISOString() } };
+    e.compraConfirmada = 7;
+    const r = await responder({
+      llm: clienteFalso([{ content: "Para coordinar el envío, por favor dime tu nombre completo y tu número de cédula. 😊" }]),
+      estado: e, historial: [{ role: "customer", content: "sí, lo quiero", createdAt: new Date() }],
+      catalogo: CAT, conocimiento: [], guion: guion(), voz: { nombreAgente: "S", rolAgente: "a", nombreNegocio: "T" }, pedidos: s,
+    });
+    const texto = r.partes.filter((p: any) => p.kind === "text").map((p: any) => p.content).join("\n");
+    expect(texto).not.toMatch(/c[eé]dula/i);
   });
 });

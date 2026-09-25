@@ -995,6 +995,11 @@ export const ejecutores: Record<string, Ejecutor> = {
       }
     }
     const datos: DatosDelPedido = {};
+    // La cédula no se pide (dueño, 24-09). Un 3xxxxxxxxx es celular aunque el
+    // modelo lo mande como documento: la simulación del 25-09 imprimió
+    // "🪪 Cédula 3001234567" en el resumen.
+    if (args && /^\s*3\d{9}\s*$/.test(String(args.documento ?? "")) && !String(args.telefono ?? "").trim()) args.telefono = args.documento;
+    if (args && !/c[eé]dula|\bcc\b|documento/i.test(ctx.mensajeDelCliente)) delete args.documento;
     for (const k of ["nombre", "telefono", "documento", "departamento", "ciudad", "direccion", "barrio", "notas"] as const) {
       const v = String(args?.[k] ?? "").trim();
       if (v) {

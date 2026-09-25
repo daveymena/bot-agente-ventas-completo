@@ -330,6 +330,11 @@ export async function responder(params: {
    * en mitad del turno. Lo provee el adaptador (tiene tenant/catálogo).
    */
   recargarGuion?: (productoEnFocoId: number) => Promise<GuionDelNegocio>;
+  /**
+   * Producto del ANUNCIO por el que llegó el cliente (este turno). Pedido del
+   * dueño: se le manda la ficha completa de una, sin "¿te refieres a…?".
+   */
+  fichaDelAnuncio?: number | null;
   /** Pedidos de producto físico (ver adaptador.servicioDePedidos). */
   pedidos?: import("./herramientas").ServicioDePedidos;
 }): Promise<ResultadoRespuesta> {
@@ -502,6 +507,38 @@ export async function responder(params: {
   };
   await bucle(MAX_VUELTAS);
 
+  // ── Llegó del anuncio: la ficha completa la manda el servidor ────────────
+  // Simulación del 25-09-2026: con el producto del anuncio ya en foco, el
+  // modelo preguntaba "¿Te refieres al Corrector de Hombros y Clavícula?".
+  // La ficha trae foto, precio, envío, pago y "¿Te lo enviamos?".
+  if (params.fichaDelAnuncio != null && !ctx.partes.some((p) => p.kind === "card")) {
+    try {
+      await ejecutores.mostrar(ctx, { productoId: params.fichaDelAnuncio, seccion: "completa" });
+      if (ctx.partes.some((p) => p.kind === "card")) textoFinal = /\?/.test(textoFinal) ? "" : textoFinal;
+    } catch { /* sin ficha sigue la respuesta del modelo */ }
+  }
+
+  // ── El cliente mandó sus datos y no se registraron ───────────────────────
+  // Simulación: "Juan Pérez, 3001234567, Calle 10 # 20-30…" → "¿Están
+  // correctos tus datos?" sin llamar tomar_pedido; el resumen salía un turno
+  // tarde y el pedido no se cerraba. Con pedido abierto y un mensaje que trae
+  // celular o dirección, se le exige registrarlos.
+  const trajoDatos = /\b3\d{9}\b|\b(calle|carrera|cra|cr|cl|kr|diagonal|transversal|avenida|av|mz|manzana)\b\.?\s*\d|#\s*\d/i.test(mensajeDelCliente);
+  const pedidoAbierto = estado.accionPendiente === "pedir_datos_envio" || estado.compraConfirmada != null;
+  if (trajoDatos && pedidoAbierto && !traza.some((t) => t.herramienta === "tomar_pedido") && ctx.pedidos) {
+    messages.push({ role: "assistant", content: textoFinal || "…" });
+    messages.push({
+      role: "system",
+      content:
+        "El cliente acaba de mandar datos de envío. Llamá tomar_pedido YA con lo que dio (nombre, telefono, direccion, barrio, ciudad, departamento). " +
+        "Un número de 10 dígitos que empieza por 3 es el CELULAR, no la cédula. No preguntes si están correctos: el sistema le manda el resumen. No le hables de este aviso.",
+    });
+    const antes = textoFinal;
+    textoFinal = "";
+    try { await bucle(2); } catch { /* se queda lo anterior */ }
+    if (!textoFinal && !ctx.partes.length) textoFinal = antes;
+  }
+
   // ── Red de seguridad: dice que manda algo que no mandó ───────────────────
   //
   // Simulación y chat real del 23-09-2026: "¿cómo pago?" → "Ahí te van los
@@ -589,6 +626,14 @@ export async function responder(params: {
         /* sin precio en la base no hay nada que mostrar */
       }
     }
+  }
+
+  // ── Compra confirmada y el modelo pide los datos a su manera ─────────────
+  // Simulación 25-09-2026: "dime tu nombre completo y tu número de cédula".
+  // La lista la manda el SISTEMA (sin cédula, todos los datos juntos).
+  if (textoFinal && foco != null && estado.compraConfirmada === foco && pideDatosDeCompra(textoFinal) && !traza.some((t) => t.herramienta === "tomar_pedido")) {
+    try { await ejecutores.tomar_pedido(ctx, {}); } catch { /* sigue el texto */ }
+    textoFinal = textoFinal.split(/(?<=[.!?¿¡\n])\s+/).filter((f) => !pideDatosDeCompra(f) && !/c[eé]dula/i.test(f)).join(" ").trim();
   }
 
   // ── Datos de envío sin que el cliente haya dicho que compra ──────────────
@@ -835,7 +880,9 @@ export function pideDatosDeCompra(texto: string): boolean {
   // español tiene demasiadas formas de pedir. Una pregunta que nombra el dato
   // ya es pedirlo.
   const dato = /\b(c[eé]dula|nombre completo|nombre y apellido|direcci[oó]n|barrio|datos de env[ií]o|datos para (el )?env[ií]o)\b/i;
-  const pide = /\?|\b(p[aá]same|dame|dar(me)?|pod[eé]s|podr[ií]as|necesito|env[ií]a(me)?|mand[aá](me)?|compart[ií]|dec[ií]me|regal[aá]me|indic[aá]me|confirm[aá]me|escrib[ií]me)\b/i;
+  // Voseo Y tuteo: desde que el bot tutea (25-09-2026) "dime tu nombre
+  // completo" se escapaba porque la lista solo tenía "decime".
+  const pide = /\?|\b(p[aá]same|dame|dar(me)?|pod[eé]s|puedes|podr[ií]as|necesito|env[ií]a(me)?|mand[aá](me)?|compart[ií](me)?|comp[aá]rteme|dec[ií]me|dime|d[ií]game|regal[aá]me|ind[ií]came|indic[aá]me|confirm[aá]me|conf[ií]rmame|escrib[ií]me|escr[ií]beme|facil[ií]tame)\b/i;
   return dato.test(t) && pide.test(t);
 }
 

@@ -655,6 +655,7 @@ export async function responderComoVendedor(
     voz,
     recargarGuion: (nuevoFocoId: number) => cargarGuion(tenantId, catalogo, nuevoFocoId),
     pedidos,
+    fichaDelAnuncio: productoAnuncio?.id ?? null,
   });
 
   await repositorio.guardar(resultado.estado);
