@@ -4,11 +4,11 @@
  * Diagnóstico → Propuesta → Versionado → Comparación → Aplicación.
  *
  * Lee hallazgos (de simulación o de conversaciones reales),
- * propone un prompt mejorado, lo guarda como candidato en `prompt_versions`,
+ * propone un prompt mejorado, lo guarda como candidato en `promptVersions`,
  * y expone operaciones para comparar y aplicar.
  */
 
-import { ensureDbReady, agents, prompt_versions } from "@workspace/db";
+import { ensureDbReady, agents, promptVersions } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import type { ResultadoSimulacion } from "./motor-nuevo/simulador-agente";
 
@@ -175,7 +175,7 @@ export async function guardarVersionCandidata({
   const { db } = await ensureDbReady();
 
   const [fila] = await db
-    .insert(prompt_versions)
+    .insert(promptVersions)
     .values({
       tenantId,
       agentId,
@@ -265,8 +265,8 @@ export async function aplicarVersionCandidata({
   // Lee la versión
   const [version] = await db
     .select()
-    .from(prompt_versions)
-    .where(eq(prompt_versions.id, versionId));
+    .from(promptVersions)
+    .where(eq(promptVersions.id, versionId));
 
   if (!version) {
     throw new Error(`Versión ${versionId} no encontrada`);
@@ -287,14 +287,14 @@ export async function aplicarVersionCandidata({
 
   // Marca la versión como activa y registra quién la aplicó
   await db
-    .update(prompt_versions)
+    .update(promptVersions)
     .set({
       isActive: true,
       appliedBy: aprobadoPor,
       performanceAfter: 0, // TODO: medir en tiempo real
       updatedAt: new Date(),
     })
-    .where(eq(prompt_versions.id, versionId));
+    .where(eq(promptVersions.id, versionId));
 
   console.log(`[agent-lab] Versión ${versionId} aplicada al agente ${agentId} por ${aprobadoPor}`);
 }

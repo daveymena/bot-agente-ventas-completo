@@ -11,7 +11,7 @@ import { Router } from "express";
 import { logger } from "../lib/logger";
 import type { TenantRequest } from "../lib/tenantManager";
 import { executeAction, TOOLS } from "../lib/app-operator";
-import { architect_memory, db } from "@workspace/db";
+import { architectMemory, db } from "@workspace/db";
 import { eq } from "drizzle-orm";
 
 const router = Router();
@@ -334,10 +334,10 @@ El nuevo prompt responde en todos los canales desde ahora.
         `;
       }
 
-      // Guardar resultado en architect_memory para historial persistente
+      // Guardar resultado en architectMemory para historial persistente
       if (toolResult?.simulaciones || toolResult?.versionId) {
         try {
-          await db.insert(architect_memory).values({
+          await db.insert(architectMemory).values({
             tenantId,
             memoryType: "simulation_result",
             tags: ["agent-lab", intent],
