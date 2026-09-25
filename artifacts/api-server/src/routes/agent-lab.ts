@@ -131,34 +131,26 @@ router.post("/chat", async (req: TenantRequest, res) => {
           const numSimulaciones = numMatch ? Math.min(parseInt(numMatch[1]), 10) : 3;
 
           toolName = "agentlab_simular";
-          toolResult = await executeAction({
-            toolName,
-            params: {
-              productoId: productoId || 1,
-              arquetipos,
-              numSimulaciones,
-              maxTurnos: 5,
-            },
-            context: operatorContext,
-          });
+          toolResult = await executeAction(toolName, {
+            productoId: productoId || 1,
+            arquetipos,
+            numSimulaciones,
+            maxTurnos: 5,
+          }, operatorContext);
           break;
 
         case "mejorar":
           toolName = "agentlab_mejorar";
-          toolResult = await executeAction({
-            toolName,
-            params: {
-              agentId: agentId || 1,
-              hallazgosSimulacion: [
-                {
-                  problema: "El cliente desconfiado rechaza buzzwords",
-                  frecuencia: 3,
-                  sugerencia: "Usar lenguaje más directo y honesto",
-                },
-              ],
-            },
-            context: operatorContext,
-          });
+          toolResult = await executeAction(toolName, {
+            agentId: agentId || 1,
+            hallazgosSimulacion: [
+              {
+                problema: "El cliente desconfiado rechaza buzzwords",
+                frecuencia: 3,
+                sugerencia: "Usar lenguaje más directo y honesto",
+              },
+            ],
+          }, operatorContext);
           break;
 
         case "comparar":
@@ -174,15 +166,11 @@ router.post("/chat", async (req: TenantRequest, res) => {
           }
 
           toolName = "agentlab_comparar";
-          toolResult = await executeAction({
-            toolName,
-            params: {
-              agentId: agentId || 1,
-              versionId,
-              arquetipos: ["NORMAL", "DESCONFIADO", "PRECIO_SENSIBLE"],
-            },
-            context: operatorContext,
-          });
+          toolResult = await executeAction(toolName, {
+            agentId: agentId || 1,
+            versionId,
+            arquetipos: ["NORMAL", "DESCONFIADO", "PRECIO_SENSIBLE"],
+          }, operatorContext);
           break;
 
         case "aplicar":
@@ -201,14 +189,10 @@ router.post("/chat", async (req: TenantRequest, res) => {
           }
 
           toolName = "agentlab_aplicar_version";
-          toolResult = await executeAction({
-            toolName,
-            params: {
-              agentId: agentId || 1,
-              versionId: applyVersionId,
-            },
-            context: operatorContext,
-          });
+          toolResult = await executeAction(toolName, {
+            agentId: agentId || 1,
+            versionId: applyVersionId,
+          }, operatorContext);
           break;
 
         default:

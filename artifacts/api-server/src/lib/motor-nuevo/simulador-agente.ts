@@ -75,8 +75,9 @@ Tu turno. Responde como el cliente según tu perfil:
 - Sé natural, no suenes a script.
 - Puedes hacer preguntas, expresar dudas, objete, o indicar que quieres comprar.
 
-Opcional: Si decidiste comprar, termina con [CLIENTE_COMPRA].
-Opcional: Si decidiste abandonar, termina con [CLIENTE_ABANDONA].
+Si decidiste comprar, el mensaje debe sonar como que quieres comprar.
+Si decidiste abandonar (sin compra), el mensaje debe sonar como que te vas.
+De lo contrario, continúa la conversación.
 
 Responde solo el mensaje del cliente, sin explicaciones.`;
 
@@ -88,16 +89,19 @@ Responde solo el mensaje del cliente, sin explicaciones.`;
           content: prompt,
         },
       ],
-      stop_sequences: ["[CLIENTE_COMPRA]", "[CLIENTE_ABANDONA]"],
     });
 
     const texto = respuesta.content[0]?.type === "text" ? respuesta.content[0].text : "";
 
-    if (texto.includes("[CLIENTE_COMPRA]")) {
-      return { mensaje: texto.replace("[CLIENTE_COMPRA]", "").trim(), senoal: "compra" };
+    // Detecta intención por keywords naturales
+    const tieneCompra = /\b(lo quiero|me lo llevo|dale|listo|si|de una|perfecto|mándame|cómo pago|ok)\b/i.test(texto);
+    const tieneAbandono = /\b(no|no me interesa|luego te llamo|mañana|otro día|después|no gracias|paso|no thanks)\b/i.test(texto) && !tieneCompra;
+
+    if (tieneCompra) {
+      return { mensaje: texto.trim(), senoal: "compra" };
     }
-    if (texto.includes("[CLIENTE_ABANDONA]")) {
-      return { mensaje: texto.replace("[CLIENTE_ABANDONA]", "").trim(), senoal: "abandona" };
+    if (tieneAbandono) {
+      return { mensaje: texto.trim(), senoal: "abandona" };
     }
 
     return { mensaje: texto.trim(), senoal: "continua" };
