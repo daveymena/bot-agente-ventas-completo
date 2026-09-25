@@ -1317,7 +1317,7 @@ Responde SOLO con este JSON exacto:
       // Meta 1815089: la PÁGINA no aceptó las condiciones de anuncios para
       // clientes potenciales. Es un paso legal del dueño de la página, una
       // sola vez; se le da el enlace directo en vez del código crudo.
-      if (/1815089|condiciones del servicio sobre generaci[oó]n de clientes potenciales|lead ?gen(eration)? terms/i.test(this.lastAdError)) {
+      if (/1815089|condiciones del servicio sobre generaci[oó]n de clientes potenciales|lead ?gen(eration)? terms/i.test(String(this.lastAdError))) {
         this.lastAdError =
           `La página de Facebook todavía no aceptó las Condiciones de anuncios para clientes potenciales de Meta (requisito legal, una sola vez por página). ` +
           `El dueño de la página debe abrir https://www.facebook.com/ads/leadgen/tos?page_id=${this.config.pageId} y aceptarlas; después se vuelve a pedir la campaña. ` +
