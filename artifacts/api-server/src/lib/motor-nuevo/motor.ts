@@ -133,7 +133,9 @@ export function temasRespondidosPorElDueno(
   productoEnFoco: number | null,
 ): string[] {
   const temas = (conocimiento || [])
-    .filter((k) => k.respuesta && (k.productId == null || k.productId === productoEnFoco))
+    // Sin foco todavía, se anuncia todo: la respuesta puede ser del producto
+    // por el que el cliente está preguntando en este mismo mensaje.
+    .filter((k) => k.respuesta && (productoEnFoco == null || k.productId == null || k.productId === productoEnFoco))
     .map((k) => k.pregunta.replace(/\s+/g, " ").trim().slice(0, 80))
     .filter(Boolean);
   return [...new Set(temas)].slice(0, 12);

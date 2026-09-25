@@ -24,3 +24,9 @@ describe("motor v2 — lo que el dueño dejó respondido se anuncia", () => {
     expect(temasRespondidosPorElDueno(undefined, null)).toEqual([]);
   });
 });
+
+describe("motor v2 — sin producto en foco todavía", () => {
+  it("se anuncian también los temas de los productos (el cliente puede estar preguntando por uno)", () => {
+    expect(temasRespondidosPorElDueno(conocimiento, null)).toEqual(["Tiene certificado", "Talla disponible", "Horario de atención"]);
+  });
+});

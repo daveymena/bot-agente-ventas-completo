@@ -931,9 +931,12 @@ export const ejecutores: Record<string, Ejecutor> = {
     if (!palabras.length) return { ok: false, mensaje: "No entendí qué preguntarle al conocimiento del negocio." };
 
     const enFoco = Number(productoId) || ctx.estado.productoEnFoco;
-    const relevantes = ctx.conocimiento.filter(
-      (k) => k.productId == null || k.productId === enFoco || k.productId === Number(productoId),
-    );
+    // Sin producto en foco todavía (primer mensaje), se busca en TODO lo que
+    // cargó el dueño: antes una respuesta guardada para un producto no se
+    // encontraba hasta que el vendedor enfocaba ese producto.
+    const relevantes = enFoco
+      ? ctx.conocimiento.filter((k) => k.productId == null || k.productId === enFoco || k.productId === Number(productoId))
+      : ctx.conocimiento;
 
     let mejor: { item: ItemDeConocimiento; puntos: number } | null = null;
     for (const item of relevantes) {

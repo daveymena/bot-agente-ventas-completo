@@ -28,10 +28,18 @@ type Mensaje = {
   burbujas?: Burbuja[];
   corregido?: boolean;
   productoEnFoco?: number | null;
+  /** El estado y el pedido de ANTES de este turno: para volver a generarlo al corregir. */
+  estadoAntes?: unknown;
+  pedidoAntes?: unknown;
+  /** Lo que respondía antes de la corrección (para compararlo). */
+  antes?: Burbuja[];
+  /** La respuesta regenerada salió igual a la de antes. */
+  salioIgual?: boolean;
 };
 
 type LoQueSabe = {
   agente: { id: number; nombre: string } | null;
+  agentes?: { id: number; nombre: string }[];
   indicaciones: string[];
   datos: { id: number; pregunta: string; respuesta: string | null; productId: number | null }[];
 };
@@ -66,6 +74,8 @@ export default function ProbarVendedorPage() {
     const limpio = contenido.trim();
     if (!limpio || pensando) return;
     const historial = mensajes.map(({ role, content }) => ({ role, content }));
+    const estadoAntes = estado;
+    const pedidoAntes = pedido;
     setMensajes((m) => [...m, { role: "customer", content: limpio }]);
     setTexto("");
     setPensando(true);
@@ -76,7 +86,7 @@ export default function ProbarVendedorPage() {
       );
       setEstado(r.estado);
       setPedido(r.pedido ?? null);
-      setMensajes((m) => [...m, { role: "agent", content: r.texto || "[ficha]", burbujas: r.mensajes, productoEnFoco: r.productoEnFoco }]);
+      setMensajes((m) => [...m, { role: "agent", content: r.texto || "[ficha]", burbujas: r.mensajes, productoEnFoco: r.productoEnFoco, estadoAntes, pedidoAntes }]);
     } catch (e: any) {
       toast.error(e.message || "El vendedor no respondió");
       setMensajes((m) => m.slice(0, -1));
@@ -87,6 +97,46 @@ export default function ProbarVendedorPage() {
   };
 
   const reiniciar = () => { setMensajes([]); setEstado(null); setPedido(null); };
+
+  /**
+   * Vuelve a generar la respuesta `i` con la corrección ya guardada, desde el
+   * mismo punto de la conversación. Así el dueño VE si la corrección se tomó
+   * (como en el chat de prueba de Meta). La charla sigue desde ahí: lo que
+   * venía después dependía de la respuesta vieja.
+   */
+  const regenerar = async (i: number) => {
+    const vieja = mensajes[i];
+    let c = i - 1;
+    while (c >= 0 && mensajes[c].role !== "customer") c--;
+    if (!vieja || c < 0) return;
+    const historial = mensajes.slice(0, c).map(({ role, content }) => ({ role, content }));
+    setMensajes(mensajes.slice(0, i));
+    setPensando(true);
+    try {
+      const r = await api<{ texto: string; mensajes: Burbuja[]; estado: unknown; pedido: unknown; productoEnFoco: number | null }>(
+        "/api/probar-vendedor/mensaje",
+        { method: "POST", body: JSON.stringify({ mensaje: mensajes[c].content, historial, estado: vieja.estadoAntes ?? null, pedido: vieja.pedidoAntes ?? null }) },
+      );
+      const textoDe = (bs?: Burbuja[]) => (bs || []).map((b) => b.texto).join("\n").trim();
+      const salioIgual = textoDe(r.mensajes) === textoDe(vieja.burbujas);
+      setEstado(r.estado);
+      setPedido(r.pedido ?? null);
+      setMensajes([
+        ...mensajes.slice(0, i),
+        {
+          role: "agent", content: r.texto || "[ficha]", burbujas: r.mensajes, productoEnFoco: r.productoEnFoco,
+          estadoAntes: vieja.estadoAntes, pedidoAntes: vieja.pedidoAntes,
+          corregido: true, antes: vieja.antes ?? vieja.burbujas, salioIgual,
+        },
+      ]);
+      if (salioIgual) toast.warning("Respondió igual. Prueba escribir la corrección de otra forma, más concreta.");
+    } catch (e: any) {
+      toast.error(e.message || "No se pudo volver a generar");
+      setMensajes(mensajes);
+    } finally {
+      setPensando(false);
+    }
+  };
 
   const panelSabe = <PanelLoQueSabe sabe={sabe} alCambiar={cargarSabe} />;
 
@@ -126,15 +176,21 @@ export default function ProbarVendedorPage() {
             {mensajes.map((m, i) => (
               <div key={i} className={`flex ${m.role === "customer" ? "justify-end" : "justify-start"}`}>
                 <div className="flex max-w-[85%] flex-col gap-1 sm:max-w-[70%]">
+                  {m.antes && (
+                    <details className="self-start max-w-full rounded-lg bg-white/60 px-2.5 py-1.5 text-[12px] text-slate-500">
+                      <summary className="cursor-pointer select-none">Antes de corregir</summary>
+                      <p className="mt-1 whitespace-pre-wrap line-through decoration-slate-300">{m.antes.map((b) => b.texto).join("\n\n")}</p>
+                    </details>
+                  )}
                   {(m.role === "customer" ? [{ texto: m.content } as Burbuja] : m.burbujas?.length ? m.burbujas : [{ texto: m.content }]).map((b, k) => (
                     <BurbujaWhatsApp key={k} burbuja={b} deCliente={m.role === "customer"} primera={k === 0} />
                   ))}
                   {m.role === "agent" && (
                     <button
                       onClick={() => setCorrigiendo(i)}
-                      className={`self-start inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${m.corregido ? "text-emerald-700" : "text-slate-500 hover:text-indigo-700 hover:bg-white/70"}`}
+                      className={`self-start inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${m.corregido ? (m.salioIgual ? "text-amber-700" : "text-emerald-700") : "text-slate-500 hover:text-indigo-700 hover:bg-white/70"}`}
                     >
-                      <PencilLine className="h-3 w-3" /> {m.corregido ? "Corregido" : "Corregir"}
+                      <PencilLine className="h-3 w-3" /> {m.corregido ? (m.salioIgual ? "Salió igual · corregir otra vez" : "Corregido · así responde ahora") : "Corregir"}
                     </button>
                   )}
                 </div>
@@ -182,9 +238,10 @@ export default function ProbarVendedorPage() {
         productoEnFoco={corrigiendo !== null ? mensajes[corrigiendo]?.productoEnFoco ?? null : null}
         alCerrar={() => setCorrigiendo(null)}
         alCorregir={() => {
-          if (corrigiendo !== null) setMensajes((ms) => ms.map((m, k) => (k === corrigiendo ? { ...m, corregido: true } : m)));
+          const i = corrigiendo;
           setCorrigiendo(null);
           cargarSabe();
+          if (i !== null) regenerar(i);
         }}
       />
     </Layout>
@@ -199,20 +256,22 @@ function DialogoCorregir(p: {
   alCerrar: () => void;
   alCorregir: () => void;
 }) {
-  const [tipo, setTipo] = useState<"dato" | "forma">("dato");
   const [texto, setTexto] = useState("");
   const [guardando, setGuardando] = useState(false);
-  useEffect(() => { if (p.abierto) { setTipo("dato"); setTexto(""); } }, [p.abierto]);
+  useEffect(() => { if (p.abierto) setTexto(""); }, [p.abierto]);
 
   const guardar = async () => {
     if (!texto.trim()) return;
     setGuardando(true);
     try {
-      const body = tipo === "dato"
-        ? { tipo, mensajeDelCliente: p.mensajeCliente, respuestaCorrecta: texto, productId: p.productoEnFoco }
-        : { tipo, indicacion: texto };
-      const r = await api<{ mensaje: string }>("/api/probar-vendedor/corregir", { method: "POST", body: JSON.stringify(body) });
-      toast.success(r.mensaje);
+      const r = await api<{ mensaje: string; tipo?: "forma" | "dato"; guardado?: string }>("/api/probar-vendedor/corregir", {
+        method: "POST",
+        body: JSON.stringify({ correccion: texto, mensajeDelCliente: p.mensajeCliente, respuestaBot: p.respuestaBot, productId: p.productoEnFoco }),
+      });
+      toast.success(
+        r.tipo === "dato" ? "Guardado como dato del negocio" : "Guardado como regla para tu vendedor",
+        { description: r.guardado ? `"${r.guardado}". ${r.mensaje}` : r.mensaje },
+      );
       p.alCorregir();
     } catch (e: any) {
       toast.error(e.message);
@@ -226,7 +285,7 @@ function DialogoCorregir(p: {
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><MessageSquareWarning className="h-5 w-5 text-indigo-600" /> Corregir respuesta</DialogTitle>
-          <DialogDescription>Se aplica desde el próximo mensaje, aquí y en WhatsApp.</DialogDescription>
+          <DialogDescription>Escríbelo como se lo dirías a tu vendedor. Se aplica al instante, aquí y en WhatsApp, y la respuesta se vuelve a generar para que veas el cambio.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-2 rounded-lg bg-slate-50 p-3 text-xs">
@@ -234,36 +293,19 @@ function DialogoCorregir(p: {
           <p className="text-slate-500 line-clamp-3">Vendedor: <span className="text-slate-800">{p.respuestaBot || "—"}</span></p>
         </div>
 
-        <div className="grid grid-cols-2 gap-2" role="radiogroup">
-          {([
-            ["dato", "Dijo mal un dato", "Le faltó o se equivocó en la información"],
-            ["forma", "La forma de hablar", "Muy largo, muchos emojis, el tono…"],
-          ] as const).map(([valor, titulo, ayuda]) => (
-            <button
-              key={valor}
-              role="radio"
-              aria-checked={tipo === valor}
-              onClick={() => setTipo(valor)}
-              className={`rounded-xl border p-3 text-left transition ${tipo === valor ? "border-indigo-500 bg-indigo-50" : "border-slate-200 hover:bg-slate-50"}`}
-            >
-              <p className="text-sm font-semibold text-slate-800">{titulo}</p>
-              <p className="mt-0.5 text-[11px] text-slate-500">{ayuda}</p>
-            </button>
-          ))}
-        </div>
-
         <Textarea
           value={texto}
           onChange={(e) => setTexto(e.target.value)}
-          rows={3}
+          rows={4}
           maxLength={500}
-          placeholder={tipo === "dato" ? "¿Qué debió responder? Ej: El envío a todo el país es gratis y llega en 3 días." : "¿Cómo debe hablar? Ej: Responde más corto y usa máximo 2 emojis."}
+          placeholder={"¿Qué debió responder o hacer?\nEj: No vuelvas a ofrecer el video si ya lo enviaste.\nEj: Sí tiene garantía de 30 días por defectos de fábrica."}
         />
+        <p className="-mt-2 text-[11px] text-slate-500">Si es una regla de cómo vender, se guarda para todos tus agentes. Si es un dato (garantía, tallas, horarios), queda como respuesta del negocio.</p>
 
         <DialogFooter className="gap-2 sm:gap-0">
           <Button variant="ghost" onClick={p.alCerrar}>Cancelar</Button>
           <Button onClick={guardar} disabled={!texto.trim() || guardando}>
-            {guardando && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Aplicar corrección
+            {guardando && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Aplicar y volver a responder
           </Button>
         </DialogFooter>
       </DialogContent>

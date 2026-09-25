@@ -16,6 +16,7 @@ import { logger } from "../lib/logger";
 import {
   borrarDato,
   borrarIndicacion,
+  corregirComoCorresponde,
   corregirDato,
   corregirForma,
   loQueSabeElVendedor,
@@ -202,7 +203,13 @@ router.post("/corregir", async (req: TenantRequest, res) => {
             respuestaCorrecta: b.respuestaCorrecta,
             productId: Number(b.productId) || null,
           })
-        : { ok: false, mensaje: 'tipo debe ser "dato" o "forma"' };
+        : // Sin tipo: la IA decide si es una regla de cómo vender o un dato.
+          await corregirComoCorresponde(tenantId, {
+            correccion: b.correccion,
+            mensajeDelCliente: b.mensajeDelCliente,
+            respuestaBot: b.respuestaBot,
+            productId: Number(b.productId) || null,
+          });
   logger.info({ tenantId, tipo: b.tipo, ok: r.ok }, "[ProbarVendedor] corrección");
   return res.status(r.ok ? 200 : 400).json(r);
 });

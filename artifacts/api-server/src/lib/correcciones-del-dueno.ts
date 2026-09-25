@@ -107,15 +107,36 @@ async function soloEnV2(tenantId: number): Promise<Resultado | null> {
   return { ok: false, mensaje: "Este negocio atiende con el motor viejo (v1): la forma de hablar se cambia en Agentes IA, no desde el chat de prueba." };
 }
 
-/** El agente que recibe las indicaciones: el mismo criterio que `configurarAgente`. */
-async function agentePrincipal(tenantId: number) {
+/**
+ * Los agentes que atienden: TODOS los activos. Medido en producción el
+ * 25-09-2026: el negocio tenía "Atlas" y "AtlasDrops"; la corrección se
+ * guardaba solo en el primero y el corrector (producto físico) lo atendía el
+ * segundo, así que el vendedor que vendía nunca la veía. Lo que corrige el
+ * dueño vale para el negocio, no para un agente. Sin activos, el principal.
+ */
+async function agentesQueAtienden(tenantId: number) {
   const todos = await db.select().from(agents).where(eq(agents.tenantId, tenantId));
-  const orden = [...todos].sort((a: any, b: any) => Number(!!b.isActive) - Number(!!a.isActive) || a.id - b.id);
-  return orden[0] || null;
+  const activos = todos.filter((a: any) => a.isActive).sort((a: any, b: any) => a.id - b.id);
+  if (activos.length) return activos;
+  const principal = [...todos].sort((a: any, b: any) => a.id - b.id)[0];
+  return principal ? [principal] : [];
+}
+
+/** Las indicaciones de todos los agentes que atienden, sin repetir. */
+function indicacionesDe(agentes: any[]): string[] {
+  const vistas = new Set<string>();
+  const salida: string[] = [];
+  for (const a of agentes) {
+    for (const r of renglonesDeIndicaciones(objeto(a.metadata).indicaciones)) {
+      const k = r.toLowerCase();
+      if (!vistas.has(k)) { vistas.add(k); salida.push(r); }
+    }
+  }
+  return salida;
 }
 
 export async function loQueSabeElVendedor(tenantId: number) {
-  const agente = await agentePrincipal(tenantId);
+  const agentes = await agentesQueAtienden(tenantId);
   const datos = await db
     .select()
     .from(productKnowledge)
@@ -123,8 +144,9 @@ export async function loQueSabeElVendedor(tenantId: number) {
     .orderBy(desc(productKnowledge.id))
     .limit(100);
   return {
-    agente: agente ? { id: agente.id, nombre: agente.name } : null,
-    indicaciones: renglonesDeIndicaciones(objeto(agente?.metadata).indicaciones),
+    agente: agentes[0] ? { id: agentes[0].id, nombre: agentes[0].name } : null,
+    agentes: agentes.map((a: any) => ({ id: a.id, nombre: a.name })),
+    indicaciones: indicacionesDe(agentes),
     datos: datos.map((k: any) => ({
       id: k.id,
       pregunta: String(k.pregunta || ""),
@@ -164,25 +186,103 @@ export async function corregirDato(
   return { ok: true, mensaje: "Listo: desde el próximo mensaje el vendedor responde eso." };
 }
 
-/** La forma de hablar: se suma a las indicaciones del agente principal. */
+/** Escribe las indicaciones de cada agente que atiende con `configurarAgente`. */
+async function reescribirIndicaciones(
+  tenantId: number,
+  cambiar: (actuales: string | undefined) => string,
+): Promise<Resultado & { agentes?: string[] }> {
+  const bloqueo = await soloEnV2(tenantId);
+  if (bloqueo) return bloqueo;
+  const agentes = await agentesQueAtienden(tenantId);
+  if (!agentes.length) return { ok: false, mensaje: "No hay ningún agente creado. Crea uno en Agentes IA primero." };
+  const { configurarAgente } = await import("./configurar-agente");
+  const hechos: string[] = [];
+  for (const agente of agentes) {
+    const r = await configurarAgente(tenantId, { prompt: cambiar(objeto(agente.metadata).indicaciones), agentId: agente.id });
+    if (!r.ok || r.aplicados.length === 0) {
+      const motivo = r.ignorados.map((i) => i.motivo).join(" ") || r.summary;
+      return { ok: false, mensaje: `No se aplicó${hechos.length ? ` en ${agente.name}` : ""}: ${motivo}` };
+    }
+    hechos.push(agente.name);
+  }
+  return { ok: true, mensaje: "", agentes: hechos };
+}
+
+/** La forma de vender: se suma a las indicaciones de TODOS los agentes que atienden. */
 export async function corregirForma(tenantId: number, indicacion: string): Promise<Resultado> {
   const texto = String(indicacion || "").trim();
   if (!texto) return { ok: false, mensaje: "Escribe cómo debe hablar el vendedor." };
   if (texto.length > LARGO_MAXIMO) return { ok: false, mensaje: `La indicación es muy larga (máximo ${LARGO_MAXIMO} caracteres).` };
+  const r = await reescribirIndicaciones(tenantId, (actuales) => agregarIndicacion(actuales, texto));
+  if (!r.ok) return r;
+  const quienes = r.agentes!;
+  return { ok: true, mensaje: `Listo: ${quienes.join(" y ")} ya lo ${quienes.length > 1 ? "aplican" : "aplica"} desde el próximo mensaje.` };
+}
 
-  const bloqueo = await soloEnV2(tenantId);
-  if (bloqueo) return bloqueo;
-  const agente = await agentePrincipal(tenantId);
-  if (!agente) return { ok: false, mensaje: "No hay ningún agente creado. Crea uno en Agentes IA primero." };
+/**
+ * La corrección tal como la escribió el dueño ("no debe enviar video, ya lo
+ * envió"), clasificada por el modelo: una REGLA de cómo vender va a las
+ * indicaciones; un DATO para decirle al cliente va a las respuestas del
+ * negocio. Medido en producción el 25-09-2026: con la elección a mano, las 4
+ * correcciones del dueño eran reglas guardadas como "dato" -- el vendedor
+ * nunca las aplicaba, y encima podía leerle al cliente "No debe decir o
+ * repetir si quiere ver el video".
+ */
+export async function corregirComoCorresponde(
+  tenantId: number,
+  p: { correccion: string; mensajeDelCliente: string; respuestaBot: string; productId?: number | null },
+): Promise<Resultado & { tipo?: "forma" | "dato"; guardado?: string }> {
+  const correccion = String(p.correccion || "").trim();
+  if (!correccion) return { ok: false, mensaje: "Escribe qué debió responder o hacer." };
+  if (correccion.length > LARGO_MAXIMO) return { ok: false, mensaje: `Es muy largo (máximo ${LARGO_MAXIMO} caracteres).` };
 
-  const nuevas = agregarIndicacion(objeto(agente.metadata).indicaciones, texto);
-  const { configurarAgente } = await import("./configurar-agente");
-  const r = await configurarAgente(tenantId, { prompt: nuevas, agentId: agente.id });
-  if (!r.ok || r.aplicados.length === 0) {
-    const motivo = r.ignorados.map((i) => i.motivo).join(" ") || r.summary;
-    return { ok: false, mensaje: `No se aplicó: ${motivo}` };
+  const c = await clasificarCorreccion(tenantId, { ...p, correccion });
+  if (c.tipo === "dato") {
+    const r = await corregirDato(tenantId, { mensajeDelCliente: c.pregunta || p.mensajeDelCliente, respuestaCorrecta: c.texto, productId: p.productId });
+    return { ...r, tipo: "dato", guardado: `${c.pregunta ? `${c.pregunta}: ` : ""}${c.texto}` };
   }
-  return { ok: true, mensaje: `Listo: ${agente.name} ya habla así desde el próximo mensaje.` };
+  const r = await corregirForma(tenantId, c.texto);
+  return { ...r, tipo: "forma", guardado: c.texto };
+}
+
+/** Lo que decide dónde va la corrección (pura, con test). Ante la duda, regla. */
+export function leerClasificacion(crudo: any, correccion: string): { tipo: "forma" | "dato"; texto: string; pregunta?: string } {
+  const tipo = crudo?.tipo === "dato" ? "dato" : "forma";
+  const texto = String(crudo?.texto || "").trim().slice(0, LARGO_MAXIMO) || correccion;
+  const pregunta = String(crudo?.pregunta || "").trim().slice(0, 200);
+  if (tipo === "dato" && !pregunta) return { tipo: "forma", texto: correccion };
+  return tipo === "dato" ? { tipo, texto, pregunta } : { tipo, texto };
+}
+
+async function clasificarCorreccion(
+  tenantId: number,
+  p: { correccion: string; mensajeDelCliente: string; respuestaBot: string },
+): Promise<{ tipo: "forma" | "dato"; texto: string; pregunta?: string }> {
+  try {
+    const { armarCadena, crearClienteLLM } = await import("./motor-nuevo/cliente-llm");
+    const { extraerJson } = await import("./entender-al-cliente");
+    const llm = crearClienteLLM({ cadena: await armarCadena({ tenantId }), tenantId });
+    const prompt = [
+      "El dueño de un negocio está corrigiendo una respuesta de su vendedor de WhatsApp.",
+      "",
+      `CLIENTE: ${p.mensajeDelCliente || "(sin mensaje)"}`,
+      `VENDEDOR RESPONDIÓ: ${p.respuestaBot || "(sin texto)"}`,
+      `CORRECCIÓN DEL DUEÑO: ${p.correccion}`,
+      "",
+      "Decide qué es la corrección:",
+      '- "forma": una REGLA de cómo debe actuar o vender el vendedor (qué mandar, en qué orden, qué no repetir, cuándo preguntar, el tono, el largo). Reescríbela como una indicación clara, general y corta para el vendedor, tuteando, en una frase (ej: "No vuelvas a ofrecer el video si ya se lo enviaste."). Sin precios ni plazos.',
+      '- "dato": un HECHO del negocio que el vendedor debe decirle al cliente (garantía, qué incluye, horarios, tallas, cómo se usa). Da "pregunta" (el tema corto, ej "Tiene garantía") y "texto" (la respuesta tal como se le diría al cliente).',
+      'Si dice "debe", "no debe", "debería", "antes de", "primero", "no repitas" o habla del vendedor en tercera persona, es "forma".',
+      "",
+      'Responde SOLO este JSON: {"tipo":"forma|dato","texto":"...","pregunta":"solo si es dato"}',
+    ].join("\n");
+    const r = await llm.crear({ messages: [{ role: "user", content: prompt }], temperature: 0.1, maxTokens: 300 });
+    return leerClasificacion(extraerJson(r.content || ""), p.correccion);
+  } catch {
+    // Sin modelo se guarda como regla: una regla mal puesta no se le lee al
+    // cliente; un dato mal puesto sí.
+    return { tipo: "forma", texto: p.correccion };
+  }
 }
 
 /* ── Deshacer ────────────────────────────────────────────────────────────── */
@@ -193,13 +293,15 @@ export async function borrarDato(tenantId: number, id: number): Promise<Resultad
   return { ok: true, mensaje: "Respuesta borrada." };
 }
 
+/** Quita la indicación número `indice` de la lista unida, en TODOS los agentes. */
 export async function borrarIndicacion(tenantId: number, indice: number): Promise<Resultado> {
-  const bloqueo = await soloEnV2(tenantId);
-  if (bloqueo) return bloqueo;
-  const agente = await agentePrincipal(tenantId);
-  if (!agente) return { ok: false, mensaje: "No hay agente." };
-  const nuevas = quitarIndicacion(objeto(agente.metadata).indicaciones, indice);
-  const { configurarAgente } = await import("./configurar-agente");
-  const r = await configurarAgente(tenantId, { prompt: nuevas, agentId: agente.id });
-  return r.ok ? { ok: true, mensaje: "Indicación quitada." } : { ok: false, mensaje: r.summary };
+  const lista = indicacionesDe(await agentesQueAtienden(tenantId));
+  const texto = lista[indice];
+  if (!texto) return { ok: false, mensaje: "Esa indicación ya no existe." };
+  const r = await reescribirIndicaciones(tenantId, (actuales) => {
+    const renglones = renglonesDeIndicaciones(actuales);
+    const i = renglones.findIndex((x) => x.toLowerCase() === texto.toLowerCase());
+    return i < 0 ? renglones.map((x) => `- ${x}`).join("\n") : quitarIndicacion(actuales, i);
+  });
+  return r.ok ? { ok: true, mensaje: "Indicación quitada." } : r;
 }
