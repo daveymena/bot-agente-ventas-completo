@@ -768,6 +768,9 @@ export async function correrEnSombra(params: {
       mensaje: turno,
       texto,
       tarjetas: partes.filter((p) => p.kind === "card"),
+      // En orden, texto y fichas intercalados: el chat de prueba las muestra
+      // como salen por WhatsApp (ver mensajesDeLaFicha).
+      partes,
       herramientas: traza.map((t) => `${t.herramienta} → ${String(t.resultado).slice(0, 90)}`),
       proveedor,
       error,

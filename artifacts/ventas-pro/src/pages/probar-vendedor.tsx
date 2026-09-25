@@ -19,13 +19,48 @@ import { ArrowLeft, BookOpen, Loader2, MessageSquareWarning, Package, PencilLine
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
+/** Un mensaje tal como llega por WhatsApp: con `imagen` es una foto con pie. */
+type Burbuja = { imagen?: string; texto: string; productoId?: number };
+
 type Mensaje = {
   role: "customer" | "agent";
+  /** Lo que el motor recuerda de su turno (va en el historial del siguiente). */
   content: string;
-  tarjetas?: { productId: number; nombre: string; seccion: string | null }[];
+  /** Lo que ve el cliente: la ficha con su foto, precio, cuentas… */
+  burbujas?: Burbuja[];
   corregido?: boolean;
   productoEnFoco?: number | null;
 };
+
+/**
+ * El formato de WhatsApp: *negrita*, _cursiva_, ~tachado~ y enlaces. Se arma
+ * con nodos de React (nada de HTML crudo): el texto viene del modelo.
+ */
+function formatoWhatsApp(texto: string): React.ReactNode[] {
+  const patron = /(https?:\/\/[^\s]+|\*[^*\n]+\*|_[^_\n]+_|~[^~\n]+~)/g;
+  return texto.split(patron).map((trozo, i) => {
+    if (!trozo) return null;
+    if (/^https?:\/\//.test(trozo)) {
+      return <a key={i} href={trozo} target="_blank" rel="noopener noreferrer" className="text-[#027eb5] underline break-all">{trozo}</a>;
+    }
+    if (/^\*[^*]+\*$/.test(trozo)) return <strong key={i}>{trozo.slice(1, -1)}</strong>;
+    if (/^_[^_]+_$/.test(trozo)) return <em key={i}>{trozo.slice(1, -1)}</em>;
+    if (/^~[^~]+~$/.test(trozo)) return <s key={i}>{trozo.slice(1, -1)}</s>;
+    return <span key={i}>{trozo}</span>;
+  });
+}
+
+function Foto({ src }: { src: string }) {
+  const [rota, setRota] = useState(!src);
+  if (rota) {
+    return (
+      <div className="mb-1 flex h-28 items-center justify-center rounded-md bg-slate-100 text-xs text-slate-400">
+        <Package className="mr-1.5 h-4 w-4" /> Sin foto: por WhatsApp sale solo el texto
+      </div>
+    );
+  }
+  return <img src={src} alt="" onError={() => setRota(true)} className="mb-1 max-h-72 w-full rounded-md object-cover" />;
+}
 
 type LoQueSabe = {
   agente: { id: number; nombre: string } | null;
@@ -65,12 +100,12 @@ export default function ProbarVendedorPage() {
     setTexto("");
     setPensando(true);
     try {
-      const r = await api<{ texto: string; tarjetas: Mensaje["tarjetas"]; estado: unknown; productoEnFoco: number | null }>(
+      const r = await api<{ texto: string; mensajes: Burbuja[]; estado: unknown; productoEnFoco: number | null }>(
         "/api/probar-vendedor/mensaje",
         { method: "POST", body: JSON.stringify({ mensaje: limpio, historial, estado }) },
       );
       setEstado(r.estado);
-      setMensajes((m) => [...m, { role: "agent", content: r.texto, tarjetas: r.tarjetas, productoEnFoco: r.productoEnFoco }]);
+      setMensajes((m) => [...m, { role: "agent", content: r.texto || "[ficha]", burbujas: r.mensajes, productoEnFoco: r.productoEnFoco }]);
     } catch (e: any) {
       toast.error(e.message || "El vendedor no respondió");
       setMensajes((m) => m.slice(0, -1));
@@ -118,20 +153,22 @@ export default function ProbarVendedorPage() {
 
             {mensajes.map((m, i) => (
               <div key={i} className={`flex ${m.role === "customer" ? "justify-end" : "justify-start"}`}>
-                <div className="max-w-[85%] sm:max-w-[75%]">
-                  <div className={`rounded-lg px-3 py-2 text-[14px] leading-snug shadow-sm whitespace-pre-wrap break-words ${m.role === "customer" ? "bg-[#d9fdd3] text-slate-900 rounded-tr-none" : "bg-white text-slate-900 rounded-tl-none"}`}>
-                    {m.content || (m.tarjetas?.length ? "" : <span className="italic text-slate-400">(sin texto)</span>)}
-                    {m.tarjetas?.map((t, k) => (
-                      <div key={k} className="mt-2 flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5 text-xs text-slate-700">
-                        <Package className="h-4 w-4 shrink-0 text-slate-500" />
-                        <span className="truncate">Ficha: <b>{t.nombre}</b>{t.seccion ? ` · ${t.seccion}` : ""}</span>
-                      </div>
-                    ))}
-                  </div>
+                <div className="flex max-w-[85%] flex-col gap-1 sm:max-w-[70%]">
+                  {(m.role === "customer" ? [{ texto: m.content } as Burbuja] : m.burbujas?.length ? m.burbujas : [{ texto: m.content }]).map((b, k) => (
+                    <div
+                      key={k}
+                      className={`rounded-lg text-[14.2px] leading-[1.35] shadow-sm whitespace-pre-wrap break-words ${
+                        m.role === "customer" ? "self-end bg-[#d9fdd3] rounded-tr-none" : `self-start bg-white ${k === 0 ? "rounded-tl-none" : ""}`
+                      } ${b.imagen !== undefined ? "p-1" : "px-2.5 py-1.5"} text-[#111b21]`}
+                    >
+                      {b.imagen !== undefined && <Foto src={b.imagen} />}
+                      <div className={b.imagen !== undefined ? "px-1.5 pb-1" : ""}>{formatoWhatsApp(b.texto)}</div>
+                    </div>
+                  ))}
                   {m.role === "agent" && (
                     <button
                       onClick={() => setCorrigiendo(i)}
-                      className={`mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${m.corregido ? "text-emerald-700" : "text-slate-500 hover:text-indigo-700 hover:bg-white/70"}`}
+                      className={`self-start inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${m.corregido ? "text-emerald-700" : "text-slate-500 hover:text-indigo-700 hover:bg-white/70"}`}
                     >
                       <PencilLine className="h-3 w-3" /> {m.corregido ? "Corregido" : "Corregir"}
                     </button>
@@ -177,7 +214,7 @@ export default function ProbarVendedorPage() {
       <DialogoCorregir
         abierto={corrigiendo !== null}
         mensajeCliente={corrigiendo !== null ? [...mensajes.slice(0, corrigiendo)].reverse().find((m) => m.role === "customer")?.content || "" : ""}
-        respuestaBot={corrigiendo !== null ? mensajes[corrigiendo]?.content || "" : ""}
+        respuestaBot={corrigiendo !== null ? (mensajes[corrigiendo]?.burbujas?.map((b) => b.texto).join("\n\n") || mensajes[corrigiendo]?.content || "") : ""}
         productoEnFoco={corrigiendo !== null ? mensajes[corrigiendo]?.productoEnFoco ?? null : null}
         alCerrar={() => setCorrigiendo(null)}
         alCorregir={() => {

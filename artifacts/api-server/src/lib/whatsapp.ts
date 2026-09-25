@@ -856,6 +856,67 @@ async function lineaDeComoSeEntrega(p: typeof products.$inferSelect): Promise<st
   return "";
 }
 
+/** Un mensaje de WhatsApp tal como sale: con `imagen` es una foto con pie. */
+export type MensajeDeFicha = { imagen?: string; texto: string };
+
+/**
+ * Los mensajes EXACTOS en que se convierte una ficha (`kind: "card"`): la foto
+ * con su pie y lo demás. La usan el envío real (`sendParts`) y el chat de
+ * prueba del dueño, así los dos no pueden desfasarse.
+ *
+ * `imagen` es solo la foto REAL del producto; si no la tiene va "" y sendImage
+ * manda el texto solo — nunca una foto de otro producto.
+ */
+export async function mensajesDeLaFicha(
+  product: typeof products.$inferSelect,
+  part: any,
+  dynamicLinks: any,
+  semilla: string,
+): Promise<MensajeDeFicha[]> {
+  const imagen = product.imageUrl || "";
+
+  // ── Se manda SOLO el pedazo que el cliente pidió ──────────────────────────
+  // La ficha entera en cada turno es lo que hacía ver al bot como un folleto
+  // automático: al cliente no le quedaba nada que preguntar.
+  const seccion: SeccionFicha | null = part?.seccion ?? null;
+
+  if (seccion) {
+    const { conFoto, mensajes } = await construirSeccion(
+      product, seccion, dynamicLinks, semilla,
+      // Lo decide el agente, que es el que tiene el historial.
+      !!part.yaVioContenido,
+      // Si volvio despues de horas, la presentacion arranca de nuevo con su
+      // foto: la ficha pelada no es una presentacion.
+      !!part.sesionNueva,
+      !!part.videoYaEnviado,
+      String(part.mensajeDelCliente || ""),
+      !!part.yaSabeElPrecio,
+      !!part.sinCierre,
+    );
+    // El pie de foto va con la foto; TODO lo demas en un solo mensaje. Antes
+    // salia uno cada 900ms, asi que una ficha de cuatro pedazos eran cuatro
+    // burbujas seguidas -- una ametralladora.
+    const { unirElRestoDeLaFicha } = await import("./una-sola-burbuja");
+    const juntos = unirElRestoDeLaFicha(mensajes);
+    if (conFoto) {
+      return [{ imagen, texto: juntos[0] || product.name }, ...(juntos[1] ? [{ texto: juntos[1] }] : [])];
+    }
+    return juntos.map((texto: string) => ({ texto }));
+  }
+
+  if (part?.paymentOnly === true) {
+    return [{ imagen, texto: buildPaymentOnlyCaption(product, dynamicLinks) }];
+  }
+
+  // La ficha va PARTIDA: la foto con el título y el resumen, y el resto como
+  // mensajes cortos seguidos. En el celular un solo mensaje de 30 líneas tapa
+  // la pantalla; así se lee de un vistazo y se siente como alguien
+  // escribiendo, no como un folleto. La semilla (el teléfono): dos clientes
+  // distintos reciben redacciones distintas, y el mismo cliente siempre la misma.
+  const bloques = await buildProductBlocks(product, dynamicLinks, semilla);
+  return [{ imagen, texto: bloques[0] || product.name }, ...bloques.slice(1).map((texto) => ({ texto }))];
+}
+
 export async function construirSeccion(
   p: typeof products.$inferSelect,
   seccion: SeccionFicha,
@@ -3168,7 +3229,7 @@ export class WhatsAppManager {
     //
     // Las fichas NO se absorben: la foto es su propia burbuja y un mensaje de
     // 30 lineas tapa la pantalla del celular.
-    const { unirTextosSeguidos, unirElRestoDeLaFicha } = await import("./una-sola-burbuja");
+    const { unirTextosSeguidos } = await import("./una-sola-burbuja");
     const antesDeUnir = parts.length;
     parts = unirTextosSeguidos(parts as any) as AgentReplyPart[];
     if (parts.length !== antesDeUnir) {
@@ -3252,65 +3313,16 @@ export class WhatsAppManager {
           }
           console.log(`🔗 [WA-CARD] Enlaces generados - MercadoPago: ${!!dynamicLinks.mercadopago?.url}, PayPal: ${!!dynamicLinks.paypal?.url}, Transfer: ${dynamicLinks.transfer?.options?.length ?? 0} - ${timestamp}`);
           
-          // Solo la imagen REAL del producto. Si no la tiene, sendImage manda
-          // el texto solo — nunca una foto de otro producto (ver sendImage).
-          const imageToUse = product.imageUrl || "";
-
-          // ── Se manda SOLO el pedazo que el cliente pidió ──────────────────
-          // La ficha entera en cada turno es lo que hacía ver al bot como un
-          // folleto automático: al cliente no le quedaba nada que preguntar.
-          const seccion: SeccionFicha | null = (part as any).seccion ?? null;
-
-          if (seccion) {
-            const { conFoto, mensajes } = await construirSeccion(
-              product, seccion, dynamicLinks, phone,
-              // Lo decide el agente, que es el que tiene el historial.
-              !!(part as any).yaVioContenido,
-              // Si volvio despues de horas, la presentacion arranca de nuevo
-              // con su foto: la ficha pelada no es una presentacion.
-              !!(part as any).sesionNueva,
-              !!(part as any).videoYaEnviado,
-              String((part as any).mensajeDelCliente || ""),
-              !!(part as any).yaSabeElPrecio,
-              !!(part as any).sinCierre,
-            );
-            console.log(`🎯 [WA-CARD] Sección "${seccion}" — ${mensajes.length} mensaje(s), foto: ${conFoto} - ${timestamp}`);
-            // El pie de foto va con la foto; TODO lo demas en un solo
-            // mensaje. Antes salia uno cada 900ms, asi que una ficha de cuatro
-            // pedazos eran cuatro burbujas seguidas -- una ametralladora.
-            const juntos = unirElRestoDeLaFicha(mensajes);
-            if (conFoto) {
-              await this.sendImage(phone, imageToUse, juntos[0] || product.name, originalJid);
-              if (juntos[1]) {
-                await sleep(900);
-                await this.sendText(phone, juntos[1], originalJid);
-              }
-            } else {
-              for (const [i, m] of juntos.entries()) {
-                if (i > 0) await sleep(900);
-                await this.sendText(phone, m, originalJid);
-              }
-            }
-          } else if (part.paymentOnly === true) {
-            const caption = buildPaymentOnlyCaption(product, dynamicLinks);
-            console.log(`🖼️ [WA-CARD] Enviando pago - Caption: ${caption.length} caracteres - ${timestamp}`);
-            await this.sendImage(phone, imageToUse, caption, originalJid);
-          } else {
-            // La ficha va PARTIDA: la foto con el título y el resumen, y el
-            // resto como mensajes cortos seguidos. En el celular un solo
-            // mensaje de 30 líneas tapa la pantalla; así se lee de un vistazo
-            // y se siente como alguien escribiendo, no como un folleto.
-            // El teléfono va de semilla: dos clientes distintos reciben
-            // redacciones distintas, y el mismo cliente siempre la misma.
-            const bloques = await buildProductBlocks(product, dynamicLinks, phone);
-            console.log(`🖼️ [WA-CARD] Enviando ficha en ${bloques.length} bloques - ${timestamp}`);
-            await this.sendImage(phone, imageToUse, bloques[0] || product.name, originalJid);
-            for (const bloque of bloques.slice(1)) {
-              // Pausa entre bloques: sin esto llegan todos juntos y se pierde
-              // el efecto de mensajes separados.
-              await sleep(900);
-              await this.sendText(phone, bloque, originalJid);
-            }
+          // Los mensajes salen de `mensajesDeLaFicha`, la misma función que usa
+          // el chat de prueba del dueño: lo que ve ahí es lo que llega acá.
+          const salida = await mensajesDeLaFicha(product, part, dynamicLinks, phone);
+          console.log(`🎯 [WA-CARD] Sección "${(part as any).seccion ?? "completa"}" — ${salida.length} mensaje(s) - ${timestamp}`);
+          for (const [k, m] of salida.entries()) {
+            // Pausa entre mensajes: sin esto llegan todos juntos y se pierde
+            // el efecto de alguien escribiendo.
+            if (k > 0) await sleep(900);
+            if (m.imagen !== undefined) await this.sendImage(phone, m.imagen, m.texto, originalJid);
+            else await this.sendText(phone, m.texto, originalJid);
           }
           console.log(`✅ [WA-CARD] Tarjeta enviada exitosamente para ${product.name} - ${timestamp}`);
         } catch (err: any) {

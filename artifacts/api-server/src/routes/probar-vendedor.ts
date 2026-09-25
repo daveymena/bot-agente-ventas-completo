@@ -27,6 +27,71 @@ const router = Router();
 const MAX_HISTORIAL = 40;
 
 /**
+ * Las partes del turno convertidas en los mensajes que recibe el cliente: la
+ * ficha con su foto, precio, cuentas y video, con las MISMAS funciones del
+ * envío real (`mensajesDeLaFicha`, `presentarParaWhatsApp`).
+ *
+ * Única diferencia a propósito: los links de MercadoPago/PayPal no se crean,
+ * porque crearlos abre un cobro real en el proveedor. Si el negocio los tiene
+ * configurados, se muestra dónde irían.
+ */
+async function mensajesComoEnWhatsApp(tenantId: number, partes: any[]) {
+  const { mensajesDeLaFicha } = await import("../lib/whatsapp");
+  const { presentarParaWhatsApp } = await import("../lib/presentacion");
+  const { unirTextosSeguidos } = await import("../lib/una-sola-burbuja");
+  const { PaymentGateway } = await import("../lib/payments");
+  const { tenantManager } = await import("../lib/tenantManager");
+  const { db, products } = await import("@workspace/db");
+  const { and, eq, inArray } = await import("drizzle-orm");
+
+  const juntas = unirTextosSeguidos(partes as any) as any[];
+  const ids = juntas.filter((p) => p.kind === "card").map((p) => Number(p.productId));
+  const filas = ids.length
+    ? await db.select().from(products).where(and(eq(products.tenantId, tenantId), inArray(products.id, ids)))
+    : [];
+  const porId = new Map<number, any>(filas.map((f: any) => [f.id, f]));
+
+  // El "cliente" de la prueba es del país del negocio: la moneda del precio sale
+  // del teléfono del cliente (moneda-por-pais), y con una semilla sin número el
+  // precio en pesos se mostraba convertido a dólares, cosa que por WhatsApp a un
+  // cliente local no pasa. Sin teléfono del negocio, Colombia: los precios se
+  // cargan en COP.
+  const tenant: any = await tenantManager.getTenantById(tenantId).catch(() => null);
+  const telefonoDePrueba = String(tenant?.contactPhone || "").replace(/\D/g, "") || "573000000000";
+
+  let links: any = { transfer: { options: [] }, mercadopago: null, paypal: null };
+  if (ids.length) {
+    try {
+      const pg: any = new PaymentGateway(tenant as any);
+      const cfg = pg.config || {};
+      const aqui = (proveedor: string) => ({ url: `[link de ${proveedor}: se genera al enviarlo por WhatsApp]` });
+      links = {
+        transfer: pg.getTransferInfo?.() || links.transfer,
+        mercadopago: cfg.mercadoPagoAccessToken ? aqui("MercadoPago") : null,
+        paypal: cfg.paypalClientId && cfg.paypalClientSecret ? aqui("PayPal") : null,
+      };
+    } catch (e: any) {
+      logger.warn({ tenantId, err: e?.message }, "[ProbarVendedor] sin datos de pago para la vista previa");
+    }
+  }
+
+  const salida: { imagen?: string; texto: string; productoId?: number }[] = [];
+  for (const parte of juntas) {
+    if (parte.kind === "text") {
+      const texto = presentarParaWhatsApp(String(parte.content || ""));
+      if (texto.trim()) salida.push({ texto });
+      continue;
+    }
+    const producto = porId.get(Number(parte.productId));
+    if (!producto) continue;
+    for (const m of await mensajesDeLaFicha(producto as any, parte, links, telefonoDePrueba)) {
+      salida.push(m.imagen !== undefined ? { imagen: m.imagen, texto: m.texto, productoId: producto.id } : { texto: presentarParaWhatsApp(m.texto) });
+    }
+  }
+  return salida;
+}
+
+/**
  * POST /api/probar-vendedor/mensaje
  * { mensaje, historial: [{role:"customer"|"agent", content}], estado? }
  * → { texto, tarjetas: [{productId, nombre, seccion}], estado, herramientas, proveedor }
@@ -45,7 +110,7 @@ router.post("/mensaje", async (req: TenantRequest, res) => {
   const estado = req.body?.estado && typeof req.body.estado === "object" ? req.body.estado : undefined;
 
   try {
-    const { correrEnSombra, cargarCatalogoDelNegocio } = await import("../lib/motor-nuevo/adaptador");
+    const { correrEnSombra } = await import("../lib/motor-nuevo/adaptador");
     const { armarCadena, crearClienteLLM } = await import("../lib/motor-nuevo/cliente-llm");
     const llm = crearClienteLLM({ cadena: await armarCadena({ tenantId }), tenantId });
 
@@ -56,12 +121,11 @@ router.post("/mensaje", async (req: TenantRequest, res) => {
       return res.status(502).json({ error: `El vendedor no pudo responder: ${turno.error}` });
     }
 
-    const catalogo = await cargarCatalogoDelNegocio(tenantId);
-    const nombre = (id: number) => catalogo.find((p) => p.id === id)?.name ?? `Producto #${id}`;
+    const mensajes = await mensajesComoEnWhatsApp(tenantId, turno?.partes || []);
 
     return res.json({
+      mensajes,
       texto: turno?.texto || "",
-      tarjetas: (turno?.tarjetas || []).map((t: any) => ({ productId: t.productId, nombre: nombre(t.productId), seccion: t.seccion ?? null })),
       estado: r.estado,
       productoEnFoco: (r.estado as any)?.productoEnFoco ?? null,
       herramientas: turno?.herramientas || [],

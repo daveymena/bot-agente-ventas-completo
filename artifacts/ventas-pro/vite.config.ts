@@ -53,6 +53,13 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      // Las fotos de producto las sirve el backend (/images/products/:id.jpg);
+      // en producción es el mismo dominio, en desarrollo hay que pasarlas.
+      "/images": {
+        target: process.env.VITE_API_URL || "http://localhost:3002",
+        changeOrigin: true,
+        secure: false,
+      },
       "/api": {
         target: process.env.VITE_API_URL || "http://localhost:3002",
         changeOrigin: true,
