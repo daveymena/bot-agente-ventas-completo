@@ -4912,6 +4912,20 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "dropi_transportadoras_sondeo",
+    description: "DIAGNÓSTICO de solo lectura: prueba contra Dropi las rutas candidatas para listar transportadoras, ciudades y cotizar flete a una ciudad, y muestra qué respondió cada una. No crea pedidos ni cambia nada. Sirve para confirmar cuál ruta usa Dropi antes de ofrecerle transportadoras al cliente.",
+    args: '{ "ciudad": string (req), "departamento": string (req), "valor"?: number }',
+    run: async (args, ctx) => {
+      if (!args?.ciudad || !args?.departamento) return { ok: false, summary: "Faltan 'ciudad' y 'departamento'." };
+      const { tokenDropiDelTenant, sondearTransportadorasDropi } = await import("./dropi-directo");
+      const token = await tokenDropiDelTenant(ctx.tenantId);
+      if (!token) return { ok: false, summary: "Este negocio no tiene token de Dropi: primero dropi_conectar." };
+      const r = await sondearTransportadorasDropi(token, { ciudad: String(args.ciudad), departamento: String(args.departamento), valor: num(args.valor) || undefined });
+      return { ok: true, summary: r.map((x) => `${x.ok ? "✅" : "❌"} ${x.metodo} ${x.ruta} (${x.status ?? "-"}): ${x.muestra}`).join("
+"), data: r };
+    },
+  },
+  {
     name: "dropi_pedidos",
     description: "Lista los pedidos REALES en Dropi del negocio (estado, ciudad, total cobrado, flete, transportadora, guía, producto y costo del proveedor). Úsala para ver qué pasó con un pedido, qué flete cobró Dropi o cuánto se ganó. Solo lee.",
     args: '{ "limit": number (opcional, máx 100) }',
@@ -7648,6 +7662,7 @@ export async function executeAction(tool: string, args: any, ctx: OperatorContex
 // Mutación: cambian datos → requieren PLAN + confirmación del admin.
 // Destructivas / de dinero: confirmación reforzada.
 export const READ_ONLY_TOOLS = new Set([
+  "dropi_transportadoras_sondeo",
   "embudo_de_ventas",
   // La agenda: solo lee qué hay programado (ver lib/atlas-agenda.ts).
   "agenda_ver",
