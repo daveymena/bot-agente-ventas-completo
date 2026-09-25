@@ -269,6 +269,23 @@ export interface FbAudienceSuggestion {
   rationale: string;
 }
 
+/**
+ * ¿Esta optimización de conjunto la acepta Meta con este objetivo de campaña?
+ * Mezclarlas (CONVERSATIONS en una campaña de tráfico) da #1815159.
+ */
+export function optimizacionCompatible(metaObjective: string, optimizacion: string): boolean {
+  const o = String(optimizacion || "").toUpperCase();
+  const PERMITIDAS: Record<string, string[]> = {
+    OUTCOME_TRAFFIC: ["LANDING_PAGE_VIEWS", "LINK_CLICKS", "REACH", "IMPRESSIONS"],
+    OUTCOME_ENGAGEMENT: ["CONVERSATIONS", "POST_ENGAGEMENT", "THRUPLAY", "LINK_CLICKS"],
+    OUTCOME_AWARENESS: ["REACH", "IMPRESSIONS", "AD_RECALL_LIFT", "THRUPLAY"],
+    OUTCOME_SALES: ["OFFSITE_CONVERSIONS", "VALUE", "LINK_CLICKS", "LANDING_PAGE_VIEWS", "CONVERSATIONS", "IMPRESSIONS", "REACH"],
+    OUTCOME_LEADS: ["LEAD_GENERATION", "QUALITY_LEAD", "OFFSITE_CONVERSIONS", "CONVERSATIONS", "LINK_CLICKS"],
+  };
+  const lista = PERMITIDAS[String(metaObjective || "").toUpperCase()];
+  return lista ? lista.includes(o) : false;
+}
+
 export interface FbCampaignResult {
   campaignId: string;
   adSetId: string;
@@ -1099,7 +1116,12 @@ Responde SOLO con este JSON exacto:
           adSetBody.destination_type = "WHATSAPP";
           if (this.config.pageId) adSetBody.promoted_object = { page_id: this.config.pageId };
         }
-        if (primero?.optimizacion) adSetBody.optimization_goal = primero.optimizacion;
+        // De la plantilla solo se copia la optimización si es compatible con
+        // ESTE objetivo. 25-09-2026: la plantilla es la campaña de mensajes a
+        // WhatsApp (CONVERSATIONS) y se copiaba encima de LANDING_PAGE_VIEWS
+        // en la campaña de tráfico a la landing: Meta la rechazaba con
+        // #1815159 "El contenido y el objetivo no coinciden".
+        if (primero?.optimizacion && optimizacionCompatible(OBJ.metaObjective, primero.optimizacion)) adSetBody.optimization_goal = primero.optimizacion;
       } else if (hasUsablePixel) {
         adSetBody.billing_event = "IMPRESSIONS";
         // "CONVERSIONS" no es un valor válido de optimization_goal en la API
@@ -1229,7 +1251,7 @@ Responde SOLO con este JSON exacto:
             start_time: adSetBody.start_time,
             billing_event: "IMPRESSIONS",
             bid_strategy: "LOWEST_COST_WITHOUT_CAP",
-            optimization_goal: cj.optimizacion || adSetBody.optimization_goal || "LINK_CLICKS",
+            optimization_goal: (cj.optimizacion && optimizacionCompatible(OBJ.metaObjective, cj.optimizacion) ? cj.optimizacion : null) || adSetBody.optimization_goal || "LINK_CLICKS",
           };
           if (adSetBody.destination_type) bodyCj.destination_type = adSetBody.destination_type;
           if (adSetBody.promoted_object) bodyCj.promoted_object = adSetBody.promoted_object;
