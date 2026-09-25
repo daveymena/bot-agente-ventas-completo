@@ -136,3 +136,13 @@ export async function rechazoPorObjetivoNoCreable(objetivoDelAdmin: string | nul
     `No crees otra campaña distinta en su lugar. Explicale esto y, si le sirve, ofrecé la alternativa que sí se crea.`
   );
 }
+
+/**
+ * La clase de destino de una campaña ya subida ("whatsapp", "formulario" o una
+ * URL web) contra la del objetivo pedido. Sirve para no crear dos campañas
+ * iguales sin confundir un formulario con una campaña a la landing.
+ */
+export function claseDeDestino(destinoGuardado: string): "whatsapp" | "formulario" | "web" {
+  const d = String(destinoGuardado || "");
+  return d === "whatsapp" ? "whatsapp" : d === "formulario" ? "formulario" : "web";
+}

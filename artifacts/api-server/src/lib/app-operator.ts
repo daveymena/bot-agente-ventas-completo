@@ -5699,7 +5699,11 @@ ${explicarObjetivos()}` };
       if (args.subirAMeta === true && args.nueva !== true) {
         const { interpretarObjetivo } = await import("./objetivos-campana");
         const objetivoPedido = interpretarObjetivo(String(ctx.objetivoDelAdmin || "")) || interpretarObjetivo(String(args.objetivo || "")) || "ventas";
-        const vaAWhatsApp = objetivoPedido === "mensajes";
+        // Se compara la CLASE de destino: WhatsApp, formulario o web. Antes
+        // era WhatsApp contra "todo lo demás", y un formulario pedido se daba
+        // por hecho porque ya había una campaña a la landing (25-09-2026).
+        const { OBJETIVOS: OBJS, claseDeDestino: claseDe } = await import("./objetivos-campana");
+        const clasePedida = OBJS[objetivoPedido as keyof typeof OBJS]?.destino || "web";
         const previas = await db
           .select()
           .from(facebookDrafts)
@@ -5708,12 +5712,12 @@ ${explicarObjetivos()}` };
           .limit(20);
         const enMeta = previas.filter((d: any) => d.campaignId && !/DELETED|ARCHIVED/i.test(String(d.fbStatus || "")));
         const destinoDe = (d: any) => String((d.strategy as any)?.destino || "");
-        const igual = enMeta.find((d: any) => destinoDe(d) && (destinoDe(d) === "whatsapp") === vaAWhatsApp);
+        const igual = enMeta.find((d: any) => destinoDe(d) && claseDe(destinoDe(d)) === clasePedida);
         if (igual) {
           return {
             ok: true,
             summary:
-              `Ya existe una campaña de ${prod.name} que ${destinoDe(igual) === "whatsapp" ? "abre WhatsApp" : `lleva a ${destinoDe(igual)}`} ` +
+              `Ya existe una campaña de ${prod.name} que ${destinoDe(igual) === "whatsapp" ? "abre WhatsApp" : destinoDe(igual) === "formulario" ? "abre un formulario" : `lleva a ${destinoDe(igual)}`} ` +
               `(borrador #${igual.id}, campaña ${igual.campaignId}, ${igual.fbStatus || "PAUSED"}). No creé otra igual. ` +
               `Si el admin quiere una NUEVA de todas formas, volvé a llamar con "nueva": true.`,
             data: { draftId: igual.id, campaignId: igual.campaignId, destino: destinoDe(igual) },

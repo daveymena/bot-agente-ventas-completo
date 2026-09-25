@@ -4,7 +4,7 @@
  */
 import { describe, test, expect } from "vitest";
 import { objetivoDelCatalogo, explicarObjetivos, CATALOGO_DE_OBJETIVOS } from "../catalogo-objetivos-meta";
-import { pedidoDelAdmin, interpretarObjetivo, rechazoPorObjetivoNoCreable } from "../objetivos-campana";
+import { pedidoDelAdmin, interpretarObjetivo, rechazoPorObjetivoNoCreable, claseDeDestino, OBJETIVOS } from "../objetivos-campana";
 
 describe("cada frase lleva a su objetivo", () => {
   test.each([
@@ -58,5 +58,14 @@ describe("formulario de clientes potenciales (25-09-2026)", () => {
   test("se pide y se arma como objetivo propio, no como web", () => {
     expect(pedidoDelAdmin("crea un anuncio con formulario de clientes potenciales")).toBe("formulario");
     expect(interpretarObjetivo("campaña para captar datos")).toBe("formulario");
+  });
+});
+
+describe("freno de duplicados: la clase de destino (25-09-2026)", () => {
+  test("una campaña a la landing NO es la misma que una de formulario", () => {
+    expect(claseDeDestino("https://ventasproia.com/l/corrector")).toBe("web");
+    expect(claseDeDestino("formulario")).not.toBe(claseDeDestino("https://ventasproia.com/l/corrector"));
+    expect(OBJETIVOS.formulario.destino).toBe("formulario");
+    expect(claseDeDestino("whatsapp")).toBe(OBJETIVOS.mensajes.destino);
   });
 });
