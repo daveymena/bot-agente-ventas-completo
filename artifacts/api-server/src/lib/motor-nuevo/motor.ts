@@ -88,7 +88,29 @@ type ParamsDelPrompt = {
   catalogo: Producto[];
   guion: GuionDelNegocio;
   nombrePorProducto: (id: number) => string;
+  /** Las respuestas que cargó el dueño (`product_knowledge`). */
+  conocimiento?: { productId: number | null; pregunta: string; respuesta: string | null }[];
 };
+
+/**
+ * Lo que el dueño SÍ dejó respondido para lo que se está hablando: generales y
+ * del producto en foco. Es el hecho simétrico de "NO TENÉS ESTOS DATOS":
+ * medido el 25-09-2026 en el chat de prueba, con producto en foco el modelo
+ * leía solo la lista de lo que falta y contestaba "déjame confirmarlo" sin
+ * llamar a consultar_conocimiento (0 de 3), aunque la respuesta estaba cargada.
+ * Sin foco sí la buscaba (3 de 3). Solo van los temas; el texto exacto lo sigue
+ * dando la herramienta.
+ */
+export function temasRespondidosPorElDueno(
+  conocimiento: ParamsDelPrompt["conocimiento"],
+  productoEnFoco: number | null,
+): string[] {
+  const temas = (conocimiento || [])
+    .filter((k) => k.respuesta && (k.productId == null || k.productId === productoEnFoco))
+    .map((k) => k.pregunta.replace(/\s+/g, " ").trim().slice(0, 80))
+    .filter(Boolean);
+  return [...new Set(temas)].slice(0, 12);
+}
 
 /** El prompt entero en un solo texto (para leerlo, diagnosticarlo y probarlo). */
 export function construirPromptDeSistema(params: ParamsDelPrompt): string {
@@ -184,8 +206,14 @@ ${renderGuion(guion)}
 CATÁLOGO
 ${catalogoCompacto}${voz.instruccionesExtra ? `\n\nINDICACIONES DEL DUEÑO\n${voz.instruccionesExtra}` : ""}`;
 
+  const temas = temasRespondidosPorElDueno(params.conocimiento, estado.productoEnFoco);
   const delTurno = `LO QUE YA PASÓ EN ESTA CONVERSACIÓN
 ${describirEstado(estado, params.nombrePorProducto)}${
+    temas.length
+      ? `\n\nRESPUESTAS QUE CARGÓ EL DUEÑO (valen aunque el tema figure en "NO TENÉS ESTOS DATOS"; ` +
+        `el texto exacto te lo da consultar_conocimiento): ${temas.join(" · ")}`
+      : ""
+  }${
     volvio
       ? `\n\nVISITA NUEVA: el cliente no escribía hace ${Math.round(horas!)} horas. Lo de antes es memoria, no una venta pendiente. ` +
         `Contestá a lo que escribe AHORA. Si solo saluda, saludalo con calidez y preguntale en qué lo podés ayudar hoy; ` +
@@ -399,7 +427,7 @@ export async function responder(params: {
     }
   }
 
-  let { fijo, delTurno } = partesDelPrompt({ voz, estado, catalogo, guion, nombrePorProducto });
+  let { fijo, delTurno } = partesDelPrompt({ voz, estado, catalogo, guion, nombrePorProducto, conocimiento: params.conocimiento });
 
   // A/B TEST: reemplaza prompt si hay versión candidata
   if (promptOverride) {

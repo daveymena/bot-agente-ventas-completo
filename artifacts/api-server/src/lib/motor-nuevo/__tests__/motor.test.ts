@@ -326,6 +326,20 @@ describe("el conocimiento del dueño", () => {
     const r = ejecutores.consultar_conocimiento(ctx, { pregunta: "¿hay clases en vivo?" }) as any;
     assert.match(r.mensaje, /no cargó nada/i);
   });
+
+  test("una palabra de relleno no trae la respuesta de otro tema", () => {
+    // Chat de prueba, 25-09-2026: "¿y tiene envío?" devolvía la respuesta de
+    // "Tiene certificado" solo por compartir "tiene".
+    const ctx = ctxNuevo();
+    ctx.conocimiento = [
+      { productId: 1, pregunta: "Tiene certificado", disparadores: ["certificado"], respuesta: "Sí, certificado digital." },
+    ];
+    const envio = ejecutores.consultar_conocimiento(ctx, { pregunta: "¿y tiene envío?", productoId: 1 }) as any;
+    assert.match(envio.mensaje, /no cargó nada/i);
+
+    const certificado = ejecutores.consultar_conocimiento(ctx, { pregunta: "¿me dan certificado?", productoId: 1 }) as any;
+    assert.match(certificado.mensaje, /certificado digital/);
+  });
 });
 
 /* ═══════════════════════════════════════════════════════════════════

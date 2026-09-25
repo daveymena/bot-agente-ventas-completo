@@ -186,6 +186,18 @@ const ahora = () => new Date().toISOString();
 const nombreDe = (ctx: ContextoHerramientas, id: number) =>
   ctx.catalogo.find((p) => p.id === id)?.name ?? `producto #${id}`;
 
+/**
+ * Palabras que aparecen en casi cualquier pregunta del cliente. No deciden
+ * nada de la conversación: solo no cuentan como coincidencia al buscar en el
+ * conocimiento del negocio ni se guardan como disparadores.
+ */
+export const PALABRAS_GENERICAS = new Set([
+  "hola", "tiene", "tienen", "tienes", "hay", "quiero", "quisiera", "puedo", "pueden", "como", "cuanto", "cuando",
+  "donde", "que", "para", "pero", "entonces", "este", "esta", "esto", "ese", "esa", "eso", "sobre", "porque",
+  "buenas", "buenos", "gracias", "favor", "saber", "dame", "dime", "decir", "hacer", "tambien", "algo", "los", "las",
+  "del", "con", "una", "uno", "por", "mas", "muy",
+]);
+
 const N = (t: unknown): string =>
   String(t ?? "")
     .toLowerCase()
@@ -817,7 +829,10 @@ export const ejecutores: Record<string, Ejecutor> = {
 
   consultar_conocimiento(ctx, { pregunta, productoId }) {
     const q = N(pregunta);
-    const palabras = q.split(/[^a-z0-9ñ]+/).filter((w) => w.length > 2);
+    // Las palabras que están en casi cualquier pregunta no cuentan: con ellas
+    // "¿y tiene envío?" devolvía la respuesta de "Tiene certificado" (chat de
+    // prueba, 25-09-2026) y el vendedor la repetía sin que se la pidieran.
+    const palabras = q.split(/[^a-z0-9ñ]+/).filter((w) => w.length > 2 && !PALABRAS_GENERICAS.has(w));
     if (!palabras.length) return { ok: false, mensaje: "No entendí qué preguntarle al conocimiento del negocio." };
 
     const enFoco = Number(productoId) || ctx.estado.productoEnFoco;
