@@ -47,6 +47,12 @@ import {
 } from "./estado-conversacion";
 import { renderGuion, type GuionDelNegocio } from "./nicho";
 import type { ClienteLLM } from "./cliente-llm";
+import {
+  getActiveABTestConfig,
+  asignarGrupoABTest,
+  logABTestAssignment,
+  getVersionCandidata,
+} from "./ab-test-routing";
 
 export interface Mensaje {
   role: "customer" | "agent";
@@ -310,13 +316,46 @@ export async function responder(params: {
   recargarGuion?: (productoEnFocoId: number) => Promise<GuionDelNegocio>;
   /** Pedidos de producto físico (ver adaptador.servicioDePedidos). */
   pedidos?: import("./herramientas").ServicioDePedidos;
+  /** Contexto del tenant para A/B testing */
+  tenantId?: number;
+  agentId?: number;
+  conversationId?: number | string;
 }): Promise<ResultadoRespuesta> {
-  const { llm, estado, historial, catalogo, guion, voz } = params;
+  const { llm, estado, historial, catalogo, guion, voz, tenantId, agentId, conversationId } = params;
 
   const nombrePorProducto = (id: number) => catalogo.find((p) => p.id === id)?.name ?? `producto #${id}`;
   const mensajeDelCliente = [...historial].reverse().find((m) => m.role === "customer")?.content ?? "";
   // FASE 1/14: el texto del cliente queda en estado (para referencias y diagnóstico).
   estado.ultimoMensajeClienteTexto = String(mensajeDelCliente || "").slice(0, 500) || null;
+
+  // A/B TEST ROUTING: segmenta tráfico entre versión control y tratamiento
+  let promptOverride: string | null = null;
+  if (tenantId && agentId && conversationId) {
+    try {
+      const abTestConfig = await getActiveABTestConfig({ tenantId, agentId });
+      if (abTestConfig) {
+        const grupo = asignarGrupoABTest(conversationId, abTestConfig.trafficPercent);
+
+        if (grupo === "treatment") {
+          const candidataPrompt = await getVersionCandidata(abTestConfig.versionId);
+          if (candidataPrompt) {
+            promptOverride = candidataPrompt;
+          }
+        }
+
+        // Registra la asignación para auditoría
+        const convId = typeof conversationId === "string" ? parseInt(conversationId) : conversationId;
+        await logABTestAssignment({
+          conversationId: convId,
+          versionId: grupo === "treatment" ? abTestConfig.versionId : null,
+          grupo,
+        });
+      }
+    } catch (e) {
+      // No fallar la conversación por A/B routing
+      console.error(`[motor] Error en A/B test routing: ${(e as any).message}`);
+    }
+  }
 
   // Volvió después de horas: visita nueva. Va antes de derivar `compra` del
   // foco (abajo), porque es justamente el foco viejo lo que se archiva.
@@ -360,7 +399,12 @@ export async function responder(params: {
     }
   }
 
-  const { fijo, delTurno } = partesDelPrompt({ voz, estado, catalogo, guion, nombrePorProducto });
+  let { fijo, delTurno } = partesDelPrompt({ voz, estado, catalogo, guion, nombrePorProducto });
+
+  // A/B TEST: reemplaza prompt si hay versión candidata
+  if (promptOverride) {
+    fijo = promptOverride;
+  }
 
   const ctx: ContextoHerramientas = {
     estado,

@@ -519,6 +519,9 @@ export async function responderComoVendedor(
     voz,
     recargarGuion: (nuevoFocoId: number) => cargarGuion(tenantId, catalogo, nuevoFocoId),
     pedidos,
+    tenantId,
+    agentId: agente?.id,
+    conversationId,
   });
 
   await repositorio.guardar(resultado.estado);
