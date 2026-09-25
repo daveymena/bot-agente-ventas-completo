@@ -3009,7 +3009,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
   {
     name: "fb_create_ad",
     description: "Crear una campaña de anuncios en Facebook/Instagram para un producto. Se crea SIEMPRE en PAUSA (no gasta hasta que el admin la active en Ads Manager). Meta adapta el creativo a cada tamaño/dispositivo automáticamente. GASTA DINERO al activarse. ⚠️ El 'objetivo' decide A DÓNDE va la gente y A QUIÉN le muestra Meta el anuncio: si el admin dijo WhatsApp, mensajes, tráfico o alcance, PASALO — sin ese dato se crea de ventas apuntando a la web, que es otra campaña distinta.",
-    args: '{ "productId": number (req), "objetivo": "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — "mensajes" abre WhatsApp, "trafico" lleva a la web buscando clics, "ventas" lleva a la web buscando compradores, def "ventas"), "dailyBudget": number (opcional, en la moneda de la cuenta, def 5000), "startDate": string opcional ISO, "cities": string[] opcional, "ageMin": number opcional, "ageMax": number opcional }',
+    args: '{ "productId": number (req), "objetivo": "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — "mensajes" abre WhatsApp, "trafico" lleva a la web buscando clics, "ventas" lleva a la web buscando compradores, def "ventas"), "destinoWeb"?: "landing"|"tienda" (si el admin pidió la LANDING pasá "landing" con objetivo "trafico" o "ventas", NUNCA "mensajes"), "dailyBudget": number (opcional, en la moneda de la cuenta, def 5000), "startDate": string opcional ISO, "cities": string[] opcional, "ageMin": number opcional, "ageMax": number opcional }',
     run: async (args, ctx) => {
       if (!args.productId) return { ok: false, summary: "Falta 'productId'" };
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
@@ -3033,9 +3033,16 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       const { interpretarObjetivo, OBJETIVOS } = await import("./objetivos-campana");
       // El objetivo sale de lo que el ADMIN dijo cuando el modelo no lo pasa
       // o lo pasa mal. Ver `objetivoDelAdmin` en OperatorContext.
-      const objetivo = interpretarObjetivo(String(args.objetivo || ""))
-        || interpretarObjetivo(String(ctx.objetivoDelAdmin || ""))
+      // Lo que el ADMIN escribió manda sobre lo que pasa el modelo: pidió
+      // la landing y el modelo mandaba "mensajes" (24-09-2026, seis campañas
+      // del corrector, todas a WhatsApp).
+      const objetivo = interpretarObjetivo(String(ctx.objetivoDelAdmin || ""))
+        || interpretarObjetivo(String(args.objetivo || ""))
         || "ventas";
+      const { leerPreferenciaWeb } = await import("./landing/destino-del-producto");
+      const preferenciaWeb = leerPreferenciaWeb(ctx.objetivoDelAdmin)
+        ?? leerPreferenciaWeb(args?.destinoWeb)
+        ?? leerPreferenciaWeb(args?.objetivo);
 
       const r = await fb.createAdForProduct(
         Number(args.productId),
@@ -3044,6 +3051,8 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
         Object.keys(targeting).length ? targeting : undefined,
         undefined,
         objetivo,
+        undefined,
+        preferenciaWeb,
       );
       if (!r) {
         // createAdForProduct devuelve null en cualquier error (para no
@@ -3479,8 +3488,8 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       // mandaba y esto caía siempre en "ventas" → web.
       // Idem: la palabra "WhatsApp" del mensaje del admin manda sobre el
       // olvido del modelo.
-      const objetivo = interpretarObjetivo(String(args.objetivo || ""))
-        || interpretarObjetivo(String(ctx.objetivoDelAdmin || ""))
+      const objetivo = interpretarObjetivo(String(ctx.objetivoDelAdmin || ""))
+        || interpretarObjetivo(String(args.objetivo || ""))
         || "ventas";
       // Estructura como las campañas reales de la cuenta (dos conjuntos,
       // Instagram, mejoras): la última campaña por defecto, otra con
@@ -3490,7 +3499,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       if (args?.sinPlantilla === true) plantilla = null;
       else if (args?.comoCampana) plantilla = await new FacebookService(tenant || undefined).plantillaDesdeCampana(String(args.comoCampana));
       const { leerPreferenciaWeb } = await import("./landing/destino-del-producto");
-      const r = await new AdStrategist(tenant || undefined).subirBorradorAMeta(draftId, objetivo, plantilla, leerPreferenciaWeb(args?.destinoWeb));
+      const r = await new AdStrategist(tenant || undefined).subirBorradorAMeta(draftId, objetivo, plantilla, leerPreferenciaWeb(ctx.objetivoDelAdmin) ?? leerPreferenciaWeb(args?.destinoWeb) ?? leerPreferenciaWeb(args?.objetivo));
       const OBJ = OBJETIVOS[objetivo];
       const aDonde = OBJ.destino === "whatsapp" ? "abre WhatsApp" : "lleva a la web";
       return {

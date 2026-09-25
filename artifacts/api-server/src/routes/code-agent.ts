@@ -1581,7 +1581,7 @@ ESTADO REAL DEL CATALOGO, MEDIDO AHORA MISMO (${new Date().toISOString()}):
     // mensaje del admin, no de que el modelo se acuerde de pasarlo. Las dos
     // rutas comparten `interpretarObjetivo` para que no diverjan -- que es lo
     // que ya pasó una vez con el recorte de herramientas.
-    const { interpretarObjetivo: leerObjetivo } = await import("../lib/objetivos-campana");
+    const { pedidoDelAdmin: leerObjetivo } = await import("../lib/objetivos-campana");
     const ctx: OperatorContext = {
       tenantId,
       sessionId,

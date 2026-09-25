@@ -864,9 +864,19 @@ router.put("/strategist/draft/:id", async (req, res, next) => {
 router.post("/strategist/draft/:id/upload", async (req, res, next) => {
   try {
     const draftId = parseInt(req.params.id as string);
-    const objetivo = String((req.body || {}).objetivo || "mensajes") as any;
     const { AdStrategist } = await import("../lib/ad-strategist");
-    const r = await new AdStrategist((req as any).tenant || undefined).subirBorradorAMeta(draftId, objetivo);
+    // Sin objetivo explícito: a la landing si el producto tiene una publicada
+    // (ver destinoPorDefecto); si no, WhatsApp como siempre.
+    let objetivo = (req.body || {}).objetivo ? (String(req.body.objetivo) as any) : null;
+    let preferenciaWeb: any = null;
+    if (!objetivo) {
+      const [d] = await db.select({ productId: facebookDrafts.productId, tenantId: facebookDrafts.tenantId }).from(facebookDrafts).where(eq(facebookDrafts.id, draftId)).limit(1);
+      const { destinoPorDefecto } = await import("../lib/landing/destino-del-producto");
+      const def = d?.productId ? await destinoPorDefecto(d.tenantId, Number(d.productId)) : { objetivo: "mensajes" as const, preferencia: null };
+      objetivo = def.objetivo;
+      preferenciaWeb = def.preferencia;
+    }
+    const r = await new AdStrategist((req as any).tenant || undefined).subirBorradorAMeta(draftId, objetivo, undefined, preferenciaWeb);
     return res.status(r.ok ? 200 : 400).json(r);
   } catch (e) { return next(e); }
 });
@@ -923,7 +933,11 @@ router.post("/strategist/draft/:productId", async (req, res, next) => {
     // se sube (si falta) y se activa el borrador local.
     if (publishNow && draft.id) {
       if (!draft.campaignId) {
-        const up = await strategist.subirBorradorAMeta(Number(draft.id), "mensajes");
+        // Con un WhatsApp pedido, mensajes; si no, a la landing publicada o
+        // (sin landing) a WhatsApp -- ver destinoPorDefecto.
+        const { destinoPorDefecto } = await import("../lib/landing/destino-del-producto");
+        const def = destino ? { objetivo: "mensajes" as const, preferencia: null } : await destinoPorDefecto((tenant as any)?.id, productId);
+        const up = await strategist.subirBorradorAMeta(Number(draft.id), def.objetivo, undefined, def.preferencia);
         uploaded = up.ok;
       }
       published = await strategist.publishDraft(Number(draft.id));

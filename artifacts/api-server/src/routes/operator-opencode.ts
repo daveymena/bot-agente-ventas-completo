@@ -1133,8 +1133,8 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // existe) y otra eligió `fb_ad_draft`, que ni acepta el parámetro. Dos
       // de tres habrían publicado a la web. El dato existe en el texto: no
       // tiene por qué depender de que el modelo lo recuerde.
-      const { interpretarObjetivo } = await import("../lib/objetivos-campana");
-      const objetivoDelAdmin = interpretarObjetivo(String(prompt || ""));
+      const { pedidoDelAdmin } = await import("../lib/objetivos-campana");
+      const objetivoDelAdmin = pedidoDelAdmin(String(prompt || ""));
       const mcpUrl = `${getAppUrl()}/api/internal/mcp/atlas?token=${token}&tools=${encodeURIComponent(nombresPermitidos)}`
         + (objetivoDelAdmin ? `&objetivo=${encodeURIComponent(objetivoDelAdmin)}` : "");
       const tools: Record<string, boolean> = {};

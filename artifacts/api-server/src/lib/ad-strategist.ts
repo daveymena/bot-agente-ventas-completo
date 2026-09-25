@@ -1115,9 +1115,15 @@ export class AdStrategist {
       localDraft.errorDeMeta = "Para subirlo a Meta primero tenés que conectar tu cuenta de Facebook desde la sección Facebook del panel.";
       return localDraft;
     }
-    const objetivo: import("./objetivos-campana").ObjetivoCampana =
-      destino?.tipo === "whatsapp" ? "mensajes" : ((strategy as any).objetivoRecomendado || "mensajes");
-    const subida = await this.subirBorradorAMeta(localDraft.id, objetivo);
+    let objetivo: import("./objetivos-campana").ObjetivoCampana = "mensajes";
+    let preferenciaWeb: import("./landing/destino-del-producto").PreferenciaWeb | null = null;
+    if (destino?.tipo !== "whatsapp") {
+      const { destinoPorDefecto } = await import("./landing/destino-del-producto");
+      const d = await destinoPorDefecto((this.tenant as any)?.id, product.id, (strategy as any).objetivoRecomendado || "mensajes");
+      objetivo = d.objetivo;
+      preferenciaWeb = d.preferencia;
+    }
+    const subida = await this.subirBorradorAMeta(localDraft.id, objetivo, undefined, preferenciaWeb);
     if (subida.ok) {
       const [fila] = await db.select().from(facebookDrafts).where(eq(facebookDrafts.id, localDraft.id)).limit(1);
       localDraft.campaignId = fila?.campaignId ?? subida.campaignId ?? null;

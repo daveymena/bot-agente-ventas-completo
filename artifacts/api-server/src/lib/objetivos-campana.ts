@@ -57,12 +57,50 @@ export const OBJETIVOS: Record<ObjetivoCampana, {
   },
 };
 
-/** Acepta como lo diga el admin y devuelve el objetivo, o null si no lo dijo. */
+/**
+ * ¿Nombró la landing? Con las formas en que se escribe de verdad desde el
+ * celular: el dueño escribe "landipage" (24-09-2026, varias veces) y el
+ * patrón viejo solo aceptaba "landing" exacto -- la landing nunca se leía.
+ */
+export const MENCIONA_LANDING = /landing|land\w{0,3}\s?pa[gj]|lan?d[ií]n\w?\s?pa[gj]|p[aá]gina de (venta|aterrizaje|destino)|\/l\//;
+
+/** Quita "no a WhatsApp", "sin whatsapp", "ni por WhatsApp": nombrarlo para negarlo no es pedirlo. */
+function sinWhatsappNegado(t: string): string {
+  return t.replace(/\b(no|sin|ni|nada de)\b[^.,;!?\n]{0,25}?(whats?app|wpp|wsp)/g, " ");
+}
+
+/**
+ * Acepta como lo diga el admin y devuelve el objetivo, o null si no lo dijo.
+ *
+ * WhatsApp se miraba PRIMERO y ganaba siempre. "¿Una a whatsapp y otra a la
+ * landipage?", "que no vaya a WhatsApp, a la landing": las dos salían como
+ * campaña de mensajes. Ahora la landing se lee antes, un WhatsApp negado no
+ * cuenta, y si nombra los dos no se decide por el admin (null): se usa lo que
+ * pase el modelo o el valor por defecto, que va a la web.
+ */
 export function interpretarObjetivo(texto: string): ObjetivoCampana | null {
   const t = String(texto || "").toLowerCase();
-  if (/whatsapp|mensaje|escrib|convers|chat|dm|direct/.test(t)) return "mensajes";
+  const u = sinWhatsappNegado(t);
+  const landing = MENCIONA_LANDING.test(t);
+  const whatsapp = /whats?app|wpp|wsp|mensaje|escrib|convers|chat|\bdm\b|direct/.test(u);
+  if (landing && whatsapp) return null;
+  if (landing) return /venta|vender|compra|conversion|sales/.test(t) ? "ventas" : "trafico";
+  if (whatsapp) return "mensajes";
   if (/tr[aá]fico|visita|clic|traffic|web/.test(t)) return "trafico";
   if (/reconocimiento|alcance|awareness|que me conozcan|marca/.test(t)) return "reconocimiento";
   if (/venta|vender|compra|conversion|sales/.test(t)) return "ventas";
   return null;
+}
+
+/**
+ * Lo que el admin pidió para el anuncio, en una sola cadena que entienden
+ * `interpretarObjetivo` y `leerPreferenciaWeb` ("trafico landing",
+ * "mensajes"...). Viaja como `objetivoDelAdmin` sin tocar la plomería.
+ */
+export function pedidoDelAdmin(texto: string): string | null {
+  const t = String(texto || "").toLowerCase();
+  const objetivo = interpretarObjetivo(t);
+  const landing = MENCIONA_LANDING.test(t) && objetivo !== null;
+  const partes = [objetivo, landing ? "landing" : null].filter(Boolean);
+  return partes.length ? partes.join(" ") : null;
 }
