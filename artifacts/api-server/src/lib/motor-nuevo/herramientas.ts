@@ -181,6 +181,8 @@ export interface ServicioDePedidos {
   tomar(p: { producto: Producto; cantidad: number; datos: DatosDelPedido }): Promise<ResultadoTomarPedido>;
   /** El cliente confirmó el resumen: se registra y se despacha. */
   confirmar(): Promise<ResultadoConfirmarPedido>;
+  /** Seguimiento: el último pedido de esta conversación y lo que dice Dropi de él. */
+  estado?(): Promise<{ hay: boolean; texto: string }>;
 }
 
 export interface ResultadoHerramienta {
@@ -387,6 +389,16 @@ export const definicionesDeHerramientas = [
         },
         required: [],
       },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "estado_de_mi_pedido",
+      description:
+        "SEGUIMIENTO de un pedido YA hecho: cuando el cliente pregunta dónde va, cuándo llega, la guía o la transportadora. " +
+        "Trae el estado real (de la base y de Dropi). Nunca inventes una guía ni una fecha.",
+      parameters: { type: "object", properties: {} },
     },
   },
   {
@@ -923,6 +935,15 @@ export const ejecutores: Record<string, Ejecutor> = {
         `Pedí UNO por mensaje, y siempre DESPUÉS de contestar lo que el cliente acaba de decir. ` +
         `Nunca los pidas todos juntos: en WhatsApp eso se lee como un formulario.`,
     };
+  },
+
+  async estado_de_mi_pedido(ctx) {
+    if (!ctx.pedidos?.estado) {
+      return { ok: false, mensaje: "No puedo consultar pedidos desde acá. Decile que una persona le confirma el estado en un momento y usá escalar_a_humano. No inventes guía ni fecha." };
+    }
+    const r = await ctx.pedidos.estado();
+    if (!r.hay) return { ok: true, mensaje: "Esta conversación no tiene ningún pedido hecho. Preguntale con qué nombre o número lo hizo, sin inventar." };
+    return { ok: true, mensaje: `${r.texto} Decíselo con tus palabras; si no hay guía todavía, decile que se la pasás apenas la transportadora la asigne.` };
   },
 
   async tomar_pedido(ctx, args) {

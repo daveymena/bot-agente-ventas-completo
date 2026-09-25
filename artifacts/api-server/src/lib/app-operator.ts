@@ -4921,8 +4921,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       const token = await tokenDropiDelTenant(ctx.tenantId);
       if (!token) return { ok: false, summary: "Este negocio no tiene token de Dropi: primero dropi_conectar." };
       const r = await sondearTransportadorasDropi(token, { ciudad: String(args.ciudad), departamento: String(args.departamento), valor: num(args.valor) || undefined });
-      return { ok: true, summary: r.map((x) => `${x.ok ? "✅" : "❌"} ${x.metodo} ${x.ruta} (${x.status ?? "-"}): ${x.muestra}`).join("
-"), data: r };
+      return { ok: true, summary: r.map((x) => `${x.ok ? "✅" : "❌"} ${x.metodo} ${x.ruta} (${x.status ?? "-"}): ${x.muestra}`).join("\n"), data: r };
     },
   },
   {

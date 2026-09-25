@@ -363,12 +363,22 @@ function conCita(m: any): string {
  * SQLite (local, demo) las herramientas dicen honestamente que no hay pedidos
  * automáticos en vez de reventar.
  */
+/** Un teléfono real de WhatsApp son dígitos; "sim-…" solo lo crea la ruta de prueba. */
+export function esConversacionDeSimulacion(telefono: unknown): boolean {
+  return /^sim-/i.test(String(telefono || ""));
+}
+
 export function servicioDePedidos(p: {
   tenantId: number;
   conversationId: number;
   leadId: number | null;
   telefono: string | null;
   condiciones: import("../modelo-de-negocio").CondicionesDelNegocio;
+  /**
+   * Conversación de SIMULACIÓN (teléfono "sim-…", ver esConversacionDeSimulacion):
+   * el pedido recorre todo el camino pero NO se manda a Dropi ni a Woo.
+   */
+  simulacion?: boolean;
 }): ServicioDePedidos | undefined {
   if (!pool) return undefined;
   const ETIQUETA: Record<string, string> = {
@@ -421,11 +431,55 @@ export function servicioDePedidos(p: {
       }
     },
 
+    async estado() {
+      try {
+        const { rows } = await pool.query(
+          `SELECT * FROM dropshipping_orders WHERE conversation_id = $1 AND estado <> 'borrador' ORDER BY id DESC LIMIT 1`,
+          [p.conversationId],
+        );
+        const f: any = rows[0];
+        if (!f) return { hay: false, texto: "" };
+        const base = `Pedido #${f.id}: ${f.product_name} × ${f.quantity}, a ${f.ciudad || "?"}. Estado en el sistema: ${f.estado}.`;
+        if (String(f.notas || "").includes("SIMULACIÓN")) {
+          return { hay: true, texto: `${base} (simulación: no se envió a Dropi; en un pedido real acá aparecen transportadora y guía).` };
+        }
+        if (!f.dropi_order_id) {
+          return { hay: true, texto: `${base} Todavía no tiene número en Dropi${f.dropi_error ? ` (Dropi respondió: ${String(f.dropi_error).slice(0, 120)})` : ""}.` };
+        }
+        const { tokenDropiDelTenant, listarPedidosDropi } = await import("../dropi-directo");
+        const token = await tokenDropiDelTenant(p.tenantId);
+        if (!token) return { hay: true, texto: `${base} Número en Dropi: ${f.dropi_order_id}.` };
+        const lista = await listarPedidosDropi(token, 50);
+        const d = (lista.data || []).find((o) => String(o.id) === String(f.dropi_order_id));
+        if (!d) return { hay: true, texto: `${base} Número en Dropi: ${f.dropi_order_id} (no aparece entre los últimos 50 de Dropi).` };
+        return {
+          hay: true,
+          texto: `${base} En Dropi: ${d.estado}${d.transportadora ? `, transportadora ${d.transportadora}` : ""}${d.guia ? `, guía ${d.guia}` : ", todavía sin guía"}. Plazo del negocio: ${cond.envio.plazo}.`,
+        };
+      } catch (e: any) {
+        return { hay: false, texto: `No se pudo consultar: ${e?.message || e}` };
+      }
+    },
+
     async confirmar() {
       try {
         const ds = await import("../dropshipping");
         const pedido = await ds.pedidoEnCurso(p.conversationId);
         if (!pedido) return { estado: "sin_pedido" };
+        if (p.simulacion) {
+          // Nada sale del sistema: el pedido queda cancelado y marcado, para
+          // que no cuente en reportes ni lo reintente nadie.
+          await ds.guardarDatos(pedido.id, { notas: [pedido.notas, "SIMULACIÓN: no se envió a Dropi"].filter(Boolean).join(" | ") });
+          await ds.marcarEstado(pedido.id, "cancelado");
+          return {
+            estado: "creado",
+            numero: `SIM-${pedido.id}`,
+            confirmacion:
+              `Producto: ${pedido.productName} × ${pedido.quantity}. ` +
+              `${pedido.metodoPago === "contraentrega" ? "Paga contraentrega al recibir" : "Pago ya acordado"}. ` +
+              `Llega a ${pedido.direccion}${pedido.barrio ? `, barrio ${pedido.barrio}` : ""} — ${pedido.ciudad}, ${pedido.departamento}, en ${cond.envio.plazo}.`,
+          };
+        }
         await ds.marcarEstado(pedido.id, "confirmado");
         pedido.estado = "confirmado";
         const r = await ds.despacharPedido(pedido);
@@ -572,6 +626,7 @@ export async function responderComoVendedor(
     leadId: (convo as any).leadId ?? null,
     telefono: (convo as any).contactPhone ?? null,
     condiciones: negocio?.condiciones ?? CONDICIONES_DE_RESPALDO,
+    simulacion: esConversacionDeSimulacion((convo as any).contactPhone),
   });
 
   const resultado = await responder({
