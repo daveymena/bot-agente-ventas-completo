@@ -5576,7 +5576,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       "LA FORMA CORRECTA DE CREAR UN ANUNCIO. Hace TODO el trabajo de una sola vez: busca el producto por su nombre, arma el brief con sus datos reales, escribe el copy, lo valida y guarda el borrador. " +
       "Usala SIEMPRE que te pidan un anuncio (\"anunciá mi curso\", \"creá un anuncio para X\") en vez de encadenar list_products + ad_brief + fb_ad_draft: eso son muchas idas y vueltas y el turno se corta antes de terminar. " +
       "Con esto solo tenés que pasar el nombre del producto tal como lo dijo el admin y el presupuesto. Todo lo demás lo resuelve el servidor.",
-    args: '{ "producto": string (req, como lo dijo el admin), "dailyBudget": number (req, diario), "destinoWeb"?: "landing"|"tienda", "objetivo"?: "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — decide A DÓNDE va la gente y A QUIÉN le muestra Meta el anuncio: "mensajes" abre WhatsApp, "trafico" lleva a la web buscando clics, "ventas" lleva a la web buscando compradores. Si el admin dijo WhatsApp, mensajes, tráfico o alcance, PASALO; sin ese dato sale de ventas a la web, que es otra campaña distinta), "subirAMeta"?: boolean (por defecto false; si es true, además crea la campaña en Meta EN PAUSA), "nueva"?: boolean (solo si el admin pide EXPLÍCITAMENTE otra campaña aunque ya exista una del mismo producto al mismo destino) }',
+    args: '{ "producto": string (req, como lo dijo el admin), "dailyBudget": number (req, diario), "destinoWeb"?: "landing"|"tienda", "objetivo"?: "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — decide A DÓNDE va la gente y A QUIÉN le muestra Meta el anuncio: "mensajes" abre WhatsApp, "trafico" lleva a la web buscando clics, "ventas" lleva a la web buscando compradores. Si el admin dijo WhatsApp, mensajes, tráfico o alcance, PASALO; sin ese dato sale de ventas a la web, que es otra campaña distinta), "subirAMeta"?: boolean (por defecto false; si es true, además crea la campaña en Meta EN PAUSA), "nueva"?: boolean (solo si el admin pide EXPLÍCITAMENTE otra campaña aunque ya exista una del mismo producto al mismo destino), "ignorarMargen"?: boolean (solo si el admin, sabiendo que el producto pierde plata por pedido, pide anunciarlo igual) }',
     run: async (args, ctx) => {
       const texto = String(args.producto || "").trim();
       const presupuesto = num(args.dailyBudget) || 0;
@@ -5658,6 +5658,29 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
             data: { draftId: igual.id, campaignId: igual.campaignId, destino: destinoDe(igual) },
           };
         }
+      }
+
+      // ── 1c. ¿Aguanta publicidad? (físicos de Dropi) ─────────────────────
+      // Antes se anunciaba cualquier producto que entrara al catálogo. Un
+      // físico que deja poca o ninguna ganancia por pedido pierde plata con
+      // cada venta que trae el anuncio. Con los números reales de Dropi.
+      let lineaDeMargen = "";
+      if (String(prod.kind || "") === "physical") {
+        try {
+          let meta: any = {};
+          try { meta = typeof prod.metadata === "string" ? JSON.parse(prod.metadata) : (prod.metadata || {}); } catch { meta = {}; }
+          if (meta?.dropiProductId) {
+            const { tokenDropiDelTenant, margenDeProductoDropi } = await import("./dropi-directo");
+            const token = await tokenDropiDelTenant(ctx.tenantId);
+            if (token) {
+              const m = await margenDeProductoDropi(ctx.tenantId, token, { productId: prod.id });
+              const { lecturaDeMargen } = await import("./margen-de-anuncio");
+              const lectura = lecturaDeMargen(m.ok ? m.data?.ganancia : null, presupuesto);
+              if (lectura.bloquea && args.ignorarMargen !== true) return { ok: false, summary: lectura.texto };
+              lineaDeMargen = lectura.texto;
+            }
+          }
+        } catch { /* sin datos de Dropi el anuncio sigue, sin la lectura de margen */ }
       }
 
       // ── 2. El brief lo arma el SERVIDOR ──────────────────────────────────
@@ -5837,6 +5860,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
           copy.primaryText,
           ``,
           `💰 Presupuesto: $${presupuesto.toLocaleString("es-CO")}/día`,
+          lineaDeMargen,
           `⭐ Calidad del copy: ${nota.puntaje}/100${nota.notas.length ? `\n${nota.notas.map((n: string) => `   ⚠️ ${n}`).join("\n")}` : ""}`,
           meta,
         ].filter(Boolean).join("\n"),
