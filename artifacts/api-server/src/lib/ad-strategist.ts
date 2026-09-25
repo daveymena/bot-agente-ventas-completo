@@ -873,11 +873,15 @@ export class AdStrategist {
           adId: creado.adId,
           status: "created",
           fbStatus: "PAUSED",
+          // A dónde apunta, guardado: sin esto nadie podía decir cuál de seis
+          // campañas iguales del corrector iba a la landing y cuál a WhatsApp
+          // (24-09-2026), y el dueño las volvía a pedir.
+          strategy: { ...(typeof draft.strategy === "object" && draft.strategy ? (draft.strategy as any) : {}), objetivo: creado.objetivo ?? objetivo, destino: creado.destino ?? null } as any,
           updatedAt: new Date(),
         })
         .where(eq(facebookDrafts.id, draftId));
 
-      logger.info({ draftId, campaignId: creado.campaignId }, "[AdStrategist] Borrador subido a Meta en PAUSA");
+      logger.info({ draftId, campaignId: creado.campaignId, destino: creado.destino }, "[AdStrategist] Borrador subido a Meta en PAUSA");
       return { ok: true, campaignId: creado.campaignId, plantilla: plantillaUsada?.origen?.nombre || null };
     } catch (err: any) {
       logger.error({ err, draftId }, "[AdStrategist] Error subiendo el borrador a Meta");

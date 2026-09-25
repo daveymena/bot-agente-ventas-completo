@@ -277,6 +277,9 @@ export interface FbCampaignResult {
   adCopy: { primaryText: string; headline: string; description: string };
   status: string;
   previewUrl: string;
+  /** A dónde lleva el anuncio: "whatsapp" o la URL web (landing o tienda). */
+  destino?: string;
+  objetivo?: string;
 }
 
 /**
@@ -1254,6 +1257,8 @@ Responde SOLO con este JSON exacto:
         adCopy,
         status: "PAUSED",
         previewUrl,
+        destino: vaAWhatsApp ? "whatsapp" : destinoWeb,
+        objetivo,
         ...(conjuntosExtra.length ? { conjuntosExtra } : {}),
       } as FbCampaignResult;
       } catch (innerErr: any) {

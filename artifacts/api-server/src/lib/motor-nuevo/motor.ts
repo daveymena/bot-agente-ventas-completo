@@ -414,6 +414,8 @@ export async function responder(params: {
   let proveedor = "desconocido";
   let modoPlan = false;
   let textoFinal = "";
+  /** Lo que el modelo escribió en la misma vuelta en que llamó herramientas. */
+  let textoJuntoAHerramientas = "";
   const uso = { llamadas: 0, entrada: 0, salida: 0, cacheados: 0 };
   const contar = (u?: { entrada: number; salida: number; cacheados: number }) => {
     uso.llamadas++;
@@ -438,6 +440,7 @@ export async function responder(params: {
       textoFinal = (respuesta.content || "").trim();
       break;
     }
+    if ((respuesta.content || "").trim()) textoJuntoAHerramientas = (respuesta.content || "").trim();
 
     messages.push({
       role: "assistant",
@@ -509,6 +512,18 @@ export async function responder(params: {
     // Si no dijo nada ni mandó nada, mejor la respuesta original que un
     // "dame un segundito".
     if (!textoFinal && !hayTarjetas()) textoFinal = original;
+  }
+
+  // ── Saludo en mitad de la conversación ───────────────────────────────────
+  //
+  // Prueba en producción del 25-09-2026: "bueno dale, cómo pago?" → la
+  // tarjeta de pago salió bien, pero el texto fue "Hola, ¿en qué te puedo
+  // ayudar hoy? 😊". Después de la herramienta, el modelo arrancó de cero.
+  // Si la charla ya venía (hay mensajes del agente en esta visita), un saludo
+  // genérico se cambia por lo que escribió junto a la herramienta, o se
+  // deja la tarjeta sola.
+  if (textoFinal && !volvio && params.historial.some((m) => m.role === "agent") && esSaludoGenerico(textoFinal)) {
+    textoFinal = esSaludoGenerico(textoJuntoAHerramientas) ? "" : textoJuntoAHerramientas;
   }
 
   // ── Datos de compra antes del precio ─────────────────────────────────────
@@ -654,6 +669,16 @@ export function anunciaUnEnvio(texto: string): boolean {
     /\b(ah[ií]|ac[aá]|aqu[ií])\s+(te\s+)?(van|va|dejo|mando|paso|env[ií]o|comparto)\b/i.test(texto) ||
     /\bte\s+(los|las|lo|la)\s+(dejo|mando|paso|env[ií]o|comparto)\s+(de nuevo|otra vez|nuevamente|ac[aá]|aqu[ií]|abajo)\b/i.test(texto)
   );
+}
+
+/**
+ * ¿Es un saludo de arranque y nada más? ("Hola, ¿en qué te puedo ayudar
+ * hoy? 😊"). Un texto que además dice algo del producto no cuenta.
+ */
+export function esSaludoGenerico(texto: string): boolean {
+  const t = String(texto || "").trim();
+  if (!t || t.length > 140) return false;
+  return /^(¡\s*)?(hola|buenas|buen d[ií]a|buenos d[ií]as|buenas tardes|buenas noches)\b[^?]{0,40}¿?\s*(en qu[eé] (te|le) (puedo )?ayud|c[oó]mo (te|le) (puedo )?ayud|qu[eé] (est[aá]s|and[aá]s) buscando|qu[eé] necesit)/i.test(t);
 }
 
 /**

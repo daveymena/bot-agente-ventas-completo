@@ -3439,6 +3439,9 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
           creadoEnMeta: !!d.campaignId,
           campaignId: d.campaignId,
           fbStatus: d.fbStatus,
+          // A dónde lleva. Los subidos antes del 25-09-2026 no lo guardaban.
+          destino: d.strategy?.destino || (d.campaignId ? "desconocido (subido antes de que se guardara; revisalo con fb_radiografia_campana)" : null),
+          objetivo: d.strategy?.objetivo || null,
           headline: d.headline,
           primaryText: d.primaryText,
           description: d.description,
@@ -5573,7 +5576,7 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       "LA FORMA CORRECTA DE CREAR UN ANUNCIO. Hace TODO el trabajo de una sola vez: busca el producto por su nombre, arma el brief con sus datos reales, escribe el copy, lo valida y guarda el borrador. " +
       "Usala SIEMPRE que te pidan un anuncio (\"anunciá mi curso\", \"creá un anuncio para X\") en vez de encadenar list_products + ad_brief + fb_ad_draft: eso son muchas idas y vueltas y el turno se corta antes de terminar. " +
       "Con esto solo tenés que pasar el nombre del producto tal como lo dijo el admin y el presupuesto. Todo lo demás lo resuelve el servidor.",
-    args: '{ "producto": string (req, como lo dijo el admin), "dailyBudget": number (req, diario), "destinoWeb"?: "landing"|"tienda", "objetivo"?: "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — decide A DÓNDE va la gente y A QUIÉN le muestra Meta el anuncio: "mensajes" abre WhatsApp, "trafico" lleva a la web buscando clics, "ventas" lleva a la web buscando compradores. Si el admin dijo WhatsApp, mensajes, tráfico o alcance, PASALO; sin ese dato sale de ventas a la web, que es otra campaña distinta), "subirAMeta"?: boolean (por defecto false; si es true, además crea la campaña en Meta EN PAUSA) }',
+    args: '{ "producto": string (req, como lo dijo el admin), "dailyBudget": number (req, diario), "destinoWeb"?: "landing"|"tienda", "objetivo"?: "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — decide A DÓNDE va la gente y A QUIÉN le muestra Meta el anuncio: "mensajes" abre WhatsApp, "trafico" lleva a la web buscando clics, "ventas" lleva a la web buscando compradores. Si el admin dijo WhatsApp, mensajes, tráfico o alcance, PASALO; sin ese dato sale de ventas a la web, que es otra campaña distinta), "subirAMeta"?: boolean (por defecto false; si es true, además crea la campaña en Meta EN PAUSA), "nueva"?: boolean (solo si el admin pide EXPLÍCITAMENTE otra campaña aunque ya exista una del mismo producto al mismo destino) }',
     run: async (args, ctx) => {
       const texto = String(args.producto || "").trim();
       const presupuesto = num(args.dailyBudget) || 0;
@@ -5624,6 +5627,38 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
         filas = [porNombre as any];
       }
       const prod: any = filas[0];
+
+      // ── 1b. ¿Ya hay una campaña de este producto al MISMO destino? ────────
+      //
+      // 24-09-2026: seis campañas del "Corrector de Hombros y Clavícula" en un
+      // día, todas pausadas. El dueño pedía la landing, salían a WhatsApp, y
+      // cada pedido creaba otra. Si ya existe una en Meta de este producto
+      // que va a donde se pide, se devuelve ESA (con su destino) en vez de
+      // crear la séptima. Con `nueva: true` se crea igual.
+      if (args.subirAMeta === true && args.nueva !== true) {
+        const { interpretarObjetivo } = await import("./objetivos-campana");
+        const objetivoPedido = interpretarObjetivo(String(ctx.objetivoDelAdmin || "")) || interpretarObjetivo(String(args.objetivo || "")) || "ventas";
+        const vaAWhatsApp = objetivoPedido === "mensajes";
+        const previas = await db
+          .select()
+          .from(facebookDrafts)
+          .where(and(eq(facebookDrafts.tenantId, ctx.tenantId), eq(facebookDrafts.productId, prod.id)))
+          .orderBy(desc(facebookDrafts.id))
+          .limit(20);
+        const enMeta = previas.filter((d: any) => d.campaignId);
+        const destinoDe = (d: any) => String((d.strategy as any)?.destino || "");
+        const igual = enMeta.find((d: any) => destinoDe(d) && (destinoDe(d) === "whatsapp") === vaAWhatsApp);
+        if (igual) {
+          return {
+            ok: true,
+            summary:
+              `Ya existe una campaña de ${prod.name} que ${destinoDe(igual) === "whatsapp" ? "abre WhatsApp" : `lleva a ${destinoDe(igual)}`} ` +
+              `(borrador #${igual.id}, campaña ${igual.campaignId}, ${igual.fbStatus || "PAUSED"}). No creé otra igual. ` +
+              `Si el admin quiere una NUEVA de todas formas, volvé a llamar con "nueva": true.`,
+            data: { draftId: igual.id, campaignId: igual.campaignId, destino: destinoDe(igual) },
+          };
+        }
+      }
 
       // ── 2. El brief lo arma el SERVIDOR ──────────────────────────────────
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
