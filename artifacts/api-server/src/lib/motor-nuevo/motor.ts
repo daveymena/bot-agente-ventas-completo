@@ -29,6 +29,8 @@ import {
   definicionesDeHerramientas,
   ejecutores,
   puntuarCoincidencias,
+  diceQueCompra,
+  esDudaONegativa,
   type ContextoHerramientas,
   type Efecto,
   type Parte,
@@ -48,6 +50,7 @@ import {
   type RepositorioEstado,
 } from "./estado-conversacion";
 import { renderGuion, type GuionDelNegocio } from "./nicho";
+import { hablarColombiano } from "../hablar-colombiano";
 import type { ClienteLLM } from "./cliente-llm";
 
 export interface Mensaje {
@@ -666,6 +669,36 @@ export async function responder(params: {
     }
   }
 
+  // ── Dijo que lo quiere y no salió la lista de datos ──────────────────────
+  // Simulación 25-09-2026: "Quiero uno" / "sí, lo quiero" → "¡Genial!" y
+  // nada más. Un cliente real se queda esperando. Si el cliente confirmó la
+  // compra de un físico y nadie llamó tomar_pedido, lo llama el servidor
+  // (confirma la compra y pega la lista de datos de envío).
+  {
+    const focoAhora = estado.productoEnFoco;
+    const esFisicoAhora = focoAhora != null && String(catalogo.find((p) => p.id === focoAhora)?.kind || "") === "physical";
+    const confirmaCompra = diceQueCompra(mensajeDelCliente) ||
+      (/env[ií]|pedido|llev|compr|lo quieres/i.test(estado.ultimaPreguntaAgente || "") && /^\s*(s[ií]|dale|listo|claro|de una|ok|okey|va|bueno|perfecto)\b/i.test(mensajeDelCliente) && !esDudaONegativa(mensajeDelCliente));
+    if (esFisicoAhora && confirmaCompra && ctx.pedidos && !traza.some((t) => t.herramienta === "tomar_pedido") && estado.accionPendiente !== "confirmar_pedido") {
+      try { await ejecutores.tomar_pedido(ctx, {}); } catch { /* sigue el texto */ }
+    }
+  }
+
+  // ── Preguntó el precio y el texto no lo dice ─────────────────────────────
+  // Simulación: "Precio?" → "¿Te gustaría pedirlo?". Ya lo tenía en la ficha,
+  // pero si lo pregunta de nuevo, se le dice (el dato lo pone el catálogo).
+  {
+    const focoAhora = estado.productoEnFoco;
+    const prod = focoAhora != null ? catalogo.find((p) => p.id === focoAhora) : null;
+    const preguntaPrecio = /\b(cu[aá]nto (vale|cuesta|es|sale|queda)|precio|valor|a c[oó]mo)\b/i.test(mensajeDelCliente);
+    const yaLoDice = /\$\s?\d/.test(textoFinal) || ctx.partes.some((p: any) => p.kind === "card" && /precio|completa/.test(String(p.seccion)));
+    if (prod && preguntaPrecio && !yaLoDice && Number(prod.price) > 0) {
+      const monto = `$${Number(prod.price).toLocaleString("es-CO")}`;
+      const extra = String(prod.kind || "") === "physical" ? ", con envío incluido y pagas al recibir" : "";
+      textoFinal = `Está en ${monto}${extra}.${textoFinal ? `\n\n${textoFinal}` : ""}`;
+    }
+  }
+
   // ── Lista de productos escrita a mano ────────────────────────────────────
   //
   // 25-09-2026, conv 218: "tienes corrector de postura" → el modelo listó
@@ -751,6 +784,15 @@ export async function responder(params: {
     if (final && final === emojiDelFinal(previo)) {
       textoFinal = textoFinal.replace(/\s*(\p{Extended_Pictographic}️?)\s*$/u, "").trim();
     }
+  }
+
+  // ── Tuteo también en lo que arma el servidor ─────────────────────────────
+  // El prompt y varios textos del sistema están en voseo ("¿Confirmás el
+  // pedido?"); salvo en Argentina/Uruguay, todo lo que sale se pasa a tú.
+  const tutea = !/argentin|uruguay/i.test(String(voz.pais || ""));
+  if (tutea) {
+    textoFinal = hablarColombiano(textoFinal);
+    for (const parte of ctx.partes) if (parte.kind === "text" && (parte as any).content) (parte as any).content = hablarColombiano((parte as any).content);
   }
 
   // ── Armado de la respuesta ───────────────────────────────────────────────

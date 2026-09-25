@@ -1059,7 +1059,7 @@ export const ejecutores: Record<string, Ejecutor> = {
         ctx.estado.entregaEstado = "datos_listos";
         // El resumen lo manda el SISTEMA, tal cual, con los datos guardados:
         // así no puede salir con un dato cambiado por el modelo.
-        ctx.partes.push({ kind: "text", content: `${r.resumen}\n\n¿Confirmás el pedido y el envío a esa dirección? ✅` });
+        ctx.partes.push({ kind: "text", content: `${r.resumen}\n\n¿Confirmas el pedido y el envío a esa dirección? ✅` });
         return {
           ok: true,
           mensaje:
@@ -1298,7 +1298,7 @@ function tipoDeOferta(seccion: Seccion): Oferta["tipo"] {
 export function diceQueCompra(mensaje: string): boolean {
   const t = String(mensaje || "").toLowerCase();
   if (esDudaONegativa(t)) return false;
-  return /\b(lo|la|los|las) (quiero|compro|pido|llevo)\b|\bquiero (comprar|pedir|ordenar|hacer el pedido|encargar)|\bme (lo|la|los|las) (llevo|env[ií]as?|mand[aá]s?)\b|\b(env[ií]a|mand[aá])(me)?(lo|la|los|las)\b|\bhagamos el pedido\b|\bh[aá]gamelo\b|\bpedido\b.*\bconfirm/i.test(t);
+  return /\b(lo|la|los|las) (quiero|compro|pido|llevo)\b|\bquiero (uno|una|dos|tres|\d+)\b|\bme (lo|la) llevo\b|\bquiero (comprar|pedir|ordenar|hacer el pedido|encargar)|\bme (lo|la|los|las) (llevo|env[ií]as?|mand[aá]s?)\b|\b(env[ií]a|mand[aá])(me)?(lo|la|los|las)\b|\bhagamos el pedido\b|\bh[aá]gamelo\b|\bpedido\b.*\bconfirm/i.test(t);
 }
 
 /** Una duda o un no: no es un sí aunque venga después de "¿te lo enviamos?". */

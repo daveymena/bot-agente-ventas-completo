@@ -65,7 +65,8 @@ describe("el mismo emoji al final de cada mensaje", () => {
       { role: "customer" as const, content: "y si no me gusta?", createdAt: new Date() },
     ];
     const r = await responder({ llm, estado: estadoInicial(1), historial, catalogo: piano, conocimiento: [], guion: guion(), voz: VOZ });
-    expect((r.partes[0] as any).content).toBe("Tenés 7 días de garantía. ¿Te animás a probarlo?");
+    // Sin el 🎹 repetido (y en tú: el servidor traduce el voseo).
+    expect((r.partes[0] as any).content).toMatch(/7 días de garantía\. ¿Te anim[aá]s a probarlo\?$/);
   });
 });
 

@@ -89,7 +89,7 @@ describe("tomar_pedido", () => {
     const ctx = ctxCon(s);
     await ejecutores.tomar_pedido(ctx, { nombre: "Ana Pérez", documento: "1020304050", telefono: "3001234567", direccion: "Calle 45 # 12-30", ciudad: "Bogotá", departamento: "Bogotá D.C." });
     expect(ctx.partes[0]).toMatchObject({ kind: "text" });
-    expect((ctx.partes[0] as any).content).toMatch(/Ana Pérez[\s\S]*¿Confirmás el pedido/);
+    expect((ctx.partes[0] as any).content).toMatch(/Ana Pérez[\s\S]*¿Confirmas el pedido/);
     expect(ctx.estado.pedidoPorConfirmarEnTurno).toBe(ctx.estado.turnos);
   });
 });
@@ -154,7 +154,7 @@ describe("de punta a punta con el motor", () => {
       estado: e, historial: [{ role: "customer", content: "Ana Pérez, 1020304050, calle 45 # 12-30 Bogotá, 3001234567", createdAt: new Date() }],
       catalogo: CAT, conocimiento: [], guion: guion(), voz: VOZ, pedidos: s,
     });
-    expect(t1.partes.map((p: any) => p.content).join("\n")).toMatch(/¿Confirmás el pedido/);
+    expect(t1.partes.map((p: any) => p.content).join("\n")).toMatch(/¿Confirmas el pedido/);
     expect(llamadas.confirmar).toBe(0);
 
     const t2 = await responder({
@@ -233,5 +233,26 @@ describe("simulación 25-09-2026: cierre del pedido", () => {
     });
     const texto = r.partes.filter((p: any) => p.kind === "text").map((p: any) => p.content).join("\n");
     expect(texto).not.toMatch(/c[eé]dula/i);
+  });
+});
+
+describe("tercera ronda de simulación (25-09-2026)", () => {
+  const VOZ = { nombreAgente: "S", rolAgente: "a", nombreNegocio: "T" };
+  test('"Precio?" después de la ficha: el texto dice el precio', async () => {
+    const e = estadoInicial(1); e.productoEnFoco = 7; e.seccionesEnviadas = { 7: { precio: new Date().toISOString() } };
+    const r = await responder({ llm: clienteFalso([{ content: "¿Te gustaría pedirlo?" }]), estado: e, historial: [{ role: "customer", content: "Precio?", createdAt: new Date() }], catalogo: CAT, conocimiento: [], guion: guion(), voz: VOZ });
+    expect(r.partes.map((p: any) => p.content || "").join(" ")).toMatch(/\$45\.000/);
+  });
+  test('"Quiero uno" y el modelo solo dice "¡Genial!": sale la lista de datos de envío', async () => {
+    const { s } = servicioFalso();
+    const e = estadoInicial(1); e.productoEnFoco = 7; e.seccionesEnviadas = { 7: { precio: new Date().toISOString() } };
+    const r = await responder({ llm: clienteFalso([{ content: "¡Genial!" }]), estado: e, historial: [{ role: "customer", content: "Quiero uno", createdAt: new Date() }], catalogo: CAT, conocimiento: [], guion: guion(), voz: VOZ, pedidos: s });
+    expect(r.partes.map((p: any) => p.content || "").join("\n")).toMatch(/Para enviarte tu pedido necesito/);
+  });
+  test("el resumen pregunta de tú", async () => {
+    const { s } = servicioFalso();
+    const ctx = ctxCon(s);
+    await ejecutores.tomar_pedido(ctx, { nombre: "Ana Pérez", telefono: "3001234567", direccion: "Calle 1 # 2-3", ciudad: "Bogotá", departamento: "Bogotá D.C." });
+    expect((ctx.partes.at(-1) as any).content).toMatch(/¿Confirmas el pedido/);
   });
 });

@@ -1030,7 +1030,7 @@ export async function construirSeccion(
       return {
         conFoto: false,
         mensajes: [
-          `💵 Este producto se paga contraentrega: no pagás nada ahora, pagás cuando la transportadora te lo entrega en tu dirección.\n📦 ${fraseCostoEnvio(c)} (${mon.precioTexto}) y llega en ${c.envio.plazo}.\n\n¿Te tomo el pedido? Solo necesito tus datos de envío.`,
+          `💵 Este producto se paga contraentrega: no pagas nada ahora, pagas cuando la transportadora te lo entrega en tu dirección.\n📦 ${fraseCostoEnvio(c)} (${mon.precioTexto}) y llega en ${c.envio.plazo}.\n\n¿Te tomo el pedido? Solo necesito tus datos de envío.`,
         ],
       };
     }
