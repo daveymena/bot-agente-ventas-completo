@@ -53,10 +53,7 @@ router.post("/chat", async (req: TenantRequest, res) => {
       return res.status(400).json({ ok: false, reply: "Mensaje vacío" });
     }
 
-    logger.info(`[AgentLab] ${tenantId} | mensaje: "${message.slice(0, 50)}..."`, {
-      agentId,
-      productoId,
-    });
+    logger.info({ agentId, productoId }, `[AgentLab] ${tenantId} | mensaje: "${message.slice(0, 50)}..."`);
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // Parsear intención del usuario
@@ -333,7 +330,7 @@ El nuevo prompt responde en todos los canales desde ahora.
             createdAt: new Date(),
           });
         } catch (e) {
-          logger.warn(`[AgentLab] No se guardó en architect_memory`, e);
+          logger.warn({ err: (e as any)?.message }, `[AgentLab] No se guardó en architect_memory`);
         }
       }
 

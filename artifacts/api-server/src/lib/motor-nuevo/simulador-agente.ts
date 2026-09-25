@@ -2,15 +2,20 @@
  * SIMULADOR DE AGENTE — Bucle de conversación cliente simulado ↔ vendedor real.
  *
  * Corre simulaciones sin tocar conversaciones reales en la BD.
- * Todo en memoria (`RepositorioEnMemoria`).
+ * Todo en memoria: `responder` no escribe en la base.
  *
  * Reusa el motor v2 (`responder`) tal cual lo usa producción, sin modificaciones.
  */
 
-import { ClienteLLMConfig, crearClienteLLM, armarCadena } from "./cliente-llm";
+import { crearClienteLLM, armarCadena, type Candidato } from "./cliente-llm";
 import { responder } from "./motor";
 import { cargarCatalogoDelNegocio, cargarGuion, cargarVozDelNegocio, cargarConocimiento } from "./adaptador";
-import { estadoInicial, EstadoConversacion, RepositorioEnMemoria } from "./estado-conversacion";
+import { estadoInicial, EstadoConversacion } from "./estado-conversacion";
+
+export interface ClienteLLMConfig {
+  cadena: Candidato[];
+  tenantId?: number | null;
+}
 import type { PerfilCliente } from "./cliente-simulado";
 
 export interface TurnoSimulacion {
@@ -26,6 +31,20 @@ export interface ResultadoSimulacion {
   estadoFinal: EstadoConversacion;
   cerroEn: "compra" | "abandono" | "limite_turnos";
   resumenProblemas: { problema: string; turno: number }[];
+}
+
+/**
+ * Lee la decisión que el cliente simulado declaró con su marca explícita.
+ * Sin marca, sigue conversando: un "sí" o un "ok" sueltos no son una compra.
+ */
+export function leerDecisionDelCliente(texto: string): { mensaje: string; senoal: "continua" | "compra" | "abandona" } {
+  if (texto.includes("[CLIENTE_COMPRA]")) {
+    return { mensaje: texto.replace("[CLIENTE_COMPRA]", "").trim(), senoal: "compra" };
+  }
+  if (texto.includes("[CLIENTE_ABANDONA]")) {
+    return { mensaje: texto.replace("[CLIENTE_ABANDONA]", "").trim(), senoal: "abandona" };
+  }
+  return { mensaje: texto.trim(), senoal: "continua" };
 }
 
 /**
@@ -75,36 +94,23 @@ Tu turno. Responde como el cliente según tu perfil:
 - Sé natural, no suenes a script.
 - Puedes hacer preguntas, expresar dudas, objete, o indicar que quieres comprar.
 
-Si decidiste comprar, el mensaje debe sonar como que quieres comprar.
-Si decidiste abandonar (sin compra), el mensaje debe sonar como que te vas.
-De lo contrario, continúa la conversación.
+Si en este turno decides comprar, escribe tu mensaje y al final agrega exactamente [CLIENTE_COMPRA].
+Si en este turno decides irte sin comprar, escribe tu mensaje y al final agrega exactamente [CLIENTE_ABANDONA].
+Si sigues conversando, no agregues ninguna marca.
 
 Responde solo el mensaje del cliente, sin explicaciones.`;
 
   try {
-    const respuesta = await llm.message({
-      messages: [
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
+    // La decisión la declara el cliente simulado con una marca explícita, no
+    // se adivina por palabras sueltas: "sí", "ok" o "no" aparecen en casi
+    // cualquier mensaje y cortaban la simulación en el primer turno. La marca
+    // tampoco va como stop sequence: el modelo se detendría antes de escribirla.
+    const respuesta = await llm.crear({
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.8,
     });
 
-    const texto = respuesta.content[0]?.type === "text" ? respuesta.content[0].text : "";
-
-    // Detecta intención por keywords naturales
-    const tieneCompra = /\b(lo quiero|me lo llevo|dale|listo|si|de una|perfecto|mándame|cómo pago|ok)\b/i.test(texto);
-    const tieneAbandono = /\b(no|no me interesa|luego te llamo|mañana|otro día|después|no gracias|paso|no thanks)\b/i.test(texto) && !tieneCompra;
-
-    if (tieneCompra) {
-      return { mensaje: texto.trim(), senoal: "compra" };
-    }
-    if (tieneAbandono) {
-      return { mensaje: texto.trim(), senoal: "abandona" };
-    }
-
-    return { mensaje: texto.trim(), senoal: "continua" };
+    return leerDecisionDelCliente(respuesta.content ?? "");
   } catch (e) {
     console.error("[simulador] Error al generar mensaje del cliente:", e);
     return null;
@@ -153,16 +159,13 @@ export async function correrSimulacionCliente({
   // Estado inicial del vendedor
   let estadoVendedor = estadoInicial(999_999); // ID ficticio, en memoria
 
-  // Repositorio en memoria
-  const repositorio = new RepositorioEnMemoria();
-
   // Bucle: cliente → vendedor → cliente
   for (let turnoNum = 1; turnoNum <= maxTurnos; turnoNum++) {
     // 1. Cliente envía mensaje
     const respuestaCliente = await generarMensajeCliente({
       perfil: perfilCliente,
       historial,
-      producto: { name: producto.name, description: producto.description, price: producto.price },
+      producto: { name: producto.name, description: producto.description ?? "", price: producto.price ?? undefined },
       llm: clienteLlm,
     });
 
@@ -209,7 +212,6 @@ export async function correrSimulacionCliente({
         conocimiento,
         guion,
         voz,
-        repositorio,
       });
 
       estadoVendedor = resultadoVendedor.estado;
