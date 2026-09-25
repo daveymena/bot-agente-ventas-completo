@@ -644,6 +644,12 @@ export async function responder(params: {
     .replace(/<\|\|DSML[\s\S]*/g, "")
     .trim();
 
+  // ── Notas internas del modelo ────────────────────────────────────────────
+  // Prueba en producción (25-09-2026): al cliente le llegó "(El mensaje
+  // anterior ya incluía la pregunta de cierre, espero la respuesta del
+  // cliente)." Es el modelo hablándose a sí mismo.
+  textoFinal = quitarNotasInternas(textoFinal);
+
   // ── El mismo emoji al final de cada mensaje ──────────────────────────────
   // Prueba en producción (25-09-2026): cinco respuestas seguidas terminadas
   // en "🎹", otras cuatro en "😊". Leído de corrido parece un bot. Si el
@@ -728,6 +734,25 @@ export function anunciaUnEnvio(texto: string): boolean {
     /\b(ah[ií]|ac[aá]|aqu[ií])\s+(te\s+)?(van|va|dejo|mando|paso|env[ií]o|comparto)\b/i.test(texto) ||
     /\bte\s+(los|las|lo|la)\s+(dejo|mando|paso|env[ií]o|comparto)\s+(de nuevo|otra vez|nuevamente|ac[aá]|aqu[ií]|abajo)\b/i.test(texto)
   );
+}
+
+/**
+ * Saca lo que el modelo escribe para sí mismo y no para el cliente: un
+ * paréntesis que habla "del cliente", "del mensaje anterior", de
+ * herramientas o del sistema, o una línea que empieza con "Nota:".
+ */
+export function quitarNotasInternas(texto: string): string {
+  const META = /\b(el cliente|la clienta|del cliente|mensaje anterior|herramienta|sistema|instrucci[oó]n|pregunta de cierre|espero (la|su) respuesta|este turno|no escribo|no respondo)\b/i;
+  const limpio = String(texto || "")
+    .replace(/\(([^()]{0,300})\)/g, (m, dentro) => (META.test(dentro) ? "" : m))
+    .split("\n")
+    .filter((l) => !/^\s*(nota|note|nota interna)\s*:/i.test(l) && !(META.test(l) && /\b(el cliente|la clienta)\b/i.test(l)))
+    .join("\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  // Si solo quedó puntuación, no hay nada que decirle al cliente.
+  return /[\p{L}\p{N}]/u.test(limpio) ? limpio : "";
 }
 
 /** El emoji con que termina un texto, o "" si no termina en uno. */

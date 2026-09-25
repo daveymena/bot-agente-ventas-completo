@@ -1143,9 +1143,31 @@ export async function construirSeccion(
       L.push("", "✅ *Lo que incluye:*");
       for (const v of vinetas) L.push(v);
     }
-    const lineaDeEntrega = await lineaDeComoSeEntrega(p);
-    if (lineaDeEntrega) L.push("", lineaDeEntrega);
-    if (cierre) L.push("", cierre);
+    // ── Dropshipping: la ficha COMPLETA de una ─────────────────────────────
+    //
+    // Pedido del dueño (25-09-2026): el cliente llega del anuncio por UN
+    // producto; se le manda de una vez foto + qué es + precio + cómo paga +
+    // cómo le llega, y se le pregunta si se lo enviamos. "El precio es la
+    // pregunta siguiente" es táctica de cursos: en un físico de anuncio lo
+    // hacía dar vueltas ("¿Te cuento cuánto vale?") con alguien que ya vino
+    // por ese producto.
+    if (esFisico && seccion === "completa") {
+      L.push("", `💰 *Precio: ${mon.precioTexto}*`);
+      try {
+        const { fraseCostoEnvio, frasePagoEnvio } = await import("./modelo-de-negocio");
+        const c = await condicionesDelProducto(p);
+        L.push(`🚚 ${fraseCostoEnvio(c)}. Llega en ${c.envio.plazo}.`);
+        L.push(`💵 ${frasePagoEnvio(c)}.`);
+      } catch {
+        const lineaDeEntrega = await lineaDeComoSeEntrega(p);
+        if (lineaDeEntrega) L.push(lineaDeEntrega);
+      }
+      if (!sinCierre) L.push("", "¿Te lo enviamos? 📦");
+    } else {
+      const lineaDeEntrega = await lineaDeComoSeEntrega(p);
+      if (lineaDeEntrega) L.push("", lineaDeEntrega);
+      if (cierre) L.push("", cierre);
+    }
     mensajes.push(hablarColombiano(L.join("\n").trim()));
   }
 

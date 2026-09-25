@@ -772,13 +772,24 @@ export const ejecutores: Record<string, Ejecutor> = {
     if ((sec === "info" || sec === "completa" || sec === "video") && ctx.estado.compra === "ninguno") {
       ctx.estado.compra = "producto_definido";
     }
+    // Físico: la ficha "completa" ya trae precio, pago y entrega, y cierra con
+    // "¿Te lo enviamos?" (ver construirSeccion). Queda registrado como dicho:
+    // el precio no se vuelve a ofrecer y un "sí" siguiente abre el pedido.
+    if (sec === "completa" && String(p.kind || "") === "physical") {
+      for (const s2 of ["precio", "pago", "entrega"]) registrarEnvio(ctx.estado, p.id, s2 as Seccion);
+      if (ctx.estado.compra === "ninguno" || ctx.estado.compra === "interes" || ctx.estado.compra === "producto_definido") ctx.estado.compra = "precio_dado";
+      ctx.estado.preguntoSiCompra = { productoId: p.id, turno: ctx.estado.turnos };
+    }
     if (sec === "entrega" && ctx.estado.entregaEstado === "pendiente_datos") ctx.estado.entregaEstado = "datos_listos";
 
     return {
       ok: true,
       mensaje:
-        `Se envió "${seccion}" de ${p.name}. Los datos (precio, cuentas, enlaces) los puso el sistema: ` +
-        `no los repitas en tu texto. Seguí con lo que sigue naturalmente.`,
+        sec === "completa" && String(p.kind || "") === "physical"
+          ? `Se envió la ficha COMPLETA de ${p.name}: foto, qué es, precio, envío, pago contraentrega y la pregunta "¿Te lo enviamos?". ` +
+            `NO escribas nada más en este turno (o como mucho un saludo de una línea si es el primer mensaje). No ofrezcas el precio: ya lo tiene.`
+          : `Se envió "${seccion}" de ${p.name}. Los datos (precio, cuentas, enlaces) los puso el sistema: ` +
+            `no los repitas en tu texto. Seguí con lo que sigue naturalmente.`,
     };
   },
 

@@ -68,3 +68,15 @@ describe("el mismo emoji al final de cada mensaje", () => {
     expect((r.partes[0] as any).content).toBe("Tenés 7 días de garantía. ¿Te animás a probarlo?");
   });
 });
+
+import { quitarNotasInternas } from "../motor";
+
+describe("notas internas del modelo (prueba en producción 25-09-2026)", () => {
+  test("se saca el paréntesis que se habla a sí mismo", () => {
+    expect(quitarNotasInternas("(El mensaje anterior ya incluía la pregunta de cierre, espero la respuesta del cliente).")).toBe("");
+    expect(quitarNotasInternas("Nota: el cliente ya vio el precio\n¿Te lo enviamos?")).toBe("¿Te lo enviamos?");
+  });
+  test("un paréntesis normal se queda", () => {
+    expect(quitarNotasInternas("Llega en 3 a 5 días (hábiles).")).toBe("Llega en 3 a 5 días (hábiles).");
+  });
+});
