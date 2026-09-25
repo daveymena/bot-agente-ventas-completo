@@ -45,6 +45,7 @@ import landingStudioOpencodeRouter from "./landing-studio-opencode";
 import couponsRouter from "./coupons";
 import whatsappCloudRouter from "./whatsapp-cloud";
 import agentLabRouter from "./agent-lab";
+import probarVendedorRouter from "./probar-vendedor";
 import agentLabDashboardRouter from "./agent-lab-dashboard";
 
 const router: IRouter = Router();
@@ -94,6 +95,7 @@ router.use("/landing-studio", landingStudioOpencodeRouter);
 router.use("/coupons", couponsRouter);
 router.use("/payment-approvals", paymentApprovalsRouter);
 router.use("/agent-lab", agentLabRouter);
+router.use("/probar-vendedor", probarVendedorRouter);
 router.use("/agent-lab-dashboard", agentLabDashboardRouter);
 router.use(errorHandler);
 

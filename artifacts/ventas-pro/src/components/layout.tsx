@@ -21,6 +21,7 @@ import {
   Truck,
   Beaker,
   BarChart3,
+  MessageSquareText,
 } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent } from "./ui/sidebar";
 import { Badge as UiBadge } from "@/components/ui/badge";
@@ -48,6 +49,7 @@ export function AppSidebar() {
     { label: "Panel", href: "/", icon: LayoutDashboard },
     { label: "Conversaciones", href: "/conversations", icon: MessageSquare },
     { label: "Agentes IA", href: "/agents", icon: Bot },
+    { label: "Probar vendedor", href: "/probar-vendedor", icon: MessageSquareText },
     { label: "Agent Lab", href: "/agent-lab", icon: Beaker },
     { label: "Lab Dashboard", href: "/agent-lab-dashboard", icon: BarChart3 },
     { label: "Prospectos", href: "/leads", icon: Users },

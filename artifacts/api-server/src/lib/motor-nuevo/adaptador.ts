@@ -706,6 +706,11 @@ export async function correrEnSombra(params: {
    * existe en la sombra: el router de producción no ve agentes inactivos.
    */
   agente?: any | null;
+  /**
+   * La charla que ya pasó (chat de prueba del dueño): así se corre UN turno
+   * nuevo sin repetir los anteriores, que podrían salir distinto.
+   */
+  historialPrevio?: Mensaje[];
 }) {
   const completo = await cargarCatalogoDelNegocio(params.tenantId);
   let catalogo = completo;
@@ -727,7 +732,7 @@ export async function correrEnSombra(params: {
   let estado: EstadoConversacion =
     params.estadoInicial ??
     ((await import("./estado-conversacion")).estadoInicial(0));
-  const historial: Mensaje[] = [];
+  const historial: Mensaje[] = [...(params.historialPrevio ?? [])];
   const salida: any[] = [];
 
   for (const turno of params.turnos) {

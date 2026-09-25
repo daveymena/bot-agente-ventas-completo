@@ -1,0 +1,205 @@
+/**
+ * CORRECCIONES DEL DUEÑO — lo que se corrige desde el chat de prueba.
+ *
+ * El dueño le escribe al vendedor como si fuera un cliente y, si una respuesta
+ * sale mal, la corrige ahí mismo (como el chat de prueba de la IA de Meta).
+ * La corrección se aplica AL INSTANTE, pero no como una capa nueva de prompt:
+ * va a las dos fuentes que el vendedor ya lee en cada mensaje.
+ *
+ *   dato  → `product_knowledge` (la herramienta `consultar_conocimiento`).
+ *           "El envío es gratis", "la garantía es de 6 meses".
+ *   forma → `agents.metadata.indicaciones` ("INDICACIONES DEL DUEÑO" del
+ *           prompt v2), escrito con `configurarAgente`, que ya valida que ahí
+ *           no se cuelen precios ni plazos (esos van en la base).
+ *
+ * Las dos se ven y se borran desde el mismo chat: deshacer es un clic.
+ */
+
+import { and, desc, eq } from "drizzle-orm";
+import { db, agents, productKnowledge } from "@workspace/db";
+import { PALABRAS_GENERICAS } from "./motor-nuevo/herramientas";
+
+/** Largo máximo de lo que el dueño escribe en una corrección. */
+const LARGO_MAXIMO = 500;
+
+function objeto(valor: unknown): Record<string, any> {
+  if (!valor) return {};
+  if (typeof valor === "string") {
+    try {
+      const p = JSON.parse(valor);
+      return p && typeof p === "object" ? p : {};
+    } catch {
+      return {};
+    }
+  }
+  return typeof valor === "object" ? { ...(valor as Record<string, any>) } : {};
+}
+
+/* ── Partes puras (con test) ─────────────────────────────────────────────── */
+
+/** Las indicaciones, una por renglón, sin viñetas ni renglones vacíos. */
+export function renglonesDeIndicaciones(texto: string | null | undefined): string[] {
+  return String(texto ?? "")
+    .split("\n")
+    .map((r) => r.replace(/^\s*[-•*]\s*/, "").trim())
+    .filter(Boolean);
+}
+
+/** Suma una indicación al final. Si ya estaba (misma frase), no la repite. */
+export function agregarIndicacion(actual: string | null | undefined, nueva: string): string {
+  const renglones = renglonesDeIndicaciones(actual);
+  const limpia = nueva.trim();
+  const igual = (a: string) => a.toLowerCase() === limpia.toLowerCase();
+  if (limpia && !renglones.some(igual)) renglones.push(limpia);
+  return renglones.map((r) => `- ${r}`).join("\n");
+}
+
+/** Quita la indicación número `indice` (la que se ve en la lista). */
+export function quitarIndicacion(actual: string | null | undefined, indice: number): string {
+  return renglonesDeIndicaciones(actual)
+    .filter((_, i) => i !== indice)
+    .map((r) => `- ${r}`)
+    .join("\n");
+}
+
+/**
+ * La pregunta en sí, sin el saludo que venía antes: de "Hola, me interesa el
+ * curso. ¿Tiene certificado?" queda "Tiene certificado". Es el tema que se le
+ * anuncia al vendedor y del que salen los disparadores; con el mensaje entero,
+ * "hola" o "curso" disparaban la respuesta del certificado.
+ */
+export function temaDeLaPregunta(mensajeDelCliente: string): string {
+  const texto = String(mensajeDelCliente || "").replace(/\s+/g, " ").trim();
+  // Frases: se corta después de . ! ? y antes de ¿ ¡
+  const frases = texto
+    .split(/(?<=[.!?])\s+|(?=[¿¡])/)
+    .map((f) => ({ conPregunta: f.includes("?"), limpia: f.replace(/[¿?¡!.]/g, "").trim() }))
+    .filter((f) => f.limpia);
+  const elegida = [...frases].reverse().find((f) => f.conPregunta) ?? frases[frases.length - 1];
+  return (elegida?.limpia || texto).slice(0, 200);
+}
+
+/**
+ * Las palabras con que el cliente lo preguntó, para que `consultar_conocimiento`
+ * encuentre la respuesta la próxima vez. Mismo piso de 3 letras que exige la
+ * herramienta de Atlas: una palabra más corta coincidiría con todo.
+ */
+export function disparadoresDe(mensajeDelCliente: string): string[] {
+  const palabras = mensajeDelCliente
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .split(/[^a-z0-9ñ]+/)
+    .filter((w) => w.length >= 4 && !PALABRAS_GENERICAS.has(w));
+  return [...new Set(palabras)].slice(0, 8);
+}
+
+/* ── Lo que el vendedor sabe hoy ─────────────────────────────────────────── */
+
+/**
+ * En v1 `configurarAgente` escribe el `prompt` en `tenants.agentPrompt`, que es
+ * el prompt ENTERO del negocio: una corrección de una línea lo pisaría. El chat
+ * de prueba corre el motor v2, así que la forma solo se corrige ahí.
+ */
+async function soloEnV2(tenantId: number): Promise<Resultado | null> {
+  const { motorDelTenant } = await import("./motor-nuevo/activacion");
+  if ((await motorDelTenant(tenantId)) === "v2") return null;
+  return { ok: false, mensaje: "Este negocio atiende con el motor viejo (v1): la forma de hablar se cambia en Agentes IA, no desde el chat de prueba." };
+}
+
+/** El agente que recibe las indicaciones: el mismo criterio que `configurarAgente`. */
+async function agentePrincipal(tenantId: number) {
+  const todos = await db.select().from(agents).where(eq(agents.tenantId, tenantId));
+  const orden = [...todos].sort((a: any, b: any) => Number(!!b.isActive) - Number(!!a.isActive) || a.id - b.id);
+  return orden[0] || null;
+}
+
+export async function loQueSabeElVendedor(tenantId: number) {
+  const agente = await agentePrincipal(tenantId);
+  const datos = await db
+    .select()
+    .from(productKnowledge)
+    .where(eq(productKnowledge.tenantId, tenantId))
+    .orderBy(desc(productKnowledge.id))
+    .limit(100);
+  return {
+    agente: agente ? { id: agente.id, nombre: agente.name } : null,
+    indicaciones: renglonesDeIndicaciones(objeto(agente?.metadata).indicaciones),
+    datos: datos.map((k: any) => ({
+      id: k.id,
+      pregunta: String(k.pregunta || ""),
+      respuesta: k.respuesta ? String(k.respuesta) : null,
+      productId: k.productId ?? null,
+    })),
+  };
+}
+
+/* ── Corregir ────────────────────────────────────────────────────────────── */
+
+export type Resultado = { ok: boolean; mensaje: string };
+
+/** Un dato que faltó o salió mal: queda como respuesta del negocio. */
+export async function corregirDato(
+  tenantId: number,
+  p: { mensajeDelCliente: string; respuestaCorrecta: string; productId?: number | null },
+): Promise<Resultado> {
+  const pregunta = temaDeLaPregunta(p.mensajeDelCliente);
+  const respuesta = String(p.respuestaCorrecta || "").trim();
+  if (!pregunta) return { ok: false, mensaje: "Falta el mensaje del cliente que se está corrigiendo." };
+  if (!respuesta) return { ok: false, mensaje: "Escribe qué debió responder." };
+  if (respuesta.length > LARGO_MAXIMO) return { ok: false, mensaje: `La respuesta es muy larga (máximo ${LARGO_MAXIMO} caracteres).` };
+
+  const disparadores = disparadoresDe(pregunta);
+  if (disparadores.length === 0) {
+    return { ok: false, mensaje: "El mensaje del cliente es muy corto para reconocerlo después. Corrige un mensaje con la pregunta completa." };
+  }
+
+  await db.insert(productKnowledge).values({
+    tenantId,
+    productId: p.productId ?? null,
+    pregunta,
+    disparadores: disparadores.join(", "),
+    respuesta,
+  });
+  return { ok: true, mensaje: "Listo: desde el próximo mensaje el vendedor responde eso." };
+}
+
+/** La forma de hablar: se suma a las indicaciones del agente principal. */
+export async function corregirForma(tenantId: number, indicacion: string): Promise<Resultado> {
+  const texto = String(indicacion || "").trim();
+  if (!texto) return { ok: false, mensaje: "Escribe cómo debe hablar el vendedor." };
+  if (texto.length > LARGO_MAXIMO) return { ok: false, mensaje: `La indicación es muy larga (máximo ${LARGO_MAXIMO} caracteres).` };
+
+  const bloqueo = await soloEnV2(tenantId);
+  if (bloqueo) return bloqueo;
+  const agente = await agentePrincipal(tenantId);
+  if (!agente) return { ok: false, mensaje: "No hay ningún agente creado. Crea uno en Agentes IA primero." };
+
+  const nuevas = agregarIndicacion(objeto(agente.metadata).indicaciones, texto);
+  const { configurarAgente } = await import("./configurar-agente");
+  const r = await configurarAgente(tenantId, { prompt: nuevas, agentId: agente.id });
+  if (!r.ok || r.aplicados.length === 0) {
+    const motivo = r.ignorados.map((i) => i.motivo).join(" ") || r.summary;
+    return { ok: false, mensaje: `No se aplicó: ${motivo}` };
+  }
+  return { ok: true, mensaje: `Listo: ${agente.name} ya habla así desde el próximo mensaje.` };
+}
+
+/* ── Deshacer ────────────────────────────────────────────────────────────── */
+
+export async function borrarDato(tenantId: number, id: number): Promise<Resultado> {
+  // El tenantId en el WHERE: un id de otro negocio no se borra.
+  await db.delete(productKnowledge).where(and(eq(productKnowledge.id, id), eq(productKnowledge.tenantId, tenantId)));
+  return { ok: true, mensaje: "Respuesta borrada." };
+}
+
+export async function borrarIndicacion(tenantId: number, indice: number): Promise<Resultado> {
+  const bloqueo = await soloEnV2(tenantId);
+  if (bloqueo) return bloqueo;
+  const agente = await agentePrincipal(tenantId);
+  if (!agente) return { ok: false, mensaje: "No hay agente." };
+  const nuevas = quitarIndicacion(objeto(agente.metadata).indicaciones, indice);
+  const { configurarAgente } = await import("./configurar-agente");
+  const r = await configurarAgente(tenantId, { prompt: nuevas, agentId: agente.id });
+  return r.ok ? { ok: true, mensaje: "Indicación quitada." } : { ok: false, mensaje: r.summary };
+}

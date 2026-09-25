@@ -170,6 +170,29 @@ código o de variables de entorno necesitan despliegue o reinicio.
    chats marca los fallos. No le escribe a nadie.
 4. Se activa con `update_agent { agentId, isActive: true }`, con aprobación.
 
+## El chat de prueba del dueño (`/probar-vendedor`)
+
+El dueño le escribe al vendedor como si fuera un cliente (como el chat de prueba
+de la IA de Meta). Responde este mismo motor con `correrEnSombra` y el
+`historialPrevio` de la charla: en memoria, sin crear conversaciones. Si una
+respuesta sale mal, "Corregir" la arregla al instante, sin capas de prompt nuevas
+(`lib/correcciones-del-dueno.ts`):
+
+- **Un dato** va a `product_knowledge`. Se guarda solo la pregunta ("Tiene
+  certificado"), no el saludo que venía antes, y los disparadores sin palabras
+  de relleno (`PALABRAS_GENERICAS` en `herramientas.ts`).
+- **La forma de hablar** va a `agents.metadata.indicaciones` con
+  `configurarAgente`, que ya rechaza precios y plazos ahí. Solo en v2: en v1 ese
+  campo es el prompt entero del negocio.
+
+Todo se ve y se deshace desde "Lo que ya sabe".
+
+El prompt del turno anuncia **qué respondió el dueño** (`temasRespondidosPorElDueno`),
+simétrico a "NO TENÉS ESTOS DATOS". Medido el 25-09-2026: con producto en foco
+el modelo leía solo lo que falta y decía "déjame confirmarlo" sin llamar a
+`consultar_conocimiento` (0 de 3); con los temas anunciados, 3 de 3. Esto
+afectaba también a WhatsApp, no solo al chat de prueba.
+
 ## Lo que se retira cuando el v2 quede prendido para todos
 
 Marcado en el código con `RETIRAR CON EL V1`. Hoy siguen vivos y son el camino
