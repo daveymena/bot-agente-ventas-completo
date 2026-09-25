@@ -787,14 +787,14 @@ export const ejecutores: Record<string, Ejecutor> = {
       return { ok: false, mensaje: `${p.name} no tiene video cargado. Sigue sin ofrecerle video.` };
     }
 
-    const yaVio = productoPresentado(ctx.estado, p.id);
+    const yaVioElContenido = productoPresentado(ctx.estado, p.id);
     ctx.partes.push({
       kind: "card",
       productId: p.id,
       seccion: sec,
       // Lo que el render ya sabía usar y el motor viejo casi nunca le pasaba.
       // Acá sale del estado, sin depender de que el modelo se acuerde.
-      yaVioContenido: yaVio,
+      yaVioContenido: yaVioElContenido,
       sesionNueva: ctx.estado.turnos === 0,
       videoYaEnviado: yaSeEnvio(ctx.estado, p.id, "video"),
       mensajeDelCliente: ctx.mensajeDelCliente,
@@ -803,7 +803,7 @@ export const ejecutores: Record<string, Ejecutor> = {
     });
 
     registrarEnvio(ctx.estado, p.id, sec);
-    registrarVideoSiLaFichaLoLleva(ctx.estado, p, sec, yaVio);
+    registrarVideoSiLaFichaLoLleva(ctx.estado, p, sec, yaVioElContenido);
     registrarHechoEntregado(ctx.estado, `${sec} de ${p.name}`);
     marcarPaso(ctx.estado, `mostrar_${sec}_${p.id}`);
     if (ctx.estado.productoEnFoco !== p.id) {

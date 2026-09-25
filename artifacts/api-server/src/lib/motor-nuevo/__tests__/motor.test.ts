@@ -327,6 +327,30 @@ describe("el conocimiento del dueño", () => {
     assert.match(r.mensaje, /no cargó nada/i);
   });
 
+  test("la ficha completa lleva el video: el turno siguiente ya NO lo vuelve a ofrecer", async () => {
+    // Reportado en producción (25-09-2026): después de la ficha completa, que
+    // trae el enlace del video, la siguiente preguntaba "¿quieres ver un
+    // pedacito del video?". El estado solo anotaba "completa".
+    const ctx = ctxNuevo();
+    await ejecutores.mostrar(ctx, { productoId: 1, seccion: "completa" });
+    assert.equal((ctx.partes[0] as any).videoYaEnviado, false, "la primera ficha sí puede llevarlo");
+
+    const siguiente = ctxNuevo();
+    siguiente.estado = ctx.estado;
+    await ejecutores.mostrar(siguiente, { productoId: 1, seccion: "precio" });
+    assert.equal((siguiente.partes[0] as any).videoYaEnviado, true);
+  });
+
+  test("un producto sin video no queda marcado como que lo mandó", async () => {
+    const ctx = ctxNuevo();
+    const sinVideo = CATALOGO.find((p) => !p.videoUrl)!;
+    await ejecutores.mostrar(ctx, { productoId: sinVideo.id, seccion: "completa" });
+    const siguiente = ctxNuevo();
+    siguiente.estado = ctx.estado;
+    await ejecutores.mostrar(siguiente, { productoId: sinVideo.id, seccion: "precio" });
+    assert.equal((siguiente.partes[0] as any).videoYaEnviado, false);
+  });
+
   test("la nota de voz sale solo cuando el vendedor la pide, y no en turnos seguidos", () => {
     const ctx = ctxNuevo();
     ctx.estado.turnos = 4;
