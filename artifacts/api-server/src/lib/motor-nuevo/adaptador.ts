@@ -400,16 +400,87 @@ export function servicioDePedidos(p: {
         return {
           estado: "creado",
           numero,
-          confirmacion:
-            `Producto: ${pedido.productName} × ${pedido.quantity}. ` +
-            `${cond.envio.costo === "incluido" ? "Envío incluido" : `Envío ${cond.envio.costo}`}. ` +
-            `${pedido.metodoPago === "contraentrega" ? "Paga contraentrega al recibir" : "Pago ya acordado"}. ` +
-            `Llega a ${pedido.direccion}${pedido.barrio ? `, barrio ${pedido.barrio}` : ""} — ${pedido.ciudad}, ${pedido.departamento}, en ${cond.envio.plazo}.`,
+          confirmacion: ds.confirmacionDelPedido(pedido, cond),
         };
       } catch (e: any) {
         logger.error({ err: e?.message, conversationId: p.conversationId }, "[MotorV2] no se pudo confirmar el pedido");
         return { estado: "error", motivo: e?.message || "error interno" };
       }
+    },
+  };
+}
+
+/**
+ * El servicio de pedidos del CHAT DE PRUEBA: mismas validaciones y mismos
+ * mensajes que `servicioDePedidos` (la lista de datos de envío, el resumen del
+ * pedido), pero en memoria. No abre pedidos en la base ni despacha a Dropi.
+ *
+ * Sin esto la prueba mentía: el vendedor no podía tomar el pedido, redactaba
+ * él "¿me pasás tu nombre, dirección y ciudad?" y el dueño veía un texto
+ * corrido que por WhatsApp no sale (ahí sale la lista ordenada).
+ *
+ * El pedido vive entre turnos en `pedido()`: la ruta lo devuelve y lo recibe
+ * igual que el estado de la conversación.
+ */
+export function servicioDePedidosDePrueba(p: {
+  condiciones: import("../modelo-de-negocio").CondicionesDelNegocio;
+  inicial?: import("../dropshipping").PedidoDropshipping | null;
+}): { servicio: ServicioDePedidos; pedido: () => import("../dropshipping").PedidoDropshipping | null } {
+  const ETIQUETA: Record<string, string> = {
+    nombre: "nombre completo", documento: "cédula", telefono: "celular", direccion: "dirección",
+    ciudad: "ciudad", departamento: "departamento", barrio: "barrio", notas: "punto de referencia",
+  };
+  const cond = p.condiciones;
+  let pedido: import("../dropshipping").PedidoDropshipping | null = p.inicial ?? null;
+
+  return {
+    pedido: () => pedido,
+    servicio: {
+      async tomar({ producto, cantidad, datos }) {
+        const ds = await import("../dropshipping");
+        let heredados: Partial<import("../dropshipping").DatosDeEnvio> = {};
+        if (pedido && pedido.productId !== producto.id) {
+          const { nombre, telefono, documento, departamento, ciudad, direccion, barrio, notas } = pedido;
+          heredados = { nombre, telefono, documento, departamento, ciudad, direccion, barrio, notas };
+          pedido = null;
+        }
+        if (!pedido) {
+          const unit = Number(producto.price) || 0;
+          pedido = {
+            id: 0, tenantId: 0, conversationId: null, productId: producto.id, productName: producto.name,
+            quantity: cantidad, unitPrice: String(unit), total: String(unit * cantidad),
+            metodoPago: cond.envio.pago === "anticipado" ? "transferencia" : "contraentrega",
+            estado: "abierto", wooOrderId: null, wooError: null,
+          };
+        }
+        const nuevos: Partial<import("../dropshipping").DatosDeEnvio> = { ...heredados, ...datos };
+        if (!nuevos.departamento && !pedido.departamento) {
+          const dep = ds.departamentoDeCiudad(nuevos.ciudad || pedido.ciudad);
+          if (dep) nuevos.departamento = dep;
+        }
+        if (pedido.estado === "por_confirmar" && Object.keys(datos).length) pedido.estado = "completo";
+        for (const [k, v] of Object.entries(nuevos)) if (v) (pedido as any)[k] = v;
+
+        const faltan = ds.datosQueFaltan(pedido);
+        if (faltan.length) {
+          const yaTiene = ds.CAMPOS_DE_ENVIO.filter((c) => String((pedido as any)[c.campo] ?? "").trim()).map((c) => ETIQUETA[c.campo] || c.campo);
+          return { estado: "faltan", faltan: faltan.map((c) => ETIQUETA[c] || String(c)), yaTiene };
+        }
+        const zona = ds.verificarZona(pedido, cond.pais);
+        if (!zona.ok) return { estado: "zona", motivo: zona.motivo || "la zona no verifica" };
+        pedido.estado = "por_confirmar";
+        return { estado: "listo", resumen: ds.resumenDelPedido(pedido, cond) };
+      },
+
+      async confirmar() {
+        if (!pedido) return { estado: "sin_pedido" };
+        pedido.estado = "confirmado";
+        return {
+          estado: "creado",
+          numero: "PRUEBA",
+          confirmacion: (await import("../dropshipping")).confirmacionDelPedido(pedido, cond),
+        };
+      },
     },
   };
 }
@@ -711,6 +782,8 @@ export async function correrEnSombra(params: {
    * nuevo sin repetir los anteriores, que podrían salir distinto.
    */
   historialPrevio?: Mensaje[];
+  /** Pedidos físicos simulados (`servicioDePedidosDePrueba`). Sin él, no se toman pedidos. */
+  pedidos?: ServicioDePedidos;
 }) {
   const completo = await cargarCatalogoDelNegocio(params.tenantId);
   let catalogo = completo;
@@ -751,6 +824,7 @@ export async function correrEnSombra(params: {
         guion,
         voz,
         recargarGuion: (nuevoFocoId: number) => cargarGuion(params.tenantId, catalogo, nuevoFocoId),
+        pedidos: params.pedidos,
       });
       partes = r.partes;
       traza = r.traza;

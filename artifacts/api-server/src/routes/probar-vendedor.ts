@@ -26,6 +26,14 @@ const router = Router();
 /** Tope de la charla que se reenvía: igual que MENSAJES_DE_HISTORIAL del motor. */
 const MAX_HISTORIAL = 40;
 
+/** Las condiciones de envío y pago del negocio (las mismas que usa WhatsApp). */
+async function condicionesDe(tenantId: number) {
+  const { getBusinessContext } = await import("../lib/business-context");
+  const { CONDICIONES_DE_RESPALDO } = await import("../lib/modelo-de-negocio");
+  const negocio: any = await getBusinessContext(tenantId).catch(() => null);
+  return negocio?.condiciones ?? CONDICIONES_DE_RESPALDO;
+}
+
 /**
  * Las partes del turno convertidas en los mensajes que recibe el cliente: la
  * ficha con su foto, precio, cuentas y video, con las MISMAS funciones del
@@ -108,13 +116,17 @@ router.post("/mensaje", async (req: TenantRequest, res) => {
     .slice(-MAX_HISTORIAL)
     .map((m: any) => ({ role: m.role, content: m.content }));
   const estado = req.body?.estado && typeof req.body.estado === "object" ? req.body.estado : undefined;
+  const pedidoPrevio = req.body?.pedido && typeof req.body.pedido === "object" ? req.body.pedido : null;
 
   try {
-    const { correrEnSombra } = await import("../lib/motor-nuevo/adaptador");
+    const { correrEnSombra, servicioDePedidosDePrueba } = await import("../lib/motor-nuevo/adaptador");
     const { armarCadena, crearClienteLLM } = await import("../lib/motor-nuevo/cliente-llm");
     const llm = crearClienteLLM({ cadena: await armarCadena({ tenantId }), tenantId });
+    // Pedidos simulados: la lista de datos de envío y el resumen salen como por
+    // WhatsApp, pero no se abre ni se despacha ningún pedido real.
+    const pedidos = servicioDePedidosDePrueba({ condiciones: await condicionesDe(tenantId), inicial: pedidoPrevio });
 
-    const r = await correrEnSombra({ tenantId, turnos: [mensaje], estadoInicial: estado, historialPrevio: historial, llm });
+    const r = await correrEnSombra({ tenantId, turnos: [mensaje], estadoInicial: estado, historialPrevio: historial, llm, pedidos: pedidos.servicio });
     const turno = r.salida[0];
     if (turno?.error) {
       logger.warn({ tenantId, err: turno.error }, "[ProbarVendedor] el motor falló");
@@ -127,6 +139,7 @@ router.post("/mensaje", async (req: TenantRequest, res) => {
       mensajes,
       texto: turno?.texto || "",
       estado: r.estado,
+      pedido: pedidos.pedido(),
       productoEnFoco: (r.estado as any)?.productoEnFoco ?? null,
       herramientas: turno?.herramientas || [],
       proveedor: turno?.proveedor || null,
@@ -249,10 +262,11 @@ router.post("/ejemplo/probar", async (req: TenantRequest, res) => {
   const turnos = (Array.isArray(req.body?.turnos) ? req.body.turnos : []).map((t: any) => String(t || "")).filter(Boolean).slice(0, MAX_TURNOS_DE_CLIENTE);
   if (!turnos.length) return res.status(400).json({ ok: false, mensaje: "No hay mensajes para probar." });
   try {
-    const { correrEnSombra } = await import("../lib/motor-nuevo/adaptador");
+    const { correrEnSombra, servicioDePedidosDePrueba } = await import("../lib/motor-nuevo/adaptador");
     const { armarCadena, crearClienteLLM } = await import("../lib/motor-nuevo/cliente-llm");
     const llm = crearClienteLLM({ cadena: await armarCadena({ tenantId }), tenantId });
-    const r = await correrEnSombra({ tenantId, turnos, llm });
+    const pedidos = servicioDePedidosDePrueba({ condiciones: await condicionesDe(tenantId) });
+    const r = await correrEnSombra({ tenantId, turnos, llm, pedidos: pedidos.servicio });
     const conversacion: { role: string; content?: string; burbujas?: any[] }[] = [];
     for (const s of r.salida as any[]) {
       conversacion.push({ role: "customer", content: s.mensaje });

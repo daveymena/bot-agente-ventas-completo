@@ -49,6 +49,8 @@ export default function ProbarVendedorPage() {
   const [, setLocation] = useLocation();
   const [mensajes, setMensajes] = useState<Mensaje[]>([]);
   const [estado, setEstado] = useState<unknown>(null);
+  // El pedido de prueba (simulado: no se registra ni se despacha).
+  const [pedido, setPedido] = useState<unknown>(null);
   const [texto, setTexto] = useState("");
   const [pensando, setPensando] = useState(false);
   const [sabe, setSabe] = useState<LoQueSabe | null>(null);
@@ -68,11 +70,12 @@ export default function ProbarVendedorPage() {
     setTexto("");
     setPensando(true);
     try {
-      const r = await api<{ texto: string; mensajes: Burbuja[]; estado: unknown; productoEnFoco: number | null }>(
+      const r = await api<{ texto: string; mensajes: Burbuja[]; estado: unknown; pedido: unknown; productoEnFoco: number | null }>(
         "/api/probar-vendedor/mensaje",
-        { method: "POST", body: JSON.stringify({ mensaje: limpio, historial, estado }) },
+        { method: "POST", body: JSON.stringify({ mensaje: limpio, historial, estado, pedido }) },
       );
       setEstado(r.estado);
+      setPedido(r.pedido ?? null);
       setMensajes((m) => [...m, { role: "agent", content: r.texto || "[ficha]", burbujas: r.mensajes, productoEnFoco: r.productoEnFoco }]);
     } catch (e: any) {
       toast.error(e.message || "El vendedor no respondió");
@@ -83,7 +86,7 @@ export default function ProbarVendedorPage() {
     }
   };
 
-  const reiniciar = () => { setMensajes([]); setEstado(null); };
+  const reiniciar = () => { setMensajes([]); setEstado(null); setPedido(null); };
 
   const panelSabe = <PanelLoQueSabe sabe={sabe} alCambiar={cargarSabe} />;
 

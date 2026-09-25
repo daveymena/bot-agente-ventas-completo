@@ -236,7 +236,12 @@ export async function analizarEjemplo(tenantId: number, textoDelEjemplo: string)
   }
 
   const llm = crearClienteLLM({ cadena: await armarCadena({ tenantId }), tenantId });
-  const sombra = await correrEnSombra({ tenantId, turnos: delCliente, llm });
+  const { servicioDePedidosDePrueba } = await import("./motor-nuevo/adaptador");
+  const { getBusinessContext } = await import("./business-context");
+  const { CONDICIONES_DE_RESPALDO } = await import("./modelo-de-negocio");
+  const negocio: any = await getBusinessContext(tenantId).catch(() => null);
+  const pedidos = servicioDePedidosDePrueba({ condiciones: negocio?.condiciones ?? CONDICIONES_DE_RESPALDO });
+  const sombra = await correrEnSombra({ tenantId, turnos: delCliente, llm, pedidos: pedidos.servicio });
   const hoy: Turno[] = [];
   sombra.salida.forEach((s: any) => {
     hoy.push({ role: "customer", content: s.mensaje });

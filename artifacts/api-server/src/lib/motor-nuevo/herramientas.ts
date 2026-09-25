@@ -368,10 +368,11 @@ export const definicionesDeHerramientas = [
     function: {
       name: "tomar_pedido",
       description:
-        "Para productos FÍSICOS con envío, cuando el cliente ya quiere comprarlo (y ya sabe el precio). " +
-        "Pasale los datos de envío que el cliente te dio, tal como los entendiste (aunque vengan todos en un mensaje " +
-        "o en desorden). El sistema abre el pedido, guarda los datos y te dice qué falta; cuando están todos, verifica " +
-        "la zona y le MANDA al cliente el resumen para confirmar. Llamala otra vez cada vez que te dé o corrija un dato.",
+        "Para productos FÍSICOS con envío, apenas el cliente quiere comprarlo (y ya sabe el precio), AUNQUE todavía " +
+        "no te haya dado ningún dato: el SISTEMA le manda la lista ordenada de los datos de envío que faltan, así que " +
+        "vos no los pedís por texto. Pasale los datos que el cliente te dio, tal como los entendiste (aunque vengan todos " +
+        "en un mensaje o en desorden). Cuando están todos, verifica la zona y le MANDA el resumen para confirmar. " +
+        "Llamala otra vez cada vez que te dé o corrija un dato.",
       parameters: {
         type: "object",
         properties: {
@@ -1012,7 +1013,7 @@ export const ejecutores: Record<string, Ejecutor> = {
         ctx.partes.push({
           kind: "text",
           content:
-            `✅ Pedido${r.numero ? ` #${r.numero}` : ""} registrado\n\n${r.confirmacion.split(". ").filter(Boolean).join(".\n").replace(/\.+$/, "")}.\n\n` +
+            `✅ *Pedido${r.numero ? ` #${r.numero}` : ""} registrado*\n\n${r.confirmacion.trim()}\n\n` +
             "Apenas la transportadora genere la guía, te la comparto por acá 📦",
         });
         return {

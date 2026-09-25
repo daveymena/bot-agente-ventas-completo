@@ -252,7 +252,9 @@ export function resumenDelPedido(p: PedidoDropshipping, c: CondicionesDelNegocio
     precio > 0 ? `💰 Total: $${precio.toLocaleString("es-CO")} COP (${c.envio.costo === "incluido" ? "envío incluido" : `envío ${c.envio.costo}`})` : "",
     `💵 Pago: ${p.metodoPago === "contraentrega" ? "contraentrega, al recibir" : p.metodoPago}`,
     `👤 ${p.nombre}`,
-    `🪪 Cédula ${p.documento}`,
+    // La cédula ya no se pide (maquetaDeDatosDeEnvio): sin esto el resumen le
+    // mostraba al cliente "🪪 Cédula undefined" (chat de prueba, 25-09-2026).
+    p.documento ? `🪪 Cédula ${p.documento}` : "",
     `📱 ${p.telefono}`,
     `🏠 ${p.direccion}${p.barrio ? `, barrio ${p.barrio}` : ""}`,
     `🏙️ ${p.ciudad}, ${p.departamento}`,
@@ -260,6 +262,22 @@ export function resumenDelPedido(p: PedidoDropshipping, c: CondicionesDelNegocio
     `🚚 Entrega: ${c.envio.plazo}`,
   ];
   return lineas.filter(Boolean).join("\n");
+}
+
+/**
+ * La confirmación que recibe el cliente cuando el pedido quedó registrado:
+ * ordenada como la ficha, un dato por línea con su emoji. Antes era una tira de
+ * frases ("Producto: … Envío incluido. Paga contraentrega… Llega a …") que se
+ * partía en ". " y quedaba como texto corrido.
+ */
+export function confirmacionDelPedido(p: PedidoDropshipping, c: CondicionesDelNegocio = CONDICIONES_DE_RESPALDO): string {
+  return [
+    `📦 ${p.productName} × ${p.quantity}`,
+    `💵 ${p.metodoPago === "contraentrega" ? "Pagas contraentrega, cuando lo recibes" : "Pago ya acordado"}`,
+    `🏠 ${p.direccion}${p.barrio ? `, barrio ${p.barrio}` : ""}`,
+    `🏙️ ${p.ciudad}${p.departamento ? `, ${p.departamento}` : ""}`,
+    `🚚 ${c.envio.costo === "incluido" ? "Envío incluido" : `Envío ${c.envio.costo}`} · llega en ${c.envio.plazo}`,
+  ].join("\n");
 }
 
 // ─── Lectura de datos desde texto libre ──────────────────────────────────────
