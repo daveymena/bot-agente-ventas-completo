@@ -62,7 +62,7 @@ ${perfil.instruccionesDeRol}
 
 Producto: ${producto.name}
 Descripción: ${producto.description}
-${producto.price ? `Precio: ${product.price}` : ""}
+${producto.price ? `Precio: ${producto.price}` : ""}
 
 Historial de conversación:
 ${historial.map((m) => `${m.role === "customer" ? "Tú (cliente)" : "Vendedor"}: ${m.content}`).join("\n")}
