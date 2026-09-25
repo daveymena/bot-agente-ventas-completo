@@ -6436,6 +6436,18 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "embudo_de_ventas",
+    description: "DÓNDE SE CAEN LOS CLIENTES, por origen (cada anuncio vs orgánico) y por producto: escribió → eligió producto → vio el precio → recibió cómo pagar → pagó o pidió → cobrado. Sale de los hechos que registra el vendedor y de los pagos cobrados. Usala antes de proponer más anuncios o experimentos: si nadie pasa del precio, el problema no es el anuncio. Lectura pura.",
+    args: '{ "dias"?: number (ventana, por defecto 30) }',
+    run: async (args, ctx) => {
+      const dias = Math.min(Math.max(num(args.dias) || 30, 1), 365);
+      const { embudoPorOrigen } = await import("./marketing-team/embudo-por-origen");
+      const r = await embudoPorOrigen(ctx.tenantId, dias);
+      return { ok: true, summary: `Embudo de los últimos ${dias} días (${r.total} conversaciones):
+${r.texto}`, data: r.grupos };
+    },
+  },
+  {
     name: "marketing_attribution",
     description: "LA ÚNICA FUENTE DE CAC Y ROAS REALES. Cruza el anuncio del que vino cada lead (Meta click-to-WhatsApp) con las ventas COBRADAS, y devuelve por anuncio: leads, ventas, ingresos y el embudo completo. Usala ANTES de opinar sobre si una campaña funciona: las métricas de Meta cuentan conversaciones iniciadas, no plata cobrada, y un anuncio puede traer muchos leads y cero ventas. Si te preguntan '¿qué anuncio me conviene?', '¿cuánto me cuesta cada venta?' o '¿por qué no crece el negocio?', empezá por acá. Lectura pura, no cambia nada.",
     args: '{ "dias"?: number (ventana a analizar, por defecto 30) }',
@@ -7612,6 +7624,7 @@ export async function executeAction(tool: string, args: any, ctx: OperatorContex
 // Mutación: cambian datos → requieren PLAN + confirmación del admin.
 // Destructivas / de dinero: confirmación reforzada.
 export const READ_ONLY_TOOLS = new Set([
+  "embudo_de_ventas",
   // La agenda: solo lee qué hay programado (ver lib/atlas-agenda.ts).
   "agenda_ver",
   "analyze_system", "list_products", "list_categories", "get_agent", "get_settings",

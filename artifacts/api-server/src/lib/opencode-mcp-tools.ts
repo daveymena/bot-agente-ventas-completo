@@ -242,6 +242,11 @@ const TOOL_SCHEMAS: Record<string, object> = {
     properties: { limite: { type: "number", description: "Cuántos aprendizajes traer, por defecto 20" } },
     additionalProperties: false,
   },
+  embudo_de_ventas: {
+    type: "object",
+    properties: { dias: { type: "number", description: "Ventana a analizar en días, por defecto 30" } },
+    additionalProperties: false,
+  },
   marketing_attribution: {
     type: "object",
     properties: { dias: { type: "number", description: "Ventana a analizar en días, por defecto 30" } },
@@ -1129,12 +1134,18 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     herramientas: ["propuesta_campana", "list_products", "anuncio_datos_expertos"],
   },
   {
+    // Dónde se caen los clientes: sin esto Atlas proponía más anuncios con
+    // 0 ventas cerradas (25-09-2026).
+    patron: /embudo|d[oó]nde se (caen|pierden|quedan)|por qu[eé] no (vend|compr|cierr)|no (vendo|compran|cierra)|ventas|clientes/i,
+    herramientas: ["embudo_de_ventas", "marketing_attribution", "list_recent_conversations"],
+  },
+  {
     // ── Anuncios: ANALIZAR ───────────────────────────────────────────────
     // Se activa cuando el pedido pregunta CÓMO VA algo, no cuando pide crear.
     // Un "¿cómo va mi campaña de Facebook?" matchea los dos grupos y recibe la
     // unión, que es lo correcto: ahí sí hacen falta las dos mitades.
     patron: /m[eé]trica|rendimiento|resultado|c[oó]mo va|c[oó]mo est[aá]|gast|roas|cpa|cpc|conversion|analiz|diagn[oó]stic|atribuci|aprendiz|optimiz|competencia|competidor|estructura|configur|armad|replic|como (las|los) (que|activ)|en pausa|pausad/i,
-    herramientas: ["fb_campaign_metrics", "fb_list_adsets", "fb_agent_logs", "fb_ad_library", "marketing_attribution", "marketing_diagnostico", "marketing_aprendizajes", "ad_brief", "fb_radiografia_campana"],
+    herramientas: ["fb_campaign_metrics", "fb_list_adsets", "fb_agent_logs", "fb_ad_library", "embudo_de_ventas", "marketing_attribution", "marketing_diagnostico", "marketing_aprendizajes", "ad_brief", "fb_radiografia_campana"],
   },
   {
     patron: /whatsapp|wasap|conversaci|chat|mensaje|cliente|lead/i,
@@ -1461,7 +1472,7 @@ export function buildMcpToolRegistry(pedido?: string): McpToolDef[] {
  */
 const FAMILIAS_DE_CONSULTA: Array<{ tema: string; herramientas: string[] }> = [
   { tema: "Catalogo y tienda", herramientas: ["list_products", "list_categories", "get_store", "search_product_images", "optimize_price", "optimize_copy"] },
-  { tema: "Ventas y clientes", herramientas: ["dashboard_summary", "list_recent_conversations", "list_pending_transfers", "list_duplicate_contacts", "predict_customer", "analyze_channel_performance"] },
+  { tema: "Ventas y clientes", herramientas: ["embudo_de_ventas", "dashboard_summary", "list_recent_conversations", "list_pending_transfers", "list_duplicate_contacts", "predict_customer", "analyze_channel_performance"] },
   { tema: "WhatsApp y agente", herramientas: ["whatsapp_status", "get_agent", "configurar_mi_agente", "get_settings", "agente_inspectar", "agente_configurar", "agente_perfil_negocio", "agente_conocimiento", "agente_mensaje", "agente_probar_chat", "vendedor_diagnosticar", "vendedor_motor_ver", "vendedor_probar"] },
   { tema: "Facebook Ads", herramientas: ["fb_status", "fb_list_campaigns", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics", "fb_why_not_delivering", "fb_page_can_post", "fb_page_preview", "fb_suggest_audience", "fb_pixel_status", "fb_ad_library", "fb_agent_logs", "que_hago_con_la_campana", "ad_brief"] },
   { tema: "Marketing y contenido", herramientas: ["marketing_diagnostico", "marketing_aprendizajes", "marketing_attribution", "plan_de_contenido", "generate_image", "web_scrape_images"] },
