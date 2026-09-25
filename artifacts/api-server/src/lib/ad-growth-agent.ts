@@ -286,6 +286,16 @@ export async function runSpendProtectionCheck(): Promise<void> {
   }
 }
 
+/**
+ * Protección de gasto SOLO para un negocio. La usa `POST /facebook/agent/run-now`
+ * para no tocar campañas ni mandar avisos de OTROS negocios cuando un admin
+ * aprieta "revisar ahora" (antes corría global y pausaba cuentas ajenas).
+ */
+export async function runSpendProtectionForTenant(tenantId: number): Promise<void> {
+  const tenant = await tenantManager.getTenantById(tenantId);
+  if (tenant) await spendProtectionForTenant(tenant);
+}
+
 async function spendProtectionForTenant(tenant: TenantContext): Promise<void> {
   const fb = new FacebookService(tenant);
   if (!fb.isConfigured()) return;
@@ -433,6 +443,12 @@ export async function runTrendReview(): Promise<void> {
       logger.error({ err, tenantId: tenant.id }, "[AdGrowthAgent] Error en revisión de tendencia del negocio");
     }
   }
+}
+
+/** Revisión de tendencia SOLO para un negocio (ver runSpendProtectionForTenant). */
+export async function runTrendReviewForTenant(tenantId: number): Promise<void> {
+  const tenant = await tenantManager.getTenantById(tenantId);
+  if (tenant) await trendReviewForTenant(tenant);
 }
 
 async function trendReviewForTenant(tenant: TenantContext): Promise<void> {

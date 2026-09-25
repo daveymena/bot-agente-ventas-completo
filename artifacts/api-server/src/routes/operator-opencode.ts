@@ -50,6 +50,7 @@ import { enLenguajeDeDueno } from "../lib/lenguaje-de-dueno";
 import { afirmaHaberloHecho } from "../lib/afirma-haberlo-hecho";
 import { mensajeDeCierre } from "../lib/entrega-por-partes";
 import { partirElPedido } from "../lib/partir-el-pedido";
+import { avisoDeArranque } from "../lib/aviso-de-arranque";
 import { arrancaPedidoNuevo } from "../lib/es-pedido-nuevo";
 import { verloEsAutorizarlo } from "../lib/pedir-ver-el-resultado";
 import { anotarTurno, ultimosTurnos, resumirTurnos } from "../lib/diagnostico-de-turnos";
@@ -986,9 +987,11 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
     // "por etapas" a quien acababa de nombrar un producto (visto el 14-09).
     const enRuta = !!detectarInicioDeRuta(String(prompt)) || !!(await cargarRuta(tenantId, sessionId).catch(() => null));
     if (!enRuta) {
-      sse("avance", {
-        reply: "🧭 Ya entendí el pedido. Lo voy a resolver por etapas y te iré entregando cada parte terminada.",
-      });
+      // El aviso se arma desde el pedido real (ver aviso-de-arranque.ts). Si no
+      // se reconoce qué pidió, no se manda nada: mejor callarse que anunciar
+      // algo distinto de lo que va a pasar.
+      const aviso = avisoDeArranque(String(prompt));
+      if (aviso) sse("avance", { reply: aviso });
     }
     const heartbeat = setInterval(() => progreso("Sigo trabajando en tu pedido..."), 15_000);
 
@@ -1130,8 +1133,8 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // existe) y otra eligió `fb_ad_draft`, que ni acepta el parámetro. Dos
       // de tres habrían publicado a la web. El dato existe en el texto: no
       // tiene por qué depender de que el modelo lo recuerde.
-      const { interpretarObjetivo } = await import("../lib/objetivos-campana");
-      const objetivoDelAdmin = interpretarObjetivo(String(prompt || ""));
+      const { pedidoDelAdmin } = await import("../lib/objetivos-campana");
+      const objetivoDelAdmin = pedidoDelAdmin(String(prompt || ""));
       const mcpUrl = `${getAppUrl()}/api/internal/mcp/atlas?token=${token}&tools=${encodeURIComponent(nombresPermitidos)}`
         + (objetivoDelAdmin ? `&objetivo=${encodeURIComponent(objetivoDelAdmin)}` : "");
       const tools: Record<string, boolean> = {};

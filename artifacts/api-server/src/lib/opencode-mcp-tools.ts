@@ -260,6 +260,16 @@ const TOOL_SCHEMAS: Record<string, object> = {
     properties: { limite: { type: "number", description: "Cuántos aprendizajes traer, por defecto 20" } },
     additionalProperties: false,
   },
+  objetivos_de_campana: {
+    type: "object",
+    properties: { pedido: { type: "string", description: "La frase del admin, para decir qué objetivo corresponde" } },
+    additionalProperties: false,
+  },
+  embudo_de_ventas: {
+    type: "object",
+    properties: { dias: { type: "number", description: "Ventana a analizar en días, por defecto 30" } },
+    additionalProperties: false,
+  },
   marketing_attribution: {
     type: "object",
     properties: { dias: { type: "number", description: "Ventana a analizar en días, por defecto 30" } },
@@ -1147,12 +1157,18 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     herramientas: ["propuesta_campana", "list_products", "anuncio_datos_expertos"],
   },
   {
+    // Dónde se caen los clientes: sin esto Atlas proponía más anuncios con
+    // 0 ventas cerradas (25-09-2026).
+    patron: /embudo|d[oó]nde se (caen|pierden|quedan)|por qu[eé] no (vend|compr|cierr)|no (vendo|compran|cierra)|ventas|clientes/i,
+    herramientas: ["embudo_de_ventas", "marketing_attribution", "list_recent_conversations"],
+  },
+  {
     // ── Anuncios: ANALIZAR ───────────────────────────────────────────────
     // Se activa cuando el pedido pregunta CÓMO VA algo, no cuando pide crear.
     // Un "¿cómo va mi campaña de Facebook?" matchea los dos grupos y recibe la
     // unión, que es lo correcto: ahí sí hacen falta las dos mitades.
     patron: /m[eé]trica|rendimiento|resultado|c[oó]mo va|c[oó]mo est[aá]|gast|roas|cpa|cpc|conversion|analiz|diagn[oó]stic|atribuci|aprendiz|optimiz|competencia|competidor|estructura|configur|armad|replic|como (las|los) (que|activ)|en pausa|pausad/i,
-    herramientas: ["fb_campaign_metrics", "fb_list_adsets", "fb_agent_logs", "fb_ad_library", "marketing_attribution", "marketing_diagnostico", "marketing_aprendizajes", "ad_brief", "fb_radiografia_campana"],
+    herramientas: ["fb_campaign_metrics", "fb_list_adsets", "fb_agent_logs", "fb_ad_library", "embudo_de_ventas", "marketing_attribution", "marketing_diagnostico", "marketing_aprendizajes", "ad_brief", "fb_radiografia_campana"],
   },
   {
     patron: /whatsapp|wasap|conversaci|chat|mensaje|cliente|lead/i,
@@ -1186,8 +1202,8 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     herramientas: ["generate_image", "search_product_images", "web_scrape_images"],
   },
   {
-    patron: /dropi|proveedor|dropshipping|stock|woo\s?commerce|wordpress|dropify|pedidos? (llega|recib)|descripci[oó]n|ficha/i,
-    herramientas: ["dropi_status", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver", "producto_ficha_desde_imagenes_guardar"],
+    patron: /dropi|proveedor|dropshipping|transportadora|flete|cotiz|stock|woo\s?commerce|wordpress|dropify|pedidos? (llega|recib)|descripci[oó]n|ficha/i,
+    herramientas: ["dropi_status", "dropi_search_products", "woocommerce_estado", "dropi_transportadoras_sondeo", "producto_ficha_desde_imagenes_ver", "producto_ficha_desde_imagenes_guardar"],
   },
   {
     patron: /copy|texto|redact|descripci|t[ií]tulo/i,
@@ -1479,13 +1495,13 @@ export function buildMcpToolRegistry(pedido?: string): McpToolDef[] {
  */
 const FAMILIAS_DE_CONSULTA: Array<{ tema: string; herramientas: string[] }> = [
   { tema: "Catalogo y tienda", herramientas: ["list_products", "list_categories", "get_store", "search_product_images", "optimize_price", "optimize_copy"] },
-  { tema: "Ventas y clientes", herramientas: ["dashboard_summary", "list_recent_conversations", "list_pending_transfers", "list_duplicate_contacts", "predict_customer", "analyze_channel_performance"] },
+  { tema: "Ventas y clientes", herramientas: ["embudo_de_ventas", "dashboard_summary", "list_recent_conversations", "list_pending_transfers", "list_duplicate_contacts", "predict_customer", "analyze_channel_performance"] },
   { tema: "WhatsApp y agente", herramientas: ["whatsapp_status", "get_agent", "configurar_mi_agente", "get_settings", "agente_inspectar", "agente_configurar", "agente_perfil_negocio", "agente_conocimiento", "agente_mensaje", "agente_probar_chat", "agente_disenar", "agente_probar_borrador", "vendedor_diagnosticar", "vendedor_motor_ver", "vendedor_probar"] },
-  { tema: "Facebook Ads", herramientas: ["fb_status", "fb_list_campaigns", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics", "fb_why_not_delivering", "fb_page_can_post", "fb_page_preview", "fb_suggest_audience", "fb_pixel_status", "fb_ad_library", "fb_agent_logs", "que_hago_con_la_campana", "ad_brief"] },
+  { tema: "Facebook Ads", herramientas: ["objetivos_de_campana", "fb_permisos_formularios", "fb_status", "fb_list_campaigns", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics", "fb_why_not_delivering", "fb_page_can_post", "fb_page_preview", "fb_suggest_audience", "fb_pixel_status", "fb_ad_library", "fb_agent_logs", "que_hago_con_la_campana", "ad_brief"] },
   { tema: "Marketing y contenido", herramientas: ["marketing_diagnostico", "marketing_aprendizajes", "marketing_attribution", "plan_de_contenido", "generate_image", "web_scrape_images"] },
-  { tema: "Investigacion en internet", herramientas: ["web_search", "web_fetch", "deep_research", "research_start", "research_check"] },
-  { tema: "Entrega y proveedores", herramientas: ["dropi_status", "dropi_search_products", "woocommerce_estado", "terabox_list_folder", "verificar_link_entrega", "payment_status"] },
-  { tema: "Estado del sistema", herramientas: ["analyze_system", "system_diagnose", "automatizacion_estado", "negocio_que_falta", "plataforma_info", "test_ai_models", "reason_business_decision"] },
+  { tema: "Investigacion", herramientas: ["web_search", "web_fetch", "deep_research", "research_start", "research_check"] },
+  { tema: "Entregas", herramientas: ["dropi_status", "dropi_search_products", "woocommerce_estado", "terabox_list_folder", "verificar_link_entrega", "payment_status"] },
+  { tema: "Sistema", herramientas: ["analyze_system", "system_diagnose", "automatizacion_estado", "negocio_que_falta", "plataforma_info", "test_ai_models", "reason_business_decision"] },
 ];
 
 /**

@@ -250,11 +250,35 @@ router.patch("/tasks/:id", async (req, res, next) => {
     if (status) patch.status = status;
     if (output !== undefined) patch.output = output;
     if (error !== undefined) patch.error = error;
-    if (approvalStatus) patch.approvalStatus = approvalStatus;
+    if (approvalStatus) {
+      patch.approvalStatus = approvalStatus;
+      // Aprobar = habilitar la ejecución; rechazar = cerrar la tarea. El
+      // estado se ajusta acá para que el ejecutor (y el barrido) la tomen.
+      if (!status) {
+        if (approvalStatus === "approved") patch.status = "PENDING";
+        else if (approvalStatus === "rejected") patch.status = "CANCELLED";
+      }
+    }
     patch.updatedAt = new Date();
 
     const [updated] = await db.update(marketingTasks).set(patch).where(eq(marketingTasks.id, id)).returning();
-    return res.json({ task: updated });
+
+    // Aprobar una tarea la manda a ejecutar DE VERDAD contra Meta (antes solo
+    // cambiaba una columna y la acción nunca se aplicaba).
+    let ejecucion: { encolada: boolean; tocaMeta: boolean } | null = null;
+    if (approvalStatus === "approved" && updated) {
+      const { encolarEjecucionAprobada, tocaMeta } = await import("../lib/marketing-team/task-executor");
+      const aplica = tocaMeta(updated.action);
+      if (aplica) {
+        await encolarEjecucionAprobada(tenantId, id).catch(() => undefined);
+      } else {
+        // Sin llamada a Meta: se completa en el acto para no dejarla colgada.
+        await db.update(marketingTasks).set({ status: "COMPLETED", updatedAt: new Date() }).where(eq(marketingTasks.id, id));
+      }
+      ejecucion = { encolada: aplica, tocaMeta: aplica };
+    }
+
+    return res.json({ task: updated, ejecucion });
   } catch (e) {
     return next(e);
   }
@@ -366,8 +390,20 @@ router.post("/chat", async (req, res, next) => {
     const message = String(req.body?.message ?? "").trim();
     if (!message) return res.status(400).json({ error: "message es obligatorio" });
 
-    const { detectIntent, planGrowth, runDiagnosticCycle, formatReport } = await import("../lib/marketing-team/orchestrator");
+    const { detectIntent, planGrowth, runDiagnosticCycle, formatReport, AYUDA_MARKETING } = await import("../lib/marketing-team/orchestrator");
     const intent = detectIntent(message);
+
+    // Saludo o "¿qué podés hacer?": antes caía en un 400 que dejaba el chat
+    // inservible. Ahora responde la ayuda con ejemplos reales.
+    if (intent === "help" || intent === "unknown") {
+      return res.json({
+        intent: "help",
+        report: formatReport("QUÉ PUEDO HACER", [
+          { emoji: "💬", label: "Decime qué necesitás", text: AYUDA_MARKETING },
+        ]),
+        ayuda: AYUDA_MARKETING,
+      });
+    }
 
     if (intent === "growth_plan") {
       const { plan, steps } = await planGrowth({

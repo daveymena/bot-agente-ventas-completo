@@ -255,6 +255,11 @@ describe("ningún tipo de pedido se pasa del presupuesto", () => {
   // `destinoWeb` en crear_anuncio/fb_upload_draft_to_meta. Ese contrato va
   // recortado a 200 caracteres, así que acortar el texto nuevo no baja nada:
   // solo deja entrar más del resto. Medido 3.522.
+  //
+  // 3540 → 3660 el 25-09-2026: al unir la rama fix/whatsapp-atlas-2409
+  // (campañas de formulario de Meta: objetivos_de_campana,
+  // fb_permisos_formularios, embudo_de_ventas) con las herramientas del Agent
+  // Lab (agentlab_*), que son de cambio. Medido 3.632; techo real ~8000.
   const PEDIDOS: Array<[string, string]> = [
     ["ventas del día", "cómo van las ventas hoy"],
     ["facturación", "cuánto facturé este mes"],
@@ -270,7 +275,7 @@ describe("ningún tipo de pedido se pasa del presupuesto", () => {
   for (const [nombre, pedido] of PEDIDOS) {
     it(`"${nombre}" entra en el minuto de Groq`, () => {
       const t = tokens(buildMcpToolRegistry(pedido));
-      expect(t, `"${pedido}" pesa ~${t} tokens`).toBeLessThan(3540);
+      expect(t, `"${pedido}" pesa ~${t} tokens`).toBeLessThan(3660);
     });
   }
 });

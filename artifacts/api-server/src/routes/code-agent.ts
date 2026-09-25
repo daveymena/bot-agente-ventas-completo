@@ -25,6 +25,7 @@ import {
 } from "../lib/architect-store";
 import { toEmojiStyle } from "../lib/conversation-engine";
 import { esResumenInterno, pareceIngles, avisoDeTurnoIncompleto } from "../lib/respuesta-al-admin";
+import { blindarSalida } from "../lib/blindaje-de-informacion";
 import { describePlannedAction } from "../lib/opencode-mcp-tools";
 import { MODULO_PUBLICIDAD, FORMATO_ANUNCIO } from "../lib/publicidad-persuasiva";
 
@@ -77,7 +78,15 @@ export function paraMarkdown(texto: string): string {
   if (!texto) return texto;
   let t = texto.replace(/\r\n/g, "\n").replace(/\n+/g, "\n\n").trim();
   for (const [patron, reemplazo] of NOMBRES_LLANOS) t = t.replace(patron, reemplazo as any);
-  return t;
+  // Última barrera de seguridad, y va acá porque `paraMarkdown` es el único
+  // punto por el que sale TODA respuesta de Atlas (chat de OpenCode y camino
+  // directo). Ver blindaje-de-informacion.ts: tapa claves, rutas, código,
+  // endpoints, infra y marcas del motor que un pedido malicioso podría sacar.
+  const { texto: blindado, fugas } = blindarSalida(t);
+  if (fugas.length) {
+    logger.warn({ tipos: fugas.map((f) => f.tipo) }, "[Blindaje] Se tapó información interna en una respuesta de Atlas");
+  }
+  return blindado;
 }
 
 /**
@@ -1572,7 +1581,7 @@ ESTADO REAL DEL CATALOGO, MEDIDO AHORA MISMO (${new Date().toISOString()}):
     // mensaje del admin, no de que el modelo se acuerde de pasarlo. Las dos
     // rutas comparten `interpretarObjetivo` para que no diverjan -- que es lo
     // que ya pasó una vez con el recorte de herramientas.
-    const { interpretarObjetivo: leerObjetivo } = await import("../lib/objetivos-campana");
+    const { pedidoDelAdmin: leerObjetivo } = await import("../lib/objetivos-campana");
     const ctx: OperatorContext = {
       tenantId,
       sessionId,

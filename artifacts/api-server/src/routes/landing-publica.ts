@@ -235,7 +235,9 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
             ? `✅ Registrado en WooCommerce como #${r.wooOrderId}${r.dropi?.estado === "sincronizada" ? ` y en Dropi #${r.dropi.dropiOrderId || "?"}` : r.dropi ? ` (Dropi: ${r.dropi.detalle})` : ""}`
             : r.wooOrderId
               ? `⚠️ Quedó en WooCommerce como #${r.wooOrderId} pero Dropi lo RECHAZÓ: ${r.dropi?.detalle || r.error}`
-              : `⚠️ NO se pudo registrar en WooCommerce: ${r.error}`,
+              : String(r.error || "").startsWith("Dropi rechazó el pedido directo")
+                ? `⚠️ Dropi-directo lo rechazó y WooCommerce ni se intentó (rechazo por producto, no por cobertura): ${r.error}`
+                : `⚠️ No se pudo registrar: ${r.error}${(r.cobertura || ds.esErrorDeCobertura(r.dropi?.detalle || r.error || "")) ? ` Sugerencia al cliente: ${r.cobertura?.mensajeAlCliente || ds.mensajeCoberturaAlCliente(producto.name, datos.ciudad)}` : ""}`,
         ].filter(Boolean).join("\n");
         await avisarAlDueno(row.tenantId, texto);
       }

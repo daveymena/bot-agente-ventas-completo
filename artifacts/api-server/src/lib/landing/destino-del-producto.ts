@@ -14,6 +14,7 @@
 import { and, desc, eq } from "drizzle-orm";
 import { db, landingPages } from "@workspace/db";
 import { getAppUrl } from "../app-url";
+import { MENCIONA_LANDING } from "../objetivos-campana";
 
 export function urlDePaginaDeProducto(productId: number | null | undefined): string {
   return `${getAppUrl().replace(/\/$/, "")}/p/${productId ?? ""}`;
@@ -70,7 +71,24 @@ export async function destinoWebDelProducto(
 /** "landing" / "tienda" desde lo que escribió el modelo o el admin; cualquier otra cosa = sin preferencia. */
 export function leerPreferenciaWeb(v: unknown): PreferenciaWeb | null {
   const t = String(v ?? "").toLowerCase();
-  if (/landing|p[aá]gina de venta|\/l\//.test(t)) return "landing";
+  if (MENCIONA_LANDING.test(t)) return "landing";
   if (/tienda|cat[aá]logo|store/.test(t)) return "tienda";
   return null;
+}
+
+/**
+ * Objetivo y destino cuando NADIE dijo a dónde va el anuncio (lanzamiento
+ * automático, botones del panel). Antes era "mensajes" fijo: el lanzamiento
+ * creaba la landing y en el paso siguiente un anuncio que mandaba a WhatsApp,
+ * así que la landing no la veía nadie (24-09-2026, seis campañas del
+ * corrector). Con landing publicada, va a la landing; sin landing, lo de antes.
+ */
+export async function destinoPorDefecto(
+  tenantId: number | null | undefined,
+  productId: number,
+  recomendado: "mensajes" | "ventas" | "trafico" = "mensajes",
+): Promise<{ objetivo: "mensajes" | "ventas" | "trafico"; preferencia: PreferenciaWeb | null }> {
+  const l = tenantId ? await landingPublicadaDelProducto(Number(tenantId), productId) : null;
+  if (l) return { objetivo: recomendado === "ventas" ? "ventas" : "trafico", preferencia: "landing" };
+  return { objetivo: recomendado, preferencia: null };
 }

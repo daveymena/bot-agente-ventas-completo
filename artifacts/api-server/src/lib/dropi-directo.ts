@@ -459,6 +459,22 @@ export interface PedidoParaDropi {
 }
 
 /**
+ * Normaliza ciudad/departamento para Dropi: mayúsculas, sin acentos ni
+ * puntuación, espacios simples. El formulario guarda "Cali" y Dropi valida
+ * cobertura contra su catálogo ("CALI"); mandarlo crudo es pedir un rechazo
+ * por formato cuando la cobertura existe.
+ */
+export function normalizarCiudadParaDropi(ciudad: string): string {
+  return String(ciudad || "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * El mismo payload que arma Dropify (OrdersModel.php `save`), porque es el
  * que Dropi acepta. `rate_type` "CON RECAUDO" = contraentrega.
  */
@@ -483,8 +499,8 @@ export async function crearPedidoDropi(token: string, producto: { dropiProductId
     name, surname,
     dir: `${pedido.direccion}${pedido.barrio ? ` ${pedido.barrio}` : ""}`,
     country: "CO",
-    state: pedido.departamento,
-    city: pedido.ciudad,
+    state: normalizarCiudadParaDropi(pedido.departamento),
+    city: normalizarCiudadParaDropi(pedido.ciudad),
     phone: pedido.telefono,
     client_email: pedido.email || `${pedido.telefono}@whatsapp.local`,
     payment_method_id: 1,
@@ -655,4 +671,39 @@ export async function margenDeProductoDropi(tenantId: number, token: string, ref
     "_No incluye devoluciones ni el costo del anuncio: con eso se calcula cuánto podés pagar por venta._",
   ].filter(Boolean).join("\n");
   return { ok: true, data: { producto: { id: productId, nombre, dropiId }, precioVenta: precio, costoProveedor: costo, precioSugerido: sugerido, stock: stockDe(d), flete: { estimado: flete, base: baseTxt, minimo: fletes.length ? Math.min(...fletes) : null, maximo: fletes.length ? Math.max(...fletes) : null, pedidos: fletes.length }, ganancia, margenPct, texto } };
+}
+
+// ─── Transportadoras: sondeo de rutas (solo lectura) ────────────────────────
+
+/**
+ * Prueba las rutas candidatas de Dropi para listar transportadoras, ciudades y
+ * cotizar flete, y devuelve qué respondió cada una. Existe porque la
+ * documentación de integraciones de Dropi no es pública (25-09-2026): se sabe
+ * que existen "Cotizador de flete", "Consultar transportadoras" y "Listar
+ * ciudades", pero no sus rutas exactas. Ninguna candidata crea nada: son
+ * listados y cotizaciones.
+ */
+export async function sondearTransportadorasDropi(
+  token: string,
+  destino: { ciudad: string; departamento: string; valor?: number },
+): Promise<Array<{ ruta: string; metodo: string; ok: boolean; status?: number; muestra: string }>> {
+  const ciudad = normalizarCiudadParaDropi(destino.ciudad);
+  const departamento = normalizarCiudadParaDropi(destino.departamento);
+  const valor = Math.max(1, Math.round(destino.valor || 50000));
+  const candidatas: Array<{ ruta: string; metodo: "GET" | "POST"; body?: Record<string, any> }> = [
+    { ruta: "distributioncompanies", metodo: "GET" },
+    { ruta: "distribution_companies", metodo: "GET" },
+    { ruta: "department", metodo: "GET" },
+    { ruta: "trajectory/bycity", metodo: "POST", body: { city: ciudad, department: departamento, rate_type: "CON RECAUDO" } },
+    { ruta: "orders/cotizaEnvioTransportadoraV2", metodo: "POST", body: { EnvioConCobro: true, amount: valor, ciudad_destino: { nombre: ciudad, departamento } } },
+    { ruta: "orders/cotizaEnvioTransportadora", metodo: "POST", body: { EnvioConCobro: true, amount: valor, ciudad_destino: { nombre: ciudad, departamento } } },
+  ];
+  const salida: Array<{ ruta: string; metodo: string; ok: boolean; status?: number; muestra: string }> = [];
+  for (const c of candidatas) {
+    const r = await dropiIntegracion<any>(token, c.ruta, c.body, c.metodo, 15000);
+    const muestra = JSON.stringify(r.ok ? r.data : (r.data ?? r.error)).slice(0, 500);
+    salida.push({ ruta: c.ruta, metodo: c.metodo, ok: r.ok, status: r.status, muestra });
+    if (/exceeded the allowed number/i.test(muestra)) break; // no insistir con el límite de Dropi
+  }
+  return salida;
 }

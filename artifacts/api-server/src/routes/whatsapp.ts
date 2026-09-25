@@ -100,11 +100,17 @@ router.post("/test-ia", async (req, res, next) => {
       currentStage: "greeting"
     }, tenantId)).returning())[0];
 
+    // Simulación de la llegada desde un anuncio: la metadata que guarda el
+    // manejador real cuando Meta manda externalAdReply (ver message-handler).
+    const anuncio = req.body?.anuncio && typeof req.body.anuncio === "object" ? req.body.anuncio : null;
     await db.insert(messages).values({
       conversationId: convo.id,
       role: "customer",
       content: msg,
-    });
+      ...(anuncio
+        ? { metadata: { adTitle: String(anuncio.titulo || ""), adBody: String(anuncio.cuerpo || ""), adUrl: String(anuncio.url || ""), adId: String(anuncio.anuncioId || "") } }
+        : {}),
+    } as any);
 
     // Se captura el razonamiento del servidor ([DECISION], [PARSER],
     // [SERVIDOR]...) mientras corre este turno: sin los logs del contenedor a

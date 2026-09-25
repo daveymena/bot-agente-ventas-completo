@@ -6,6 +6,7 @@ import { eq, desc, and } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
 import { resolveInterestIds, usarAdvantagePlus } from "./facebook";
 import { generateProductImage } from "./ai-product-image";
+import { getOrCreateBudget, getBudgetStatus, canSpendToday } from "./marketing-team/budget-guard";
 
 import { FB_GRAPH_BASE } from "./meta-api-version";
 import { modeloDelProducto } from "./modelo-de-negocio";
@@ -363,6 +364,22 @@ export class AdStrategist {
     };
   }
 
+  /**
+   * Guardrail de presupuesto antes de crear/activar gasto. Antes publish/upload
+   * no consultaban los guardrails del negocio (maxDailySpend), así que el tope
+   * diario configurado nunca se aplicaba en estos caminos.
+   */
+  private async guardPresupuesto(monto: number): Promise<{ allowed: boolean; reason: string }> {
+    try {
+      const guardrails = await getOrCreateBudget(this.tenant.id);
+      const estado = await getBudgetStatus(this.tenant.id);
+      return canSpendToday(guardrails, estado.todaySpend, Number(monto) || 0);
+    } catch {
+      // Si no se puede leer el presupuesto, no se bloquea: se sigue como antes.
+      return { allowed: true, reason: "No se pudo leer el presupuesto; no se bloquea." };
+    }
+  }
+
   getStrategyForProduct(product: any): AdStrategy {
     const name = (product.name || "").toLowerCase();
     const category = (product.category || "").toLowerCase();
@@ -629,6 +646,32 @@ export class AdStrategist {
     }
   }
 
+  /** Borra el borrador scoped por tenant y su campaña en Meta (si existe).
+   *  Antes deleteDraft borraba sin tenant y dejaba la campaña huérfana ACTIVE. */
+  async deleteDraftWithMeta(draftId: number, tenantId: number): Promise<{ ok: boolean; meta?: string }> {
+    try {
+      const [draft] = await db.select().from(facebookDrafts).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, tenantId))).limit(1);
+      if (!draft) return { ok: false, meta: "Borrador no encontrado" };
+      if ((draft as any).campaignId) {
+        try {
+          const { accessToken } = this.credencialesFb();
+          if (accessToken) {
+            await fetch(`${FB_GRAPH_URL}/${(draft as any).campaignId}`, {
+              method: "DELETE",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ access_token: accessToken }),
+            }).catch(() => null);
+          }
+        } catch { /* mejor borrar local aunque Meta falle */ }
+      }
+      await db.delete(facebookDrafts).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, tenantId)));
+      return { ok: true, meta: (draft as any).campaignId ? "Campaña eliminada en Meta y borrador local" : "Borrador local eliminado" };
+    } catch (err: any) {
+      logger.error({ err, draftId }, "[AdStrategist] Error deleting draft with Meta");
+      return { ok: false, meta: err?.message };
+    }
+  }
+
   /** Precio real del producto, o null si no se puede leer. Solo para el
    * candado de publishDraft -- no se usa para armar copy. */
   private async precioDelProducto(productId: number | null): Promise<number | null> {
@@ -676,6 +719,9 @@ export class AdStrategist {
       }
 
       if (draft.campaignId && draft.adId) {
+        // Guardrail de presupuesto del negocio: activar es empezar a gastar.
+        const guard = await this.guardPresupuesto(Number(draft.budget) || 0);
+        if (!guard.allowed) return falla(`Bloqueado por el tope de gasto: ${guard.reason}`);
         // Token de USUARIO primero (ver TenantContext.facebook.userAccessToken)
         // -- crear/activar campañas es una operación de Marketing API, exige
         // permisos de usuario (ads_management). Un token de página (lo que
@@ -800,6 +846,9 @@ export class AdStrategist {
           logger.warn({ draftId }, "[AdStrategist] Borrador con el texto de la plantilla vieja: se regeneró antes de subirlo");
         }
       }
+      // Guardrail de presupuesto del negocio antes de crear el anuncio en Meta.
+      const guard = await this.guardPresupuesto(Number(draft.budget) || 5000);
+      if (!guard.allowed) return { ok: false, message: `Bloqueado por el tope de gasto: ${guard.reason}` };
       const creado = await fb.createAdForProduct(
         draft.productId,
         Number(draft.budget) || 5000,
@@ -832,11 +881,15 @@ export class AdStrategist {
           adId: creado.adId,
           status: "created",
           fbStatus: "PAUSED",
+          // A dónde apunta, guardado: sin esto nadie podía decir cuál de seis
+          // campañas iguales del corrector iba a la landing y cuál a WhatsApp
+          // (24-09-2026), y el dueño las volvía a pedir.
+          strategy: { ...(typeof draft.strategy === "object" && draft.strategy ? (draft.strategy as any) : {}), objetivo: creado.objetivo ?? objetivo, destino: creado.destino ?? null } as any,
           updatedAt: new Date(),
         })
         .where(eq(facebookDrafts.id, draftId));
 
-      logger.info({ draftId, campaignId: creado.campaignId }, "[AdStrategist] Borrador subido a Meta en PAUSA");
+      logger.info({ draftId, campaignId: creado.campaignId, destino: creado.destino }, "[AdStrategist] Borrador subido a Meta en PAUSA");
       return { ok: true, campaignId: creado.campaignId, plantilla: plantillaUsada?.origen?.nombre || null };
     } catch (err: any) {
       logger.error({ err, draftId }, "[AdStrategist] Error subiendo el borrador a Meta");
@@ -954,7 +1007,7 @@ export class AdStrategist {
     return `https://wa.me/${digitos}`;
   }
 
-  async createDraftAd(adAccountParam: string, accessTokenParam: string, productId: number, grounded?: ResearchGroundedCopy, manualImages?: string[], destino?: { tipo: "whatsapp"; numero: string }, presupuestoDiario?: number): Promise<DraftAd> {
+  async createDraftAd(adAccountParam: string, accessTokenParam: string, productId: number, grounded?: ResearchGroundedCopy, manualImages?: string[], destino?: { tipo: "whatsapp"; numero: string }, presupuestoDiario?: number, opts: { subirSolo?: boolean } = {}): Promise<DraftAd> {
     // Las credenciales se resuelven SIEMPRE acá, no se confía en las que
     // manda quien llama: los tres llamadores (la ruta HTTP, la herramienta
     // fb_ad_draft de Atlas y createDraftsForAllProducts) armaban su propio
@@ -1068,15 +1121,25 @@ export class AdStrategist {
       { productId: product.id, strategy: strategy.niche, draftId: localDraft.id },
       "[AdStrategist] Borrador local creado (sin tocar la cuenta publicitaria)"
     );
-    if (process.env.FB_CREATE_REAL_CAMPAIGNS !== "true" || !localDraft.id) return localDraft;
+    // `subirSolo: false` = el llamador lo sube después con SU objetivo. Prueba
+    // real del 25-09-2026: Atlas pidió formulario, este paso lo subió solo
+    // como tráfico a la landing y la subida pedida falló con "ese borrador ya
+    // existe en Meta".
+    if (process.env.FB_CREATE_REAL_CAMPAIGNS !== "true" || !localDraft.id || opts.subirSolo === false) return localDraft;
 
     if (!accessToken || !adAccount) {
       localDraft.errorDeMeta = "Para subirlo a Meta primero tenés que conectar tu cuenta de Facebook desde la sección Facebook del panel.";
       return localDraft;
     }
-    const objetivo: import("./objetivos-campana").ObjetivoCampana =
-      destino?.tipo === "whatsapp" ? "mensajes" : ((strategy as any).objetivoRecomendado || "mensajes");
-    const subida = await this.subirBorradorAMeta(localDraft.id, objetivo);
+    let objetivo: import("./objetivos-campana").ObjetivoCampana = "mensajes";
+    let preferenciaWeb: import("./landing/destino-del-producto").PreferenciaWeb | null = null;
+    if (destino?.tipo !== "whatsapp") {
+      const { destinoPorDefecto } = await import("./landing/destino-del-producto");
+      const d = await destinoPorDefecto((this.tenant as any)?.id, product.id, (strategy as any).objetivoRecomendado || "mensajes");
+      objetivo = d.objetivo;
+      preferenciaWeb = d.preferencia;
+    }
+    const subida = await this.subirBorradorAMeta(localDraft.id, objetivo, undefined, preferenciaWeb);
     if (subida.ok) {
       const [fila] = await db.select().from(facebookDrafts).where(eq(facebookDrafts.id, localDraft.id)).limit(1);
       localDraft.campaignId = fila?.campaignId ?? subida.campaignId ?? null;

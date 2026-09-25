@@ -207,6 +207,57 @@ export async function agenteQueAtiende(conversationId: number, tenantId: number,
 }
 
 /**
+ * El producto del anuncio por el que llegó el cliente, o null. Usa la misma
+ * escalera del motor viejo (`productoDelAnuncio`: adId contra
+ * facebook_drafts → link con id → slug) y, si ninguna resuelve, el titular
+ * del anuncio contra el catálogo: un titular de Atlas nombra el producto.
+ */
+export async function productoDelAnuncioDeLaConversacion(
+  conversationId: number,
+  catalogo: Producto[],
+): Promise<Producto | null> {
+  try {
+    const filas = await db
+      .select({ role: messages.role, metadata: messages.metadata, createdAt: messages.createdAt })
+      .from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(desc(messages.createdAt), desc(messages.id))
+      .limit(40);
+    const { anuncioDeOrigen, productoDelAnuncio } = await import("../agent");
+    const anuncio = anuncioDeOrigen(filas.reverse() as any);
+    if (!anuncio) return null;
+    const duro = await productoDelAnuncio(anuncio, catalogo as any);
+    if (duro) return catalogo.find((p) => p.id === duro.id) ?? null;
+    const titular = `${anuncio.titulo} ${anuncio.cuerpo}`.trim();
+    if (!titular) return null;
+    // 1. El titular trae el nombre EXACTO del producto (así los arma Atlas):
+    //    es ese, sin puntajes. Simulación del 25-09-2026: "Corrector de
+    //    Hombros y Clavícula" empataba con otros correctores porque sus
+    //    DESCRIPCIONES hablan de hombros y espalda, y el cliente del anuncio
+    //    recibía "¿qué producto te interesa?".
+    const plano = (t: string) => String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9ñ]+/g, " ").trim();
+    const tit = ` ${plano(titular)} `;
+    const exactos = catalogo
+      .filter((p) => p.disponible !== false && plano(p.name).length >= 6 && tit.includes(` ${plano(p.name)} `))
+      .sort((a, b) => plano(b.name).length - plano(a.name).length);
+    if (exactos.length) return exactos[0];
+    // 2. Parecido contra los NOMBRES; recién después, con descripciones.
+    const { puntuarCoincidencias } = await import("./herramientas");
+    const soloNombres = catalogo.map((p) => ({ ...p, description: "", categoria: "" } as Producto));
+    const [n1, n2] = puntuarCoincidencias(titular, soloNombres, 2);
+    if (n1 && (!n2 || n1.puntos > n2.puntos * 1.5)) return catalogo.find((p) => p.id === n1.p.id) ?? null;
+    const [primero, segundo] = puntuarCoincidencias(titular, catalogo, 2);
+    // Solo si gana claro: con un empate es adivinar, y un producto
+    // equivocado en foco es peor que preguntar.
+    if (primero && (!segundo || primero.puntos > segundo.puntos * 1.5)) return primero.p;
+    return null;
+  } catch (e: any) {
+    logger.warn({ err: e?.message, conversationId }, "[MotorV2] no se pudo leer el anuncio de origen");
+    return null;
+  }
+}
+
+/**
  * Los productos que le tocan a la especialidad del agente: el de dropshipping
  * ve lo físico, el digital ve lo que no es físico. Sin especialidad, o si el
  * filtro dejara el catálogo vacío, se ve todo: un vendedor sin productos es
@@ -263,6 +314,7 @@ export async function cargarVozDelNegocio(tenantId: number, elegido?: any | null
     rolAgente: agente?.role || "asesor comercial",
     nombreNegocio: ctx.businessName || "nuestro equipo",
     instruccionesExtra: indicaciones || null,
+    pais: (ctx.condiciones as any)?.pais ?? null,
   };
 }
 
@@ -326,12 +378,22 @@ function conCita(m: any): string {
  * SQLite (local, demo) las herramientas dicen honestamente que no hay pedidos
  * automáticos en vez de reventar.
  */
+/** Un teléfono real de WhatsApp son dígitos; "sim-…" solo lo crea la ruta de prueba. */
+export function esConversacionDeSimulacion(telefono: unknown): boolean {
+  return /^sim-/i.test(String(telefono || ""));
+}
+
 export function servicioDePedidos(p: {
   tenantId: number;
   conversationId: number;
   leadId: number | null;
   telefono: string | null;
   condiciones: import("../modelo-de-negocio").CondicionesDelNegocio;
+  /**
+   * Conversación de SIMULACIÓN (teléfono "sim-…", ver esConversacionDeSimulacion):
+   * el pedido recorre todo el camino pero NO se manda a Dropi ni a Woo.
+   */
+  simulacion?: boolean;
 }): ServicioDePedidos | undefined {
   if (!pool) return undefined;
   const ETIQUETA: Record<string, string> = {
@@ -384,15 +446,65 @@ export function servicioDePedidos(p: {
       }
     },
 
+    async estado() {
+      try {
+        const { rows } = await pool.query(
+          `SELECT * FROM dropshipping_orders WHERE conversation_id = $1 AND estado <> 'borrador' ORDER BY id DESC LIMIT 1`,
+          [p.conversationId],
+        );
+        const f: any = rows[0];
+        if (!f) return { hay: false, texto: "" };
+        const base = `Pedido #${f.id}: ${f.product_name} × ${f.quantity}, a ${f.ciudad || "?"}. Estado en el sistema: ${f.estado}.`;
+        if (String(f.notas || "").includes("SIMULACIÓN")) {
+          return { hay: true, texto: `${base} (simulación: no se envió a Dropi; en un pedido real acá aparecen transportadora y guía).` };
+        }
+        if (!f.dropi_order_id) {
+          return { hay: true, texto: `${base} Todavía no tiene número en Dropi${f.dropi_error ? ` (Dropi respondió: ${String(f.dropi_error).slice(0, 120)})` : ""}.` };
+        }
+        const { tokenDropiDelTenant, listarPedidosDropi } = await import("../dropi-directo");
+        const token = await tokenDropiDelTenant(p.tenantId);
+        if (!token) return { hay: true, texto: `${base} Número en Dropi: ${f.dropi_order_id}.` };
+        const lista = await listarPedidosDropi(token, 50);
+        const d = (lista.data || []).find((o) => String(o.id) === String(f.dropi_order_id));
+        if (!d) return { hay: true, texto: `${base} Número en Dropi: ${f.dropi_order_id} (no aparece entre los últimos 50 de Dropi).` };
+        return {
+          hay: true,
+          texto: `${base} En Dropi: ${d.estado}${d.transportadora ? `, transportadora ${d.transportadora}` : ""}${d.guia ? `, guía ${d.guia}` : ", todavía sin guía"}. Plazo del negocio: ${cond.envio.plazo}.`,
+        };
+      } catch (e: any) {
+        return { hay: false, texto: `No se pudo consultar: ${e?.message || e}` };
+      }
+    },
+
     async confirmar() {
       try {
         const ds = await import("../dropshipping");
         const pedido = await ds.pedidoEnCurso(p.conversationId);
         if (!pedido) return { estado: "sin_pedido" };
+        if (p.simulacion) {
+          // Nada sale del sistema: el pedido queda cancelado y marcado, para
+          // que no cuente en reportes ni lo reintente nadie.
+          await ds.guardarDatos(pedido.id, { notas: [pedido.notas, "SIMULACIÓN: no se envió a Dropi"].filter(Boolean).join(" | ") });
+          await ds.marcarEstado(pedido.id, "cancelado");
+          return {
+            estado: "creado",
+            numero: `SIM-${pedido.id}`,
+            confirmacion:
+              `Producto: ${pedido.productName} × ${pedido.quantity}. ` +
+              `${pedido.metodoPago === "contraentrega" ? "Paga contraentrega al recibir" : "Pago ya acordado"}. ` +
+              `Llega a ${pedido.direccion}${pedido.barrio ? `, barrio ${pedido.barrio}` : ""} — ${pedido.ciudad}, ${pedido.departamento}, en ${cond.envio.plazo}.`,
+          };
+        }
         await ds.marcarEstado(pedido.id, "confirmado");
         pedido.estado = "confirmado";
         const r = await ds.despacharPedido(pedido);
         if (!r.ok && r.noDisponible) return { estado: "no_disponible", mensajeAlCliente: r.noDisponible.mensajeAlCliente };
+        if (!r.ok && (r.cobertura || ds.esErrorDeCobertura(r.dropi?.detalle || r.error || ""))) {
+          return {
+            estado: "no_disponible",
+            mensajeAlCliente: r.cobertura?.mensajeAlCliente || ds.mensajeCoberturaAlCliente(String(pedido.productName || "el producto"), String(pedido.ciudad || "tu ciudad")),
+          };
+        }
         if (!r.ok && r.dropi?.estado === "error") return { estado: "rechazado", motivo: r.dropi.detalle, productoDesactivado: !!r.productoDesactivado };
         if (!r.ok) return { estado: "error", motivo: r.error || "no se pudo despachar" };
         const numero = r.dropi?.dropiOrderId || (r.wooOrderId != null ? String(r.wooOrderId) : null);
@@ -546,7 +658,29 @@ export async function responderComoVendedor(
   // Quién atiende sale del último mensaje del cliente (el enrutador decide
   // si hay traspaso), y de ahí salen su voz y SUS productos.
   const ultimoMensaje = [...historial].reverse().find((m) => m.role === "customer")?.content ?? "";
-  const agente = await agenteQueAtiende(conversationId, tenantId, ultimoMensaje);
+
+  // ¿Vino de un anuncio? Meta manda "¡Hola! Quiero más información" para
+  // todos; el producto viaja en la metadata del primer mensaje. Conv 221
+  // (24-09-2026): lead `meta_ads` y el bot preguntó "¿qué producto te
+  // interesa?" -- el motor v2 nunca leía el anuncio. Solo fija el foco si
+  // todavía no hay uno: lo que el cliente pida después manda sobre el anuncio.
+  let productoAnuncio: Producto | null = null;
+  if (estado.productoEnFoco == null) {
+    productoAnuncio = await productoDelAnuncioDeLaConversacion(conversationId, catalogoCompleto);
+    if (productoAnuncio) {
+      estado.productoEnFoco = productoAnuncio.id;
+      if (estado.etapa === "saludo" || estado.etapa === "explorando") estado.etapa = "producto_en_foco";
+      logger.info({ conversationId, producto: productoAnuncio.name }, "[MotorV2] producto en foco tomado del anuncio");
+    }
+  }
+
+  // Con el producto del anuncio, el enrutador lo ve nombrado y elige al
+  // agente que lo vende (físico → dropshipping) en vez del "por defecto".
+  const agente = await agenteQueAtiende(
+    conversationId,
+    tenantId,
+    productoAnuncio ? `${ultimoMensaje} ${productoAnuncio.name}`.trim() : ultimoMensaje,
+  );
   const voz = await cargarVozDelNegocio(tenantId, agente);
   let especialidadesActivas: string[] = [];
   try {
@@ -578,6 +712,7 @@ export async function responderComoVendedor(
     leadId: (convo as any).leadId ?? null,
     telefono: (convo as any).contactPhone ?? null,
     condiciones: negocio?.condiciones ?? CONDICIONES_DE_RESPALDO,
+    simulacion: esConversacionDeSimulacion((convo as any).contactPhone),
   });
 
   const resultado = await responder({
@@ -585,6 +720,7 @@ export async function responderComoVendedor(
     estado,
     historial,
     catalogo,
+    catalogoCompleto,
     conocimiento,
     guion,
     voz,
@@ -593,6 +729,7 @@ export async function responderComoVendedor(
     tenantId,
     agentId: agente?.id,
     conversationId,
+    fichaDelAnuncio: productoAnuncio?.id ?? null,
   });
 
   await repositorio.guardar(resultado.estado);

@@ -269,6 +269,23 @@ export interface FbAudienceSuggestion {
   rationale: string;
 }
 
+/**
+ * ¿Esta optimización de conjunto la acepta Meta con este objetivo de campaña?
+ * Mezclarlas (CONVERSATIONS en una campaña de tráfico) da #1815159.
+ */
+export function optimizacionCompatible(metaObjective: string, optimizacion: string): boolean {
+  const o = String(optimizacion || "").toUpperCase();
+  const PERMITIDAS: Record<string, string[]> = {
+    OUTCOME_TRAFFIC: ["LANDING_PAGE_VIEWS", "LINK_CLICKS", "REACH", "IMPRESSIONS"],
+    OUTCOME_ENGAGEMENT: ["CONVERSATIONS", "POST_ENGAGEMENT", "THRUPLAY", "LINK_CLICKS"],
+    OUTCOME_AWARENESS: ["REACH", "IMPRESSIONS", "AD_RECALL_LIFT", "THRUPLAY"],
+    OUTCOME_SALES: ["OFFSITE_CONVERSIONS", "VALUE", "LINK_CLICKS", "LANDING_PAGE_VIEWS", "CONVERSATIONS", "IMPRESSIONS", "REACH"],
+    OUTCOME_LEADS: ["LEAD_GENERATION", "QUALITY_LEAD", "OFFSITE_CONVERSIONS", "CONVERSATIONS", "LINK_CLICKS"],
+  };
+  const lista = PERMITIDAS[String(metaObjective || "").toUpperCase()];
+  return lista ? lista.includes(o) : false;
+}
+
 export interface FbCampaignResult {
   campaignId: string;
   adSetId: string;
@@ -277,6 +294,9 @@ export interface FbCampaignResult {
   adCopy: { primaryText: string; headline: string; description: string };
   status: string;
   previewUrl: string;
+  /** A dónde lleva el anuncio: "whatsapp" o la URL web (landing o tienda). */
+  destino?: string;
+  objetivo?: string;
 }
 
 /**
@@ -765,6 +785,18 @@ Responde SOLO con este JSON exacto:
       // landing y no está publicada, falla acá con el motivo, sin dejar una
       // campaña a medias.
       const vaAWhatsApp = OBJ.destino === "whatsapp" && !!waDelNegocio;
+      // Formulario: permisos y formulario ANTES de crear la campaña, para no
+      // dejar una campaña a medias si falta algo.
+      let formularioId: string | null = null;
+      if (OBJ.destino === "formulario") {
+        const faltan = await this.permisosFaltantesParaFormularios();
+        if (faltan.length) {
+          throw new Error(`La conexión de Facebook de este negocio no tiene permiso para formularios (${faltan.join(", ")}). Hay que reconectar Facebook desde el panel aceptando esos permisos.`);
+        }
+        const fbCfg: any = (this.tenant as any)?.facebook || {};
+        const privacidadUrl = String(fbCfg.privacyUrl || fbCfg.privacidadUrl || "").trim() || `${getAppUrl().replace(/\/$/, "")}/privacidad`;
+        formularioId = await this.formularioDelProducto({ id: Number(product.id), name: String(product.name) }, { privacidadUrl });
+      }
       const destinoWeb = vaAWhatsApp ? "" : (await destinoWebDelProducto(this.tenant.id, productId, preferenciaWeb)).url;
 
       const adAccount = `act_${this.config.adAccountId}`;
@@ -1096,7 +1128,17 @@ Responde SOLO con este JSON exacto:
           adSetBody.destination_type = "WHATSAPP";
           if (this.config.pageId) adSetBody.promoted_object = { page_id: this.config.pageId };
         }
-        if (primero?.optimizacion) adSetBody.optimization_goal = primero.optimizacion;
+        if (OBJ.destino === "formulario") {
+          // El formulario se abre DENTRO del anuncio.
+          adSetBody.destination_type = "ON_AD";
+          if (this.config.pageId) adSetBody.promoted_object = { page_id: this.config.pageId };
+        }
+        // De la plantilla solo se copia la optimización si es compatible con
+        // ESTE objetivo. 25-09-2026: la plantilla es la campaña de mensajes a
+        // WhatsApp (CONVERSATIONS) y se copiaba encima de LANDING_PAGE_VIEWS
+        // en la campaña de tráfico a la landing: Meta la rechazaba con
+        // #1815159 "El contenido y el objetivo no coinciden".
+        if (primero?.optimizacion && optimizacionCompatible(OBJ.metaObjective, primero.optimizacion)) adSetBody.optimization_goal = primero.optimizacion;
       } else if (hasUsablePixel) {
         adSetBody.billing_event = "IMPRESSIONS";
         // "CONVERSIONS" no es un valor válido de optimization_goal en la API
@@ -1181,7 +1223,9 @@ Responde SOLO con este JSON exacto:
             message: adCopy.primaryText,
             name: adCopy.headline,
             description: adCopy.description,
-            call_to_action: { type: vaAWhatsApp ? "WHATSAPP_MESSAGE" : "SHOP_NOW" },
+            call_to_action: OBJ.destino === "formulario" && formularioId
+              ? { type: "SIGN_UP", value: { lead_gen_form_id: formularioId } }
+              : { type: vaAWhatsApp ? "WHATSAPP_MESSAGE" : "SHOP_NOW" },
           },
         },
         degrees_of_freedom_spec: { creative_features_spec: creativeFeaturesSpec },
@@ -1226,7 +1270,7 @@ Responde SOLO con este JSON exacto:
             start_time: adSetBody.start_time,
             billing_event: "IMPRESSIONS",
             bid_strategy: "LOWEST_COST_WITHOUT_CAP",
-            optimization_goal: cj.optimizacion || adSetBody.optimization_goal || "LINK_CLICKS",
+            optimization_goal: (cj.optimizacion && optimizacionCompatible(OBJ.metaObjective, cj.optimizacion) ? cj.optimizacion : null) || adSetBody.optimization_goal || "LINK_CLICKS",
           };
           if (adSetBody.destination_type) bodyCj.destination_type = adSetBody.destination_type;
           if (adSetBody.promoted_object) bodyCj.promoted_object = adSetBody.promoted_object;
@@ -1254,6 +1298,8 @@ Responde SOLO con este JSON exacto:
         adCopy,
         status: "PAUSED",
         previewUrl,
+        destino: vaAWhatsApp ? "whatsapp" : OBJ.destino === "formulario" ? "formulario" : destinoWeb,
+        objetivo,
         ...(conjuntosExtra.length ? { conjuntosExtra } : {}),
       } as FbCampaignResult;
       } catch (innerErr: any) {
@@ -1268,6 +1314,15 @@ Responde SOLO con este JSON exacto:
     } catch (err: any) {
       logger.error({ err, productId }, "[Facebook] Error creando anuncio");
       this.lastAdError = err?.message || "Error desconocido";
+      // Meta 1815089: la PÁGINA no aceptó las condiciones de anuncios para
+      // clientes potenciales. Es un paso legal del dueño de la página, una
+      // sola vez; se le da el enlace directo en vez del código crudo.
+      if (/1815089|condiciones del servicio sobre generaci[oó]n de clientes potenciales|lead ?gen(eration)? terms/i.test(String(this.lastAdError))) {
+        this.lastAdError =
+          `La página de Facebook todavía no aceptó las Condiciones de anuncios para clientes potenciales de Meta (requisito legal, una sola vez por página). ` +
+          `El dueño de la página debe abrir https://www.facebook.com/ads/leadgen/tos?page_id=${this.config.pageId} y aceptarlas; después se vuelve a pedir la campaña. ` +
+          `(Detalle de Meta: ${this.lastAdError})`;
+      }
       return null;
     }
   }
@@ -2137,6 +2192,71 @@ Responde SOLO con este JSON exacto:
    * algo que se resuelve solo. No se reintenta lo que no mejora reintentando
    * (token inválido, copy rechazado, sin método de pago).
    */
+  // ── Formularios de clientes potenciales (objetivo "formulario") ─────────
+  //
+  // Cada negocio usa SU página: el formulario se crea en ella, con SU política
+  // de privacidad, y los leads vuelven al webhook que los asigna por página
+  // (lib/facebook-leads.ts). Pedido del dueño (25-09-2026): es un SaaS y cada
+  // empresa elige su objetivo.
+
+  /** Permisos que faltan en la conexión del negocio para crear y leer formularios. */
+  async permisosFaltantesParaFormularios(): Promise<string[]> {
+    const necesarios = ["leads_retrieval", "pages_manage_ads", "pages_show_list", "ads_management"];
+    try {
+      const r = await this.fbGet("me/permissions", {}, this.config.userAccessToken);
+      const otorgados = new Set((r?.data || []).filter((x: any) => x.status === "granted").map((x: any) => String(x.permission)));
+      return necesarios.filter((n) => !otorgados.has(n));
+    } catch {
+      return necesarios;
+    }
+  }
+
+  /** Token de la PÁGINA (los formularios se crean con él, no con el de usuario). */
+  private async tokenDePagina(): Promise<string> {
+    try {
+      const r = await this.fbGet(String(this.config.pageId), { fields: "access_token" }, this.config.userAccessToken);
+      if (r?.access_token) return String(r.access_token);
+    } catch { /* se usa el guardado */ }
+    return this.config.accessToken;
+  }
+
+  /**
+   * El formulario del producto en la página del negocio: reusa uno ACTIVO con
+   * el mismo nombre o crea uno (nombre, teléfono, ciudad). Suscribe la página
+   * al aviso de leads para que lleguen al webhook.
+   */
+  async formularioDelProducto(producto: { id: number; name: string }, opts: { privacidadUrl: string; gracias?: string }): Promise<string> {
+    if (!this.config.pageId) throw new Error("El negocio no tiene página de Facebook conectada: sin página no hay formulario.");
+    const token = await this.tokenDePagina();
+    const nombre = `VentasPro · ${producto.name}`.slice(0, 95);
+    try {
+      const existentes = await this.fbGet(`${this.config.pageId}/leadgen_forms`, { fields: "id,name,status", limit: "100" }, token);
+      const ya = (existentes?.data || []).find((f: any) => f.name === nombre && String(f.status || "").toUpperCase() === "ACTIVE");
+      if (ya?.id) {
+        await this.suscribirPaginaALeads(token);
+        return String(ya.id);
+      }
+    } catch { /* si no se puede listar, se intenta crear */ }
+    const creado = await this.fbPost(`${this.config.pageId}/leadgen_forms`, {
+      name: nombre,
+      locale: "es_LA",
+      questions: [{ type: "FULL_NAME" }, { type: "PHONE" }, { type: "CITY" }],
+      privacy_policy: { url: opts.privacidadUrl, link_text: "Política de privacidad" },
+      thank_you_page: { title: "¡Gracias!", body: opts.gracias || "Te escribimos por WhatsApp en unos minutos.", button_type: "NONE" },
+    }, "formulario de clientes potenciales", token);
+    await this.suscribirPaginaALeads(token);
+    return String(creado.id);
+  }
+
+  /** Sin esta suscripción Meta no avisa los leads al webhook. */
+  private async suscribirPaginaALeads(tokenDePagina: string): Promise<void> {
+    try {
+      await this.fbPost(`${this.config.pageId}/subscribed_apps`, { subscribed_fields: ["leadgen"] }, "suscripción a leads", tokenDePagina);
+    } catch (e: any) {
+      logger.warn({ err: e?.message, pageId: this.config.pageId }, "[Facebook] No se pudo suscribir la página a leadgen: los leads no llegarán solos al webhook");
+    }
+  }
+
   private async fbPost(endpoint: string, body: Record<string, any>, step?: string, token?: string): Promise<any> {
     const ESPERAS_MS = [1200, 3000];
     for (let intento = 0; ; intento++) {

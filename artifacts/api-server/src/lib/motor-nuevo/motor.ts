@@ -28,6 +28,9 @@
 import {
   definicionesDeHerramientas,
   ejecutores,
+  puntuarCoincidencias,
+  diceQueCompra,
+  esDudaONegativa,
   type ContextoHerramientas,
   type Efecto,
   type Parte,
@@ -42,10 +45,12 @@ import {
   actualizarResumenDesdeEstado,
   apilarContexto,
   ordinalDeMensaje,
+  precioDado,
   type EstadoConversacion,
   type RepositorioEstado,
 } from "./estado-conversacion";
 import { renderGuion, type GuionDelNegocio } from "./nicho";
+import { hablarColombiano } from "../hablar-colombiano";
 import type { ClienteLLM } from "./cliente-llm";
 import {
   getActiveABTestConfig,
@@ -66,6 +71,20 @@ export interface VozDelNegocio {
   nombreNegocio: string;
   /** Ajustes de tono que el dueño escribió. Corto y opcional. */
   instruccionesExtra?: string | null;
+  /** País del negocio: decide si se tutea o se vosea al cliente. */
+  pais?: string | null;
+}
+
+/**
+ * Cómo se le habla al cliente según el país. Este prompt está escrito en
+ * voseo y el modelo lo imitaba: a clientes de Colombia les llegaba "Tené en
+ * cuenta", "decime", "acá tenés" (prueba en producción, 25-09-2026). El
+ * voseo es solo para Argentina y Uruguay; en el resto se tutea.
+ */
+export function tratamientoDelCliente(pais: string | null | undefined): string {
+  const p = String(pais || "").toLowerCase();
+  if (/argentin|uruguay/.test(p)) return "Al cliente tratalo de vos (voseo rioplatense).";
+  return 'Al cliente TUTÉALO (tú): "tienes", "dime", "aquí tienes", "te lo envío". NUNCA voseo ("tenés", "decime", "acá tenés", "pasame"), aunque estas instrucciones estén escritas así.';
 }
 
 /** Cuántos mensajes del historial se mandan. Uno solo, en un solo lugar. */
@@ -155,7 +174,7 @@ export function partesDelPrompt(params: ParamsDelPrompt): { fijo: string; delTur
 
 CÓMO HABLÁS
 Como una persona que sabe de lo que vende. Mensajes de 2 a 4 frases, en el
-español del país del negocio, cálido y directo. Nada de listas con viñetas,
+español del país del negocio, cálido y directo. ${tratamientoDelCliente(voz.pais)} Nada de listas con viñetas,
 nada de títulos ni de fichas armadas a mano: esto es un chat, no un folleto.
 Un emoji suelto está bien; cinco no. No empieces todas las respuestas con
 "Perfecto", "Claro", "Excelente" ni con el nombre del cliente. No repitas lo
@@ -186,10 +205,14 @@ Para mostrar un producto necesitás su id: si no lo tenés, buscá primero con
 buscar_en_catalogo usando lo que pidió el cliente y usá el id que devuelva.
 Nunca llames a mostrar con un id vacío o inventado.
 Si el cliente pide algo ambiguo que coincide con VARIOS productos (varios
-modelos con el mismo nombre, ej. "corrector de postura" ×6), buscá con
+modelos con el mismo nombre, ej. "corrector de postura" ×5), buscá con
 buscar_en_catalogo y mostrá la ficha de cada uno con mostrar_opciones para que
 elija, en vez de listar solo texto o preguntar "para qué lo vas a usar". Incluso
 con errores de tipeo ("corector", "lanpostura") buscá igual: el buscador tolera 1 letra.
+Buscá SIEMPRE aunque el historial ya mencione productos: los nombres y precios del
+historial pueden estar viejos (el catálogo se renombra), y solo buscar_en_catalogo +
+mostrar_opciones muestra los datos reales con foto. Nunca copies listas de productos
+de mensajes anteriores.
 
 Nunca digas que un pago está confirmado, verificado ni recibido. Eso lo
 determina una persona del equipo, y el sistema te avisa cuando pasó.
@@ -334,6 +357,8 @@ export async function responder(params: {
   estado: EstadoConversacion;
   historial: Mensaje[];
   catalogo: Producto[];
+  /** Todo el negocio, sin filtro por especialidad (ver ContextoHerramientas). */
+  catalogoCompleto?: Producto[];
   conocimiento: { productId: number | null; pregunta: string; disparadores: string[]; respuesta: string | null }[];
   guion: GuionDelNegocio;
   voz: VozDelNegocio;
@@ -342,6 +367,11 @@ export async function responder(params: {
    * en mitad del turno. Lo provee el adaptador (tiene tenant/catálogo).
    */
   recargarGuion?: (productoEnFocoId: number) => Promise<GuionDelNegocio>;
+  /**
+   * Producto del ANUNCIO por el que llegó el cliente (este turno). Pedido del
+   * dueño: se le manda la ficha completa de una, sin "¿te refieres a…?".
+   */
+  fichaDelAnuncio?: number | null;
   /** Pedidos de producto físico (ver adaptador.servicioDePedidos). */
   pedidos?: import("./herramientas").ServicioDePedidos;
   /** Contexto del tenant para A/B testing */
@@ -407,8 +437,10 @@ export async function responder(params: {
   // (la lista ORDENADA que el bot acaba de mostrar) sin gastar un turno del
   // modelo. No es "entender" al cliente: es un índice contra una lista propia.
   const idx = ordinalDeMensaje(mensajeDelCliente);
+  let focoFijo: number | null = null;
   if (idx != null && estado.opcionesMostradas.length > idx) {
     const id = estado.opcionesMostradas[idx];
+    focoFijo = id;
     const anterior = estado.productoEnFoco;
     if (anterior !== id) {
       apilarContexto(estado, anterior ? `hablaban de ${nombrePorProducto(anterior)}` : "explorando");
@@ -437,6 +469,8 @@ export async function responder(params: {
   const ctx: ContextoHerramientas = {
     estado,
     catalogo,
+    catalogoCompleto: params.catalogoCompleto,
+    focoFijo,
     partes: [],
     conocimiento: params.conocimiento || [],
     guion,
@@ -478,6 +512,8 @@ export async function responder(params: {
   let proveedor = "desconocido";
   let modoPlan = false;
   let textoFinal = "";
+  /** Lo que el modelo escribió en la misma vuelta en que llamó herramientas. */
+  let textoJuntoAHerramientas = "";
   const uso = { llamadas: 0, entrada: 0, salida: 0, cacheados: 0 };
   const contar = (u?: { entrada: number; salida: number; cacheados: number }) => {
     uso.llamadas++;
@@ -502,6 +538,7 @@ export async function responder(params: {
       textoFinal = (respuesta.content || "").trim();
       break;
     }
+    if ((respuesta.content || "").trim()) textoJuntoAHerramientas = (respuesta.content || "").trim();
 
     messages.push({
       role: "assistant",
@@ -545,6 +582,38 @@ export async function responder(params: {
   };
   await bucle(MAX_VUELTAS);
 
+  // ── Llegó del anuncio: la ficha completa la manda el servidor ────────────
+  // Simulación del 25-09-2026: con el producto del anuncio ya en foco, el
+  // modelo preguntaba "¿Te refieres al Corrector de Hombros y Clavícula?".
+  // La ficha trae foto, precio, envío, pago y "¿Te lo enviamos?".
+  if (params.fichaDelAnuncio != null && !ctx.partes.some((p) => p.kind === "card")) {
+    try {
+      await ejecutores.mostrar(ctx, { productoId: params.fichaDelAnuncio, seccion: "completa" });
+      if (ctx.partes.some((p) => p.kind === "card")) textoFinal = /\?/.test(textoFinal) ? "" : textoFinal;
+    } catch { /* sin ficha sigue la respuesta del modelo */ }
+  }
+
+  // ── El cliente mandó sus datos y no se registraron ───────────────────────
+  // Simulación: "Juan Pérez, 3001234567, Calle 10 # 20-30…" → "¿Están
+  // correctos tus datos?" sin llamar tomar_pedido; el resumen salía un turno
+  // tarde y el pedido no se cerraba. Con pedido abierto y un mensaje que trae
+  // celular o dirección, se le exige registrarlos.
+  const trajoDatos = /\b3\d{9}\b|\b(calle|carrera|cra|cr|cl|kr|diagonal|transversal|avenida|av|mz|manzana)\b\.?\s*\d|#\s*\d/i.test(mensajeDelCliente);
+  const pedidoAbierto = estado.accionPendiente === "pedir_datos_envio" || estado.compraConfirmada != null;
+  if (trajoDatos && pedidoAbierto && !traza.some((t) => t.herramienta === "tomar_pedido") && ctx.pedidos) {
+    messages.push({ role: "assistant", content: textoFinal || "…" });
+    messages.push({
+      role: "system",
+      content:
+        "El cliente acaba de mandar datos de envío. Llamá tomar_pedido YA con lo que dio (nombre, telefono, direccion, barrio, ciudad, departamento). " +
+        "Un número de 10 dígitos que empieza por 3 es el CELULAR, no la cédula. No preguntes si están correctos: el sistema le manda el resumen. No le hables de este aviso.",
+    });
+    const antes = textoFinal;
+    textoFinal = "";
+    try { await bucle(2); } catch { /* se queda lo anterior */ }
+    if (!textoFinal && !ctx.partes.length) textoFinal = antes;
+  }
+
   // ── Red de seguridad: dice que manda algo que no mandó ───────────────────
   //
   // Simulación y chat real del 23-09-2026: "¿cómo pago?" → "Ahí te van los
@@ -573,6 +642,162 @@ export async function responder(params: {
     // Si no dijo nada ni mandó nada, mejor la respuesta original que un
     // "dame un segundito".
     if (!textoFinal && !hayTarjetas()) textoFinal = original;
+  }
+
+  // ── Saludo en mitad de la conversación ───────────────────────────────────
+  //
+  // Prueba en producción del 25-09-2026: "bueno dale, cómo pago?" → la
+  // tarjeta de pago salió bien, pero el texto fue "Hola, ¿en qué te puedo
+  // ayudar hoy? 😊". Después de la herramienta, el modelo arrancó de cero.
+  // Si la charla ya venía (hay mensajes del agente en esta visita), un saludo
+  // genérico se cambia por lo que escribió junto a la herramienta, o se
+  // deja la tarjeta sola.
+  if (textoFinal && !volvio && params.historial.some((m) => m.role === "agent") && esSaludoGenerico(textoFinal)) {
+    textoFinal = esSaludoGenerico(textoJuntoAHerramientas) ? "" : textoJuntoAHerramientas;
+  }
+
+  // ── Ficha automática desde anuncio ──────────────────────────────────────
+  //
+  // 25-09-2026: al llegar del anuncio el modelo preguntaba "¿te refieres al...?"
+  // en lugar de mandar la ficha. Si el foco viene del anuncio en este turno
+  // y no hay ninguna ficha en las partes, el servidor manda la completa.
+  const mensajeCliente = params.historial.slice(-1)[0]?.content || "";
+  const tieneAnuncio = (mensajeCliente as any)?.metadata?.adTitle;
+  if (tieneAnuncio && !hayTarjetas()) {
+    try {
+      await ejecutores.mostrar(ctx, { productoId: estado.productoEnFoco, seccion: "completa" });
+    } catch { /* sin producto en foco no hay ficha */ }
+  }
+
+  // ── Datos de compra antes del precio ─────────────────────────────────────
+  //
+  // Conv 219 (23-09-2026): "Sí que vale" (= ¿qué vale?) se leyó como un sí y
+  // el modelo ESCRIBIÓ "pasame tu nombre completo y cédula" sin haber dado
+  // nunca el precio. El candado de tomar_pedido no saltó porque no se llamó
+  // ninguna herramienta: el pedido de datos iba en el texto. La clienta se fue.
+  const foco = estado.productoEnFoco;
+  if (textoFinal && foco != null && !precioDado(estado, foco) && pideDatosDeCompra(textoFinal)) {
+    messages.push({ role: "assistant", content: textoFinal });
+    messages.push({
+      role: "system",
+      content:
+        "Le pediste datos para comprar (nombre, cédula, dirección) y todavía NO le mostraste el precio. " +
+        'Primero mandá mostrar(seccion="precio") y respondé lo que preguntó; los datos se piden después, cuando sepa cuánto cuesta. ' +
+        "No le hables de este aviso al cliente.",
+    });
+    const original = textoFinal;
+    textoFinal = "";
+    try {
+      await bucle(2);
+    } catch {
+      /* se resuelve abajo */
+    }
+    if (!textoFinal && !hayTarjetas()) textoFinal = original;
+    // Si ni así lo dio, el precio lo pone el servidor: es un hecho de la base.
+    if (!precioDado(estado, foco)) {
+      try {
+        await ejecutores.mostrar(ctx, { productoId: foco, seccion: "precio" });
+      } catch {
+        /* sin precio en la base no hay nada que mostrar */
+      }
+    }
+  }
+
+  // ── Compra confirmada y el modelo pide los datos a su manera ─────────────
+  // Simulación 25-09-2026: "dime tu nombre completo y tu número de cédula".
+  // La lista la manda el SISTEMA (sin cédula, todos los datos juntos).
+  if (textoFinal && foco != null && estado.compraConfirmada === foco && pideDatosDeCompra(textoFinal) && !traza.some((t) => t.herramienta === "tomar_pedido")) {
+    try { await ejecutores.tomar_pedido(ctx, {}); } catch { /* sigue el texto */ }
+    textoFinal = textoFinal.split(/(?<=[.!?¿¡\n])\s+/).filter((f) => !pideDatosDeCompra(f) && !/c[eé]dula/i.test(f)).join(" ").trim();
+  }
+
+  // ── Datos de envío sin que el cliente haya dicho que compra ──────────────
+  //
+  // Conv 218 (25-09-2026): "Me interesa este" → "Excelente elección. Para
+  // coordinar el envío, ¿me podrías dar tu nombre completo y número de
+  // cédula?". Interesarse no es comprar (pedido del dueño). Si el texto pide
+  // datos y la compra no quedó confirmada por tomar_pedido, se le pide que
+  // pregunte primero; si insiste, se sacan las frases que piden datos.
+  const focoFisico = foco != null && String(catalogo.find((p) => p.id === foco)?.kind || "") === "physical";
+  if (textoFinal && focoFisico && estado.compraConfirmada !== foco && pideDatosDeCompra(textoFinal)) {
+    messages.push({ role: "assistant", content: textoFinal });
+    messages.push({
+      role: "system",
+      content:
+        "El cliente todavía NO dijo que compra: interesarse no es comprar. No le pidas nombre, dirección ni ningún dato de envío. " +
+        "Respondé lo que preguntó y cerrá con UNA pregunta corta de si quiere hacer el pedido. No le hables de este aviso al cliente.",
+    });
+    const original = textoFinal;
+    textoFinal = "";
+    try {
+      await bucle(2);
+    } catch {
+      /* se resuelve abajo */
+    }
+    if (!textoFinal && !hayTarjetas()) textoFinal = original;
+    if (pideDatosDeCompra(textoFinal) && estado.compraConfirmada !== foco) {
+      const frases = textoFinal.split(/(?<=[.!?¿¡\n])\s+/).filter((f) => !pideDatosDeCompra(f));
+      textoFinal = frases.join(" ").trim();
+    }
+  }
+
+  // ── Dijo que lo quiere y no salió la lista de datos ──────────────────────
+  // Simulación 25-09-2026: "Quiero uno" / "sí, lo quiero" → "¡Genial!" y
+  // nada más. Un cliente real se queda esperando. Si el cliente confirmó la
+  // compra de un físico y nadie llamó tomar_pedido, lo llama el servidor
+  // (confirma la compra y pega la lista de datos de envío).
+  {
+    const focoAhora = estado.productoEnFoco;
+    const esFisicoAhora = focoAhora != null && String(catalogo.find((p) => p.id === focoAhora)?.kind || "") === "physical";
+    const confirmaCompra = diceQueCompra(mensajeDelCliente) ||
+      (/env[ií]|pedido|llev|compr|lo quieres/i.test(estado.ultimaPreguntaAgente || "") && /^\s*(s[ií]|dale|listo|claro|de una|ok|okey|va|bueno|perfecto)\b/i.test(mensajeDelCliente) && !esDudaONegativa(mensajeDelCliente));
+    if (esFisicoAhora && confirmaCompra && ctx.pedidos && !traza.some((t) => t.herramienta === "tomar_pedido") && estado.accionPendiente !== "confirmar_pedido") {
+      try { await ejecutores.tomar_pedido(ctx, {}); } catch { /* sigue el texto */ }
+    }
+  }
+
+  // ── Preguntó el precio y el texto no lo dice ─────────────────────────────
+  // Simulación: "Precio?" → "¿Te gustaría pedirlo?". Ya lo tenía en la ficha,
+  // pero si lo pregunta de nuevo, se le dice (el dato lo pone el catálogo).
+  {
+    const focoAhora = estado.productoEnFoco;
+    const prod = focoAhora != null ? catalogo.find((p) => p.id === focoAhora) : null;
+    const preguntaPrecio = /\b(cu[aá]nto (vale|cuesta|es|sale|queda)|precio|valor|a c[oó]mo)\b/i.test(mensajeDelCliente);
+    const yaLoDice = /\$\s?\d/.test(textoFinal) || ctx.partes.some((p: any) => p.kind === "card" && /precio|completa/.test(String(p.seccion)));
+    if (prod && preguntaPrecio && !yaLoDice && Number(prod.price) > 0) {
+      const monto = `$${Number(prod.price).toLocaleString("es-CO")}`;
+      const extra = String(prod.kind || "") === "physical" ? ", con envío incluido y pagas al recibir" : "";
+      textoFinal = `Está en ${monto}${extra}.${textoFinal ? `\n\n${textoFinal}` : ""}`;
+    }
+  }
+
+  // ── Lista de productos escrita a mano ────────────────────────────────────
+  //
+  // 25-09-2026, conv 218: "tienes corrector de postura" → el modelo listó
+  // "Corrector de postura trenza = $50.000", "ortopédico Back"… productos que
+  // YA NO EXISTEN: los copió de un mensaje suyo viejo del historial. Los
+  // nombres y precios los pone el catálogo, no el modelo: la lista se saca
+  // del texto y salen las fichas reales de lo que se encontró.
+  if (textoFinal && !hayTarjetas() && esListaDeProductosAMano(textoFinal)) {
+    // Primero por NOMBRE: "¿tienes corrector de postura?" pide la categoría
+    // entera, y en el puntaje "corrector" pesa cero justo por estar en todos.
+    const plano = (t: string) => String(t || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+    const palabras = plano(mensajeDelCliente).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 5);
+    const porNombre = catalogo
+      .filter((p) => p.disponible !== false && palabras.some((w) => plano(p.name).includes(w)))
+      .slice(0, 4)
+      .map((p) => p.id);
+    const encontrados = porNombre.length ? porNombre : puntuarCoincidencias(mensajeDelCliente, catalogo, 4).map((x) => x.p.id);
+    try {
+      if (encontrados.length >= 2) await ejecutores.mostrar_opciones(ctx, { productoIds: encontrados });
+      else if (encontrados.length === 1) await ejecutores.mostrar(ctx, { productoId: encontrados[0], seccion: "completa" });
+    } catch { /* sin fichas, al menos no sale la lista inventada */ }
+    textoFinal = textoFinal
+      .split("\n")
+      .filter((l) => !/\$\s?\d|=\s*\$?\s?\d/.test(l) && !/^\s*([-•*]|\d+[.)])\s/.test(l))
+      .join("\n")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
   }
 
   // ── Red de seguridad: una cifra de plata que no existe en el catálogo ────
@@ -615,6 +840,33 @@ export async function responder(params: {
     .replace(/<\|\|DSML[\s\S]*/g, "")
     .trim();
 
+  // ── Notas internas del modelo ────────────────────────────────────────────
+  // Prueba en producción (25-09-2026): al cliente le llegó "(El mensaje
+  // anterior ya incluía la pregunta de cierre, espero la respuesta del
+  // cliente)." Es el modelo hablándose a sí mismo.
+  textoFinal = quitarNotasInternas(textoFinal);
+
+  // ── El mismo emoji al final de cada mensaje ──────────────────────────────
+  // Prueba en producción (25-09-2026): cinco respuestas seguidas terminadas
+  // en "🎹", otras cuatro en "😊". Leído de corrido parece un bot. Si el
+  // mensaje anterior del agente cerró con el mismo, este va sin él.
+  {
+    const previo = [...params.historial].reverse().find((m) => m.role === "agent")?.content || "";
+    const final = emojiDelFinal(textoFinal);
+    if (final && final === emojiDelFinal(previo)) {
+      textoFinal = textoFinal.replace(/\s*(\p{Extended_Pictographic}️?)\s*$/u, "").trim();
+    }
+  }
+
+  // ── Tuteo también en lo que arma el servidor ─────────────────────────────
+  // El prompt y varios textos del sistema están en voseo ("¿Confirmás el
+  // pedido?"); salvo en Argentina/Uruguay, todo lo que sale se pasa a tú.
+  const tutea = !/argentin|uruguay/i.test(String(voz.pais || ""));
+  if (tutea) {
+    textoFinal = hablarColombiano(textoFinal);
+    for (const parte of ctx.partes) if (parte.kind === "text" && (parte as any).content) (parte as any).content = hablarColombiano((parte as any).content);
+  }
+
   // ── Armado de la respuesta ───────────────────────────────────────────────
   const partes: Parte[] = [];
   if (textoFinal) partes.push({ kind: "text", content: textoFinal });
@@ -650,6 +902,9 @@ export async function responder(params: {
     if (!estado.preguntaPendiente) estado.preguntaPendiente = textoFinal.slice(-300);
   } else if (textoFinal) {
     estado.preguntaPendiente = null;
+    // Si este mensaje no terminó en pregunta, un "sí" del cliente ya no
+    // contesta la pregunta de hace varios mensajes.
+    estado.ultimaPreguntaAgente = null;
   }
   // FASE 8/14: si el modelo no dejó siguiente acción, se deriva de lo pendiente.
   if (!estado.siguienteAccion) {
@@ -681,9 +936,68 @@ export async function responder(params: {
  */
 export function anunciaUnEnvio(texto: string): boolean {
   return (
-    /\b(ah[ií]|ac[aá]|aqu[ií])\s+(te\s+)?(van|va|dejo|mando|paso|env[ií]o|comparto)\b/i.test(texto) ||
+    /\b(ah[ií]|ac[aá]|aqu[ií])\s+(te\s+)?(van|va|dejo|mando|paso|env[ií]o|comparto|tienes|ten[eé]s)\b/i.test(texto) ||
     /\bte\s+(los|las|lo|la)\s+(dejo|mando|paso|env[ií]o|comparto)\s+(de nuevo|otra vez|nuevamente|ac[aá]|aqu[ií]|abajo)\b/i.test(texto)
   );
+}
+
+/**
+ * Saca lo que el modelo escribe para sí mismo y no para el cliente: un
+ * paréntesis que habla "del cliente", "del mensaje anterior", de
+ * herramientas o del sistema, o una línea que empieza con "Nota:".
+ */
+export function quitarNotasInternas(texto: string): string {
+  const META = /\b(el cliente|la clienta|del cliente|mensaje anterior|herramienta|sistema|instrucci[oó]n|pregunta de cierre|espero (la|su) respuesta|este turno|no escribo|no respondo)\b/i;
+  const limpio = String(texto || "")
+    .replace(/\(([^()]{0,300})\)/g, (m, dentro) => (META.test(dentro) ? "" : m))
+    .split("\n")
+    .filter((l) => !/^\s*(nota|note|nota interna)\s*:/i.test(l) && !(META.test(l) && /\b(el cliente|la clienta)\b/i.test(l)))
+    .join("\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  // Si solo quedó puntuación, no hay nada que decirle al cliente.
+  return /[\p{L}\p{N}]/u.test(limpio) ? limpio : "";
+}
+
+/** ¿El modelo escribió una lista de productos con precio? (2+ líneas "Nombre = $N" o "- Nombre $N"). */
+export function esListaDeProductosAMano(texto: string): boolean {
+  const lineas = String(texto || "").split("\n");
+  return lineas.filter((l) => /\$\s?\d{1,3}([.,]\d{3})+|\$\s?\d{4,}/.test(l) && /[a-záéíóúñ]{3,}/i.test(l)).length >= 2;
+}
+
+/** El emoji con que termina un texto, o "" si no termina en uno. */
+export function emojiDelFinal(texto: string): string {
+  return String(texto || "").trim().match(/(\p{Extended_Pictographic})️?$/u)?.[1] || "";
+}
+
+/**
+ * ¿Es un saludo de arranque y nada más? ("Hola, ¿en qué te puedo ayudar
+ * hoy? 😊"). Un texto que además dice algo del producto no cuenta.
+ */
+export function esSaludoGenerico(texto: string): boolean {
+  const t = String(texto || "").trim();
+  if (!t || t.length > 140) return false;
+  return /^(¡\s*)?(hola|buenas|buen d[ií]a|buenos d[ií]as|buenas tardes|buenas noches)\b[^?]{0,40}¿?\s*(en qu[eé] (te|le) (puedo )?ayud|c[oó]mo (te|le) (puedo )?ayud|qu[eé] (est[aá]s|and[aá]s) buscando|qu[eé] necesit)/i.test(t);
+}
+
+/**
+ * ¿El texto le PIDE al cliente datos para comprar? Mismo tipo de chequeo que
+ * `anunciaUnEnvio`: sobre lo que afirma el modelo, no sobre el cliente.
+ * "Pasame tu nombre completo y cédula", "¿me das tu dirección?".
+ */
+export function pideDatosDeCompra(texto: string): boolean {
+  const t = String(texto || "");
+  // El dato de compra nombrado + cualquier forma de pedirlo. La primera
+  // versión listaba verbos ("pásame", "dame") y se le escapó "¿me podrías
+  // dar tu nombre completo y número de cédula?" (conv 218, 25-09-2026): el
+  // español tiene demasiadas formas de pedir. Una pregunta que nombra el dato
+  // ya es pedirlo.
+  const dato = /\b(c[eé]dula|nombre completo|nombre y apellido|direcci[oó]n|barrio|datos de env[ií]o|datos para (el )?env[ií]o)\b/i;
+  // Voseo Y tuteo: desde que el bot tutea (25-09-2026) "dime tu nombre
+  // completo" se escapaba porque la lista solo tenía "decime".
+  const pide = /\?|\b(p[aá]same|dame|dar(me)?|pod[eé]s|puedes|podr[ií]as|necesito|env[ií]a(me)?|mand[aá](me)?|compart[ií](me)?|comp[aá]rteme|dec[ií]me|dime|d[ií]game|regal[aá]me|ind[ií]came|indic[aá]me|confirm[aá]me|conf[ií]rmame|escrib[ií]me|escr[ií]beme|facil[ií]tame)\b/i;
+  return dato.test(t) && pide.test(t);
 }
 
 /** Saca las frases que contienen un monto inventado. Último recurso, medido. */

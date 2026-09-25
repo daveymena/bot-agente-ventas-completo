@@ -118,6 +118,22 @@ export type Efecto =
 export interface ContextoHerramientas {
   estado: EstadoConversacion;
   catalogo: Producto[];
+  /**
+   * TODO el catálogo del negocio, sin el filtro por especialidad del agente.
+   * `buscar_en_catalogo` cae acá cuando en `catalogo` no hay nada: conv 221
+   * (24-09-2026), el agente de digitales atendió "El correcto", no vio los
+   * correctores (son físicos, los ve AtlasDrops) y le dijo al cliente que no
+   * los manejábamos. Que otro agente lo venda no es motivo para negarlo.
+   */
+  catalogoCompleto?: Producto[];
+  /**
+   * Producto que el SERVIDOR fijó en este turno ("el primero" contra las
+   * opciones mostradas). Simulación del 25-09-2026: el servidor resolvió el
+   * extractor 213 y el modelo llamó mostrar(152) -- un colgante --, que movió
+   * el foco; el pedido salió de otro producto. Con esto, mostrar y
+   * tomar_pedido no pueden cambiarlo por un id que el cliente no nombró.
+   */
+  focoFijo?: number | null;
   /** Las partes que se van acumulando para enviar al cliente. */
   partes: Parte[];
   /** Conocimiento cargado por el dueño para este negocio. */
@@ -173,6 +189,8 @@ export interface ServicioDePedidos {
   tomar(p: { producto: Producto; cantidad: number; datos: DatosDelPedido }): Promise<ResultadoTomarPedido>;
   /** El cliente confirmó el resumen: se registra y se despacha. */
   confirmar(): Promise<ResultadoConfirmarPedido>;
+  /** Seguimiento: el último pedido de esta conversación y lo que dice Dropi de él. */
+  estado?(): Promise<{ hay: boolean; texto: string }>;
 }
 
 export interface ResultadoHerramienta {
@@ -301,8 +319,11 @@ export const definicionesDeHerramientas = [
     function: {
       name: "mostrar_opciones",
       description:
-        "Cuando el cliente pide algo que coincide con VARIOS productos (nombre ambiguo, varios modelos), " +
-        "mostrá la ficha de cada opción para que elija. Usala en vez de listar solo texto.",
+        "OBLIGATORIA cuando lo que pide el cliente coincide con DOS o más productos (varios modelos del mismo tipo). " +
+        "Buscá primero con buscar_en_catalogo, después llamala con los ids. El SISTEMA pega debajo de tu texto la ficha de cada opción " +
+        "con su FOTO, NOMBRE y PRECIO reales del catálogo. Por eso en tu texto NUNCA escribas nombres de productos ni precios: " +
+        "solo una frase de intro (ej. 'Te muestro los modelos que tengo:') y la pregunta de cierre. Si listás a mano, los nombres salen " +
+        "viejos y sin foto.",
       parameters: {
         type: "object",
         properties: {
@@ -389,6 +410,16 @@ export const definicionesDeHerramientas = [
         },
         required: [],
       },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "estado_de_mi_pedido",
+      description:
+        "SEGUIMIENTO de un pedido YA hecho: cuando el cliente pregunta dónde va, cuándo llega, la guía o la transportadora. " +
+        "Trae el estado real (de la base y de Dropi). Nunca inventes una guía ni una fecha.",
+      parameters: { type: "object", properties: {} },
     },
   },
   {
@@ -574,7 +605,17 @@ export const ejecutores: Record<string, Ejecutor> = {
       };
     }
 
-    const puntuados = puntuarCoincidencias(String(consulta), ctx.catalogo);
+    let puntuados = puntuarCoincidencias(String(consulta), ctx.catalogo);
+
+    // Nada en lo de este agente: se busca en todo el negocio antes de decir
+    // "no lo manejo". Lo encontrado se suma a su catálogo para que
+    // enfocar_producto / mostrar lo reconozcan en este mismo turno.
+    if (!puntuados.length && ctx.catalogoCompleto?.length) {
+      puntuados = puntuarCoincidencias(String(consulta), ctx.catalogoCompleto);
+      for (const { p } of puntuados) {
+        if (!ctx.catalogo.some((x) => x.id === p.id)) ctx.catalogo.push(p);
+      }
+    }
 
     if (!puntuados.length) {
       return {
@@ -652,6 +693,7 @@ export const ejecutores: Record<string, Ejecutor> = {
   },
 
   async mostrar(ctx, { productoId, seccion, reenviar }) {
+    if (ctx.focoFijo != null && Number(productoId) !== ctx.focoFijo) productoId = ctx.focoFijo;
     const idNumerico = Number(productoId);
     if (!Number.isFinite(idNumerico) || idNumerico <= 0) {
       return {
@@ -764,13 +806,24 @@ export const ejecutores: Record<string, Ejecutor> = {
     if ((sec === "info" || sec === "completa" || sec === "video") && ctx.estado.compra === "ninguno") {
       ctx.estado.compra = "producto_definido";
     }
+    // Físico: la ficha "completa" ya trae precio, pago y entrega, y cierra con
+    // "¿Te lo enviamos?" (ver construirSeccion). Queda registrado como dicho:
+    // el precio no se vuelve a ofrecer y un "sí" siguiente abre el pedido.
+    if (sec === "completa" && String(p.kind || "") === "physical") {
+      for (const s2 of ["precio", "pago", "entrega"]) registrarEnvio(ctx.estado, p.id, s2 as Seccion);
+      if (ctx.estado.compra === "ninguno" || ctx.estado.compra === "interes" || ctx.estado.compra === "producto_definido") ctx.estado.compra = "precio_dado";
+      ctx.estado.preguntoSiCompra = { productoId: p.id, turno: ctx.estado.turnos };
+    }
     if (sec === "entrega" && ctx.estado.entregaEstado === "pendiente_datos") ctx.estado.entregaEstado = "datos_listos";
 
     return {
       ok: true,
       mensaje:
-        `Se envió "${seccion}" de ${p.name}. Los datos (precio, cuentas, enlaces) los puso el sistema: ` +
-        `no los repitas en tu texto. Seguí con lo que sigue naturalmente.`,
+        sec === "completa" && String(p.kind || "") === "physical"
+          ? `Se envió la ficha COMPLETA de ${p.name}: foto, qué es, precio, envío, pago contraentrega y la pregunta "¿Te lo enviamos?". ` +
+            `NO escribas nada más en este turno (o como mucho un saludo de una línea si es el primer mensaje). No ofrezcas el precio: ya lo tiene.`
+          : `Se envió "${seccion}" de ${p.name}. Los datos (precio, cuentas, enlaces) los puso el sistema: ` +
+            `no los repitas en tu texto. Seguí con lo que sigue naturalmente.`,
     };
   },
 
@@ -909,11 +962,20 @@ export const ejecutores: Record<string, Ejecutor> = {
     };
   },
 
+  async estado_de_mi_pedido(ctx) {
+    if (!ctx.pedidos?.estado) {
+      return { ok: false, mensaje: "No puedo consultar pedidos desde acá. Decile que una persona le confirma el estado en un momento y usá escalar_a_humano. No inventes guía ni fecha." };
+    }
+    const r = await ctx.pedidos.estado();
+    if (!r.hay) return { ok: true, mensaje: "Esta conversación no tiene ningún pedido hecho. Preguntale con qué nombre o número lo hizo, sin inventar." };
+    return { ok: true, mensaje: `${r.texto} Decíselo con tus palabras; si no hay guía todavía, decile que se la pasás apenas la transportadora la asigne.` };
+  },
+
   async tomar_pedido(ctx, args) {
     if (!ctx.pedidos) {
       return { ok: false, mensaje: "Este negocio no toma pedidos automáticos. Tomá los datos con registrar_dato y decile que una persona le confirma el envío. No digas que el pedido quedó registrado." };
     }
-    const id = Number(args?.productoId) || ctx.estado.productoEnFoco;
+    const id = ctx.focoFijo ?? (Number(args?.productoId) || ctx.estado.productoEnFoco);
     const p = id ? ctx.catalogo.find((x) => x.id === id) : null;
     if (!p) return { ok: false, mensaje: "No sé qué producto compra. Ubicalo con buscar_en_catalogo o enfocar_producto y volvé a llamar." };
     if (String(p.kind || "digital") !== "physical") {
@@ -924,10 +986,47 @@ export const ejecutores: Record<string, Ejecutor> = {
     if (!precioDado(ctx.estado, p.id)) {
       return { ok: false, mensaje: `Todavía no le mostraste el precio de ${p.name}. Mandá primero mostrar(seccion="precio") y después pedí los datos.` };
     }
+    // Que QUIERA comprar, no que le interese. Pedido del dueño (25-09-2026):
+    // a "me interesa este" el bot le pidió nombre y cédula. Los datos se piden
+    // cuando el cliente dijo que sí a "¿te lo enviamos?" (en un mensaje
+    // POSTERIOR a esa pregunta), o cuando él mismo dijo que lo compra.
+    if (ctx.estado.compraConfirmada !== p.id) {
+      const preguntado = ctx.estado.preguntoSiCompra;
+      // Preguntado por esta herramienta en un turno anterior, o por el modelo
+      // en su texto ("¿Te lo enviamos?" con que cerró su último mensaje).
+      const preguntoEnElTexto = /env[ií]|pedido|llev[aá]s|llevas|compr|separ|apart|lo quer[eé]s|lo quieres|te animas|te animás/i.test(ctx.estado.ultimaPreguntaAgente || "");
+      const preguntoAntes = (preguntado?.productoId === p.id && ctx.estado.turnos > preguntado.turno) || preguntoEnElTexto;
+      const respondioAlaPregunta = preguntoAntes && !esDudaONegativa(ctx.mensajeDelCliente);
+      if (respondioAlaPregunta || diceQueCompra(ctx.mensajeDelCliente)) {
+        ctx.estado.compraConfirmada = p.id;
+      } else {
+        ctx.estado.preguntoSiCompra = { productoId: p.id, turno: ctx.estado.turnos };
+        return {
+          ok: false,
+          mensaje:
+            `El cliente todavía NO dijo que compra ${p.name} (interesarse no es comprar). NO le pidas datos de envío. ` +
+            `Respondé lo que preguntó y cerrá con UNA pregunta corta de si quiere hacer el pedido (ej: "¿Te lo enviamos?"). ` +
+            `Si responde que sí, volvé a llamar tomar_pedido.`,
+        };
+      }
+    }
     const datos: DatosDelPedido = {};
+    // La cédula no se pide (dueño, 24-09). Un 3xxxxxxxxx es celular aunque el
+    // modelo lo mande como documento: la simulación del 25-09 imprimió
+    // "🪪 Cédula 3001234567" en el resumen.
+    if (args && /^\s*3\d{9}\s*$/.test(String(args.documento ?? "")) && !String(args.telefono ?? "").trim()) args.telefono = args.documento;
+    if (args && !/c[eé]dula|\bcc\b|documento/i.test(ctx.mensajeDelCliente)) delete args.documento;
     for (const k of ["nombre", "telefono", "documento", "departamento", "ciudad", "direccion", "barrio", "notas"] as const) {
       const v = String(args?.[k] ?? "").trim();
-      if (v) datos[k] = v.slice(0, 200);
+      if (v) {
+        // 25-09-2026: si el valor parece un celular (3xxxxxxxxx), lo movemos al teléfono
+        // aunque el modelo lo haya puesto en 'documento'.
+        if (k === "documento" && /^\d{10}$/.test(v)) {
+          datos.telefono = v;
+        } else {
+          datos[k] = v.slice(0, 200);
+        }
+      }
     }
     const cantidad = Math.max(1, Math.min(20, Number(args?.cantidad) || 1));
     const r = await ctx.pedidos.tomar({ producto: p, cantidad, datos });
@@ -968,12 +1067,15 @@ export const ejecutores: Record<string, Ejecutor> = {
         ctx.estado.accionPendiente = "confirmar_zona";
         return { ok: true, mensaje: `Los datos están, pero la zona no verifica: ${r.motivo}. Pedile que confirme la ciudad y el departamento. No registres nada.` };
       case "listo":
+        // El resumen sale en el mismo turno en que llegan los datos, y el "sí"
+        // que confirma tiene que llegar en un mensaje POSTERIOR: por eso se
+        // marca el turno (confirmar_pedido rechaza un sí del mismo turno).
         ctx.estado.pedidoPorConfirmarEnTurno = ctx.estado.turnos;
         ctx.estado.accionPendiente = "confirmar_pedido";
         ctx.estado.entregaEstado = "datos_listos";
         // El resumen lo manda el SISTEMA, tal cual, con los datos guardados:
         // así no puede salir con un dato cambiado por el modelo.
-        ctx.partes.push({ kind: "text", content: `${r.resumen}\n\n¿Confirmás el pedido y el envío a esa dirección? ✅` });
+        ctx.partes.push({ kind: "text", content: `${r.resumen}\n\n¿Confirmas el pedido y el envío a esa dirección? ✅` });
         return {
           ok: true,
           mensaje:
@@ -1203,4 +1305,20 @@ function tipoDeOferta(seccion: Seccion): Oferta["tipo"] {
   if (seccion === "entrega") return "entrega";
   if (seccion === "info" || seccion === "completa") return "ficha";
   return "pregunta";
+}
+
+/**
+ * ¿El cliente dice, con sus palabras, que COMPRA? Solo frases explícitas:
+ * "me interesa", "me gusta", "este" NO cuentan (pedido del dueño 25-09-2026).
+ */
+export function diceQueCompra(mensaje: string): boolean {
+  const t = String(mensaje || "").toLowerCase();
+  if (esDudaONegativa(t)) return false;
+  return /\b(lo|la|los|las) (quiero|compro|pido|llevo)\b|\bquiero (uno|una|dos|tres|\d+)\b|\bme (lo|la) llevo\b|\bquiero (comprar|pedir|ordenar|hacer el pedido|encargar)|\bme (lo|la|los|las) (llevo|env[ií]as?|mand[aá]s?)\b|\b(env[ií]a|mand[aá])(me)?(lo|la|los|las)\b|\bhagamos el pedido\b|\bh[aá]gamelo\b|\bpedido\b.*\bconfirm/i.test(t);
+}
+
+/** Una duda o un no: no es un sí aunque venga después de "¿te lo enviamos?". */
+export function esDudaONegativa(mensaje: string): boolean {
+  const t = String(mensaje || "").toLowerCase().trim();
+  return /\?|^\s*no\b|\bno (gracias|todav[ií]a|por ahora|s[eé])\b|\b(lo voy a pensar|lo pienso|despu[eé]s|m[aá]s tarde|luego te|d[eé]jame (ver|pensar)|todav[ií]a no)\b/i.test(t);
 }

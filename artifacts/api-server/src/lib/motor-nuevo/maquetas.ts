@@ -154,6 +154,6 @@ export function maquetaDeDatosDeEnvio(faltan: string[], primeraVez: boolean): st
   }
   if (!lineas.length) return "";
   return primeraVez
-    ? `📦 *Para enviarte tu pedido necesito:*\n\n${lineas.join("\n")}\n\nMandámelos todos en un solo mensaje y te confirmo el pedido 🙌`
+    ? `📦 *Para enviarte tu pedido necesito:*\n\n${lineas.join("\n")}\n\nEnvíamelos todos en un solo mensaje y te confirmo el pedido 🙌`
     : `📝 *Solo me falta:*\n\n${lineas.join("\n")}\n\nCon eso te confirmo el pedido.`;
 }

@@ -19,7 +19,7 @@ const CURSO: Producto = { id: 8, name: "Curso de piano", description: "", price:
 const CAT = [CORRECTOR, CURSO];
 const guion = () => guionDelNegocio({ catalogo: CAT, negocio: { nombre: "T" }, medios: [] });
 
-/** Un servicio falso que se comporta como dropshipping.ts: exige 6 datos. */
+/** Un servicio falso que se comporta como dropshipping.ts: exige 5 datos (la cédula ya no, 24-09-2026). */
 function servicioFalso() {
   const guardado: DatosDelPedido = {};
   const llamadas = { tomar: 0, confirmar: 0 };
@@ -27,7 +27,7 @@ function servicioFalso() {
     async tomar({ datos }) {
       llamadas.tomar++;
       Object.assign(guardado, datos);
-      const requeridos = ["nombre", "documento", "telefono", "direccion", "ciudad", "departamento"] as const;
+      const requeridos = ["nombre", "telefono", "direccion", "ciudad", "departamento"] as const;
       const faltan = requeridos.filter((k) => !guardado[k]);
       if (faltan.length) return { estado: "faltan", faltan: [...faltan], yaTiene: requeridos.filter((k) => guardado[k]) };
       return { estado: "listo", resumen: `📦 Corrector de postura × 1\n👤 ${guardado.nombre}\n🏠 ${guardado.direccion}` };
@@ -44,6 +44,8 @@ function ctxCon(pedidos?: ServicioDePedidos, precioYaDado = true): ContextoHerra
   const e = estadoInicial(1);
   e.productoEnFoco = 7;
   if (precioYaDado) e.seccionesEnviadas = { 7: { precio: new Date().toISOString() } };
+  // El cliente ya dijo que compra (ver "interesarse no es comprar" abajo).
+  e.compraConfirmada = 7;
   return { estado: e, catalogo: CAT, partes: [], conocimiento: [], guion: guion(), mensajeDelCliente: "", efectos: [], pedidos };
 }
 
@@ -72,7 +74,8 @@ describe("tomar_pedido", () => {
     const { s } = servicioFalso();
     const ctx = ctxCon(s);
     const r = await ejecutores.tomar_pedido(ctx, { nombre: "Ana Pérez", ciudad: "Bogotá" });
-    expect(r.mensaje).toMatch(/documento, telefono, direccion, departamento/);
+    expect(r.mensaje).toMatch(/telefono, direccion, departamento/);
+    expect(r.mensaje).not.toMatch(/documento/);
     expect(r.mensaje).toMatch(/Ya tenés: nombre, ciudad/);
     // La lista la pega el SISTEMA, toda junta y sin cédula (dueño, 24-09-2026).
     expect(ctx.partes).toHaveLength(1);
@@ -86,7 +89,7 @@ describe("tomar_pedido", () => {
     const ctx = ctxCon(s);
     await ejecutores.tomar_pedido(ctx, { nombre: "Ana Pérez", documento: "1020304050", telefono: "3001234567", direccion: "Calle 45 # 12-30", ciudad: "Bogotá", departamento: "Bogotá D.C." });
     expect(ctx.partes[0]).toMatchObject({ kind: "text" });
-    expect((ctx.partes[0] as any).content).toMatch(/Ana Pérez[\s\S]*¿Confirmás el pedido/);
+    expect((ctx.partes[0] as any).content).toMatch(/Ana Pérez[\s\S]*¿Confirmas el pedido/);
     expect(ctx.estado.pedidoPorConfirmarEnTurno).toBe(ctx.estado.turnos);
   });
 });
@@ -141,6 +144,7 @@ describe("de punta a punta con el motor", () => {
     const e = estadoInicial(1);
     e.productoEnFoco = 7;
     e.seccionesEnviadas = { 7: { precio: new Date().toISOString() } };
+    e.compraConfirmada = 7;
 
     const t1 = await responder({
       llm: clienteFalso([
@@ -150,7 +154,7 @@ describe("de punta a punta con el motor", () => {
       estado: e, historial: [{ role: "customer", content: "Ana Pérez, 1020304050, calle 45 # 12-30 Bogotá, 3001234567", createdAt: new Date() }],
       catalogo: CAT, conocimiento: [], guion: guion(), voz: VOZ, pedidos: s,
     });
-    expect(t1.partes.map((p: any) => p.content).join("\n")).toMatch(/¿Confirmás el pedido/);
+    expect(t1.partes.map((p: any) => p.content).join("\n")).toMatch(/¿Confirmas el pedido/);
     expect(llamadas.confirmar).toBe(0);
 
     const t2 = await responder({
@@ -163,5 +167,92 @@ describe("de punta a punta con el motor", () => {
     });
     expect(llamadas.confirmar).toBe(1);
     expect(t2.estado.compra).toBe("pedido_creado");
+  });
+});
+
+describe("interesarse no es comprar (pedido del dueño, 25-09-2026)", () => {
+  const sinConfirmar = (mensaje: string) => {
+    const ctx = ctxCon(servicioFalso().s);
+    ctx.estado.compraConfirmada = null;
+    ctx.mensajeDelCliente = mensaje;
+    return ctx;
+  };
+
+  test('"Me interesa este" no abre el pedido: pide preguntar si lo quiere', async () => {
+    const ctx = sinConfirmar("Me interesa este");
+    const r = await ejecutores.tomar_pedido(ctx, {});
+    expect(r.ok).toBe(false);
+    expect(r.mensaje).toMatch(/NO dijo que compra/);
+    expect(ctx.estado.preguntoSiCompra?.productoId).toBe(7);
+  });
+
+  test('"sí" a "¿Te lo enviamos?" del turno anterior sí abre el pedido', async () => {
+    const ctx = sinConfirmar("sí");
+    ctx.estado.ultimaPreguntaAgente = "Va en $45.000 con envío contraentrega. ¿Te lo enviamos?";
+    const r = await ejecutores.tomar_pedido(ctx, {});
+    expect(ctx.estado.compraConfirmada).toBe(7);
+    expect(r.mensaje).not.toMatch(/NO dijo que compra/);
+  });
+
+  test('"lo quiero" explícito abre el pedido sin preguntar otra vez', async () => {
+    const ctx = sinConfirmar("dale, lo quiero");
+    await ejecutores.tomar_pedido(ctx, {});
+    expect(ctx.estado.compraConfirmada).toBe(7);
+  });
+
+  test("una duda después de la pregunta no es un sí", async () => {
+    const ctx = sinConfirmar("¿y cuánto demora en llegar?");
+    ctx.estado.ultimaPreguntaAgente = "¿Te lo enviamos?";
+    const r = await ejecutores.tomar_pedido(ctx, {});
+    expect(r.ok).toBe(false);
+  });
+});
+
+describe("simulación 25-09-2026: cierre del pedido", () => {
+  test("un 3xxxxxxxxx mandado como documento es el celular, y la cédula no se guarda", async () => {
+    const { s } = servicioFalso();
+    let recibido: any = null;
+    const espia = { ...s, async tomar(p: any) { recibido = p.datos; return s.tomar(p); } };
+    const ctx = ctxCon(espia as any);
+    ctx.mensajeDelCliente = "Juan Pérez, 3001234567, Calle 10 # 20-30, Cali";
+    await ejecutores.tomar_pedido(ctx, { nombre: "Juan Pérez", documento: "3001234567", direccion: "Calle 10 # 20-30", ciudad: "Cali" });
+    expect(recibido.telefono).toBe("3001234567");
+    expect(recibido.documento).toBeUndefined();
+  });
+
+  test("compra confirmada y el modelo pide 'nombre completo y cédula': sale la lista del sistema, sin cédula", async () => {
+    const { s } = servicioFalso();
+    const e = estadoInicial(1);
+    e.productoEnFoco = 7;
+    e.seccionesEnviadas = { 7: { precio: new Date().toISOString() } };
+    e.compraConfirmada = 7;
+    const r = await responder({
+      llm: clienteFalso([{ content: "Para coordinar el envío, por favor dime tu nombre completo y tu número de cédula. 😊" }]),
+      estado: e, historial: [{ role: "customer", content: "sí, lo quiero", createdAt: new Date() }],
+      catalogo: CAT, conocimiento: [], guion: guion(), voz: { nombreAgente: "S", rolAgente: "a", nombreNegocio: "T" }, pedidos: s,
+    });
+    const texto = r.partes.filter((p: any) => p.kind === "text").map((p: any) => p.content).join("\n");
+    expect(texto).not.toMatch(/c[eé]dula/i);
+  });
+});
+
+describe("tercera ronda de simulación (25-09-2026)", () => {
+  const VOZ = { nombreAgente: "S", rolAgente: "a", nombreNegocio: "T" };
+  test('"Precio?" después de la ficha: el texto dice el precio', async () => {
+    const e = estadoInicial(1); e.productoEnFoco = 7; e.seccionesEnviadas = { 7: { precio: new Date().toISOString() } };
+    const r = await responder({ llm: clienteFalso([{ content: "¿Te gustaría pedirlo?" }]), estado: e, historial: [{ role: "customer", content: "Precio?", createdAt: new Date() }], catalogo: CAT, conocimiento: [], guion: guion(), voz: VOZ });
+    expect(r.partes.map((p: any) => p.content || "").join(" ")).toMatch(/\$45\.000/);
+  });
+  test('"Quiero uno" y el modelo solo dice "¡Genial!": sale la lista de datos de envío', async () => {
+    const { s } = servicioFalso();
+    const e = estadoInicial(1); e.productoEnFoco = 7; e.seccionesEnviadas = { 7: { precio: new Date().toISOString() } };
+    const r = await responder({ llm: clienteFalso([{ content: "¡Genial!" }]), estado: e, historial: [{ role: "customer", content: "Quiero uno", createdAt: new Date() }], catalogo: CAT, conocimiento: [], guion: guion(), voz: VOZ, pedidos: s });
+    expect(r.partes.map((p: any) => p.content || "").join("\n")).toMatch(/Para enviarte tu pedido necesito/);
+  });
+  test("el resumen pregunta de tú", async () => {
+    const { s } = servicioFalso();
+    const ctx = ctxCon(s);
+    await ejecutores.tomar_pedido(ctx, { nombre: "Ana Pérez", telefono: "3001234567", direccion: "Calle 1 # 2-3", ciudad: "Bogotá", departamento: "Bogotá D.C." });
+    expect((ctx.partes.at(-1) as any).content).toMatch(/¿Confirmas el pedido/);
   });
 });

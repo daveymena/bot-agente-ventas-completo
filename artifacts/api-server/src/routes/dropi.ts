@@ -195,14 +195,15 @@ router.post("/importar", async (req: any, res: any) => {
       if (!id) continue;
       const r = await importarProductoDropi(tenantId, token, id, { precio: Number(it?.precio) || null, curar: req.body?.curar !== false });
       resultados.push({ dropiProductId: id, ...r });
-      // Automatización total (pedido del dueño 19-09): cada producto nuevo
-      // sale con su paquete de lanzamiento en borrador, sin pedirlo.
-      if (r.ok && r.productId && !r.yaExistia && req.body?.lanzar !== false) {
+      // Lanzamiento manual: solo si el admin lo pide explícitamente
+      // (lanzar:true). Antes era automático por defecto y cada producto
+      // nuevo subía borrador a Meta sin aprobación.
+      if (r.ok && r.productId && !r.yaExistia && req.body?.lanzar === true) {
         const pid = r.productId;
-        import("../lib/lanzamiento").then(({ lanzarProducto }) => lanzarProducto(tenantId, pid, { conAnuncio: true })).catch((e) => logger.warn({ productId: pid, err: e?.message }, "[Lanzamiento] automático falló"));
+        import("../lib/lanzamiento").then(({ lanzarProducto }) => lanzarProducto(tenantId, pid, { conAnuncio: false })).catch((e) => logger.warn({ productId: pid, err: e?.message }, "[Lanzamiento] manual falló"));
       }
     }
-    res.json({ ok: resultados.every((r) => r.ok), resultados, lanzamientoAutomatico: req.body?.lanzar !== false });
+    res.json({ ok: resultados.every((r) => r.ok), resultados, lanzamientoAutomatico: req.body?.lanzar === true });
   } catch (error: any) {
     res.status(500).json({ ok: false, error: error.message });
   }
@@ -232,7 +233,7 @@ router.post("/lanzar/:productId", async (req: any, res: any) => {
     const productId = Number(req.params.productId);
     if (!productId) return res.status(400).json({ ok: false, error: "productId inválido" });
     const { lanzarProducto } = await import("../lib/lanzamiento");
-    void lanzarProducto(tenantId, productId, { presupuestoDiario: Number(req.body?.presupuestoDiario) || null, conAnuncio: req.body?.conAnuncio !== false, forzar: !!req.body?.forzar })
+    void lanzarProducto(tenantId, productId, { presupuestoDiario: Number(req.body?.presupuestoDiario) || null, conAnuncio: req.body?.conAnuncio === true, forzar: !!req.body?.forzar })
       .catch((e) => logger.error({ productId, err: e?.message }, "[Lanzamiento] falló"));
     res.json({ ok: true, enMarcha: true, mensaje: "Lanzamiento en marcha (2-5 min). El resumen llega por WhatsApp; también se ve en GET /api/dropi/lanzamiento/:productId." });
   } catch (error: any) {

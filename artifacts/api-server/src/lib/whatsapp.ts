@@ -199,6 +199,7 @@ import { retryWithBackoff, notifyOperatorOfFailure } from "./fallbackSystem";
 import { processMessageForLeadScoring } from "./leadScoring";
 
 import { variante } from "./variacion";
+import { decideSiMandaVoz } from "./cuando-va-la-voz";
 function formatPriceForWa(price: number, currency: string) {
   try {
     return new Intl.NumberFormat("es-MX", {
@@ -1090,7 +1091,7 @@ export async function construirSeccion(
       return {
         conFoto: false,
         mensajes: [
-          `💵 Este producto se paga contraentrega: no pagás nada ahora, pagás cuando la transportadora te lo entrega en tu dirección.\n📦 ${fraseCostoEnvio(c)} (${mon.precioTexto}) y llega en ${c.envio.plazo}.\n\n¿Te tomo el pedido? Solo necesito tus datos de envío.`,
+          `💵 Este producto se paga contraentrega: no pagas nada ahora, pagas cuando la transportadora te lo entrega en tu dirección.\n📦 ${fraseCostoEnvio(c)} (${mon.precioTexto}) y llega en ${c.envio.plazo}.\n\n¿Te tomo el pedido? Solo necesito tus datos de envío.`,
         ],
       };
     }
@@ -1203,9 +1204,31 @@ export async function construirSeccion(
       L.push("", "✅ *Lo que incluye:*");
       for (const v of vinetas) L.push(v);
     }
-    const lineaDeEntrega = await lineaDeComoSeEntrega(p);
-    if (lineaDeEntrega) L.push("", lineaDeEntrega);
-    if (cierre) L.push("", cierre);
+    // ── Dropshipping: la ficha COMPLETA de una ─────────────────────────────
+    //
+    // Pedido del dueño (25-09-2026): el cliente llega del anuncio por UN
+    // producto; se le manda de una vez foto + qué es + precio + cómo paga +
+    // cómo le llega, y se le pregunta si se lo enviamos. "El precio es la
+    // pregunta siguiente" es táctica de cursos: en un físico de anuncio lo
+    // hacía dar vueltas ("¿Te cuento cuánto vale?") con alguien que ya vino
+    // por ese producto.
+    if (esFisico && seccion === "completa") {
+      L.push("", `💰 *Precio: ${mon.precioTexto}*`);
+      try {
+        const { fraseCostoEnvio, frasePagoEnvio } = await import("./modelo-de-negocio");
+        const c = await condicionesDelProducto(p);
+        L.push(`🚚 ${fraseCostoEnvio(c)}. Llega en ${c.envio.plazo}.`);
+        L.push(`💵 ${frasePagoEnvio(c)}.`);
+      } catch {
+        const lineaDeEntrega = await lineaDeComoSeEntrega(p);
+        if (lineaDeEntrega) L.push(lineaDeEntrega);
+      }
+      if (!sinCierre) L.push("", "¿Te lo enviamos? 📦");
+    } else {
+      const lineaDeEntrega = await lineaDeComoSeEntrega(p);
+      if (lineaDeEntrega) L.push("", lineaDeEntrega);
+      if (cierre) L.push("", cierre);
+    }
     mensajes.push(hablarColombiano(L.join("\n").trim()));
   }
 
@@ -1369,6 +1392,8 @@ export interface ContextoDeAnuncio {
   cuerpo: string;
   url: string;
   anuncioId: string;
+  /** Marca de origen de WhatsApp cuando no vino externalAdReply ("ctwa_ad", "fb_ads"). */
+  origen?: string;
 }
 
 /**
@@ -1385,10 +1410,22 @@ export interface ContextoDeAnuncio {
 export function extraerContextoDeAnuncio(msgObj: any): ContextoDeAnuncio | null {
   if (!msgObj || typeof msgObj !== "object") return null;
   // El contextInfo cuelga del sub-mensaje (extendedTextMessage, imageMessage,
-  // videoMessage...) segun con que formato haya salido el anuncio.
-  const candidatos = [msgObj, ...Object.values(msgObj)];
-  for (const c of candidatos) {
-    const ad = (c as any)?.contextInfo?.externalAdReply;
+  // videoMessage...) y a veces DOS niveles más abajo: con mensajes
+  // temporales llega envuelto en ephemeralMessage.message.<tipo>.contextInfo.
+  // Antes se miraba un solo nivel y el anuncio se perdía: el 23-09-2026 la
+  // clienta del anuncio del corrector (conv 219) quedó como lead "whatsapp",
+  // mientras el texto del mismo mensaje sí se leía (ese extractor ya era
+  // recursivo). Se recorre hasta 4 niveles buscando cualquier contextInfo.
+  const contextos: any[] = [];
+  const recorrer = (o: any, nivel: number) => {
+    if (!o || typeof o !== "object" || nivel > 4) return;
+    if (o.contextInfo && typeof o.contextInfo === "object") contextos.push(o.contextInfo);
+    for (const v of Object.values(o)) if (v && typeof v === "object") recorrer(v, nivel + 1);
+  };
+  recorrer(msgObj, 0);
+
+  for (const ci of contextos) {
+    const ad = ci?.externalAdReply;
     if (!ad) continue;
     const ctx: ContextoDeAnuncio = {
       titulo: String(ad.title || "").trim(),
@@ -1397,6 +1434,16 @@ export function extraerContextoDeAnuncio(msgObj: any): ContextoDeAnuncio | null 
       anuncioId: String(ad.sourceId || ad.ctwaClid || "").trim(),
     };
     if (ctx.titulo || ctx.cuerpo || ctx.url || ctx.anuncioId) return ctx;
+  }
+
+  // Sin externalAdReply, WhatsApp igual marca el origen del chat
+  // ("ctwa_ad", "FB_Ads"). No dice qué producto, pero sí que vino de un
+  // anuncio pagado: sin esto ese cliente se contaba como orgánico.
+  for (const ci of contextos) {
+    const origen = `${ci?.entryPointConversionSource || ""} ${ci?.conversionSource || ""} ${ci?.entryPointConversionApp || ""}`.toLowerCase();
+    if (/ctwa|_ad\b|\bads?\b|fb_ads|ig_ads/.test(origen)) {
+      return { titulo: "", cuerpo: "", url: "", anuncioId: "", origen: origen.trim() };
+    }
   }
   return null;
 }
@@ -3236,6 +3283,48 @@ export class WhatsAppManager {
       console.log(`🧵 [WA-PARTS] ${antesDeUnir} partes -> ${parts.length}: los textos seguidos van en un solo mensaje`);
     }
 
+    // ── VOZ O TEXTO, NUNCA LOS DOS ───────────────────────────────────────────
+    //
+    // Pedido del dueño (2026-09-24): "si va a enviar audio, no lo envíe con
+    // texto". Una FICHA (producto, precio, pago, entrega) va con texto + imagen
+    // como siempre; un RAZONAMIENTO que responde una duda puede ir hablado, y
+    // cuando va hablado NO se manda además el texto que la voz ya dice.
+    //
+    // Antes se mandaban los dos: el texto y, acto seguido, una nota de voz con
+    // ese mismo texto. La decisión vive en cuando-va-la-voz.ts.
+    const tieneFicha = parts.some((p) => p.kind === "card");
+    const audioActivo = String(process.env.WHATSAPP_AUDIO_ENABLED || "").toLowerCase() === "true";
+    if (audioActivo && !tieneFicha) {
+      const textoHablado = parts
+        .filter((p) => p.kind === "text")
+        .map((p) => String((p as any).content || ""))
+        .filter((t) => t.trim())
+        .join(" ");
+      const probEnv = process.env.WHATSAPP_AUDIO_PROB;
+      const minEnv = process.env.WHATSAPP_AUDIO_MIN_CHARS;
+      const opciones: { prob?: number; minChars?: number } = {};
+      if (probEnv != null && probEnv !== "" && Number.isFinite(Number(probEnv))) opciones.prob = Number(probEnv);
+      if (minEnv != null && minEnv !== "" && Number.isFinite(Number(minEnv))) opciones.minChars = Number(minEnv);
+      const porVoz = decideSiMandaVoz({ tieneFicha, texto: textoHablado, activo: true, ...opciones });
+      if (porVoz) {
+        try {
+          const { hablar, generoDeNombre, vozParaGenero } = await import("./voz-de-atlas");
+          // Ritmo natural (+0%) y voz según el género del cliente; la voz
+          // fuerza una fija con WHATSAPP_AUDIO_VOICE.
+          const voz = process.env.WHATSAPP_AUDIO_VOICE || vozParaGenero(generoDeNombre(pushName));
+          const audio = await hablar(textoHablado, voz, "+0%");
+          if (audio) {
+            await this.sendAudio(phone, audio, "audio/mpeg", originalJid);
+            console.log(`🎙️ [WA-VOZ] Audio enviado sin texto (${Math.round(audio.length / 1024)} KB) - ${timestamp}`);
+            return;
+          }
+        } catch (e: any) {
+          // Si no se pudo hablar, se sigue con el texto: nunca silencio.
+          logger.warn({ err: e?.message }, "[WA-Voz] No se pudo generar el audio; se manda el texto");
+        }
+      }
+    }
+
     console.log(`📤 [WA-PARTS] Iniciando envío de partes - Teléfono: ${phone}, Partes: ${parts.length} - ${timestamp}`);
     
     const cardIds = parts.flatMap((p) => (p.kind === "card" ? [p.productId] : []));
@@ -3350,37 +3439,6 @@ export class WhatsAppManager {
       }
     }
     
-    // ── VOZ: el agente también habla ─────────────────────────────────────────
-    // Diferenciador: además del texto, se manda una nota de voz del agente.
-    // Activable con WHATSAPP_AUDIO_ENABLED=true. La voz (Edge TTS es-CO) es
-    // gratis; si falla, el turno ya quedó respondido por texto.
-    if (String(process.env.WHATSAPP_AUDIO_ENABLED || "").toLowerCase() === "true") {
-      // Las maquetas también hablan: antes la voz leía solo el texto del
-      // modelo ("Este es el valor:") y el precio quedaba mudo. Cada tarjeta
-      // trae su frase (`hablado`, ver motor-nuevo/maquetas.ts), en su orden.
-      const textoHablado = parts
-        .map((p) => (p.kind === "text" ? (p as any).content : (p as any).hablado) || "")
-        .filter((t: string) => t.trim())
-        .join(" ");
-      if (textoHablado.trim().length >= 20) {
-        try {
-          const { hablar, generoDeNombre, vozParaGenero } = await import("./voz-de-atlas");
-          // Ritmo natural (+0%): una voz de ventas calmada suena más confiable
-          // que la de Atlas, que corre un poco para leer paneles.
-          // Voz según el género del cliente: mujer responde con voz de mujer,
-          // hombre con voz de hombre. WHATSAPP_AUDIO_VOICE fuerza una fija.
-          const voz = process.env.WHATSAPP_AUDIO_VOICE || vozParaGenero(generoDeNombre(pushName));
-          const audio = await hablar(textoHablado, voz, "+0%");
-          if (audio) {
-            await this.sendAudio(phone, audio, "audio/mpeg", originalJid);
-            console.log(`🎙️ [WA-VOZ] Audio enviado (${Math.round(audio.length / 1024)} KB) - ${timestamp}`);
-          }
-        } catch (e: any) {
-          logger.warn({ err: e?.message }, "[WA-Voz] No se pudo generar/enviar el audio");
-        }
-      }
-    }
-
     console.log(`🏁 [WA-PARTS] Envío de partes completado - Total: ${parts.length} partes procesadas - ${timestamp}`);
   }
 

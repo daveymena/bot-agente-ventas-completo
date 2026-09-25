@@ -26,6 +26,7 @@ import { performanceAnalysis } from "./agents/performance-analyst";
 import { diagnostic } from "./agents/diagnostic-agent";
 import { getLearningsForProduct, saveLearning } from "./agents/marketing-memory";
 import { getOrCreateBudget } from "./budget-guard";
+import { classifyAction } from "./risk-engine";
 import { logger } from "../logger";
 
 export type MarketingIntent =
@@ -33,6 +34,7 @@ export type MarketingIntent =
   | "diagnostic"         // "¿qué está fallando? / ¿por qué bajaron las ventas?"
   | "performance"        // "¿cómo vamos? / ¿qué está funcionando?"
   | "create_campaign"    // "crea una campaña" (necesita Meta Ads — fase 4)
+  | "help"               // saludo o "¿qué podés hacer?"
   | "unknown";
 
 const INTENT_KEYWORDS: Array<{ intent: MarketingIntent; words: string[] }> = [
@@ -40,6 +42,8 @@ const INTENT_KEYWORDS: Array<{ intent: MarketingIntent; words: string[] }> = [
   { intent: "performance", words: ["cómo vamos", "qué está funcionando", "resultados", "cómo va", "rendimiento", "métricas"] },
   { intent: "create_campaign", words: ["crea una campaña", "crear campaña", "prepara anuncios", "nuevos anuncios", "campaña nueva"] },
   { intent: "growth_plan", words: ["vender más", "hacer crecer", "crecer la venta", "más ventas", "crecer", "estrategia", "plan de marketing", "campañas"] },
+  // Saludo o pedido de ayuda: antes caían en 400 "no identifiqué intención".
+  { intent: "help", words: ["hola", "buenas", "qué puedes hacer", "que puedes hacer", "ayuda", "ayudame", "ayúdame", "cómo funciona", "como funciona", "qué sabés hacer", "opciones"] },
 ];
 
 export function detectIntent(message: string): MarketingIntent {
@@ -50,6 +54,14 @@ export function detectIntent(message: string): MarketingIntent {
   return "unknown";
 }
 
+/** Texto de ayuda con ejemplos reales: es lo que recibe el admin en vez de un 400. */
+export const AYUDA_MARKETING =
+  "Decime qué necesitás y lo resuelvo. Por ejemplo:\n" +
+  "• «quiero vender más <producto>» → armo plan, audiencias, oferta, creativos y copies\n" +
+  "• «¿qué está fallando?» → diagnostico el embudo\n" +
+  "• «¿cómo vamos?» → te muestro el rendimiento\n" +
+  "• «crea una campaña» → preparo el borrador (queda para aprobar)";
+
 function toProductInfo(row: any): ProductInfo {
   return {
     id: row.id,
@@ -57,7 +69,10 @@ function toProductInfo(row: any): ProductInfo {
     description: row.description || "",
     price: row.price != null ? Number(row.price) : undefined,
     currency: row.currency || "COP",
-    category: row.category || row.categoryId ? undefined : "general",
+    // Antes: `row.category || row.categoryId ? undefined : "general"` se leía
+    // como (a||b)?undefined:"general" y devolvía undefined SIEMPRE que hubiera
+    // categoría. El market-researcher caía a "general" en todos los productos.
+    category: row.category || (row.categoryId ? `categoría ${row.categoryId}` : "general"),
     features: Array.isArray(row.features) ? row.features : row.features ? [String(row.features)] : [],
     imageUrl: row.imageUrl,
   };
@@ -79,9 +94,19 @@ async function getProduct(tenantId: number, productId?: number | string | null, 
 
 async function createTask(tenantId: number, assignedAgent: string, action: string, input: Record<string, unknown>, dependencies: number[] = []): Promise<number | null> {
   try {
+    // El riesgo sale del RiskEngine, no hardcodeado: antes TODA tarea del
+    // orquestador nacía LOW/sin aprobación y el motor de riesgo quedaba de
+    // adorno (auditoría y WAITING_APPROVAL nunca se ejercían desde acá).
+    const risk = classifyAction(action);
     const [task] = await db
       .insert(marketingTasks)
-      .values({ tenantId, assignedAgent, action, input, dependencies, status: "PENDING", priority: "medium", risk: "LOW", approvalRequired: false })
+      .values({
+        tenantId, assignedAgent, action, input, dependencies,
+        status: risk.approvalRequired ? "WAITING_APPROVAL" : "PENDING",
+        priority: "medium",
+        risk: risk.risk,
+        approvalRequired: risk.approvalRequired,
+      })
       .returning({ id: marketingTasks.id });
     return task?.id ?? null;
   } catch (err) {
@@ -121,9 +146,18 @@ export async function planGrowth(
   // 1. Product Agent (lectura real del producto) — implícito en getProduct.
   // 2. Memoria previa (el plan consulta la memoria ANTES de crear, §19).
   const learnings = await getLearningsForProduct(tenantId, product.name, 5);
+  // La memoria se pasa COMPLETA (título + contenido), no solo el título: con
+  // puros títulos el agente no puede usar lo aprendido (auditoría 24-09).
+  const memoria = learnings.map((l) => `${l.title}: ${String(l.content || "").slice(0, 300)}`);
+
+  // Contexto real (embudo + negocio) para que los agentes no hablen en vacío.
+  const { getFunnelSnapshot } = await import("./attribution");
+  const funnel = await getFunnelSnapshot(tenantId, 30).catch(() => null);
+  const { getBusinessContext } = await import("../business-context");
+  const negocio: any = await getBusinessContext(tenantId).catch(() => null);
 
   // 3. Investigación
-  const researchHandoff = await marketResearch(product, { tenantId, previousLearnings: learnings.map((l) => l.title) });
+  const researchHandoff = await marketResearch(product, { tenantId, previousLearnings: memoria });
   steps.push({ agent: "MarketResearcher", taskId: await createTask(tenantId, "MarketResearcher", "research_market", { productId: product.id, productName: product.name }) });
   if (steps[steps.length - 1]?.taskId) await finishTask(steps[steps.length - 1]!.taskId!, researchHandoff.data);
 
@@ -132,8 +166,11 @@ export async function planGrowth(
   steps.push({ agent: "AudienceStrategist", taskId: await createTask(tenantId, "AudienceStrategist", "define_audiences", { productId: product.id }) });
   if (steps[steps.length - 1]?.taskId) await finishTask(steps[steps.length - 1]!.taskId!, audienceHandoff.data);
 
-  // 5. Oferta
-  const offerHandoff = await offerStrategy(product, { tenantId });
+  // 5. Oferta (con embudo real: sin esto la oferta se analizaba "sin datos")
+  const offerHandoff = await offerStrategy(product, {
+    tenantId,
+    funnel: funnel ? { leads: funnel.leads, paid: funnel.paid } : undefined,
+  });
   steps.push({ agent: "OfferStrategist", taskId: await createTask(tenantId, "OfferStrategist", "analyze_offer", { productId: product.id }) });
   if (steps[steps.length - 1]?.taskId) await finishTask(steps[steps.length - 1]!.taskId!, offerHandoff.data);
 
@@ -143,7 +180,7 @@ export async function planGrowth(
   if (steps[steps.length - 1]?.taskId) await finishTask(steps[steps.length - 1]!.taskId!, creativeHandoff.data);
 
   // 7. Copies
-  const copyHandoff = await copywriting({ product, brief: creativeHandoff.data, research: researchHandoff.data, tenantId, channel: "meta" });
+  const copyHandoff = await copywriting({ product, brief: creativeHandoff.data, research: researchHandoff.data, tenantId, channel: "meta", country: negocio?.cobertura || undefined });
   steps.push({ agent: "Copywriter", taskId: await createTask(tenantId, "Copywriter", "generate_copy", { productId: product.id }) });
   if (steps[steps.length - 1]?.taskId) await finishTask(steps[steps.length - 1]!.taskId!, copyHandoff.data);
 
@@ -157,7 +194,7 @@ export async function planGrowth(
     offer: offerHandoff.data,
     creative: creativeHandoff.data,
     budget: budget ? { daily: budget.maxDailySpend, currency: budget.currency } : undefined,
-    historical: learnings.map((l) => l.title),
+    historical: memoria,
     tenantId,
   });
   steps.push({ agent: "MarketingStrategist", taskId: await createTask(tenantId, "MarketingStrategist", "create_strategy", { productId: product.id, businessObjective: input.businessObjective }) });

@@ -35,7 +35,7 @@ import { ORDEN_GRATUITOS_PRIMERO, redactarConProveedores } from "./landing/agent
 
 export interface OpcionesLanzamiento {
   presupuestoDiario?: number | null;
-  /** Crear el anuncio en Meta (en pausa). Por defecto sí, si hay credenciales. */
+  /** Crear el anuncio en Meta (en pausa). Por defecto NO: solo borrador local, se sube con upload explícito. */
   conAnuncio?: boolean;
   /** Video del anuncio con el motor propio (por defecto sí). */
   conVideo?: boolean;
@@ -259,8 +259,10 @@ export async function lanzarProducto(tenantId: number, productId: number, opts: 
   if (!copies) pendiente.push("Copies: ningún modelo devolvió una propuesta válida");
   else if (copies.notasDelRevisor?.length) pendiente.push(`Copies con observaciones del revisor: ${copies.notasDelRevisor.slice(0, 2).join("; ")}`);
 
-  // 4) Anuncio en borrador.
-  const anuncio = opts.conAnuncio === false ? { draftId: null, estado: "omitido" as const, nota: "No se pidió anuncio." } : await crearBorradorDeAnuncio(tenantId, productId, copies, opts.presupuestoDiario ?? null);
+  // 4) Anuncio en borrador LOCAL por defecto. Solo toca Meta si conAnuncio===true
+  // explícito (flujo upload del admin). Así importar un producto jamás crea
+  // campaña/conjunto/anuncio reales sin aprobación.
+  const anuncio = opts.conAnuncio !== true ? { draftId: null, estado: "omitido" as const, nota: "No se pidió anuncio." } : await crearBorradorDeAnuncio(tenantId, productId, copies, opts.presupuestoDiario ?? null);
   if (anuncio.estado === "borrador") pendiente.push("Aprobar el anuncio (se sube a Meta en pausa) y definir presupuesto");
   else if (anuncio.nota) pendiente.push(`Anuncio: ${anuncio.nota}`);
 

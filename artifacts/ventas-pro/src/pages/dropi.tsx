@@ -97,10 +97,10 @@ export default function DropiPage() {
     setImportando(p.id);
     try {
       const precio = Number(precios[p.id]) || null;
-      const r = await api("/dropi/importar", { method: "POST", body: JSON.stringify({ items: [{ dropiProductId: p.id, precio }] }) });
+      const r = await api("/dropi/importar", { method: "POST", body: JSON.stringify({ items: [{ dropiProductId: p.id, precio }], lanzar: false }) });
       const it = r.resultados?.[0];
       if (!it?.ok) throw new Error(it?.error || "No se pudo importar");
-      toast({ title: it.yaExistia ? "Producto actualizado" : "Producto importado", description: `${it.nombre}${it.curadoPor ? ` · ficha organizada por ${it.curadoPor}` : ""}${!it.yaExistia ? " · lanzamiento automático en marcha (landing, copies y anuncio en borrador; resumen por WhatsApp)" : ""}` });
+      toast({ title: it.yaExistia ? "Producto actualizado" : "Producto importado", description: `${it.nombre}${it.curadoPor ? ` · ficha organizada por ${it.curadoPor}` : ""}${!it.yaExistia ? " · sin anuncio automático (usá 🚀 Lanzar si querés landing/copies/borrador)" : ""}` });
       setResultados((prev) => prev.map((x) => (x.id === p.id ? { ...x, importadoComo: it.productId } : x)));
     } catch (e: any) { toast({ title: "No se pudo importar", description: e.message, variant: "destructive" }); }
     finally { setImportando(null); }

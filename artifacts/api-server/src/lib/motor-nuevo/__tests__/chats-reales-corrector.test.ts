@@ -101,6 +101,6 @@ describe('"Ahí te van los medios de nuevo" sin mandar nada', () => {
       { content: "Contame qué te gustaría saber y te respondo." },
     ]);
     const r = await responder({ llm, estado: estadoInicial(1), historial: [{ role: "customer", content: "hola", createdAt: new Date() }], catalogo: correctores, conocimiento: [], guion: guion(), voz: VOZ });
-    expect((r.partes[0] as any).content).toBe("Contame qué te gustaría saber y te respondo.");
+    expect((r.partes[0] as any).content).toMatch(/qué te gustaría saber y te respondo\.$/);
   });
 });

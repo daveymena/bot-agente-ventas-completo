@@ -99,98 +99,11 @@ router.post("/lead-ads/webhook", verifyFacebookSignature, async (req: Request, r
           if (!leadgenId) continue;
 
           logger.info({ leadgenId, pageId, formId }, "[Facebook] Nuevo lead recibido");
-
-          // Obtener datos del lead desde Facebook Graph API
-          const tenantId = 1;
-          const [tenant] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
-          const meta = tenant?.metadata ? (typeof tenant.metadata === "string" ? JSON.parse(tenant.metadata) : tenant.metadata) : {};
-          const accessToken = decryptSecret(meta.facebook?.accessToken) || process.env.FB_ACCESS_TOKEN || "";
-
-          if (!accessToken) {
-            logger.warn("[Facebook] No hay token de acceso configurado para obtener lead");
-            continue;
-          }
-
-          let leadData: any = null;
-          try {
-            const response = await fetch(
-              `${FB_GRAPH_BASE}/${leadgenId}?access_token=${accessToken}`
-            );
-            leadData = await response.json();
-            logger.info({ leadData }, "[Facebook] Datos del lead obtenidos");
-          } catch (err: any) {
-            logger.error({ err }, "[Facebook] Error obteniendo datos del lead");
-            continue;
-          }
-
-          if (!leadData || leadData.error) {
-            logger.error({ fbError: leadData?.error }, "[Facebook] Error en respuesta de Graph API");
-            continue;
-          }
-
-          // Extraer campos del lead
-          const fieldData = leadData.field_data || [];
-          const getFieldValue = (name: string): string => {
-            const field = fieldData.find((f: any) => f.name === name);
-            return field?.values?.[0] || "";
-          };
-
-          const fullName = getFieldValue("full_name") || getFieldValue("name") || "Lead Facebook";
-          const phone = getFieldValue("phone_number") || getFieldValue("phone") || getFieldValue("whatsapp") || "";
-          const email = getFieldValue("email") || "";
-          const city = getFieldValue("city") || "";
-          const comments = getFieldValue("comments") || getFieldValue("message") || "";
-
-          if (!phone) {
-            logger.warn({ leadgenId, fullName, email }, "[Facebook] Lead sin teléfono, no se puede contactar por WhatsApp");
-            continue;
-          }
-
-          // Limpiar formato de teléfono
-          const cleanPhone = phone.replace(/[^0-9]/g, "");
-          const phoneWithCountry = cleanPhone.startsWith("57") ? cleanPhone : `57${cleanPhone}`;
-
-          // Crear lead en DB
-          const [newLead] = await db.insert(leads).values({
-            tenantId,
-            name: fullName,
-            phone: phoneWithCountry,
-            email,
-            stage: "new",
-            source: "facebook_lead",
-          }).returning();
-
-          // Crear conversación
-          const [newConversation] = await db.insert(conversations).values({
-            tenantId,
-            contactName: fullName,
-            contactPhone: phoneWithCountry,
-            status: "ai",
-            currentStage: "greeting",
-            leadId: newLead.id,
-          }).returning();
-
-          // Guardar mensaje inicial del lead
-          const initialMessage = comments || `Hola, vi sus productos en Facebook y me interesa recibir información.`;
-          await db.insert(messages).values({
-            conversationId: newConversation.id,
-            role: "customer",
-            content: initialMessage,
-          });
-
-          logger.info(
-            { leadId: newLead.id, conversationId: newConversation.id, phone: phoneWithCountry },
-            "[Facebook] Lead creado y conversación iniciada"
-          );
-
-          // Enviar mensaje de bienvenida por WhatsApp si está conectado
-          if (whatsapp.isConnected()) {
-            const welcomeMessage = `¡Hola ${fullName}! 👋\n\nGracias por tu interés en nuestros productos. Soy ${meta.brandName || "Sofía"}, tu asesora virtual.\n\n¿En qué puedo ayudarte hoy?`;
-            await whatsapp.sendText(phoneWithCountry, welcomeMessage);
-            logger.info({ phone: phoneWithCountry }, "[Facebook] Mensaje de bienvenida enviado por WhatsApp");
-          } else {
-            logger.warn({ phone: phoneWithCountry }, "[Facebook] WhatsApp no conectado, no se pudo enviar bienvenida");
-          }
+          // El negocio sale de la PÁGINA del lead (antes: tenantId = 1 fijo,
+          // y los leads de todos los negocios le llegaban al dueño).
+          const { procesarLeadDeFormulario } = await import("../lib/facebook-leads");
+          const r = await procesarLeadDeFormulario({ leadgenId: String(leadgenId), pageId: String(pageId || ""), formId: formId ? String(formId) : null, adId: change.value?.ad_id ? String(change.value.ad_id) : null });
+          logger.info({ leadgenId, pageId, ...r }, "[Facebook] Lead de formulario procesado");
         }
       }
     }
@@ -754,7 +667,9 @@ router.get("/strategist/drafts/:id", async (req, res, next) => {
 router.get("/strategist/draft/:id/insights", async (req, res, next) => {
   try {
     const draftId = parseInt(req.params.id);
-    const [draft] = await db.select().from(facebookDrafts).where(eq(facebookDrafts.id, draftId)).limit(1);
+    const tenantId = (req as any).tenant?.id ?? null;
+    if (!tenantId) return res.status(401).json({ message: "No autenticado" });
+    const [draft] = await db.select().from(facebookDrafts).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, tenantId))).limit(1);
     if (!draft) return res.status(404).json({ message: "Borrador no encontrado" });
     if (!draft.campaignId) return res.status(400).json({ message: "Este borrador todavía no tiene campaña creada en Meta" });
 
@@ -770,8 +685,13 @@ router.get("/strategist/draft/:id/insights", async (req, res, next) => {
 router.delete("/strategist/draft/:id", async (req, res, next) => {
   try {
     const draftId = parseInt(req.params.id);
-    const ok = await adStrategist.deleteDraft(draftId);
-    return res.json({ ok });
+    const tenantId = (req as any).tenant?.id ?? null;
+    if (!tenantId) return res.status(401).json({ ok: false, message: "No autenticado" });
+    // Scoped por tenant y con limpieza en Meta: antes borraba solo la fila
+    // local y dejaba la campaña huérfana ACTIVE gastando.
+    const { AdStrategist } = await import("../lib/ad-strategist");
+    const r = await new AdStrategist((req as any).tenant || undefined).deleteDraftWithMeta(draftId, tenantId).catch(async () => ({ ok: await adStrategist.deleteDraft(draftId) }));
+    return res.json(r);
   } catch (e) { return next(e); }
 });
 
@@ -781,6 +701,8 @@ router.delete("/strategist/draft/:id", async (req, res, next) => {
 router.put("/strategist/draft/:id", async (req, res, next) => {
   try {
     const draftId = parseInt(req.params.id);
+    const tenantId = (req as any).tenant?.id ?? null;
+    if (!tenantId) return res.status(401).json({ ok: false, message: "No autenticado" });
     const { headline, primaryText, description, budget, images } = req.body || {};
     const patch: Record<string, any> = { updatedAt: new Date() };
     if (typeof headline === "string") patch.headline = headline;
@@ -799,7 +721,7 @@ router.put("/strategist/draft/:id", async (req, res, next) => {
       patch.images = list;
       if (list[0]) patch.imageUrl = list[0];
     }
-    const [updated] = await db.update(facebookDrafts).set(patch).where(eq(facebookDrafts.id, draftId)).returning();
+    const [updated] = await db.update(facebookDrafts).set(patch).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, tenantId))).returning();
     if (!updated) return res.status(404).json({ ok: false, message: "Borrador no encontrado" });
 
     // Si el borrador ya tiene anuncio real en Meta y se tocó imagen/texto,
@@ -821,7 +743,20 @@ router.put("/strategist/draft/:id", async (req, res, next) => {
       const { AdStrategist } = await import("../lib/ad-strategist");
       metaSync = await new AdStrategist((req as any).tenant || undefined).updateDraftCreative(draftId);
     }
-    return res.json({ ok: true, draft: updated, metaSync });
+
+    // Presupuesto: guardar en la base no cambia el `daily_budget` real del
+    // conjunto en Meta, así que el panel mostraba un monto y el anuncio seguía
+    // con otro. Si hay adSetId y cambió el presupuesto, se sincroniza.
+    let budgetSync: { ok: boolean; message?: string } | null = null;
+    if (budget !== undefined && budget !== null && budget !== "" && (updated as any).adSetId) {
+      const monto = Number(budget);
+      if (!Number.isNaN(monto)) {
+        const { FacebookService } = await import("../lib/facebook");
+        const r = await new FacebookService((req as any).tenant || undefined).setAdSetBudget((updated as any).adSetId, monto);
+        budgetSync = { ok: r.ok, message: r.message };
+      }
+    }
+    return res.json({ ok: true, draft: updated, metaSync, budgetSync });
   } catch (e) { return next(e); }
 });
 
@@ -842,9 +777,19 @@ router.put("/strategist/draft/:id", async (req, res, next) => {
 router.post("/strategist/draft/:id/upload", async (req, res, next) => {
   try {
     const draftId = parseInt(req.params.id as string);
-    const objetivo = String((req.body || {}).objetivo || "mensajes") as any;
     const { AdStrategist } = await import("../lib/ad-strategist");
-    const r = await new AdStrategist((req as any).tenant || undefined).subirBorradorAMeta(draftId, objetivo);
+    // Sin objetivo explícito: a la landing si el producto tiene una publicada
+    // (ver destinoPorDefecto); si no, WhatsApp como siempre.
+    let objetivo = (req.body || {}).objetivo ? (String(req.body.objetivo) as any) : null;
+    let preferenciaWeb: any = null;
+    if (!objetivo) {
+      const [d] = await db.select({ productId: facebookDrafts.productId, tenantId: facebookDrafts.tenantId }).from(facebookDrafts).where(eq(facebookDrafts.id, draftId)).limit(1);
+      const { destinoPorDefecto } = await import("../lib/landing/destino-del-producto");
+      const def = d?.productId ? await destinoPorDefecto(d.tenantId, Number(d.productId)) : { objetivo: "mensajes" as const, preferencia: null };
+      objetivo = def.objetivo;
+      preferenciaWeb = def.preferencia;
+    }
+    const r = await new AdStrategist((req as any).tenant || undefined).subirBorradorAMeta(draftId, objetivo, undefined, preferenciaWeb);
     return res.status(r.ok ? 200 : 400).json(r);
   } catch (e) { return next(e); }
 });
@@ -894,12 +839,23 @@ router.post("/strategist/draft/:productId", async (req, res, next) => {
     const strategist = new AdStrategist(tenant || undefined);
     const draft = await strategist.createDraftAd(adAccountId, accessToken, productId, grounded, manualImages, destino);
     let published = false;
-    if (publishNow && draft.status === "created") {
-      const rows = await db.select().from(facebookDrafts).where(eq(facebookDrafts.productId, productId));
-      const saved = rows[rows.length - 1];
-      if (saved) published = await strategist.publishDraft(saved.id);
+    let uploaded = false;
+    // publishNow = "ya tengo todo, publicalo". El chequeo viejo era
+    // `draft.status === "created"`, que solo pasa si FB_CREATE_REAL_CAMPAIGNS
+    // === "true" (variable que no existe): publishNow nunca hacía nada. Ahora
+    // se sube (si falta) y se activa el borrador local.
+    if (publishNow && draft.id) {
+      if (!draft.campaignId) {
+        // Con un WhatsApp pedido, mensajes; si no, a la landing publicada o
+        // (sin landing) a WhatsApp -- ver destinoPorDefecto.
+        const { destinoPorDefecto } = await import("../lib/landing/destino-del-producto");
+        const def = destino ? { objetivo: "mensajes" as const, preferencia: null } : await destinoPorDefecto((tenant as any)?.id, productId);
+        const up = await strategist.subirBorradorAMeta(Number(draft.id), def.objetivo, undefined, def.preferencia);
+        uploaded = up.ok;
+      }
+      published = await strategist.publishDraft(Number(draft.id));
     }
-    return res.json({ ...draft, published });
+    return res.json({ ...draft, uploaded, published });
   } catch (e) { return next(e); }
 });
 
@@ -1190,17 +1146,23 @@ router.post("/publish-post", async (req, res, next) => {
 
 router.get("/agent/logs", async (req, res, next) => {
   try {
+    const tenantId = (req as any).tenant?.id ?? null;
+    if (!tenantId) return res.status(401).json({ message: "No autenticado" });
     const { adAgentLogs } = await import("@workspace/db");
     const { desc } = await import("drizzle-orm");
-    const rows = await db.select().from(adAgentLogs).orderBy(desc(adAgentLogs.createdAt)).limit(100);
+    const rows = await db.select().from(adAgentLogs).where(eq(adAgentLogs.tenantId, tenantId)).orderBy(desc(adAgentLogs.createdAt)).limit(100);
     return res.json({ logs: rows });
   } catch (e) { return next(e); }
 });
 
 router.post("/agent/run-now", async (req, res, next) => {
   try {
-    const { runSpendProtectionCheck, runTrendReview } = await import("../lib/ad-growth-agent");
-    await Promise.all([runSpendProtectionCheck(), runTrendReview()]);
+    const tenantId = (req as any).tenant?.id ?? null;
+    if (!tenantId) return res.status(401).json({ message: "No autenticado" });
+    // Solo el negocio que lo pide: antes corría para TODOS los tenants y
+    // pausaba campañas/mandaba avisos ajenos.
+    const { runSpendProtectionForTenant, runTrendReviewForTenant } = await import("../lib/ad-growth-agent");
+    await Promise.all([runSpendProtectionForTenant(tenantId), runTrendReviewForTenant(tenantId)]);
     return res.json({ ok: true, message: "Revisión ejecutada -- si encontró algo, te llega por WhatsApp." });
   } catch (e) { return next(e); }
 });

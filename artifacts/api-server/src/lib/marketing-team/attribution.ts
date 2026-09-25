@@ -19,7 +19,7 @@
  */
 
 import { db, leads, payments, conversations, messages } from "@workspace/db";
-import { eq, and, gte, desc, isNotNull, count } from "drizzle-orm";
+import { eq, and, gte, desc, isNotNull, count, inArray } from "drizzle-orm";
 import type { AdAttribution, FunnelSnapshot } from "./types";
 import { toDbDate } from "../date-utils";
 
@@ -28,6 +28,8 @@ export interface AnuncioContext {
   cuerpo: string;
   url: string;
   anuncioId: string;
+  /** "ctwa_ad"/"fb_ads" cuando WhatsApp marcó el origen sin externalAdReply. */
+  origen?: string;
 }
 
 const CONFIRMED_STATUSES = new Set(["confirmed", "approved"]);
@@ -55,6 +57,7 @@ export async function attachAdContextToLead(
           adTitle: anuncio.titulo || undefined,
           adBody: anuncio.cuerpo || undefined,
           adUrl: anuncio.url || undefined,
+          origen: anuncio.origen || undefined,
           capturedAt: new Date().toISOString(),
         },
       })
@@ -170,10 +173,13 @@ export async function getFunnelSnapshot(tenantId: number, days = 30): Promise<Fu
     .from(conversations)
     .where(and(eq(conversations.tenantId, tenantId), gte(conversations.createdAt, since)));
 
+  // messages no tiene tenantId: se filtra por las conversaciones del tenant.
+  // Sin esto, un negocio veía los mensajes de todos los demás en su embudo.
+  const convIds = db.select({ id: conversations.id }).from(conversations).where(eq(conversations.tenantId, tenantId));
   const [msgCount] = await db
     .select({ n: count() })
     .from(messages)
-    .where(gte(messages.createdAt, since));
+    .where(and(gte(messages.createdAt, since), inArray(messages.conversationId, convIds)));
 
   const payRows = await db
     .select({ amount: payments.amount, status: payments.status, paymentStatus: payments.paymentStatus })

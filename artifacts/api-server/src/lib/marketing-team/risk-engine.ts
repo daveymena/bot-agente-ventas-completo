@@ -24,8 +24,10 @@ const ACTION_RISK: Record<string, { risk: RiskLevel; approvalRequired: boolean; 
   "save_learning": { risk: "LOW", approvalRequired: false },
 
   // Cambios reversibles sobre contenido → MEDIUM
-  "create_ad": { risk: "MEDIUM", approvalRequired: false },
-  "create_campaign_draft": { risk: "MEDIUM", approvalRequired: false },
+  // Crear anuncio/campaña: al activarlo cuesta plata. Aprobación obligatoria
+  // (antes era false y permitía crear gasto sin revisión).
+  "create_ad": { risk: "MEDIUM", approvalRequired: true },
+  "create_campaign_draft": { risk: "MEDIUM", approvalRequired: true },
   "pause_campaign": { risk: "MEDIUM", approvalRequired: true },
   "resume_campaign": { risk: "MEDIUM", approvalRequired: true },
   "update_ad_copy": { risk: "MEDIUM", approvalRequired: false },
@@ -44,7 +46,8 @@ const RISK_ORDER: Record<RiskLevel, number> = { LOW: 0, MEDIUM: 1, HIGH: 2, CRIT
 
 /**
  * Clasifica una acción. Si la acción no está en la tabla se asume
- * conservador: MEDIUM con aprobación opcional (nunca HIGH automática).
+ * conservador: MEDIUM CON aprobación (nunca HIGH automática). Antes una
+ * acción desconocida entraba sin aprobación, que es lo contrario de conservador.
  */
 export function classifyAction(
   action: string,
@@ -52,10 +55,10 @@ export function classifyAction(
 ): ClassifiedAction {
   const known = ACTION_RISK[action];
   const risk: RiskLevel = known?.risk ?? "MEDIUM";
-  const approvalRequired = opts?.approvalRequired ?? known?.approvalRequired ?? false;
+  const approvalRequired = opts?.approvalRequired ?? known?.approvalRequired ?? true;
   const reason = known
     ? `Acción conocida "${action}": riesgo ${risk}${approvalRequired ? " (requiere aprobación)" : ""}.`
-    : `Acción desconocida "${action}": tratada con riesgo MEDIUM por defecto.`;
+    : `Acción desconocida "${action}": tratada con riesgo MEDIUM y aprobación por defecto.`;
 
   return {
     action,
