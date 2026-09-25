@@ -301,6 +301,10 @@ export default function FacebookAdsPage() {
     const scope = [
       "pages_show_list", "pages_read_engagement", "pages_manage_posts",
       "pages_manage_metadata", "pages_messaging", "ads_management", "catalog_management",
+      // Campañas de formulario (25-09-2026): crear el formulario y leer los
+      // leads. Con config_id (arriba) estos permisos van en la configuración
+      // de "Inicio de sesión para empresas" de la app en Meta, no acá.
+      "leads_retrieval", "pages_manage_ads",
     ].join(",");
     window.open(`${base}&scope=${encodeURIComponent(scope)}`, "_blank", "noopener,noreferrer");
   };
