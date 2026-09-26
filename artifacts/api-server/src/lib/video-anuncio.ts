@@ -24,6 +24,8 @@ import os from "node:os";
 import { db, products } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { logger } from "./logger";
+import { selectVideoAIProviders } from "./video-providers";
+import { buildMotionPrompt, shouldAnimateMotionScene } from "./video-motion-prompt";
 
 export interface EscenaDeVideo {
   /** Texto grande en pantalla (≤ 8 palabras). */
@@ -50,6 +52,8 @@ export interface VideoGenerado {
   duracion: number;
   escenas: number;
   conBroll: boolean;
+  i2vScenes?: number;
+  i2vProviders?: string[];
   guion: GuionDeVideo;
   en: string;
 }
@@ -179,7 +183,7 @@ async function brollDePexels(tenantId: number, busqueda: string, destino: string
 
 // ─── Escenas en Chromium ────────────────────────────────────────────────────
 
-function htmlDeEscena(e: EscenaDeVideo, i: number, total: number, ctx: { foto: string | null; color: string; marca: string; precio: string; cta: string; modelo: string }): string {
+function htmlDeEscena(e: EscenaDeVideo, i: number, total: number, ctx: { foto: string | null; color: string; marca: string; precio: string; cta: string; modelo: string; overlayOnly?: boolean }): string {
   const esc = (s: string) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const ultima = i === total - 1;
   const broll = e.visual === "broll";
@@ -188,7 +192,7 @@ function htmlDeEscena(e: EscenaDeVideo, i: number, total: number, ctx: { foto: s
   const tinta = "#FFFFFF";
   return `<!doctype html><html><head><meta charset="utf-8"><style>
   html,body{margin:0;width:${ANCHO}px;height:${ALTO}px;overflow:hidden;font-family:"Liberation Sans",Arial,Helvetica,sans-serif;color:${tinta}}
-  body{background:${broll ? "transparent" : `radial-gradient(120% 80% at 50% 0%, ${ctx.color} 0%, #0B0B14 75%)`}}
+  body{background:${ctx.overlayOnly ? "transparent" : (broll ? "transparent" : `radial-gradient(120% 80% at 50% 0%, ${ctx.color} 0%, #0B0B14 75%)`)}}
   .velo{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.35) 0%,rgba(0,0,0,.05) 30%,rgba(0,0,0,.05) 55%,rgba(0,0,0,.82) 100%)}
   .marca{position:absolute;top:70px;left:0;right:0;text-align:center;font-weight:700;font-size:34px;letter-spacing:3px;text-transform:uppercase;opacity:.9;text-shadow:0 2px 12px rgba(0,0,0,.5)}
   .badge{position:absolute;top:130px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,.16);border:2px solid rgba(255,255,255,.4);border-radius:999px;padding:14px 34px;font-size:32px;font-weight:700;white-space:nowrap}
@@ -202,7 +206,7 @@ function htmlDeEscena(e: EscenaDeVideo, i: number, total: number, ctx: { foto: s
   ${broll ? '<div class="velo"></div>' : ""}
   <div class="marca">${esc(ctx.marca)}</div>
   ${ctx.modelo === "fisico" ? '<div class="badge">📦 Pago contraentrega</div>' : ""}
-  ${ctx.foto && !broll ? `<div class="foto"><img src="${ctx.foto}"></div>` : ""}
+  ${ctx.foto && !broll && !ctx.overlayOnly ? `<div class="foto"><img src="${ctx.foto}"></div>` : ""}
   <div class="texto">${esc(e.texto)}</div>
   ${conTarjetaPrecio ? `<div class="precio">${esc(ctx.precio)}</div>` : ""}
   ${ultima ? `<div class="cta">💬 ${esc(ctx.cta)}</div>` : ""}
@@ -210,7 +214,7 @@ function htmlDeEscena(e: EscenaDeVideo, i: number, total: number, ctx: { foto: s
   </body></html>`;
 }
 
-async function capturarEscenas(items: Array<{ e: EscenaDeVideo; i: number; foto: string | null }>, total: number, ctx: { color: string; marca: string; precio: string; cta: string; modelo: string }, dir: string): Promise<string[]> {
+async function capturarEscenas(items: Array<{ e: EscenaDeVideo; i: number; foto: string | null }>, total: number, ctx: { color: string; marca: string; precio: string; cta: string; modelo: string; overlayOnly?: boolean }, dir: string): Promise<string[]> {
   const puppeteer: any = (await import("puppeteer")).default;
   const navegador = await puppeteer.launch({
     headless: true, executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
@@ -232,6 +236,38 @@ async function capturarEscenas(items: Array<{ e: EscenaDeVideo; i: number; foto:
   }
 }
 
+// ─── Image-to-Video IA ───────────────────────────────────────────────────────
+async function writeDataUrlToFile(dataUrl: string, destinoSinExt: string): Promise<string | null> {
+  try {
+    const m = String(dataUrl).match(/^data:(image\\/(?:png|jpeg|webp));base64,(.+)$/s);
+    if (!m) return null;
+    const ext = m[1] === "image/png" ? ".png" : m[1] === "image/webp" ? ".webp" : ".jpg";
+    const destino = destinoSinExt + ext;
+    await writeFile(destino, Buffer.from(m[2], "base64"));
+    return destino;
+  } catch { return null; }
+}
+async function generarClipI2V(productName: string, scene: EscenaDeVideo, sourceImage: string, outputPath: string) {
+  if (process.env.VIDEO_AI_ENABLED !== "true" || !shouldAnimateMotionScene(scene)) return { ok: false as const, error: "I2V desactivado o escena no animable" };
+  const { readFile } = await import("node:fs/promises");
+  const image = await readFile(sourceImage);
+  const mimeType = /\\.png$/i.test(sourceImage) ? "image/png" : /\\.webp$/i.test(sourceImage) ? "image/webp" : "image/jpeg";
+  const providers = selectVideoAIProviders((process.env.VIDEO_AI_PROVIDER || "auto") as any);
+  if (!providers.length) return { ok: false as const, error: "No hay proveedor I2V disponible" };
+  const motion = buildMotionPrompt({ productName, scene });
+  for (const provider of providers) {
+    try {
+      const r = await provider.generateFromImage({ image, mimeType, prompt: motion.prompt, durationSeconds: Math.min(Number(process.env.VIDEO_AI_MAX_DURATION || 8), Math.max(4, Number(scene.duracion || 6))), aspectRatio: "9:16", resolution: "720p", outputPath });
+      if (r.ok && r.localPath) return { ok: true as const, provider: r.provider };
+      logger.warn({ provider: provider.name, error: r.error }, "[VideoAI] proveedor I2V falló");
+    } catch (e: any) { logger.warn({ provider: provider.name, err: e?.message }, "[VideoAI] error de proveedor I2V"); }
+  }
+  return { ok: false as const, error: "Todos los proveedores I2V fallaron" };
+}
+async function normalizarClipI2V(origen: string, destino: string, duracion: number) {
+  const r = await run("ffmpeg", ["-y", "-i", origen, "-vf", "scale=" + ANCHO + ":" + ALTO + ":force_original_aspect_ratio=increase,crop=" + ANCHO + ":" + ALTO + ",fps=" + FPS + ",format=yuv420p", "-t", String(duracion), "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", destino], 240000);
+  if (r.code !== 0) throw new Error("ffmpeg normalizar I2V: " + r.err.slice(-500));
+}
 // ─── Voz ────────────────────────────────────────────────────────────────────
 
 async function vozDe(texto: string, destino: string): Promise<string | null> {
@@ -295,6 +331,7 @@ export async function generarVideoDeAnuncio(tenantId: number, productId: number,
     let k = 0;
     const items = escenas.map((e, i) => ({ e, i, foto: e.visual === "producto" ? fotosData[(k++) % fotosData.length]! : null }));
     const capturas = await capturarEscenas(items, escenas.length, { color, marca, precio: guion.precio, cta: guion.cta, modelo }, tmp);
+    const capturasOverlay = await capturarEscenas(items.map((it) => ({ e: it.e, i: it.i, foto: null })), escenas.length, { color, marca, precio: guion.precio, cta: guion.cta, modelo, overlayOnly: true }, tmp);
 
     // Voz por escena y duración real.
     const duraciones: number[] = [];
@@ -308,10 +345,29 @@ export async function generarVideoDeAnuncio(tenantId: number, productId: number,
 
     // Clips de video por escena.
     const clips: string[] = [];
+    const i2vProviders = new Set<string>();
+    let i2vScenes = 0;
     for (let i = 0; i < escenas.length; i++) {
       const d = duraciones[i]!;
       const salida = path.join(tmp, `clip-${i}.mp4`);
       const frames = Math.round(d * FPS);
+      if (i2vScenes < Number(process.env.VIDEO_AI_MAX_SCENES || 3) && items[i]?.foto && process.env.VIDEO_AI_ENABLED === "true" && shouldAnimateMotionScene(escenas[i]!)) {
+        const source = await writeDataUrlToFile(items[i]!.foto!, path.join(tmp, "i2v-source-" + i));
+        if (source) {
+          const raw = path.join(tmp, "i2v-" + i + ".mp4");
+          const generated = await generarClipI2V(String(p.name), escenas[i]!, source, raw);
+          if (generated.ok) {
+            const normalized = path.join(tmp, "i2v-normal-" + i + ".mp4");
+            await normalizarClipI2V(raw, normalized, d);
+            const overlay = await run("ffmpeg", ["-y", "-i", normalized, "-loop", "1", "-i", capturasOverlay[i]!, "-filter_complex", "[1:v]format=rgba[ov];[0:v][ov]overlay=0:0:format=auto,format=yuv420p[v]", "-map", "[v]", "-t", String(d), "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", salida], 240000);
+            if (overlay.code !== 0) throw new Error("ffmpeg overlay I2V " + i + ": " + overlay.err.slice(-400));
+            clips.push(salida);
+            i2vScenes++;
+            if (generated.provider) i2vProviders.add(generated.provider);
+            continue;
+          }
+        }
+      }
       const zoom = i % 2 === 0 ? `min(zoom+0.0012,1.12)` : `if(eq(on,1),1.12,max(zoom-0.0012,1.0))`;
       if (brolls[i]) {
         // B-roll de fondo + captura (con transparencia) encima.
@@ -368,7 +424,7 @@ export async function generarVideoDeAnuncio(tenantId: number, productId: number,
 
     const duracion = await duracionDe(final);
     const appUrl = (process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "");
-    const video: VideoGenerado = { archivo: nombre, url: `${appUrl}/videos/anuncios/${nombre}`, duracion: Math.round(duracion * 10) / 10, escenas: escenas.length, conBroll, guion, en: new Date().toISOString() };
+    const video: VideoGenerado = { archivo: nombre, url: `${appUrl}/videos/anuncios/${nombre}`, duracion: Math.round(duracion * 10) / 10, escenas: escenas.length, conBroll, i2vScenes, i2vProviders: [...i2vProviders], guion, en: new Date().toISOString() };
     await db.update(products).set({ metadata: JSON.stringify({ ...m, videoAnuncio: video }) } as any).where(eq(products.id, productId));
     logger.info({ tenantId, productId, duracion: video.duracion, escenas: escenas.length, conBroll, guionPor: guion.autor }, "[VideoAnuncio] video generado");
     return { ok: true, video };
