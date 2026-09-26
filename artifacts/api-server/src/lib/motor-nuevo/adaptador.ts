@@ -72,8 +72,14 @@ export async function cargarCatalogoDelNegocio(tenantId: number): Promise<Produc
     try {
       const crudas = Array.isArray(p.opciones) ? p.opciones : p.opciones ? JSON.parse(String(p.opciones)) : null;
       if (Array.isArray(crudas)) {
+        // {nombre:"Talla", valores:["S","M"]} → "S", "M". Antes quedaba solo
+        // "Talla" y el vendedor no tenía contra qué preguntar ni validar.
         opciones = crudas
-          .map((o: any) => String(o?.nombre || o?.name || o?.valor || o?.value || o || "").trim())
+          .flatMap((o: any) =>
+            Array.isArray(o?.valores) && o.valores.length
+              ? o.valores.map((v: any) => String(v).trim())
+              : [String(o?.nombre || o?.name || o?.valor || o?.value || o || "").trim()],
+          )
           .filter(Boolean);
       }
     } catch {

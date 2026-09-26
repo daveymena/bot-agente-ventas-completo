@@ -1108,7 +1108,16 @@ export const ejecutores: Record<string, Ejecutor> = {
     // resumen salió sin talla. En dropshipping eso es despachar una talla
     // cualquiera. Se guarda en el estado (sobrevive entre turnos) y va en las
     // notas del pedido, que es lo que ven el resumen y quien despacha.
-    const varianteDicha = String(args?.variante ?? "").trim() || String(ctx.estado.datos?.variante ?? "").trim();
+    // Si el modelo no la pasó pero el cliente la escribió ("…, talla M"), se
+    // reconoce contra las opciones REALES del producto, no contra una lista
+    // de palabras: preguntarle otra vez lo que ya dijo es peor que no preguntar.
+    const palabrasDelCliente = String(ctx.mensajeDelCliente || "")
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter(Boolean);
+    const enElMensaje = (p.opciones ?? []).find((o) => palabrasDelCliente.includes(o.toLowerCase().trim()));
+    const varianteDicha =
+      String(args?.variante ?? "").trim() || String(ctx.estado.datos?.variante ?? "").trim() || (enElMensaje ?? "");
     if (varianteDicha) {
       ctx.estado.datos.variante = varianteDicha.slice(0, 120);
       datos.notas = [`Talla/variante: ${ctx.estado.datos.variante}`, datos.notas].filter(Boolean).join(" · ");
@@ -1154,7 +1163,7 @@ export const ejecutores: Record<string, Ejecutor> = {
       case "listo":
         // Tiene tallas/modelos y el cliente no dijo cuál: se pregunta ANTES
         // del resumen. Confirmar un pedido sin talla es despachar a ciegas.
-        if (!varianteDicha && (p.opciones?.length ?? 0) > 1) {
+        if (!varianteDicha && (p.opciones?.length ?? 0) > 0) {
           ctx.estado.pedidoPorConfirmarEnTurno = null;
           ctx.estado.accionPendiente = "pedir_datos_envio";
           return {

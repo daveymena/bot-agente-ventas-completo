@@ -39,6 +39,13 @@ describe("tomar_pedido con talla", () => {
     expect(c.partes.map((p: any) => p.content).join("\n")).toMatch(/Talla\/variante: M/);
   });
 
+  test("si el cliente escribió la talla y el modelo no la pasó, se reconoce igual", async () => {
+    const { c, guardado } = ctx();
+    c.mensajeDelCliente = "Pedro Pérez, Calle 10 # 20-30, Medellín, 3001234567, talla M";
+    await ejecutores.tomar_pedido(c, DATOS);
+    expect(guardado.notas).toMatch(/Talla\/variante: M/);
+  });
+
   test("con tallas y sin elegir, pregunta la talla antes del resumen", async () => {
     const { c } = ctx();
     const r = await ejecutores.tomar_pedido(c, DATOS);

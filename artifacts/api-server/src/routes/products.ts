@@ -409,9 +409,29 @@ router.patch("/:id", async (req: TenantRequest, res, next) => {
       req.body.price = String(req.body.price);
     }
     if (req.body?.metadata && typeof req.body.metadata === "object") req.body.metadata = JSON.stringify(req.body.metadata);
+    // ── Opciones (talla, color…) ──────────────────────────────────────────
+    // La columna existía y el vendedor la leía, pero NADA la escribía: el
+    // esquema generado no la trae y zod la descartaba. Caso real 26-09-2026:
+    // corrector con tallas S–XL solo en la imagen → pedidos sin talla.
+    let opciones: unknown = undefined;
+    if (req.body && "opciones" in req.body) {
+      const crudas = req.body.opciones;
+      delete req.body.opciones;
+      if (crudas === null) opciones = null;
+      else if (Array.isArray(crudas)) {
+        opciones = crudas
+          .map((o: any) => ({
+            nombre: String(o?.nombre ?? "").trim().slice(0, 40),
+            valores: (Array.isArray(o?.valores) ? o.valores : []).map((v: any) => String(v).trim().slice(0, 40)).filter(Boolean).slice(0, 30),
+            obligatoria: o?.obligatoria !== false,
+          }))
+          .filter((o: any) => o.nombre && o.valores.length);
+      } else return res.status(400).json({ message: "opciones debe ser una lista de { nombre, valores[], obligatoria }" });
+    }
     const body = UpdateProductBody.parse(req.body);
 
     const update: Record<string, unknown> = { ...body };
+    if (opciones !== undefined) update.opciones = opciones;
     if (body.price !== undefined) update.price = String(body.price);
     if ((body as any).metadata !== undefined) {
       const meta = await materializarGaleria((body as any).metadata, id);
