@@ -213,7 +213,90 @@ Hoy:
 
 ---
 
-### Fase 4: Planificación Multipasos (3 SEMANAS)
+### Fase 4: Planificador ✅ LIVE
+
+**`planificador.ts`**: Piensa la conversación completa.
+
+**Orquestación**:
+```
+Intent + estado → Genera plan (árbol de pasos) → Alinea respuesta → Actualiza plan
+```
+
+**Estructura del plan**:
+```
+Plan: compra_evaluando
+├─ Paso 1: Confirmar necesidad
+│  ├─ Éxito → Paso 2
+│  └─ Fracaso → Paso 3
+├─ Paso 2: Mostrar opciones
+│  ├─ Éxito → Paso 4 (Cierre)
+│  └─ Fracaso → Paso 3
+├─ Paso 3: Diagnosticar objeción
+│  ├─ Éxito → Paso 2 (retry)
+│  └─ Fracaso → Paso 5
+├─ Paso 4: Cierre
+└─ Paso 5: Alternativa final → Cierre
+```
+
+**Ramas dinámicas** (según tags):
+- `cliente_precio_sensible` → Mostrar opciones económicas primero
+- `cliente_urgencia` → Ofrecer entrega express
+- `cliente_comparacion` → Tabla comparativa
+
+**Evaluación de alineación**:
+```
+Plan actual: Paso 1 "Confirmar necesidad"
+Respuesta agente: "¿Cuál es tu necesidad exacta?"
+
+Alineación: 78%
+Sugiere: continuar (está bien alineada)
+```
+
+**Detección de señales**:
+```
+Cliente: "Exacto, eso es"
+Sistema detecta: señal de éxito
+Acción: Paso 1 → Paso 2
+
+Cliente: "Nada, no me gusta"
+Sistema detecta: señal de fracaso
+Acción: Paso 2 → Paso 3 (diagnosticar)
+```
+
+**Completitud**:
+```
+Paso 1: 20%
+Paso 2: 40%
+Paso 3: 60%
+Paso 4: 80%
+Cierre: 100%
+```
+
+**Ventajas**:
+- Conversación coherente (no salta temas)
+- Estructura clara (sabe dónde está, adónde va)
+- Manejo de objeciones (rama fracaso = diagnóstico)
+- Flexible (puede ir atrás si es necesario)
+- Escalable (diferentes intents = diferentes planes)
+
+**Visualización**:
+```
+planificador.visualizarPlan(plan)
+→ Plan: compra_evaluando
+   Paso actual: 2
+   Completitud: 40%
+   → 1. Confirmar necesidad
+   → 2. Mostrar opciones
+   3. Diagnosticar objeción
+   4. Cierre
+   5. Alternativa final
+```
+
+**Tests**: 11 casos
+
+---
+
+### Fase 5: Especulador (PRÓXIMA SEMANA)
 
 **`planificador.ts`**: Piensa toda la conversación, no solo el turno.
 
@@ -262,9 +345,13 @@ lib/cerebro/
 ├── tipos-autonomia.ts             (Fase 3)
 ├── autonomia-acotada.ts           (Fase 3 ✅)
 ├── autonomia-acotada.test.ts      (Fase 3 ✅)
-├── planificador.ts                (Fase 4, próxima)
-└── especulador.ts                 (Fase 5, futuro)
+├── tipos-planificador.ts          (Fase 4)
+├── planificador.ts                (Fase 4 ✅)
+├── planificador.test.ts           (Fase 4 ✅)
+└── especulador.ts                 (Fase 5, próxima)
 ```
+
+**Status**: 4/5 fases completadas (600 líneas, 11 tests)
 
 ## Integración en motor.ts
 
