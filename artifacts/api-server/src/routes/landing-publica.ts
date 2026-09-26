@@ -54,6 +54,15 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
     if (!encontrada) return res.status(404).send("<!doctype html><meta charset=utf-8><title>No encontrada</title><p style=\"font-family:system-ui;padding:40px\">Esta página no existe o todavía no está publicada.</p>");
     const { row, producto } = encontrada;
     const tenantId = row.tenantId;
+    // Medición: píxel de Meta + visitas/pedidos propios (ver lib/landing/monitor.ts).
+    const { snippetDeMedicion, conMedicion } = await import("../lib/landing/monitor");
+    let pixelId: string | null = null;
+    try {
+      const { FacebookService } = await import("../lib/facebook");
+      const t = await tenantManager.getTenantById(tenantId);
+      pixelId = new FacebookService(t || undefined).pixelId || null;
+    } catch { pixelId = null; }
+    const medir = (html: string) => conMedicion(html, snippetDeMedicion({ slug: row.slug, pixelId, producto: producto as any }));
 
     // Si la landing tiene HTML dinámico generado por OpenCode, servirlo directo.
     if ((row as any).html) {
@@ -64,7 +73,7 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
       const { conFormularioQueResponde } = await import("../lib/landing/sanear-html");
       const { formularioConOpciones } = await import("../lib/landing/renderer");
       const base = producto ? await htmlConFotosUnicas((row as any).html, producto, { guardar: guardadorDeMetadata(producto.id) }) : (row as any).html;
-      return res.send(conFormularioQueResponde(formularioConOpciones(base, producto as any)));
+      return res.send(medir(conFormularioQueResponde(formularioConOpciones(base, producto as any))));
     }
 
     const { htmlDeCopia } = await import("../lib/landing/clonar-html");
@@ -72,7 +81,7 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
     if (copia) {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.setHeader("Cache-Control", "public, max-age=60");
-      return res.send(copia);
+      return res.send(medir(copia));
     }
 
     const { renderizarLanding } = await import("../lib/landing/renderer-v3");
@@ -108,10 +117,32 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
     });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "public, max-age=60");
-    return res.send(html);
+    return res.send(medir(html));
   } catch (e: any) {
     logger.error({ err: e?.message }, "[LandingPublica] error renderizando");
     return res.status(500).send("Error");
+  }
+});
+
+/** Beacon de la página: visita e inicio del pedido. Público, sin datos personales. */
+const ultimoEventoPorIp = new Map<string, number>();
+landingPublicaRouter.post("/api/landing-publica/:slug/evento", async (req: Request, res: Response) => {
+  try {
+    const tipo = String(req.body?.tipo || "");
+    if (tipo !== "visita" && tipo !== "inicio_pedido") return res.status(204).end();
+    // Freno barato contra recargas en bucle: un evento del mismo tipo por IP cada 20 s.
+    const clave = `${req.ip}|${req.params.slug}|${tipo}`;
+    const ahora = Date.now();
+    if ((ultimoEventoPorIp.get(clave) || 0) > ahora - 20_000) return res.status(204).end();
+    ultimoEventoPorIp.set(clave, ahora);
+    if (ultimoEventoPorIp.size > 5000) ultimoEventoPorIp.clear();
+    const encontrada = await landingPorSlug(String(req.params.slug || ""));
+    if (!encontrada) return res.status(204).end();
+    const { registrarEventoLanding } = await import("../lib/landing/monitor");
+    await registrarEventoLanding(encontrada.row.tenantId, encontrada.row.slug, tipo, String(req.body?.detalle || "").slice(0, 120));
+    return res.status(204).end();
+  } catch {
+    return res.status(204).end();
   }
 });
 
@@ -120,6 +151,19 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
     const encontrada = await landingPorSlug(String(req.params.slug || ""));
     if (!encontrada || !encontrada.producto) return res.status(404).json({ ok: false, error: "Landing no encontrada" });
     const { row, producto } = encontrada;
+    {
+      // Todo lo que responde este endpoint queda medido: un pedido o un
+      // rechazo con su motivo (antes los rechazos solo iban al logger).
+      const { registrarEventoLanding } = await import("../lib/landing/monitor");
+      const json = res.json.bind(res);
+      (res as any).json = (body: any) => {
+        if (body && typeof body === "object") {
+          if (body.ok && !body.repetido) void registrarEventoLanding(row.tenantId, row.slug, "pedido", body.registrado ? "registrado" : "sin registrar en Dropi/Woo");
+          else if (body.ok === false) void registrarEventoLanding(row.tenantId, row.slug, "rechazo", String(body.error || res.statusCode));
+        }
+        return json(body);
+      };
+    }
     if (modeloDelProducto(producto as any) !== "fisico") return res.status(400).json({ ok: false, error: "Este producto no se pide por formulario" });
 
     const b = req.body || {};

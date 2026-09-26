@@ -310,6 +310,8 @@ const MONEDAS_SIN_DECIMALES = new Set(["COP", "CLP", "CRC", "HUF", "ISK", "IDR",
 
 export class FacebookService {
   private config: FacebookConfig;
+  /** El píxel del negocio (lo necesita la landing para medir compras). */
+  get pixelId(): string { return this.config?.pixelId || ""; }
   private tenant: TenantContext;
 
   constructor(tenant?: TenantContext) {

@@ -51,7 +51,8 @@ describe("renderer-v3", () => {
     expect(html).toContain('value="Negro"');
     expect(html).toContain('name="opcion_Color"');
     expect(html).toContain('name="cantidad"');
-    expect(html).toContain('name="documento"');
+    // En Colombia no se pide la cédula (regla del dueño, 24-09-2026).
+    expect(html).not.toContain('name="documento"');
   });
 
   it("los CTA van al checkout cuando existe un cierre", () => {

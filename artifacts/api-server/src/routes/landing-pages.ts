@@ -74,6 +74,19 @@ router.patch("/:id", async (req: TenantRequest, res, next) => {
   } catch (e) { return next(e); }
 });
 
+/** Qué pasó en la landing: visitas, inicios de pedido, pedidos y rechazos (24 h y 7 días). */
+router.get("/:id/monitor", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+    const id = Number(req.params.id);
+    const [row] = await db.select().from(landingPages).where(and(eq(landingPages.id, id), eq(landingPages.tenantId, tenantId))).limit(1);
+    if (!row) return res.status(404).json({ error: "Landing no encontrada" });
+    const { resumenDeLanding } = await import("../lib/landing/monitor");
+    return res.json(await resumenDeLanding(tenantId, row.slug));
+  } catch (e) { return next(e); }
+});
+
 /** Render guardado para el editor. El mismo renderer se usa en preview y público. */
 router.get("/:id/render", async (req: TenantRequest, res, next) => {
   try {
