@@ -381,3 +381,41 @@ export function obtenerPerfil(clave: string): PerfilCliente {
 
   throw new Error(`Perfil desconocido: ${clave}`);
 }
+
+/**
+ * Los arquetipos que pide un mensaje ("simula 3 desconfiados y un experto").
+ * Acepta las claves del código, los nombres de la guía (AGENT_LAB_README:
+ * "EXPERTO", "ESCÉPTICO", "LISTA_PARA_COMPRAR"…) y palabras normales. Antes
+ * un nombre de la guía que no coincidía con la clave tumbaba la simulación
+ * entera con "Perfil desconocido".
+ */
+const SINONIMOS_DE_ARQUETIPO: Array<[RegExp, string]> = [
+  [/\blist[oa]s?[\s_]+para[\s_]+comprar\b/, "LISTO_PARA_COMPRAR"],
+  [/\bprecio[\s_-]*sensibles?\b/, "PRECIO_SENSIBLE"],
+  [/\b(cliente[\s_]+)?que[\s_]+desaparece\b/, "CLIENTE_QUE_DESAPARECE"],
+  [/\b(cliente[\s_]+)?que[\s_]+regresa\b/, "CLIENTE_QUE_REGRESA"],
+  [/\b(cliente[\s_]+)?dif[ií]cil(es)?\b/, "CLIENTE_DIFICIL"],
+  [/\b(cliente[\s_]+)?expertos?\b/, "CLIENTE_EXPERTO"],
+  [/\bnormal(es)?\b/, "NORMAL"],
+  [/\bcuriosos?\b/, "CURIOSO"],
+  [/\bindecisos?\b/, "INDECISO"],
+  [/\bdesconfiados?\b/, "DESCONFIADO"],
+  [/\bapresurados?\b/, "APRESURADO"],
+  [/\bcomparador(es)?\b/, "COMPARADOR"],
+  [/\besc[eé]pticos?\b/, "ESCEPTICO"],
+  [/\bmolestos?\b/, "MOLESTO"],
+];
+
+export function arquetiposDelMensaje(mensaje: string): string[] {
+  const t = String(mensaje || "").toLowerCase();
+  const claves: string[] = [];
+  let resto = t;
+  for (const [patron, clave] of SINONIMOS_DE_ARQUETIPO) {
+    if (patron.test(resto)) {
+      if (!claves.includes(clave)) claves.push(clave);
+      // Lo ya reconocido no cuenta dos veces ("cliente experto" no es también "normal").
+      resto = resto.replace(new RegExp(patron.source, "g"), " ");
+    }
+  }
+  return claves.filter((c) => ARQUETIPOS_CLIENTE[c]);
+}

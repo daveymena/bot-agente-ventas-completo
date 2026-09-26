@@ -7581,42 +7581,80 @@ ${r.texto}`, data: r.grupos };
   {
     name: "agentlab_simular",
     description:
-      "Simula clientes con diferentes arquetipos (normal, desconfiado, precio-sensible, impulsivo, etc.) " +
-      "conversando contra el vendedor de este negocio. Detecta automáticamente problemas de respuesta, " +
-      "claridad, lógica y cumplimiento de reglas. No escribe en conversaciones reales ni toca al agente. " +
-      "Úsalo para entrenar antes de cambios de prompt.",
-    args: '{ "productoId": number (req), "arquetipos": string[] (req, ej: ["NORMAL", "DESCONFIADO", "PRECIO_SENSIBLE"]), "maxTurnos": number (opt, default 8) }',
+      "Simula clientes con diferentes arquetipos (normal, desconfiado, precio-sensible, apresurado, etc.) " +
+      "conversando contra el vendedor de este negocio, sobre UN producto real del catálogo. Evalúa cada charla " +
+      "con el mismo evaluador de la sombra de WhatsApp y devuelve los hallazgos reales. No escribe en " +
+      "conversaciones reales ni toca al agente.",
+    args: '{ "productoId": number (req, un id del catálogo de este negocio), "arquetipos": string[] (req, ej: ["NORMAL", "DESCONFIADO"] o palabras: "desconfiado", "experto"), "maxTurnos": number (opt, default 8) }',
     run: async (args, ctx) => {
       const { correrMultiplesSimulaciones } = await import("./motor-nuevo/simulador-agente");
-      const { obtenerPerfil } = await import("./motor-nuevo/cliente-simulado");
-      const { armarCadena, crearClienteLLM } = await import("./motor-nuevo/cliente-llm");
+      const { obtenerPerfil, arquetiposDelMensaje, ARQUETIPOS_CLIENTE } = await import("./motor-nuevo/cliente-simulado");
+      const { armarCadena } = await import("./motor-nuevo/cliente-llm");
+      const { cargarCatalogoDelNegocio } = await import("./motor-nuevo/adaptador");
 
-      if (!args?.productoId || !args?.arquetipos?.length) {
-        return { ok: false, summary: 'Faltan "productoId" y/o "arquetipos"' };
+      const catalogo = await cargarCatalogoDelNegocio(ctx.tenantId);
+      const producto = catalogo.find((p) => p.id === Number(args?.productoId));
+      if (!producto) {
+        const algunos = catalogo.slice(0, 8).map((p) => `#${p.id} ${p.name}`).join(" · ");
+        return { ok: false, summary: `No existe el producto #${args?.productoId ?? "?"} en este negocio. Algunos: ${algunos || "(catálogo vacío)"}` };
       }
 
-      const arquetipos = (Array.isArray(args.arquetipos) ? args.arquetipos : [args.arquetipos])
-        .map((k: string) => obtenerPerfil(k));
+      const pedidos = (Array.isArray(args?.arquetipos) ? args.arquetipos : [args?.arquetipos]).filter(Boolean).map(String);
+      const claves: string[] = [...new Set<string>(pedidos.flatMap((k: string) => (ARQUETIPOS_CLIENTE[k.toUpperCase()] ? [k.toUpperCase()] : arquetiposDelMensaje(k))))];
+      if (!claves.length) {
+        return { ok: false, summary: `No reconocí esos arquetipos (${pedidos.join(", ") || "ninguno"}). Disponibles: ${Object.keys(ARQUETIPOS_CLIENTE).join(", ")}` };
+      }
 
       const llmConfig = { cadena: await armarCadena({ tenantId: ctx.tenantId }), tenantId: ctx.tenantId };
-
+      const errores: string[] = [];
       const resultados = await correrMultiplesSimulaciones({
         tenantId: ctx.tenantId,
-        perfiles: arquetipos,
-        productoId: args.productoId,
+        perfiles: claves.map((k) => obtenerPerfil(k)),
+        productoId: producto.id,
         llmConfig,
-        maxTurnos: args?.maxTurnos || 8,
+        maxTurnos: Math.min(Number(args?.maxTurnos) || 8, 12),
+        errores,
       });
 
-      const totalTurnos = resultados.reduce((s, r) => s + r.turnos.length, 0);
-      const cierres = resultados.map((r) => r.cerroEn);
-      const compras = cierres.filter((c) => c === "compra").length;
-      const problemas = resultados.flatMap((r) => r.resumenProblemas);
+      // Nada simulado NO es "sin problemas": es una falla, y se dice por qué.
+      if (!resultados.length) {
+        return { ok: false, summary: `No se pudo simular ninguna conversación. ${errores.join(" | ") || "Sin detalle del error."}`, data: { errores } };
+      }
+
+      const totalTurnos = resultados.reduce((n, r) => n + r.turnos.length, 0);
+      const compras = resultados.filter((r) => r.cerroEn === "compra").length;
+      const problemas = resultados.flatMap((r) => r.resumenProblemas.map((x) => ({ ...x, cliente: r.perfilCliente.nombre })));
+      // Agrupados: el mismo problema en varias charlas pesa más que uno suelto.
+      const porTipo = new Map<string, number>();
+      for (const x of problemas) {
+        const tipo = x.problema.split(":")[0].trim();
+        porTipo.set(tipo, (porTipo.get(tipo) || 0) + 1);
+      }
+      const agrupados = [...porTipo.entries()].sort((a, b) => b[1] - a[1]).map(([problema, veces]) => ({ problema, veces }));
+      const conversaciones = resultados.map((r) => ({
+        cliente: r.perfilCliente.nombre,
+        cerroEn: r.cerroEn,
+        turnos: r.turnos.map((t) => ({ quien: t.quienDice, texto: t.texto.slice(0, 600) })),
+        problemas: r.resumenProblemas,
+      }));
 
       return {
         ok: true,
-        summary: `Simuladas ${resultados.length} conversaciones (${totalTurnos} turnos totales). Compras: ${compras}/${resultados.length}. Problemas detectados: ${problemas.length}`,
-        data: { simulaciones: resultados.length, turnos: totalTurnos, compras, problemasTotal: problemas.length, problemas: problemas.slice(0, 10) },
+        summary:
+          `Simuladas ${resultados.length} conversaciones sobre ${producto.name} (${totalTurnos} mensajes). ` +
+          `Compras: ${compras}/${resultados.length}. Hallazgos: ${problemas.length}` +
+          (errores.length ? `. Fallaron ${errores.length}: ${errores.join(" | ")}` : ""),
+        data: {
+          producto: { id: producto.id, nombre: producto.name },
+          simulaciones: resultados.length,
+          turnos: totalTurnos,
+          compras,
+          problemasTotal: problemas.length,
+          problemas: problemas.slice(0, 20),
+          agrupados,
+          conversaciones,
+          errores,
+        },
       };
     },
   },

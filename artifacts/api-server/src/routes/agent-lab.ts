@@ -1,358 +1,284 @@
 /**
- * Agent Lab Chat Endpoint
+ * Agent Lab — el chat del simulador.
  *
- * Procesa mensajes del usuario y los encamina a las herramientas agentlab_*
- * (simulador, mejorador, comparador, aplicador).
+ * Simula clientes contra el vendedor REAL de este negocio (motor v2, en
+ * memoria), muestra lo que pasó en cada charla con los hallazgos del
+ * evaluador de chats, y convierte esos hallazgos en REGLAS que el dueño aplica
+ * con un clic (las mismas de "Probar vendedor → Corregir", que el vendedor lee
+ * en cada mensaje de WhatsApp).
+ *
+ * Reescrito el 26-09-2026. Antes, probado en producción:
+ *  - usaba el producto #1 por defecto, que no existía en ese catálogo: 0
+ *    simulaciones y "¡Excelente! No se detectaron problemas" (verde falso);
+ *  - leía los resultados fuera de `data`, así que siempre mostraba 0;
+ *  - cuando había problemas imprimía hallazgos FIJOS ("Lenguaje demasiado
+ *    técnico"…) sin mirar la charla, y "proponer mejora" usaba un hallazgo fijo;
+ *  - "comparar" inventaba el % de mejora, y "aplicar versión" cambiaba
+ *    `agents.systemPrompt`, que el vendedor nuevo (v2) no lee.
  *
  * Cliente: artifacts/ventas-pro/src/pages/agent-lab.tsx
  */
 
 import { Router } from "express";
+import { and, desc, eq } from "drizzle-orm";
+import { architectMemory, db } from "@workspace/db";
 import { logger } from "../lib/logger";
 import type { TenantRequest } from "../lib/tenantManager";
-import { executeAction, TOOLS } from "../lib/app-operator";
-import { architectMemory, db } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { executeAction } from "../lib/app-operator";
 
 const router = Router();
 
-// Herramientas permitidas en Agent Lab (READ_ONLY y herramientas agentlab_*)
-const AGENT_LAB_TOOLS = TOOLS.filter(
-  (t) =>
-    t.name.startsWith("agentlab_") ||
-    t.name === "web_search" ||
-    t.name === "web_fetch" ||
-    t.name === "list_products"
-);
+/** Tope de charlas por pedido: cada una son ~10 llamadas al modelo. */
+const MAX_SIMULACIONES = 3;
+const TURNOS_POR_CHARLA = 5;
+
+const N = (t: string) => t.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 
 /**
- * POST /api/agent-lab/chat
- *
- * Acepta:
- * {
- *   message: string,
- *   agentId?: number,
- *   productoId?: number,
- *   sessionId?: string
- * }
- *
- * Devuelve:
- * {
- *   ok: boolean,
- *   reply: string,
- *   data?: any (resultados de simulación, versión, etc.)
- * }
+ * El producto del que habla el dueño: el id que mandó la pantalla, si no el
+ * que nombra en el mensaje ("simula clientes para el corrector de hombros"),
+ * si no el primero disponible del catálogo.
  */
-router.post("/chat", async (req: TenantRequest, res) => {
+export function elegirProducto<T extends { id: number; name: string; disponible?: boolean }>(
+  catalogo: T[],
+  mensaje: string,
+  productoId?: number | null,
+): T | null {
+  const porId = catalogo.find((p) => p.id === Number(productoId));
+  if (porId) return porId;
+  const palabras = N(mensaje).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 4);
+  let mejor: { p: T; puntos: number } | null = null;
+  for (const p of catalogo) {
+    const nombre = N(p.name);
+    const puntos = palabras.reduce((n, w) => n + (nombre.includes(w) ? 1 : 0), 0);
+    if (puntos > 0 && (!mejor || puntos > mejor.puntos)) mejor = { p, puntos };
+  }
+  return mejor?.p ?? catalogo.find((p) => p.disponible !== false) ?? catalogo[0] ?? null;
+}
+
+/** Cuántas charlas pide ("simula 5 clientes"), con tope. */
+export function cantidadPedida(mensaje: string, arquetipos: number): number {
+  const n = Number(mensaje.match(/\b(\d{1,2})\b/)?.[1]);
+  const pedida = Number.isFinite(n) && n > 0 ? n : Math.max(arquetipos, 1);
+  return Math.min(pedida, MAX_SIMULACIONES);
+}
+
+/** Qué quiere hacer el dueño con su mensaje. */
+export function intencionDelLab(mensaje: string): "simular" | "mejorar" | "aplicar_regla" | "version" | "ayuda" {
+  const t = N(mensaje);
+  if (/\baplica(r)?\b.*\b(regla|reglas|todas|la\s+\d|\d)\b/.test(t) && !/\bversion\b/.test(t)) return "aplicar_regla";
+  if (/\b(simula|simular|simulacion|simulaciones)\b/.test(t)) return "simular";
+  if (/\b(mejora|mejorar|propone|proponer|propuesta)\b/.test(t)) return "mejorar";
+  if (/\b(compara|comparar|version|candidata|aplica|aplicar|rollback|a\/b)\b/.test(t)) return "version";
+  if (/\bclientes?\b/.test(t)) return "simular";
+  return "ayuda";
+}
+
+async function guardar(tenantId: number, tipo: string, contenido: unknown) {
   try {
-    const tenantId = req.tenant?.id;
-    if (!tenantId) return res.status(401).json({ ok: false, reply: "Tenant no resuelto" });
-
-    const { message, agentId, productoId } = req.body;
-    if (!message?.trim()) {
-      return res.status(400).json({ ok: false, reply: "Mensaje vacío" });
-    }
-
-    logger.info({ agentId, productoId }, `[AgentLab] ${tenantId} | mensaje: "${message.slice(0, 50)}..."`);
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // Parsear intención del usuario
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    const msgLower = message.toLowerCase();
-    let intent = "help"; // default
-
-    if (
-      msgLower.includes("simula") ||
-      msgLower.includes("simulación") ||
-      msgLower.includes("cliente") ||
-      msgLower.includes("arquetipo")
-    ) {
-      intent = "simular";
-    } else if (
-      msgLower.includes("mejora") ||
-      msgLower.includes("propone") ||
-      msgLower.includes("candidata")
-    ) {
-      intent = "mejorar";
-    } else if (
-      msgLower.includes("compara") ||
-      msgLower.includes("versión") ||
-      msgLower.includes("comparación")
-    ) {
-      intent = "comparar";
-    } else if (
-      msgLower.includes("aplica") ||
-      msgLower.includes("aplicar") ||
-      msgLower.includes("activar")
-    ) {
-      intent = "aplicar";
-    }
-
-    logger.info(`[AgentLab] Intent detectado: "${intent}"`);
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // Construir contexto para executeAction
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    const operatorContext = {
+    await db.insert(architectMemory).values({
       tenantId,
-      businessContext: {
-        agentId: agentId || undefined,
-        productoId: productoId || undefined,
-      },
-      userMessage: message,
-      isApproved: true, // Agent Lab siempre es interactivo, no necesita doble confirmación
-    };
-
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // Ejecutar herramienta según intención
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    let toolResult: any = null;
-    let toolName = "";
-
-    try {
-      switch (intent) {
-        case "simular":
-          // Parsear arquetipos del mensaje: "simula 5 desconfiados" → DESCONFIADO
-          const arquetiposMatch = message.match(
-            /NORMAL|DESCONFIADO|PRECIO_SENSIBLE|APRESURADO|INDECISO|CLIENTE_DIFICIL|ESCÉPTICO|EXPERTO|COMPARADOR|CURIOSO|LISTA_PARA_COMPRAR|QUE_REGRESA|MOLESTO|QUE_DESAPARECE/i
-          );
-          const arquetipos = arquetiposMatch
-            ? [arquetiposMatch[0].toUpperCase()]
-            : ["NORMAL", "DESCONFIADO", "PRECIO_SENSIBLE"];
-
-          // Parsear número de simulaciones: "simula 5" → 5
-          const numMatch = message.match(/(\d+)/);
-          const numSimulaciones = numMatch ? Math.min(parseInt(numMatch[1]), 10) : 3;
-
-          toolName = "agentlab_simular";
-          toolResult = await executeAction(toolName, {
-            productoId: productoId || 1,
-            arquetipos,
-            numSimulaciones,
-            maxTurnos: 5,
-          }, operatorContext);
-          break;
-
-        case "mejorar":
-          toolName = "agentlab_mejorar";
-          toolResult = await executeAction(toolName, {
-            agentId: agentId || 1,
-            hallazgosSimulacion: [
-              {
-                problema: "El cliente desconfiado rechaza buzzwords",
-                frecuencia: 3,
-                sugerencia: "Usar lenguaje más directo y honesto",
-              },
-            ],
-          }, operatorContext);
-          break;
-
-        case "comparar":
-          // Detectar versionId del mensaje: "compara la versión 42"
-          const versionMatch = message.match(/versión\s+(\d+)/i);
-          const versionId = versionMatch ? parseInt(versionMatch[1]) : undefined;
-
-          if (!versionId) {
-            return res.status(400).json({
-              ok: false,
-              reply: "Necesito el número de versión candidata. Ej: 'compara la versión 42'",
-            });
-          }
-
-          toolName = "agentlab_comparar";
-          toolResult = await executeAction(toolName, {
-            agentId: agentId || 1,
-            versionId,
-            arquetipos: ["NORMAL", "DESCONFIADO", "PRECIO_SENSIBLE"],
-          }, operatorContext);
-          break;
-
-        case "aplicar":
-          // Detectar versionId: "aplica la 42"
-          const applyVersionMatch = message.match(/(\d+)/);
-          const applyVersionId = applyVersionMatch
-            ? parseInt(applyVersionMatch[1])
-            : undefined;
-
-          if (!applyVersionId) {
-            return res.status(400).json({
-              ok: false,
-              reply:
-                "Necesito el número de versión. Ej: 'aplicá la versión 42' o 'aplica 42'",
-            });
-          }
-
-          toolName = "agentlab_aplicar_version";
-          toolResult = await executeAction(toolName, {
-            agentId: agentId || 1,
-            versionId: applyVersionId,
-          }, operatorContext);
-          break;
-
-        default:
-          // Mostrar help
-          return res.status(200).json({
-            ok: true,
-            reply: `
-**Agent Lab** — Entrena tu agente contra clientes simulados
-
-Puedo ayudarte con:
-
-📊 **Simular** clientes
-\`"simula 5 clientes desconfiados"\`
-
-🔧 **Proponer mejora** del prompt
-\`"propone una mejora basada en los hallazgos"\`
-
-📈 **Comparar** versiones
-\`"compara la versión 42 con la actual"\`
-
-✅ **Aplicar** una versión candidata
-\`"aplica la versión 42"\`
-
----
-
-**Flujo recomendado:**
-1. Simula clientes (varios arquetipos)
-2. Propone mejora (automático → genera candidata)
-3. Compara (actual vs candidata)
-4. Aplica (a producción, con confirmación)
-            `,
-          });
-      }
-
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-      // Procesar resultado y formatear respuesta
-      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-      if (!toolResult) {
-        return res.status(500).json({
-          ok: false,
-          reply: `No hay respuesta de la herramienta ${toolName}`,
-        });
-      }
-
-      // Formatear respuesta según el tipo de herramienta
-      let reply = "";
-
-      if (intent === "simular") {
-        const { simulaciones, compras, problemasTotal } = toolResult;
-        reply = `
-✅ **Simulación completada**
-
-📊 Resultados:
-- Simulaciones: ${simulaciones || 0}
-- Compras (éxito): ${compras || 0}
-- Problemas detectados: ${problemasTotal || 0}
-
-${
-  problemasTotal > 0
-    ? `
-**Hallazgos principales:**
-Los clientes encontraron los siguientes problemas:
-- Lenguaje demasiado técnico
-- Respuestas no personalizadas
-- Falta de manejo de objeciones
-
-Próximo paso: escribe "propone una mejora" para generar una versión candidata.
-`
-    : `
-¡Excelente! No se detectaron problemas mayores.
-`
-}
-        `;
-      } else if (intent === "mejorar") {
-        const { versionId, cambios } = toolResult;
-        reply = `
-✨ **Versión candidata creada**
-
-📄 Versión #${versionId}
-
-**Cambios propuestos:**
-${cambios || "- Mejoras en el handling de objeciones"}
-
-Próximo paso: escribe "compara la versión ${versionId}" para verla en acción.
-        `;
-      } else if (intent === "comparar") {
-        const { actual, candidata, mejoroEn } = toolResult;
-        reply = `
-📊 **Comparación de versiones**
-
-| Métrica | Actual | Candidata | Cambio |
-|---------|--------|-----------|---------|
-| Tasa de éxito | ${actual?.tasa || 0}% | ${candidata?.tasa || 0}% | ${mejoroEn || 0}% |
-| Compras | ${actual?.exitosos || 0}/${actual?.total || 0} | ${candidata?.exitosos || 0}/${candidata?.total || 0} | — |
-
-${
-  mejoroEn && mejoroEn > 0
-    ? `✅ **Mejora detectada:** +${mejoroEn}% de tasa de éxito`
-    : `⚠️ La versión candidata no muestra mejora significativa.`
+      memoryType: tipo,
+      tags: ["agent-lab"],
+      content: JSON.stringify(contenido),
+      createdAt: new Date(),
+    } as any);
+  } catch (e: any) {
+    logger.warn({ err: e?.message }, "[AgentLab] no se guardó en architect_memory");
+  }
 }
 
-Próximo paso: ${
-          mejoroEn && mejoroEn > 0
-            ? `escribe "aplicá la versión candidata" para activarla en producción.`
-            : `escribe "propone otra mejora" para iterar.`
-        }
-        `;
-      } else if (intent === "aplicar") {
-        const { success, agentId: appliedAgentId } = toolResult;
-        reply = `
-${success ? "✅" : "❌"} **Versión aplicada**
-
-${
-  success
-    ? `
-La versión candidata está ahora activa para el agente ${appliedAgentId}.
-
-El nuevo prompt responde en todos los canales desde ahora.
-`
-    : `No se pudo aplicar la versión. Verifica que sea una versión candidata válida.`
+async function ultimo(tenantId: number, tipo: string): Promise<any | null> {
+  try {
+    const [fila] = await db
+      .select()
+      .from(architectMemory)
+      .where(and(eq(architectMemory.tenantId, tenantId), eq(architectMemory.memoryType, tipo)))
+      .orderBy(desc(architectMemory.id))
+      .limit(1);
+    return fila ? JSON.parse(String((fila as any).content || "null")) : null;
+  } catch {
+    return null;
+  }
 }
-        `;
-      }
 
-      // Guardar resultado en architectMemory para historial persistente
-      if (toolResult?.simulaciones || toolResult?.versionId) {
-        try {
-          await db.insert(architectMemory).values({
-            tenantId,
-            memoryType: "simulation_result",
-            tags: ["agent-lab", intent],
-            content: JSON.stringify({
-              intent,
-              result: toolResult,
-              timestamp: new Date(),
-            }),
-            createdAt: new Date(),
-          });
-        } catch (e) {
-          logger.warn({ err: (e as any)?.message }, `[AgentLab] No se guardó en architect_memory`);
-        }
-      }
+const AYUDA = `**Agent Lab**: pon a prueba a tu vendedor con clientes simulados.
 
-      return res.status(200).json({
+📊 **Simular**: \`simula 3 clientes desconfiados para el corrector\`
+Arquetipos: normal, desconfiado, precio sensible, apresurado, indeciso, curioso, comparador, escéptico, experto, molesto, difícil, listo para comprar.
+
+🔧 **Proponer mejoras**: \`propone mejoras\`
+Convierte lo que salió mal en la última simulación en reglas concretas.
+
+✅ **Aplicar**: \`aplica la regla 1\` o \`aplica todas\`
+Van a tu vendedor al instante (las mismas de *Probar vendedor → Corregir*) y se deshacen en *Lo que ya sabe*.`;
+
+router.post("/chat", async (req: TenantRequest, res) => {
+  const tenantId = req.tenant?.id;
+  if (!tenantId) return res.status(401).json({ ok: false, reply: "Sin sesión" });
+  const mensaje = String(req.body?.message || "").trim();
+  if (!mensaje) return res.status(400).json({ ok: false, reply: "Mensaje vacío" });
+
+  const intencion = intencionDelLab(mensaje);
+  logger.info({ tenantId, intencion }, "[AgentLab] pedido");
+  const ctx = { tenantId, userMessage: mensaje, isApproved: true } as any;
+
+  try {
+    if (intencion === "ayuda") return res.json({ ok: true, reply: AYUDA });
+
+    if (intencion === "version") {
+      return res.json({
         ok: true,
-        reply: reply.trim(),
-        data: toolResult,
-      });
-    } catch (toolError: any) {
-      logger.error(`[AgentLab] Error ejecutando ${toolName}`, toolError);
-      return res.status(400).json({
-        ok: false,
-        reply: `Error: ${toolError?.message || "No se pudo ejecutar la herramienta"}`,
+        reply:
+          "Las **versiones de prompt** (comparar, aplicar, A/B, rollback) cambian un campo que tu vendedor actual ya no usa, " +
+          "así que no te voy a mostrar una mejora que no llegaría a WhatsApp.\n\n" +
+          "Para mejorar al vendedor de verdad: **simula**, escribe **propone mejoras** y **aplica** las reglas que te sirvan. " +
+          "También puedes corregir respuesta por respuesta en *Probar vendedor*.",
       });
     }
-  } catch (error: any) {
-    logger.error("[AgentLab] Error general en endpoint", error);
-    return res.status(500).json({
-      ok: false,
-      reply: "Error interno del servidor",
-    });
+
+    // ── Simular ─────────────────────────────────────────────────────────────
+    if (intencion === "simular") {
+      const { cargarCatalogoDelNegocio } = await import("../lib/motor-nuevo/adaptador");
+      const { arquetiposDelMensaje } = await import("../lib/motor-nuevo/cliente-simulado");
+      const catalogo = await cargarCatalogoDelNegocio(tenantId);
+      const producto = elegirProducto(catalogo, mensaje, Number(req.body?.productoId) || null);
+      if (!producto) return res.json({ ok: false, reply: "Tu catálogo está vacío: carga al menos un producto para simular." });
+
+      const nombrados = arquetiposDelMensaje(mensaje);
+      const base = nombrados.length ? nombrados : ["NORMAL", "DESCONFIADO", "PRECIO_SENSIBLE"];
+      const cuantas = cantidadPedida(mensaje, base.length);
+      const arquetipos = Array.from({ length: cuantas }, (_, i) => base[i % base.length]);
+
+      // Una llamada por arquetipo: la herramienta no repite claves.
+      const resultados: any[] = [];
+      for (const a of arquetipos) {
+        const r = await executeAction("agentlab_simular", { productoId: producto.id, arquetipos: [a], maxTurnos: TURNOS_POR_CHARLA }, ctx);
+        resultados.push(r);
+      }
+      const buenos = resultados.filter((r) => r.ok && r.data?.simulaciones);
+      if (!buenos.length) {
+        return res.json({ ok: false, reply: `❌ No se pudo simular. ${resultados.map((r) => r.summary).join(" ")}` });
+      }
+
+      const conversaciones = buenos.flatMap((r) => r.data.conversaciones);
+      const agrupados = new Map<string, number>();
+      for (const r of buenos) for (const g of r.data.agrupados || []) agrupados.set(g.problema, (agrupados.get(g.problema) || 0) + g.veces);
+      const compras = conversaciones.filter((c: any) => c.cerroEn === "compra").length;
+      const fallidas = resultados.filter((r) => !r.ok).map((r) => r.summary);
+
+      await guardar(tenantId, "agentlab_simulacion", { producto: { id: producto.id, nombre: producto.name }, conversaciones, agrupados: [...agrupados] });
+
+      const cierre = (c: string) => (c === "compra" ? "✅ compró" : c === "abandono" ? "🚪 se fue" : "⏸️ siguió conversando");
+      const lista = [...agrupados.entries()].sort((a, b) => b[1] - a[1]);
+      const reply = [
+        `📊 **Simulación sobre ${producto.name}**`,
+        `${conversaciones.length} charla${conversaciones.length === 1 ? "" : "s"} · ${compras} compra${compras === 1 ? "" : "s"}`,
+        "",
+        ...conversaciones.map((c: any) => `• **${c.cliente}**: ${cierre(c.cerroEn)} en ${Math.ceil(c.turnos.length / 2)} mensajes${c.problemas.length ? ` · ${c.problemas.length} hallazgo${c.problemas.length === 1 ? "" : "s"}` : ""}`),
+        "",
+        lista.length
+          ? `**Lo que salió mal** (del evaluador de chats, sobre las charlas reales):\n${lista.map(([p, v]) => `- ${p}${v > 1 ? ` (×${v})` : ""}`).join("\n")}\n\nEscribe **propone mejoras** para convertirlo en reglas.`
+          : "El evaluador no encontró fallas en estas charlas. Revisa las conversaciones abajo por si ves algo que corregir.",
+        fallidas.length ? `\n⚠️ Fallaron ${fallidas.length}: ${fallidas.join(" | ")}` : "",
+      ].join("\n");
+
+      return res.json({ ok: true, reply, data: { producto: { id: producto.id, nombre: producto.name }, conversaciones, agrupados: lista } });
+    }
+
+    // ── Proponer mejoras: hallazgos reales → reglas concretas ──────────────
+    if (intencion === "mejorar") {
+      const sim = await ultimo(tenantId, "agentlab_simulacion");
+      if (!sim?.conversaciones?.length) {
+        return res.json({ ok: false, reply: "Primero simula clientes (por ejemplo: *simula 3 clientes desconfiados*). Las mejoras salen de lo que pase en esas charlas." });
+      }
+      const reglas = await proponerReglas(tenantId, sim);
+      if (!reglas.length) {
+        return res.json({ ok: true, reply: "No encontré nada que valga la pena convertir en regla en la última simulación. Prueba con otros arquetipos." });
+      }
+      await guardar(tenantId, "agentlab_propuestas", { reglas });
+      return res.json({
+        ok: true,
+        reply: [
+          "🔧 **Reglas propuestas** (salen de las charlas simuladas):",
+          "",
+          ...reglas.map((r, i) => `**${i + 1}.** ${r.regla}\n   _${r.porque}_`),
+          "",
+          "Escribe **aplica la regla 1**, **aplica 1 y 3** o **aplica todas**. Se aplican al instante a todos tus agentes.",
+        ].join("\n"),
+        data: { reglas },
+      });
+    }
+
+    // ── Aplicar reglas propuestas ───────────────────────────────────────────
+    if (intencion === "aplicar_regla") {
+      const prop = await ultimo(tenantId, "agentlab_propuestas");
+      const reglas: { regla: string }[] = prop?.reglas || [];
+      if (!reglas.length) return res.json({ ok: false, reply: "No hay reglas propuestas. Escribe *propone mejoras* después de simular." });
+      const numeros = /\btodas\b/i.test(mensaje)
+        ? reglas.map((_, i) => i + 1)
+        : [...new Set((mensaje.match(/\d+/g) || []).map(Number))].filter((n) => n >= 1 && n <= reglas.length);
+      if (!numeros.length) return res.json({ ok: false, reply: `¿Cuál? Hay ${reglas.length}: escribe por ejemplo *aplica la regla 1* o *aplica todas*.` });
+
+      const { corregirForma } = await import("../lib/correcciones-del-dueno");
+      const lineas: string[] = [];
+      for (const n of numeros) {
+        const r = await corregirForma(tenantId, reglas[n - 1].regla);
+        lineas.push(`${r.ok ? "✅" : "❌"} Regla ${n}: ${r.ok ? reglas[n - 1].regla : r.mensaje}`);
+      }
+      return res.json({
+        ok: true,
+        reply: `${lineas.join("\n")}\n\nYa las usa tu vendedor, también en WhatsApp. Vuelve a **simular** para ver si mejoró; si algo no te gusta, bórralo en *Probar vendedor → Lo que ya sabe*.`,
+      });
+    }
+
+    return res.json({ ok: true, reply: AYUDA });
+  } catch (e: any) {
+    logger.error({ tenantId, err: e?.message }, "[AgentLab] error");
+    return res.status(500).json({ ok: false, reply: `Error: ${e?.message || "no se pudo completar"}` });
   }
 });
+
+/**
+ * Hallazgos + charlas de la última simulación → hasta 5 reglas cortas para el
+ * vendedor. Sin precios ni plazos (las reglas no llevan datos: los datos salen
+ * del catálogo), y validadas otra vez al aplicarse (`configurarAgente`).
+ */
+async function proponerReglas(tenantId: number, sim: any): Promise<{ regla: string; porque: string }[]> {
+  const { armarCadena, crearClienteLLM } = await import("../lib/motor-nuevo/cliente-llm");
+  const { extraerJson } = await import("../lib/entender-al-cliente");
+  const { loQueSabeElVendedor } = await import("../lib/correcciones-del-dueno");
+  const sabe = await loQueSabeElVendedor(tenantId);
+  const charlas = (sim.conversaciones || [])
+    .slice(0, 3)
+    .map((c: any) => `### ${c.cliente} (${c.cerroEn})\n${c.turnos.map((t: any) => `${t.quien === "cliente" ? "CLIENTE" : "VENDEDOR"}: ${t.texto}`).join("\n")}`)
+    .join("\n\n");
+  const hallazgos = (sim.agrupados || []).map(([p, v]: [string, number]) => `- ${p} (×${v})`).join("\n") || "(el evaluador no marcó nada)";
+  const prompt = [
+    "Eres jefe de ventas por WhatsApp. Revisa estas charlas SIMULADAS entre clientes y el vendedor de un negocio.",
+    `Producto: ${sim.producto?.nombre || "?"}`,
+    "",
+    "HALLAZGOS DEL EVALUADOR:",
+    hallazgos,
+    "",
+    "REGLAS QUE YA TIENE EL VENDEDOR:",
+    sabe.indicaciones.map((i) => `- ${i}`).join("\n") || "(ninguna)",
+    "",
+    "CHARLAS:",
+    charlas,
+    "",
+    "Propón hasta 5 REGLAS de cómo vender que corrijan lo que salió mal (repite datos, no responde lo que preguntaron, presiona, no cierra, pregunta de más…).",
+    "Cada regla: una frase corta, general, tuteando, sin precios, montos ni plazos. No repitas reglas que ya tiene. Si no hay nada que corregir, devuelve una lista vacía.",
+    'Responde SOLO este JSON: {"reglas":[{"regla":"...","porque":"qué pasó en la charla, citándola"}]}',
+  ].join("\n");
+  const llm = crearClienteLLM({ cadena: await armarCadena({ tenantId }), tenantId });
+  const r = await llm.crear({ messages: [{ role: "user", content: prompt }], temperature: 0.3, maxTokens: 900 });
+  const crudo = extraerJson(r.content || "");
+  const lista: any[] = Array.isArray(crudo?.reglas) ? crudo.reglas : [];
+  return lista
+    .map((x) => ({ regla: String(x?.regla || "").trim().slice(0, 300), porque: String(x?.porque || "").trim().slice(0, 300) }))
+    .filter((x) => x.regla && !/\$\s?\d|\d{1,3}(\.\d{3})+/.test(x.regla))
+    .slice(0, 5);
+}
 
 export default router;

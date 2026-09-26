@@ -8,7 +8,8 @@
  */
 
 import { crearClienteLLM, armarCadena, type Candidato } from "./cliente-llm";
-import { responder } from "./motor";
+import { responder, montosInventados } from "./motor";
+import { evaluarChat, type TurnoEvaluado } from "../evaluador-de-chats";
 import { cargarCatalogoDelNegocio, cargarGuion, cargarVozDelNegocio, cargarConocimiento } from "./adaptador";
 import { estadoInicial, EstadoConversacion } from "./estado-conversacion";
 
@@ -155,6 +156,25 @@ export async function correrSimulacionCliente({
   const historial: { role: "customer" | "agent"; content: string }[] = [];
   const turnos: TurnoSimulacion[] = [];
   const problemas: { problema: string; turno: number }[] = [];
+  const turnosEvaluados: TurnoEvaluado[] = [];
+
+  /**
+   * Cierra la simulación: corre el evaluador de chats (el mismo de la sombra
+   * de WhatsApp) sobre la charla entera y suma lo que encuentre. Así los
+   * hallazgos salen de la conversación real, no de una lista fija.
+   */
+  const cerrar = (cerroEn: ResultadoSimulacion["cerroEn"]): ResultadoSimulacion => {
+    try {
+      const hallazgos = evaluarChat(
+        turnosEvaluados,
+        catalogo.map((c) => ({ id: c.id, name: c.name, price: c.price ?? 0, kind: c.kind ?? null })),
+      );
+      for (const h of hallazgos) problemas.push({ problema: `${h.regla}: ${h.detalle}`, turno: h.turno + 1 });
+    } catch (e) {
+      problemas.push({ problema: `No se pudo evaluar la charla: ${(e as any)?.message}`, turno: 0 });
+    }
+    return { perfilCliente, turnos, estadoFinal: estadoVendedor, cerroEn, resumenProblemas: problemas };
+  };
 
   // Estado inicial del vendedor
   let estadoVendedor = estadoInicial(999_999); // ID ficticio, en memoria
@@ -182,25 +202,8 @@ export async function correrSimulacionCliente({
       timestamp: new Date(),
     });
 
-    if (respuestaCliente.senoal === "compra") {
-      return {
-        perfilCliente,
-        turnos,
-        estadoFinal: estadoVendedor,
-        cerroEn: "compra",
-        resumenProblemas: problemas,
-      };
-    }
-
-    if (respuestaCliente.senoal === "abandona") {
-      return {
-        perfilCliente,
-        turnos,
-        estadoFinal: estadoVendedor,
-        cerroEn: "abandono",
-        resumenProblemas: problemas,
-      };
-    }
+    if (respuestaCliente.senoal === "compra") return cerrar("compra");
+    if (respuestaCliente.senoal === "abandona") return cerrar("abandono");
 
     // 2. Vendedor responde (motor v2)
     try {
@@ -216,28 +219,39 @@ export async function correrSimulacionCliente({
 
       estadoVendedor = resultadoVendedor.estado;
 
-      const textoVendedor = (resultadoVendedor.partes as any[])
-        .filter((p) => p.kind === "text")
-        .map((p) => p.content)
+      const partes = resultadoVendedor.partes as any[];
+      const textoVendedor = partes
+        .filter((p) => p.kind === "text" || p.kind === "voz")
+        .map((p) => (p.kind === "voz" ? `🎙️ (nota de voz) ${p.content}` : p.content))
         .join("\n");
+      const tarjetas = partes.filter((p) => p.kind === "card").map((p) => ({ productId: p.productId, seccion: p.seccion ?? null }));
 
-      if (!textoVendedor) {
-        problemas.push({ problema: "Vendedor no devolvió respuesta", turno: turnoNum });
+      // Una respuesta que es SOLO una ficha es una respuesta: antes contaba
+      // como "no devolvió respuesta" y cortaba la simulación.
+      if (!textoVendedor && !tarjetas.length) {
+        problemas.push({ problema: "El vendedor no respondió nada", turno: turnoNum });
         break;
       }
+      const loQueVio = [textoVendedor, ...tarjetas.map((t) => `[ficha "${t.seccion || "completa"}" de ${catalogo.find((c) => c.id === t.productId)?.name ?? `#${t.productId}`}]`)]
+        .filter(Boolean)
+        .join("\n");
 
-      historial.push({ role: "agent", content: textoVendedor });
+      historial.push({ role: "agent", content: loQueVio });
       turnos.push({
         numeroTurno: turnoNum,
         quienDice: "vendedor",
-        texto: textoVendedor,
+        texto: loQueVio,
         timestamp: new Date(),
       });
+      turnosEvaluados.push({ mensaje: mensajeCliente, texto: textoVendedor, tarjetas });
 
-      // Detectar problemas obvios (ej: precio inventado)
-      if (textoVendedor.match(/\$\d+|€\d+|precio.*\d+/i) && !textoVendedor.toLowerCase().includes("según")) {
+      // Un precio que el vendedor ESCRIBIÓ y no está en el catálogo (la misma
+      // red del motor). Antes era una regex que marcaba cualquier "$36.000",
+      // aunque fuera el precio real.
+      const inventados = montosInventados(textoVendedor, catalogo);
+      if (inventados.length) {
         problemas.push({
-          problema: "Posible precio inventado (precio específico sin contexto)",
+          problema: `Escribió un precio que no está en el catálogo: ${inventados.map((n) => n.toLocaleString("es-CO")).join(", ")}`,
           turno: turnoNum,
         });
       }
@@ -248,13 +262,7 @@ export async function correrSimulacionCliente({
   }
 
   // Terminó por límite de turnos
-  return {
-    perfilCliente,
-    turnos,
-    estadoFinal: estadoVendedor,
-    cerroEn: "limite_turnos",
-    resumenProblemas: problemas,
-  };
+  return cerrar("limite_turnos");
 }
 
 /**
@@ -266,12 +274,19 @@ export async function correrMultiplesSimulaciones({
   productoId,
   llmConfig,
   maxTurnos = 8,
+  errores,
 }: {
   tenantId: number;
   perfiles: PerfilCliente[];
   productoId: number;
   llmConfig: ClienteLLMConfig;
   maxTurnos?: number;
+  /**
+   * Aquí se anota por qué falló cada simulación. Antes el error solo iba a la
+   * consola y el resultado era "0 simulaciones, sin problemas": un verde falso
+   * (producción, 26-09-2026: el producto #1 no existía en ese catálogo).
+   */
+  errores?: string[];
 }): Promise<ResultadoSimulacion[]> {
   const resultados: ResultadoSimulacion[] = [];
 
@@ -289,6 +304,7 @@ export async function correrMultiplesSimulaciones({
       console.log(`[simulador]   ✓ Cerró en: ${resultado.cerroEn}, ${resultado.turnos.length} turnos`);
     } catch (e) {
       console.error(`[simulador]   ✗ Error: ${(e as any).message}`);
+      errores?.push(`${perfil.nombre}: ${(e as any).message}`);
     }
   }
 
