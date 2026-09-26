@@ -148,33 +148,68 @@ Cada respuesta busca:
 
 ---
 
-### Fase 3: Auto-corrección Acotada (2 SEMANAS)
+### Fase 3: Autonomía Acotada ✅ LIVE
 
-**`autonomia-acotada.ts`**: Aplica mejoras sin esperar.
+**`autonomia-acotada.ts`**: Auto-mejora sin intervención (con guardrails).
 
+**Orquestación**:
 ```
-Evaluador detecta: "Cliente pregunta 'cómo pago?' y dijiste 'déjame confirmarlo' (error)"
-
-Simulador corre 14 arquetipos contra:
-  A) Prompt actual
-  B) Prompt con "Si preguntas por pago, aquí están las opciones"
-
-¿Mejora en 14 arquetipos? → Confianza = 95%
-  Si > 85% → Auto-aplica en 4 horas
-  Si 70-85% → Propone, espera 4h
-  Si < 70% → Pide aprobación
+Detecta errores → Genera mejora → Simula 14 arquetipos → Decide
 ```
 
-**Decisiones automáticas** (sin humano):
-- Cambios de redacción en respuestas
-- Ajustes de tono
-- Reordenamiento de elementos
+**Qué detecta**:
+- `redaccion`: Respuestas muy repetitivas (>50% mismo patrón)
+- `tono`: Demasiado corporativo vs cálido
+- `omision`: No pregunta lo estratégico para el intent
+- `contradiccion`: Cambió de opinión sin explicación
+- `precio_inventado`: Cifra sin verificación
 
-**Decisiones escaladas** (requieren aprobación):
-- Cambio de objetivo de campaña
-- Público objetivo (edad, género, país)
-- Presupuesto
+**Ejemplo real**:
+```
+Sistema detecta: "Cliente pregunta 'cómo pago?' → agente dice 'déjame confirmarlo'"
+Propuesta: "Si preguntas por pago, aquí están las opciones"
+Simulación: 14 arquetipos, antes 65% éxito, después 80%
+Confianza: 80% → propone + 4h auto-aplica
+```
+
+**Decisión automática por confianza**:
+
+| Confianza | Tipo | Decisión |
+|-----------|------|----------|
+| > 85% | Táctico | ✅ AUTO-APLICA hoy |
+| 70-85% | Táctico | ⏳ PROPONE + 4h auto-aplica |
+| < 70% | Táctico | ❓ Pide aprobación |
+| Cualquiera | Estratégico | ❓ SIEMPRE aprobación |
+
+**Tipos de cambio**:
+
+**TÁCTICO** (auto-aplicable):
+- Redacción, tono, reordenamiento
+- Omisiones menores
+
+**ESTRATÉGICO** (aprobación requerida):
+- Objetivo, público, presupuesto
 - Políticas de negocio
+
+**Ventana de 4 horas** (para 70-85%):
+- Propone mejora
+- "Se aplicará en 4h si no la rechazas"
+- Rechazo explícito → se detiene
+- Silencio → auto-aplicar
+
+**Rollback automático**:
+- Si resultados reales muestran empeoramiento
+- Revierte a prompt anterior
+- Requiere mayor confianza para reintentar
+
+**Dashboard**:
+```
+Hoy:
+- Errores detectados: 3
+- Mejoras propuestas: 2 (conf 78%, 72%)
+- Auto-aplicadas: 1 (conf 91%)
+- Arquetipos que empeoraron: 0
+```
 
 ---
 
@@ -218,13 +253,17 @@ Siguiente turno pregunta: "¿Cómo me lo devuelvo?"
 ```
 lib/cerebro/
 ├── README.md                      (este archivo)
-├── tipos-razonamiento.ts          (interfaces)
-├── razonador.ts                   (implementado ✅)
-├── razonador.test.ts              (tests ✅)
-├── memoria-multi-capa.ts          (próxima fase)
-├── autonomia-acotada.ts           (próxima fase)
-├── planificador.ts                (próxima fase)
-└── especulador.ts                 (futuro)
+├── tipos-razonamiento.ts          (Fase 1)
+├── razonador.ts                   (Fase 1 ✅)
+├── razonador.test.ts              (Fase 1 ✅)
+├── tipos-memoria.ts               (Fase 2)
+├── memoria-multi-capa.ts          (Fase 2 ✅)
+├── memoria-multi-capa.test.ts     (Fase 2 ✅)
+├── tipos-autonomia.ts             (Fase 3)
+├── autonomia-acotada.ts           (Fase 3 ✅)
+├── autonomia-acotada.test.ts      (Fase 3 ✅)
+├── planificador.ts                (Fase 4, próxima)
+└── especulador.ts                 (Fase 5, futuro)
 ```
 
 ## Integración en motor.ts
