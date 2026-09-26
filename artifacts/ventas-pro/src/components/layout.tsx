@@ -52,8 +52,6 @@ export function AppSidebar() {
     { label: "Agentes IA", href: "/agents", icon: Bot },
     { label: "Probar vendedor", href: "/probar-vendedor", icon: MessageSquareText },
     { label: "Enseñar con ejemplo", href: "/ensenar-con-ejemplo", icon: GraduationCap },
-    { label: "Agent Lab", href: "/agent-lab", icon: Beaker },
-    { label: "Lab Dashboard", href: "/agent-lab-dashboard", icon: BarChart3 },
     { label: "Prospectos", href: "/leads", icon: Users },
     { label: "Productos", href: "/products", icon: Package },
     { label: "WhatsApp", href: "/whatsapp", icon: Phone },
