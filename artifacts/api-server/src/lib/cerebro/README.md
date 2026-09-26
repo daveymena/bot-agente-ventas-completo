@@ -4,6 +4,28 @@
 
 Un sistema de razonamiento que piensa **antes de responder**, como un humano pensaría. No es magia ni conciencia artificial — es **ingeniería clara con límites explícitos**.
 
+## Flujo Completo (Motor + Cerebro + Memoria)
+
+```
+[CLIENTE escribe]
+    ↓
+[motor.ts: armar contexto]
+    ↓
+[RAZONADOR] ← Piensa 3 opciones (A/B/C)
+    ↓
+[MEMORIA] ← Busca episódios + patrones + reglas
+    ↓
+[Ambos alimentan messages]
+    ↓
+[LLM modelo] ← Llamada + context enriquecido
+    ↓
+[Ejecutar herramientas si hace falta]
+    ↓
+[Respuesta final] ← Informada por razonador + memoria
+    ↓
+[Registrar episodio nuevo] → Para futuras búsquedas
+```
+
 ```
 Cliente escribe
     ↓
@@ -37,7 +59,77 @@ Cliente escribe
 
 ---
 
-### Fase 2: Memoria Multi-capa (PRÓXIMA SEMANA)
+### Fase 2: Memoria Multi-capa ✅ LIVE
+
+**`memoria-multi-capa.ts`**: Tres capas de memoria.
+
+**Integración en motor.ts línea ~590**:
+```ts
+// Razonador piensa
+const razonamiento = await razonar(ctx);
+
+// Memoria busca contexto
+const contextoMemoria = await obtenerContextoMemoria(mensaje, tenantId);
+
+// Ambos alimentan el LLM
+messages.push({ role: "system", content: contextMemoriaTexto });
+```
+
+**Cómo funciona**:
+
+1. **EPISÓDICA**: Cada turno se registra
+   - "Cliente dijo: dolor de espalda"
+   - "Agente respondió: corrector lumbar"
+   - "Éxito: 85% (cliente continuó preguntando)"
+   - Tags: ["dolor", "espalda", "corrector"]
+
+2. **SEMÁNTICA**: Patrones de muchos episódios
+   - 12 episódios con ["dolor", "espalda"] + alto éxito
+   - → "Clientes con dolor de espalda prefieren corrector + almohada" (78%)
+   - Recomendaciones: ["corrector lumbar", "almohada ergonómica", "consultar zona"]
+
+3. **PROCEDURAL**: Reglas derivadas
+   - Patrón "dolor_espalda" + 15 éxitos
+   - → "Cuando menciona espalda: preguntar zona exacta primero"
+   - Tasa éxito: 81%
+
+**Ejemplo real**:
+```
+Cliente: "Tengo dolor de espalda terrible"
+
+Sistema detecta: tags = ["dolor", "espalda"]
+
+Búsqueda en memoria:
+  ✓ 12 episódios similares (éxito promedio 82%)
+  ✓ Patrón: "clientes_dolor_espalda" (confianza 78%)
+  ✓ Recomendaciones: corrector lumbar, almohada, zona
+
+Prompt al LLM incluye:
+  "CONTEXTO DE MEMORIA: ...
+   - Clientes con dolor de espalda prefieren corrector + almohada
+   Aplica estas recomendaciones:
+   - Pregunta la zona exacta
+   - Muestra corrector lumbar + almohada
+   - Menciona que la ergonomía ayuda"
+
+LLM responde (informado por memoria):
+  "Entiendo, el dolor de espalda es común. Lo primero: ¿dónde 
+   te duele exactamente? Dependiendo de la zona, hay soluciones
+   diferentes. Tengo...
+```
+
+**Patrones hardcodeados (Fase 2)**:
+- `clientes_dolor_espalda` (78% conf) → corrector + almohada
+- `clientes_precio_sensible` (65%) → alternativas económicas
+- `clientes_comparacion` (72%) → tabla comparativa, testimonios
+- `clientes_urgencia` (81%) → entrega express, sin preguntas
+
+**Derivación automática (Fase 3+)**:
+Cuando suficientes episódios con tag X tengan alto éxito, auto-crear patrón.
+
+---
+
+### Fase 2.5: Memoria Multi-capa (PRÓXIMA SEMANA)
 
 **`memoria-multi-capa.ts`**: Tres capas de memoria.
 
