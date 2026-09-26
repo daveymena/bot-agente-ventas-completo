@@ -196,6 +196,19 @@ function enlaceWhatsApp(p?: ProductoParaRenderizar | null, n?: NegocioParaRender
   return `https://wa.me/${wa}?text=${texto}`;
 }
 
+/**
+ * Talla/color/modelo: el servidor (landing-publica.ts) EXIGE las opciones
+ * obligatorias como `opcion_<nombre>`, pero el formulario nunca las pedía:
+ * con tallas cargadas, TODO pedido fallaba con "Selecciona Talla" (26-09-2026).
+ */
+function selectoresDeOpciones(p: ProductoParaRenderizar | null | undefined): string {
+  const lista = Array.isArray((p as any)?.opciones) ? ((p as any).opciones as any[]) : [];
+  return lista
+    .filter((o) => o?.nombre && Array.isArray(o?.valores) && o.valores.length)
+    .map((o) => `<label>${esc(String(o.nombre))}<select name="opcion_${esc(String(o.nombre))}"${o.obligatoria === false ? "" : " required"}><option value="">Elige ${esc(String(o.nombre).toLowerCase())}…</option>${(o.valores as unknown[]).map((v) => `<option>${esc(String(v))}</option>`).join("")}</select></label>`)
+    .join("\n      ");
+}
+
 /** El bloque de cierre, según el modelo. */
 function bloqueDeCierre(c: CierreDeLanding | null | undefined, p: ProductoParaRenderizar | null | undefined, n: NegocioParaRenderizar | null | undefined): string {
   if (!c) return "";
@@ -205,12 +218,13 @@ function bloqueDeCierre(c: CierreDeLanding | null | undefined, p: ProductoParaRe
   if (c.tipo === "contraentrega" && c.accion) {
     const campo = (name: string, label: string, extra = "") => `<label>${esc(label)}<input name="${name}" required ${extra}></label>`;
     return `<section class="sec sec--cierre" id="pedido"><div class="wrap narrow">
-    <div class="head"><p class="eyebrow">Pedido</p><h2>Pedí ${esc(p?.name || "tu producto")}${precioTxt ? ` por ${esc(precioTxt)}` : ""}</h2>
+    <div class="head"><p class="eyebrow">Pedido</p><h2>Pide ${esc(p?.name || "tu producto")}${precioTxt ? ` por ${esc(precioTxt)}` : ""}</h2>
     <p class="lead">${c.pago === "anticipado" ? "Te contactamos por WhatsApp para coordinar el pago y el envío." : "Pagas cuando lo recibes. Completa tus datos y lo despachamos."}</p></div>
     <form class="pedido" method="post" action="${esc(c.accion)}" data-json>
+      ${selectoresDeOpciones(p)}
       ${campo("nombre", "Nombre y apellido")}
       ${campo("telefono", "Celular", 'inputmode="tel"')}
-      ${campo("documento", esCol ? "Cédula" : "Documento de identidad", 'inputmode="numeric"')}
+      ${esCol ? "" : campo("documento", "Documento de identidad", 'inputmode="numeric"')}
       ${campo("direccion", "Dirección (calle, número, apto)")}
       <label>Barrio<input name="barrio"></label>
       ${campo("ciudad", "Ciudad")}
@@ -219,10 +233,10 @@ function bloqueDeCierre(c: CierreDeLanding | null | undefined, p: ProductoParaRe
       <button class="cta" type="submit">${c.pago === "anticipado" ? "Quiero pedirlo" : "Pedir y pagar al recibir"}</button>
       <p class="pedido__estado" aria-live="polite"></p>
     </form>
-    ${wa ? `<p class="o-bien">¿Preferís pedirlo por chat? <a href="${esc(wa)}">Escribinos por WhatsApp</a></p>` : ""}
+    ${wa ? `<p class="o-bien">¿Prefieres pedirlo por chat? <a href="${esc(wa)}">Escríbenos por WhatsApp</a></p>` : ""}
   </div></section>
   <script>
-  (function(){var f=document.querySelector('form.pedido');if(!f)return;f.addEventListener('submit',async function(e){e.preventDefault();var b=f.querySelector('button');var est=f.querySelector('.pedido__estado');b.disabled=true;est.textContent='Registrando tu pedido…';try{var d={};new FormData(f).forEach(function(v,k){d[k]=v});var r=await fetch(f.action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});var j=await r.json();if(j.ok){f.innerHTML='<p class="lead">✅ ¡Pedido recibido! Te contactamos por WhatsApp para confirmar el despacho. Llega en '+(j.plazo||'unos días')+'.</p>';}else{est.textContent=j.error||'No se pudo registrar. Intentá de nuevo o escribinos por WhatsApp.';b.disabled=false;}}catch(x){est.textContent='No se pudo registrar. Escribinos por WhatsApp.';b.disabled=false;}});})();
+  (function(){var f=document.querySelector('form.pedido');if(!f)return;f.addEventListener('submit',async function(e){e.preventDefault();var b=f.querySelector('button');var est=f.querySelector('.pedido__estado');b.disabled=true;est.textContent='Registrando tu pedido…';try{var d={};new FormData(f).forEach(function(v,k){d[k]=v});var r=await fetch(f.action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});var j=await r.json();if(j.ok){f.innerHTML='<p class="lead">✅ ¡Pedido recibido! Te contactamos por WhatsApp para confirmar el despacho. Llega en '+(j.plazo||'unos días')+'.</p>';}else{est.textContent=j.error||'No se pudo registrar. Intenta de nuevo o escríbenos por WhatsApp.';b.disabled=false;}}catch(x){est.textContent='No se pudo registrar. Escríbenos por WhatsApp.';b.disabled=false;}});})();
   </script>`;
   }
   if (c.tipo === "pago") {

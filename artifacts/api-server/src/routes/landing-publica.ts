@@ -132,10 +132,9 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
       departamento: limpio(b.departamento, 60),
       notas: limpio(b.referencia, 120),
     };
-    const faltan = (["nombre", "telefono", "documento", "direccion", "ciudad", "departamento"] as const).filter((k) => !datos[k]);
+    const faltan = (["nombre", "telefono", "direccion", "ciudad", "departamento"] as const).filter((k) => !datos[k]);
     if (faltan.length) return res.status(400).json({ ok: false, error: `Faltan: ${faltan.join(", ")}` });
     if (datos.telefono.length < 10) return res.status(400).json({ ok: false, error: "El celular no parece válido" });
-    if (datos.documento.length < 6) return res.status(400).json({ ok: false, error: "El documento no parece válido" });
 
     const opcionesDefinidas = Array.isArray((producto as any).opciones) ? (producto as any).opciones : [];
     const opciones: Record<string, string> = {};
@@ -143,7 +142,7 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
       const nombre = limpio(o?.nombre, 60);
       if (!nombre) continue;
       const raw = limpio(b[`opcion_${nombre}`], 80);
-      if (o?.obligatoria && !raw) return res.status(400).json({ ok: false, error: `Seleccioná ${nombre}` });
+      if (o?.obligatoria && !raw) return res.status(400).json({ ok: false, error: `Selecciona ${nombre}` });
       if (raw) {
         const permitidos = Array.isArray(o?.valores) ? o.valores.map((x: unknown) => limpio(x, 80)) : [];
         if (permitidos.length && !permitidos.includes(raw)) return res.status(400).json({ ok: false, error: `Valor no válido para ${nombre}` });
@@ -228,7 +227,7 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
           `🛒 *Pedido nuevo desde la landing* (${row.name})`,
           `📦 ${producto.name} × ${cantidad} · $${Number(producto.price || 0).toLocaleString("es-CO")}`,
           detalleOpciones ? `🎨 ${detalleOpciones}` : "",
-          `👤 ${datos.nombre} · 📱 ${datos.telefono} · 🪪 ${datos.documento}`,
+          `👤 ${datos.nombre} · 📱 ${datos.telefono}${datos.documento ? ` · 🪪 ${datos.documento}` : ""}`,
           `🏠 ${datos.direccion}${datos.barrio ? `, ${datos.barrio}` : ""} — ${datos.ciudad}, ${datos.departamento}`,
           datos.notas ? `📍 ${datos.notas}` : "",
           r.ok
