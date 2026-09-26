@@ -25,6 +25,9 @@ export const tenants = sqliteTable("tenants", {
   contactPhone: text("contact_phone"),
   supportEmail: text("support_email"),
   paymentMethods: text("payment_methods", { mode: "json" }),
+  facebookIntegration: text("facebook_integration", { mode: "json" }),
+  emailConfig: text("email_config", { mode: "json" }),
+  apiKeys: text("api_keys", { mode: "json" }),
   // Espejo de schema/tenants.ts: las cuentas de Copilot son DE CADA CLIENTE,
   // no de la plataforma. Ver el comentario largo alla.
   copilotTokens: text("copilot_tokens", { mode: "json" }).$type<Array<{ token: string; cuenta?: string }>>(),

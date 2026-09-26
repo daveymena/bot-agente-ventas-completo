@@ -69,36 +69,62 @@ router.post("/test-audio", async (req, res, next) => {
   }
 });
 
-// Test IA - crear conversación y obtener respuesta (no afectado por multi-tenant)
-router.post("/test-ia", async (req, res, next) => {
+// Test IA - crear conversación y obtener respuesta (simulador "Probar vendedor")
+// Corrige el 502 que veía el frontend: el turno se quedaba colgado cuando el LLM
+// tardaba y el proxy de EasyPanel devolvía 502 Bad Gateway antes de que Node
+// contestara. Ahora tiene timeout propio (25s) y siempre devuelve JSON, nunca
+// deja la conexión abierta. También evita el hijack global de console.log que
+// hacía que dos simulaciones concurrentes se pisaran entre sí.
+router.post("/test-ia", async (req, res) => {
+  let logOriginal: typeof console.log | null = null;
+  let hijacked = false;
+  const started = Date.now();
   try {
-    const msg = req.body?.message || "Hola, qué productos tienen?";
+    const msg = String(req.body?.message || "Hola, qué productos tienen?").slice(0, 1500).trim();
+    if (!msg) return res.status(400).json({ error: "Mensaje vacío" });
     const tenantId = tenantIdFromReq(req);
     const { addTenantToInsert } = await import("../lib/tenantManager");
 
-    // Se REUSA la conversación de ese teléfono si ya existe, igual que hace
-    // WhatsApp real. Antes hacía un insert incondicional: cada llamada creaba
-    // una conversación nueva, así que el agente contestaba siempre sin
-    // historia. Probando con esta ruta parecía que el bot "perdía el hilo"
-    // (mostraba un producto y al mensaje siguiente ya no sabía cuál era),
-    // cuando en realidad era la ruta la que le borraba la memoria en cada
-    // mensaje. Una herramienta de diagnóstico que miente sobre el sistema es
-    // peor que no tenerla.
-    const telefono = req.body.phone || "test-ia";
-    const { variantesDeTelefono } = await import("../lib/customer-profile");
-    const [existente] = await db
-      .select()
-      .from(conversations)
-      .where(and(eq(conversations.tenantId, tenantId), inArray(conversations.contactPhone, variantesDeTelefono(telefono))))
-      .orderBy(desc(conversations.id))
-      .limit(1);
+    // Validar que el negocio exista (si el fallback a 1 cae en un tenant
+    // inexistente, el INSERT de conversations fallaba por FK y el error se
+    // veía como 502 en el proxy porque no se contestaba JSON).
+    const tenant = await tenantManager.getTenantById(tenantId);
+    if (!tenant) return res.status(404).json({ error: "Negocio no encontrado (tenant " + tenantId + ")" });
 
-    const convo = existente ?? (await db.insert(conversations).values(addTenantToInsert({
-      contactName: "Test",
-      contactPhone: telefono,
-      status: "ai",
-      currentStage: "greeting"
-    }, tenantId)).returning())[0];
+    const telefonoRaw = String(req.body.phone || "test-ia").slice(0, 50);
+    const { variantesDeTelefono } = await import("../lib/customer-profile");
+    let variantes: string[];
+    try {
+      variantes = variantesDeTelefono(telefonoRaw);
+    } catch {
+      variantes = [telefonoRaw];
+    }
+    if (!variantes.length) variantes = [telefonoRaw];
+
+    let existente: typeof conversations.$inferSelect | undefined;
+    try {
+      const rows = await db
+        .select()
+        .from(conversations)
+        .where(and(eq(conversations.tenantId, tenantId), inArray(conversations.contactPhone, variantes)))
+        .orderBy(desc(conversations.id))
+        .limit(1);
+      existente = rows[0];
+    } catch (e: any) {
+      logger.warn({ err: e?.message, tenantId }, "[test-ia] no se pudo buscar conversación existente");
+    }
+
+    let convo = existente;
+    if (!convo) {
+      const inserted = await db.insert(conversations).values(addTenantToInsert({
+        contactName: "Test",
+        contactPhone: telefonoRaw,
+        status: "ai",
+        currentStage: "greeting"
+      }, tenantId)).returning();
+      if (!inserted[0]) throw new Error("No se pudo crear la conversación de prueba");
+      convo = inserted[0] as any;
+    }
 
     // Simulación de la llegada desde un anuncio: la metadata que guarda el
     // manejador real cuando Meta manda externalAdReply (ver message-handler).
@@ -112,31 +138,69 @@ router.post("/test-ia", async (req, res, next) => {
         : {}),
     } as any);
 
-    // Se captura el razonamiento del servidor ([DECISION], [PARSER],
-    // [SERVIDOR]...) mientras corre este turno: sin los logs del contenedor a
-    // mano, era imposible saber POR QUÉ salió una ficha en vez del texto
-    // (12-09-2026: cuatro turnos del chat real explicados solo por la base).
     const log: string[] = [];
-    const logOriginal = console.log;
     const ETIQUETAS = /\[[A-Z][A-Z-]{1,14}\]/;
-    console.log = (...a: any[]) => {
-      try { const t = a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" "); if (ETIQUETAS.test(t) && log.length < 80) log.push(t.slice(0, 700)); } catch { /* nada */ }
-      logOriginal(...a);
+    logOriginal = console.log;
+    const intercept = (...a: any[]) => {
+      try {
+        const t = a.map((x) => (typeof x === "string" ? x : JSON.stringify(x))).join(" ");
+        if (ETIQUETAS.test(t) && log.length < 80) log.push(t.slice(0, 700));
+      } catch {}
+      logOriginal!(...a);
     };
-    let reply: Awaited<ReturnType<typeof runAgentReply>>;
-    try { reply = await runAgentReply(convo.id); } finally { console.log = logOriginal; }
+    console.log = intercept as any;
+    hijacked = true;
 
-    res.json({
+    const TIMEOUT_MS = 25000;
+    let reply: Awaited<ReturnType<typeof runAgentReply>> | null = null;
+    let timedOut = false;
+    try {
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("TIMEOUT_SIMULADOR")), TIMEOUT_MS)
+      );
+      reply = await Promise.race([runAgentReply(convo.id), timeoutPromise]);
+    } catch (e: any) {
+      if (e?.message === "TIMEOUT_SIMULADOR") {
+        timedOut = true;
+        logger.warn({ tenantId, convoId: convo.id, ms: Date.now() - started }, "[test-ia] timeout 25s - el LLM no respondió a tiempo");
+      } else {
+        throw e;
+      }
+    } finally {
+      if (hijacked && logOriginal) {
+        console.log = logOriginal;
+        hijacked = false;
+      }
+    }
+
+    if (timedOut) {
+      return res.status(504).json({
+        ok: false,
+        error: "El vendedor tardó demasiado (25s). Puede ser falta de clave de IA o el proveedor está lento. Reintenta en 10 segundos.",
+        timeout: true,
+        message: msg,
+        log,
+        ms: Date.now() - started,
+      });
+    }
+
+    return res.json({
       ok: true,
       message: msg,
-      stage: reply?.stage,
+      stage: (reply as any)?.stage ?? null,
       proveedor: (reply as any)?.aiProvider ?? null,
-      response: reply?.content?.substring(0, 1500),
-      parts: reply?.parts?.map(p => p.kind === "card" ? { card: p.productId, seccion: (p as any).seccion ?? null } : { text: (p as any).content?.substring(0, 600) }),
+      response: (reply as any)?.content?.substring(0, 1500) ?? "",
+      parts: (reply as any)?.parts?.map((p: any) => p.kind === "card" ? { card: p.productId, seccion: (p as any).seccion ?? null } : { text: String((p as any).content || "").substring(0, 600) }) ?? [],
       log,
+      ms: Date.now() - started,
     });
   } catch (e: any) {
-    res.status(500).json({ error: e.message });
+    if (hijacked && logOriginal) {
+      try { console.log = logOriginal; } catch {}
+    }
+    logger.error({ err: e?.message, stack: e?.stack }, "[test-ia] fallo");
+    const msg = String(e?.message || "Error interno");
+    return res.status(500).json({ error: msg.slice(0, 800), ms: Date.now() - started });
   }
 });
 

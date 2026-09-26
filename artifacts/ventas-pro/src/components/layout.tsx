@@ -68,6 +68,7 @@ export function AppSidebar() {
     { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate },
     { label: "Configuración", href: "/settings", icon: Settings },
     { label: "Diagnóstico", href: "/diagnostico", icon: Activity },
+    { label: "Probar Vendedor", href: "/probar-vendedor", icon: Bot },
     { label: "Ayuda", href: "/ayuda", icon: HelpCircle },
     { label: "Planes", href: "/pricing", icon: Badge },
     ...(sessionTenant?.slug ? [{ label: "Ver Tienda", href: `/tienda/${sessionTenant.slug}?from=panel`, icon: Eye, external: true }] : []),
