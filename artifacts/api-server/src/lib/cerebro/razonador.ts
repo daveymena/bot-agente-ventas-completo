@@ -12,7 +12,6 @@
  */
 
 import type { ContextoRazonamiento, DecisionRazonador, OpcionRespuesta, PuntajeOpcion } from "./tipos-razonamiento";
-import { generarEmbedding } from "../embeddings";
 
 const UMBRAL_CONFIANZA_AUTO = 80; // Debe estar > 80% para responder solo
 const UMBRAL_CONFIANZA_PROPONER = 70; // Si 70-80%, propone pero da tiempo de rechazar
@@ -210,33 +209,17 @@ function contradiccionDirecta(anterior: string, actual: string): boolean {
 }
 
 async function calcularAlineacion(respuesta: string, pregunta: string): Promise<number> {
-  try {
-    const embRespuesta = await generarEmbedding(respuesta);
-    const embPregunta = await generarEmbedding(pregunta);
+  // Fase 1: sin embeddings, solo heurística de palabras clave
+  // Fase 2: integrar embeddings cuando embeddings.ts exista
+  const respuestasTokens = respuesta.toLowerCase().split(/\s+/).filter((t) => t.length > 3);
+  const preguntasTokens = pregunta.toLowerCase().split(/\s+/).filter((t) => t.length > 3);
 
-    const similitud = cosineSimilarity(embRespuesta, embPregunta);
-    return Math.round(similitud * 100);
-  } catch {
-    // Fallback: conteo de palabras compartidas
-    const respuestas = respuesta.toLowerCase().split(/\s+/);
-    const preguntas = pregunta.toLowerCase().split(/\s+/);
-    const shared = respuestas.filter((p) => preguntas.includes(p)).length;
-    return Math.min(100, (shared / preguntas.length) * 100);
-  }
+  if (preguntasTokens.length === 0) return 50;
+
+  const shared = respuestasTokens.filter((p) => preguntasTokens.includes(p)).length;
+  return Math.min(100, Math.round((shared / preguntasTokens.length) * 100));
 }
 
-function cosineSimilarity(a: number[], b: number[]): number {
-  let dotProduct = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < Math.min(a.length, b.length); i++) {
-    dotProduct += a[i] * b[i];
-    normA += a[i] * a[i];
-    normB += b[i] * b[i];
-  }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  return denom === 0 ? 0 : dotProduct / denom;
-}
 
 /**
  * La decisión: ¿cuál opción ganó? ¿Escalo a humano?
