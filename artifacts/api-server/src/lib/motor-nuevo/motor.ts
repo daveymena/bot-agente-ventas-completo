@@ -25,6 +25,8 @@
  * una buena respuesta en un mensaje cortado a la mitad ("empezar h...").
  */
 
+import { razonar } from "../cerebro/razonador";
+import type { ContextoRazonamiento } from "../cerebro/tipos-razonamiento";
 import {
   definicionesDeHerramientas,
   ejecutores,
@@ -519,6 +521,9 @@ export async function responder(params: {
     role: m.role === "customer" ? "user" : "assistant",
     content: m.content,
   }));
+
+  // Para el razonador: historial sin conversión de rol
+  const historialParaRazonador = todosUnicos;
   // En una visita nueva, el corte se marca DENTRO del historial: sin esto el
   // último mensaje del bot ("¿te lo llevás?") queda pegado al "hola" de hoy y
   // el modelo lo lee como la respuesta a esa pregunta.
@@ -550,6 +555,49 @@ export async function responder(params: {
     uso.salida += u.salida;
     uso.cacheados += u.cacheados;
   };
+
+  // CEREBRO: razonar antes de responder
+  const ctxRazonamiento: ContextoRazonamiento = {
+    mensajeActual: mensajeDelClienteActual,
+    intentDelCliente: estado.intent || "desconocido",
+    estadoConversacion: estado,
+    historial: historialParaRazonador.slice(-10), // Últimos 10 para contexto
+    productoEnFoco: estado.productoEnFoco
+      ? {
+          id: estado.productoEnFoco,
+          nombre: nombrePorProducto(estado.productoEnFoco),
+          precio: catálogo.find((p) => p.id === estado.productoEnFoco)?.price || 0,
+        }
+      : null,
+    catálogo,
+    conocimientoCargado: params.conocimiento || [],
+  };
+
+  let razonamientoDelCerebro;
+  try {
+    razonamientoDelCerebro = await razonar(ctxRazonamiento);
+    traza.push({
+      herramienta: "[CEREBRO:razonador]",
+      args: { intent: estado.intent },
+      resultado: `Confianza: ${razonamientoDelCerebro.confianza.toFixed(0)}% | Escalada: ${razonamientoDelCerebro.escalada}`,
+    });
+
+    // Si detectó riesgo crítico, escala a humano
+    if (razonamientoDelCerebro.escalada) {
+      return {
+        textoFinal: `⚠️ [REVISIÓN REQUERIDA: ${razonamientoDelCerebro.motivoEscalada}] Pasando a un agente humano...`,
+        estado,
+        traza,
+        uso,
+        modelo: modoPlan ? "plan" : "normal",
+        proveedor,
+        historialDelTurno: messages,
+        ultimaHerramienta: null,
+      };
+    }
+  } catch (err) {
+    console.warn("[motor] Error en razonador, continuando sin reasoning:", err);
+  }
 
   const bucle = async (vueltas: number) => {
   for (let vuelta = 0; vuelta < vueltas; vuelta++) {
