@@ -23,6 +23,7 @@
  * sin testimonios ni cifras de clientes, sin urgencia fabricada.
  */
 import { modeloDelProducto, type ModeloDeNegocio, type CondicionesDelNegocio } from "./modelo-de-negocio";
+import { hablarColombiano } from "./hablar-colombiano";
 
 export interface PlanDeAnuncio {
   modelo: ModeloDeNegocio;
@@ -241,3 +242,40 @@ export function copyDeOtroModelo(texto: string, modelo: ModeloDeNegocio): string
 }
 
 export { modeloDelProducto };
+
+const VOSEO_DE_ANUNCIO: [string, string][] = [
+  ["pasás", "pasas"], ["completá", "completa"], ["pedí", "pide"], ["pedilo", "pídelo"], ["escribinos", "escríbenos"],
+  ["mirá", "mira"], ["aprovechá", "aprovecha"], ["elegí", "elige"], ["sentís", "sientes"], ["usás", "usas"],
+  ["tenés", "tienes"], ["querés", "quieres"], ["podés", "puedes"], ["recibís", "recibes"], ["pagás", "pagas"],
+  ["hacé", "haz"], ["tocá", "toca"], ["dejá", "deja"], ["llevá", "lleva"], ["probá", "prueba"], ["notás", "notas"],
+];
+
+/**
+ * Último pulido del texto que va a Meta: tuteo colombiano (salvo AR/UY) y,
+ * en un físico, sin "pago único" (es lenguaje de cursos: en un corrector que
+ * se paga al recibir no dice nada y suena a plantilla).
+ */
+export function pulirCopyDeAnuncio(
+  copy: { primaryText: string; headline: string; description: string },
+  opts: { esFisico: boolean; pais?: string },
+): { primaryText: string; headline: string; description: string } {
+  const tutea = !/^(AR|UY)$|argentin|uruguay/i.test(String(opts.pais || ""));
+  const pulir = (t: string) => {
+    let s = String(t || "");
+    if (tutea) {
+      s = hablarColombiano(s);
+      // Voseo típico de anuncio que el traductor general no cubre.
+      for (const [vos, tu] of VOSEO_DE_ANUNCIO) s = s.replace(new RegExp(`(?<!\\p{L})${vos}(?!\\p{L})`, "giu"), (m) => (m[0] === m[0].toUpperCase() ? tu[0].toUpperCase() + tu.slice(1) : tu));
+    }
+    if (opts.esFisico) {
+      s = s
+        .replace(/\s*[,·•|-]?\s*pago [úu]nico\s*(?=[.·•|\n]|$)/giu, "")
+        .replace(/pago [úu]nico\s*(de\s*)?/giu, "")
+        .replace(/^\s*[·•|]\s*/u, "")
+        .replace(/\s*[·•|]\s*$/u, "")
+        .replace(/ {2,}/g, " ");
+    }
+    return s.trim();
+  };
+  return { primaryText: pulir(copy.primaryText), headline: pulir(copy.headline), description: pulir(copy.description) };
+}

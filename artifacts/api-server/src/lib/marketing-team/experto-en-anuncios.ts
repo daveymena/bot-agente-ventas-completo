@@ -72,7 +72,7 @@ export const ESPECIFICACIONES_CREATIVAS = {
     "Bloque de beneficios: 3-5 líneas, cada una con su emoji y un beneficio concreto (no características sueltas).",
     "Precio exacto y cómo llega (Drive / contraentrega) SIEMPRE: es lo primero que preguntan por WhatsApp.",
     "Cierre con UNA acción: 'Escríbenos por WhatsApp' (en campañas de mensajes) o 'Pedir ahora' (tráfico).",
-    "Titular ≤ 40 caracteres; descripción = precio + garantía/acceso ('Pago único $60.000 · Acceso de por vida').",
+    "Titular ≤ 40 caracteres; descripción = precio + garantía/acceso. Digital: 'Pago único $60.000 · Acceso de por vida'. Físico: '$45.000 · Pagas al recibir · Envío a todo Colombia' (NUNCA 'pago único' en un físico).",
     "Largo total del texto principal: 8-12 líneas. Más es folleto, menos es pobre.",
   ],
 };

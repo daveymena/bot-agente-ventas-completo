@@ -206,7 +206,7 @@ function bloqueDeCierre(c: CierreDeLanding | null | undefined, p: ProductoParaRe
     const campo = (name: string, label: string, extra = "") => `<label>${esc(label)}<input name="${name}" required ${extra}></label>`;
     return `<section class="sec sec--cierre" id="pedido"><div class="wrap narrow">
     <div class="head"><p class="eyebrow">Pedido</p><h2>Pedí ${esc(p?.name || "tu producto")}${precioTxt ? ` por ${esc(precioTxt)}` : ""}</h2>
-    <p class="lead">${c.pago === "anticipado" ? "Te contactamos por WhatsApp para coordinar el pago y el envío." : "Pagás cuando lo recibís. Completá tus datos y lo despachamos."}</p></div>
+    <p class="lead">${c.pago === "anticipado" ? "Te contactamos por WhatsApp para coordinar el pago y el envío." : "Pagas cuando lo recibes. Completa tus datos y lo despachamos."}</p></div>
     <form class="pedido" method="post" action="${esc(c.accion)}" data-json>
       ${campo("nombre", "Nombre y apellido")}
       ${campo("telefono", "Celular", 'inputmode="tel"')}

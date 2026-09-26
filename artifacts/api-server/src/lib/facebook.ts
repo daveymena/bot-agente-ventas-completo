@@ -820,6 +820,18 @@ Responde SOLO con este JSON exacto:
           adCopy = await this.generateAdCopy(product);
         }
       }
+      // ── Pulido final: registro y coherencia ────────────────────────────
+      // Anuncios del corrector (24/25-09-2026) salieron con "¿Cuántas horas
+      // pasás…?", "Pagás al recibir", "Completá tus datos" a un público de
+      // Colombia, y con "Pago único" en un producto físico (frase de cursos).
+      // Suena a plantilla extranjera y le resta confianza a quien lo lee.
+      {
+        const { pulirCopyDeAnuncio } = await import("./anuncio-por-modelo");
+        adCopy = pulirCopyDeAnuncio(adCopy, {
+          esFisico: String((product as any).kind || "") === "physical",
+          pais: String((this.tenant as any)?.country || "CO"),
+        });
+      }
 
       // Bug de capacidad: /{adAccount}/adimages requiere la capacidad
       // "adimages" que esta aplicación no tiene (Graph API error #3:
