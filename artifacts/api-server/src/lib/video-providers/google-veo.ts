@@ -1,0 +1,16 @@
+import { writeFile } from "node:fs/promises";
+import type { VideoAIInput, VideoAIProvider, VideoAIResult } from "./types";
+const BASE_URL="https://generativelanguage.googleapis.com/v1beta";
+const apiKey=()=>process.env.GEMINI_API_KEY?.trim()||process.env.GOOGLE_GEMINI_API_KEY?.trim()||null;
+const model=()=>process.env.GEMINI_VIDEO_MODEL?.trim()||"veo-3.1-generate-preview";
+const json=async(r:Response)=>{const t=await r.text();try{return JSON.parse(t)}catch{return {message:t}}};
+const duration=(n?:number):4|6|8=>{const v=Math.round(Number(n)||6);return v<=4?4:v>=8?8:6};
+export const googleVeoProvider:VideoAIProvider={name:"google",get model(){return model()},isAvailable:()=>!!apiKey(),async generateFromImage(input):Promise<VideoAIResult>{
+ const key=apiKey();if(!key)return{ok:false,provider:"google",model:model(),error:"GEMINI_API_KEY no está configurada."};
+ const start=await fetch(`${BASE_URL}/models/${encodeURIComponent(model())}:predictLongRunning`,{method:"POST",headers:{"Content-Type":"application/json","x-goog-api-key":key},body:JSON.stringify({instances:[{prompt:input.prompt,image:{bytesBase64Encoded:input.image.toString("base64"),mimeType:input.mimeType}}],parameters:{aspectRatio:input.aspectRatio||"9:16",durationSeconds:duration(input.durationSeconds),resolution:input.resolution==="1080p"?"1080p":"720p",personGeneration:"allow_adult"}}),signal:AbortSignal.timeout(Number(process.env.VIDEO_AI_HTTP_TIMEOUT_MS||90000))});
+ if(!start.ok){const e=await json(start);return{ok:false,provider:"google",model:model(),error:`Veo ${start.status}: ${String(e?.error?.message||e?.message||"error")}`};}
+ const op=String((await start.json() as any)?.name||"");if(!op)return{ok:false,provider:"google",model:model(),error:"Veo no devolvió la operación."};
+ const deadline=Date.now()+Number(process.env.VIDEO_AI_TIMEOUT_MS||600000);
+ while(Date.now()<deadline){await new Promise(r=>setTimeout(r,Number(process.env.VIDEO_AI_POLL_INTERVAL_MS||10000)));const s=await fetch(`${BASE_URL}/${op}`,{headers:{"x-goog-api-key":key},signal:AbortSignal.timeout(Number(process.env.VIDEO_AI_HTTP_TIMEOUT_MS||90000))});const d=await json(s);if(!s.ok)return{ok:false,provider:"google",model:model(),error:`Veo no pudo consultar la operación (${s.status}).`};if(d?.error)return{ok:false,provider:"google",model:model(),error:String(d.error.message||"Veo falló.")};if(d?.done===true){const uri=String(d?.response?.generateVideoResponse?.generatedSamples?.[0]?.video?.uri||"");if(!uri)return{ok:false,provider:"google",model:model(),error:"Veo terminó sin URI de video."};const vr=await fetch(uri,{headers:{"x-goog-api-key":key},redirect:"follow",signal:AbortSignal.timeout(Number(process.env.VIDEO_AI_DOWNLOAD_TIMEOUT_MS||180000))});if(!vr.ok)return{ok:false,provider:"google",model:model(),error:`No se pudo descargar el video de Veo (${vr.status}).`};const buf=Buffer.from(await vr.arrayBuffer());if(buf.byteLength>Number(process.env.VIDEO_AI_MAX_DOWNLOAD_BYTES||300000000))return{ok:false,provider:"google",model:model(),error:"El video supera el límite configurado."};await writeFile(input.outputPath,buf);return{ok:true,localPath:input.outputPath,provider:"google",model:model(),duration:duration(input.durationSeconds)};}}
+ return{ok:false,provider:"google",model:model(),error:"Veo superó el tiempo máximo configurado."};
+}};
