@@ -1087,7 +1087,16 @@ router.post("/create-ad/:productId", async (req, res, next) => {
     if (!fbSvc.isConfigured()) {
       return res.status(422).json({ error: "Facebook no está conectado (falta el token de página). Configúralo en la pestaña Configuración." });
     }
-    const result = await fbSvc.createAdForProduct(productId, budget || 5000, startDate, targeting);
+    // Texto aprobado y objetivo: sin esto el panel publicaba un copy generado
+    // de nuevo (no el revisado) y siempre de "ventas" a la web.
+    const c = req.body?.copy;
+    const copyAprobado = c && typeof c.primaryText === "string" && c.primaryText.trim()
+      ? { primaryText: String(c.primaryText), headline: String(c.headline || ""), description: String(c.description || "") }
+      : undefined;
+    const { interpretarObjetivo } = await import("../lib/objetivos-campana");
+    const objetivo = interpretarObjetivo(String(req.body?.objetivo || "")) || "ventas";
+    const { leerPreferenciaWeb } = await import("../lib/landing/destino-del-producto");
+    const result = await fbSvc.createAdForProduct(productId, budget || 5000, startDate, targeting, copyAprobado, objetivo, undefined, leerPreferenciaWeb(req.body?.destinoWeb));
     if (!result) {
       return res.status(500).json({ error: fbSvc.lastAdError || "Facebook rechazó la creación del anuncio (revisa que la cuenta publicitaria y el ad account id sean correctos, y que la página tenga permisos de anuncios)." });
     }
