@@ -62,7 +62,9 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
       // La misma foto bajo varias URLs (local, WordPress, CloudFront) no sale dos veces.
       const { htmlConFotosUnicas, guardadorDeMetadata } = await import("../lib/fotos-de-producto");
       const { conFormularioQueResponde } = await import("../lib/landing/sanear-html");
-      return res.send(conFormularioQueResponde(producto ? await htmlConFotosUnicas((row as any).html, producto, { guardar: guardadorDeMetadata(producto.id) }) : (row as any).html));
+      const { formularioConOpciones } = await import("../lib/landing/renderer");
+      const base = producto ? await htmlConFotosUnicas((row as any).html, producto, { guardar: guardadorDeMetadata(producto.id) }) : (row as any).html;
+      return res.send(conFormularioQueResponde(formularioConOpciones(base, producto as any)));
     }
 
     const { htmlDeCopia } = await import("../lib/landing/clonar-html");

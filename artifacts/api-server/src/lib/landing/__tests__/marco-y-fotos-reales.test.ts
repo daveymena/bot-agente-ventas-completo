@@ -114,3 +114,14 @@ describe("tallas en el formulario de la landing", () => {
     expect(html).toMatch(/<option>M<\/option>/);
   });
 });
+
+describe("landing de HTML fijo sin talla (corrector #56, 26-09-2026)", () => {
+  it("inyecta el selector de talla y la cédula deja de ser obligatoria", async () => {
+    const { formularioConOpciones } = await import("../renderer");
+    const html = `<form class="f" action="/api/landing-publica/x/pedido" method="post"><input name="nombre" required><input name="documento" required></form>`;
+    const out = formularioConOpciones(html, { opciones: [{ nombre: "Talla", valores: ["S", "M"], obligatoria: true }] } as any);
+    expect(out).toMatch(/<form[^>]*pedido[^>]*>\n<label>Talla<select name="opcion_Talla" required>/);
+    expect(out).toMatch(/<input name="documento">/);
+    expect(out).toMatch(/<input name="nombre" required>/);
+  });
+});

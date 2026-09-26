@@ -201,12 +201,31 @@ function enlaceWhatsApp(p?: ProductoParaRenderizar | null, n?: NegocioParaRender
  * obligatorias como `opcion_<nombre>`, pero el formulario nunca las pedía:
  * con tallas cargadas, TODO pedido fallaba con "Selecciona Talla" (26-09-2026).
  */
-function selectoresDeOpciones(p: ProductoParaRenderizar | null | undefined): string {
+export function selectoresDeOpciones(p: ProductoParaRenderizar | null | undefined): string {
   const lista = Array.isArray((p as any)?.opciones) ? ((p as any).opciones as any[]) : [];
   return lista
     .filter((o) => o?.nombre && Array.isArray(o?.valores) && o.valores.length)
     .map((o) => `<label>${esc(String(o.nombre))}<select name="opcion_${esc(String(o.nombre))}"${o.obligatoria === false ? "" : " required"}><option value="">Elige ${esc(String(o.nombre).toLowerCase())}…</option>${(o.valores as unknown[]).map((v) => `<option>${esc(String(v))}</option>`).join("")}</select></label>`)
     .join("\n      ");
+}
+
+/**
+ * Lo mismo para una landing de HTML FIJO (generada aparte y guardada tal
+ * cual): si su formulario de pedido no trae las opciones, se inyectan al
+ * servirla. La del corrector (#56) pedía cédula y no tenía talla: con las
+ * tallas cargadas, el servidor rechazaba todos sus pedidos (26-09-2026).
+ * Además la cédula deja de ser obligatoria (en Colombia no se pide).
+ */
+export function formularioConOpciones(html: string, p: ProductoParaRenderizar | null | undefined): string {
+  if (!html || /name=["']opcion_/.test(html)) return quitarCedulaObligatoria(html);
+  const selects = selectoresDeOpciones(p);
+  if (!selects) return quitarCedulaObligatoria(html);
+  const conSelects = html.replace(/<form\b[^>]*\/pedido[^>]*>/i, (m) => `${m}\n${selects}`);
+  return quitarCedulaObligatoria(conSelects);
+}
+
+function quitarCedulaObligatoria(html: string): string {
+  return html.replace(/<input\b[^>]*name=["']documento["'][^>]*>/gi, (m) => m.replace(/\srequired(=["'][^"']*["'])?/i, ""));
 }
 
 /** El bloque de cierre, según el modelo. */
