@@ -79,6 +79,7 @@ const CONTRATO_COMPLETO = new Set<string>([
   "update_product",
   "update_agent",
   "agente_crear",
+  "generate_ai_ad_video",
 ]);
 
 /** JSON Schema mínimo por herramienta, a mano -- son datos sensibles
@@ -1107,6 +1108,10 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // ── La agenda: "programá", "a las 8", "mañana", "cada noche" ─────────
     patron: /program|agend|reprogram|a las \d|mañana|manana|cada (?:noche|día|dia|mañana|lunes)|en \d+ (?:min|hora)/i,
     herramientas: ["agenda_ver"],
+  },
+  {
+    patron: /video|reel|animar|anima|movimiento|i2v|image.?to.?video|creativ/i,
+    herramientas: ["generate_ai_ad_video", "list_products", "anuncio_datos_expertos"],
   },
   {
     // ── Anuncios: CREAR ──────────────────────────────────────────────────
