@@ -450,6 +450,7 @@ export const definicionesDeHerramientas = [
           ciudad: { type: "string" },
           departamento: { type: "string", description: "Departamento (o estado/provincia). Si solo dijo la ciudad, déjalo vacío." },
           notas: { type: "string", description: "Punto de referencia u otra indicación de entrega." },
+          variante: { type: "string", description: "Talla/color/modelo que eligió el cliente (ej. \"M\"). Pásala SIEMPRE que la haya dicho." },
         },
         required: [],
       },
@@ -1102,6 +1103,16 @@ export const ejecutores: Record<string, Ejecutor> = {
         }
       }
     }
+    // ── La talla viaja con el pedido ─────────────────────────────────────
+    // Simulación del 26-09-2026: "…Medellín, 3001234567, talla M" y el
+    // resumen salió sin talla. En dropshipping eso es despachar una talla
+    // cualquiera. Se guarda en el estado (sobrevive entre turnos) y va en las
+    // notas del pedido, que es lo que ven el resumen y quien despacha.
+    const varianteDicha = String(args?.variante ?? "").trim() || String(ctx.estado.datos?.variante ?? "").trim();
+    if (varianteDicha) {
+      ctx.estado.datos.variante = varianteDicha.slice(0, 120);
+      datos.notas = [`Talla/variante: ${ctx.estado.datos.variante}`, datos.notas].filter(Boolean).join(" · ");
+    }
     const cantidad = Math.max(1, Math.min(20, Number(args?.cantidad) || 1));
     const r = await ctx.pedidos.tomar({ producto: p, cantidad, datos });
 
@@ -1141,6 +1152,18 @@ export const ejecutores: Record<string, Ejecutor> = {
         ctx.estado.accionPendiente = "confirmar_zona";
         return { ok: true, mensaje: `Los datos están, pero la zona no verifica: ${r.motivo}. Pídele que confirme la ciudad y el departamento. No registres nada.` };
       case "listo":
+        // Tiene tallas/modelos y el cliente no dijo cuál: se pregunta ANTES
+        // del resumen. Confirmar un pedido sin talla es despachar a ciegas.
+        if (!varianteDicha && (p.opciones?.length ?? 0) > 1) {
+          ctx.estado.pedidoPorConfirmarEnTurno = null;
+          ctx.estado.accionPendiente = "pedir_datos_envio";
+          return {
+            ok: true,
+            mensaje:
+              `Datos de envío completos, pero falta la talla/variante de ${p.name} (opciones: ${p.opciones!.join(", ")}). ` +
+              `Pregúntale SOLO cuál quiere, en una línea, y cuando conteste vuelve a llamar tomar_pedido con variante. No mandes resumen todavía.`,
+          };
+        }
         // El resumen sale en el mismo turno en que llegan los datos, y el "sí"
         // que confirma tiene que llegar en un mensaje POSTERIOR: por eso se
         // marca el turno (confirmar_pedido rechaza un sí del mismo turno).
