@@ -567,10 +567,10 @@ export async function responder(params: {
       ? {
           id: estado.productoEnFoco,
           nombre: nombrePorProducto(estado.productoEnFoco),
-          precio: catálogo.find((p) => p.id === estado.productoEnFoco)?.price || 0,
+          precio: catalogo.find((p) => p.id === estado.productoEnFoco)?.price || 0,
         }
       : null,
-    catálogo,
+    catalogo,
     conocimientoCargado: params.conocimiento || [],
   };
 
