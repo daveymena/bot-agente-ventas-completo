@@ -27,6 +27,7 @@
 
 import { razonar } from "../cerebro/razonador";
 import type { ContextoRazonamiento } from "../cerebro/tipos-razonamiento";
+import { obtenerContextoMemoria } from "../cerebro/memoria-multi-capa";
 import {
   definicionesDeHerramientas,
   ejecutores,
@@ -574,6 +575,7 @@ export async function responder(params: {
   };
 
   let razonamientoDelCerebro;
+  let contextoMemoria;
   try {
     razonamientoDelCerebro = await razonar(ctxRazonamiento);
     traza.push({
@@ -594,6 +596,39 @@ export async function responder(params: {
         historialDelTurno: messages,
         ultimaHerramienta: null,
       };
+    }
+
+    // MEMORIA: buscar contexto relevante (episódios + patrones + reglas)
+    try {
+      contextoMemoria = await obtenerContextoMemoria(mensajeDelClienteActual, params.tenantId, null);
+      if (contextoMemoria.patrones.length > 0) {
+        const patronesEncontrados = contextoMemoria.patrones.map((p) => `${p.nombre} (${p.confianza}%)`).join(", ");
+        traza.push({
+          herramienta: "[CEREBRO:memoria]",
+          args: { tags: contextoMemoria.patrones.flatMap((p) => p.dispara) },
+          resultado: `Patrones: ${patronesEncontrados}. Recomendaciones: ${contextoMemoria.patrones
+            .flatMap((p) => p.recomendaciones)
+            .join(", ")}`,
+        });
+
+        // Agregar contexto de memoria al prompt (si hay patrones relevantes)
+        if (contextoMemoria.patrones.length > 0) {
+          const contextMemoriaTexto = `
+CONTEXTO DE MEMORIA: Se detectaron estos patrones en conversaciones previas del negocio:
+${contextoMemoria.patrones.map((p) => `- ${p.descripcion} (confianza ${p.confianza}%)`).join("\n")}
+
+Aplica estas recomendaciones si es relevante:
+${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)).join("\n")}`;
+
+          // Insertar contexto en messages justo antes del turno actual
+          messages.splice(messages.length - 1, 0, {
+            role: "system",
+            content: contextMemoriaTexto,
+          });
+        }
+      }
+    } catch (errMem) {
+      console.warn("[motor] Error en memoria, continuando sin contexto:", errMem);
     }
   } catch (err) {
     console.warn("[motor] Error en razonador, continuando sin reasoning:", err);
