@@ -1213,6 +1213,34 @@ export async function construirSeccion(
     // hacía dar vueltas ("¿Te cuento cuánto vale?") con alguien que ya vino
     // por ese producto.
     if (esFisico && seccion === "completa") {
+      // La presentación la redacta la IA con las indicaciones del dueño
+      // (ver lib/presentacion-de-producto.ts). Los datos duros los pone el
+      // sistema: la IA no puede inventar precio ni promesas de entrega.
+      // Si la IA falla, sale la ficha de siempre (fallback de abajo).
+      try {
+        const { presentacionDelProducto, burbujasDePresentacion } = await import("./presentacion-de-producto");
+        const textos = await presentacionDelProducto(p);
+        if (textos) {
+          const { fraseCostoEnvio, frasePagoEnvio } = await import("./modelo-de-negocio");
+          const c = await condicionesDelProducto(p);
+          const burbujas = burbujasDePresentacion(textos, {
+            nombre: p.name,
+            emoji: emojiTitulo,
+            precio: mon.precioTexto,
+            envio: `${fraseCostoEnvio(c)}. Llega en ${c.envio.plazo}.`,
+            pago: frasePagoEnvio(c),
+            tallas: null,
+            conCierre: !sinCierre,
+          });
+          for (const b of burbujas) mensajes.push(hablarColombiano(b));
+          if (urlVideo && !videoYaEnviado) {
+            mensajes.push(`🎬 Te dejo este video para que veas el contenido por dentro:\n${urlVideo}`);
+          }
+          return { conFoto: !yaVioContenido || sesionNueva, mensajes };
+        }
+      } catch {
+        // Fallback a la ficha fija de abajo.
+      }
       L.push("", `💰 *Precio: ${mon.precioTexto}*`);
       try {
         const { fraseCostoEnvio, frasePagoEnvio } = await import("./modelo-de-negocio");

@@ -62,3 +62,47 @@ describe("correcciones del dueño — a dónde va cada corrección", () => {
       .toEqual({ tipo: "dato", pregunta: "Tiene garantía", texto: "Sí, 30 días por defectos de fábrica." });
   });
 });
+
+describe("correcciones del dueño — editar sin salirse de los parámetros", () => {
+  it("editarDato rechaza id inválido y texto vacío sin tocar la base", async () => {
+    const { editarDato } = await import("../correcciones-del-dueno");
+    expect(await editarDato(1, 0, "algo")).toEqual({ ok: false, mensaje: "id inválido" });
+    expect(await editarDato(1, 5, "   ")).toEqual({ ok: false, mensaje: "Escribe qué debe responder." });
+    expect(await editarDato(1, 5, "x".repeat(501))).toEqual({ ok: false, mensaje: "La respuesta es muy larga (máximo 500 caracteres)." });
+  });
+
+  it("editarIndicacion rechaza índice inválido y texto vacío sin tocar la base", async () => {
+    const { editarIndicacion } = await import("../correcciones-del-dueno");
+    expect(await editarIndicacion(1, -1, "algo")).toEqual({ ok: false, mensaje: "índice inválido" });
+    expect(await editarIndicacion(1, 0, "   ")).toEqual({ ok: false, mensaje: "Escribe cómo debe hablar el vendedor." });
+    expect(await editarIndicacion(1, 0, "x".repeat(501))).toEqual({ ok: false, mensaje: "La indicación es muy larga (máximo 500 caracteres)." });
+  });
+
+  it("la firma de la presentación cambia cuando cambia una indicación (Corregir sí mueve la ficha)", async () => {
+    const { firmaDePresentacion } = await import("../presentacion-de-producto");
+    const p = { name: "Licuadora", description: "Potente", features: ["1L"] };
+    const a = firmaDePresentacion(p, ["Sé breve."]);
+    const b = firmaDePresentacion(p, ["Sé breve.", "Separa los renglones."]);
+    expect(a).not.toBe(b);
+  });
+
+  it("la IA no puede colar precio ni envío en la presentación (lo pone el sistema)", async () => {
+    const { leerPresentacion } = await import("../presentacion-de-producto");
+    expect(leerPresentacion(JSON.stringify({ gancho: "Te cuesta $ 60.000 solo hoy, aprovecha", beneficios: ["A", "B", "C"] }))).toBeNull();
+    const ok = leerPresentacion(JSON.stringify({
+      gancho: "Si se te riega el jugo cada mañana, esta licuadora te deja todo listo sin reguero",
+      beneficios: ["Preparas jugos sin reguero en las mañanas", "Lavas menos trastes después de cocinar", "La guardas fácil en cocinas pequeñas"],
+    }));
+    expect(ok?.beneficios).toHaveLength(3);
+  });
+
+  it("la ficha editable sale en 3 burbujas separadas", async () => {
+    const { burbujasDePresentacion } = await import("../presentacion-de-producto");
+    const b = burbujasDePresentacion(
+      { gancho: "gancho de prueba para ver el formato", beneficios: ["uno", "dos", "tres"] },
+      { nombre: "Licuadora", emoji: "🥤", precio: "$ 60.000 COP", envio: "Envío gratis. Llega en 3 días.", pago: "Pagas al recibir", tallas: null, conCierre: true },
+    );
+    expect(b).toHaveLength(3);
+    expect(b[2]).toContain("$ 60.000 COP");
+  });
+});
