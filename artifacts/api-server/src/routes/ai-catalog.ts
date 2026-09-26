@@ -36,6 +36,7 @@ export const PROVEEDORES = [
   // como proveedor principal.
   { id: "ollama_cloud", nombre: "Ollama Cloud", gratis: true, envKey: "OLLAMA_CLOUD_API_KEY", alta: "https://ollama.com/settings/keys", nota: "Modelos grandes · cuota diaria gratis · el catálogo rota" },
   { id: "github", nombre: "GitHub Models", gratis: true, envKey: "GITHUB_TOKEN", alta: "https://github.com/settings/tokens", nota: "Modelos de Azure con token de GitHub" },
+  { id: "github_copilot_internal", nombre: "GitHub Copilot", gratis: false, envKey: "GITHUB_COPILOT_TOKEN", alta: "https://github.com/settings/profile", nota: "Copilot · autenticación con device flow integrado" },
   { id: "mimo", nombre: "Xiaomi MiMo", gratis: false, envKey: "MIMO_API_KEY", alta: "https://platform.xiaomimimo.com/#/console/api-keys", nota: "De pago · 1M de contexto · fuerte en código" },
   { id: "openai", nombre: "OpenAI (ChatGPT)", gratis: false, envKey: "OPENAI_API_KEY", alta: "https://platform.openai.com/api-keys", nota: "GPT · también genera imágenes con DALL·E" },
   { id: "anthropic", nombre: "Anthropic (Claude)", gratis: false, envKey: "ANTHROPIC_API_KEY", alta: "https://console.anthropic.com/settings/keys", nota: "Claude · fuerte razonando y en código" },
