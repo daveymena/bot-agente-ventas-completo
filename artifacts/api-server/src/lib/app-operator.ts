@@ -7625,12 +7625,17 @@ ${r.texto}`, data: r.grupos };
       const compras = resultados.filter((r) => r.cerroEn === "compra").length;
       const problemas = resultados.flatMap((r) => r.resumenProblemas.map((x) => ({ ...x, cliente: r.perfilCliente.nombre })));
       // Agrupados: el mismo problema en varias charlas pesa más que uno suelto.
-      const porTipo = new Map<string, number>();
+      // Se muestra en palabras ("Dice que no tiene el producto…"), no con el
+      // código de la regla del evaluador ("niega-el-foco").
+      const porTipo = new Map<string, { veces: number; texto: string }>();
       for (const x of problemas) {
-        const tipo = x.problema.split(":")[0].trim();
-        porTipo.set(tipo, (porTipo.get(tipo) || 0) + 1);
+        const m = x.problema.match(/^([a-z0-9-]+):\s*(.+)$/);
+        const tipo = m ? m[1] : x.problema;
+        const texto = m ? m[2] : x.problema;
+        const previo = porTipo.get(tipo);
+        porTipo.set(tipo, { veces: (previo?.veces || 0) + 1, texto: previo?.texto || texto });
       }
-      const agrupados = [...porTipo.entries()].sort((a, b) => b[1] - a[1]).map(([problema, veces]) => ({ problema, veces }));
+      const agrupados = [...porTipo.values()].sort((a, b) => b.veces - a.veces).map((g) => ({ problema: g.texto, veces: g.veces }));
       const conversaciones = resultados.map((r) => ({
         cliente: r.perfilCliente.nombre,
         cerroEn: r.cerroEn,

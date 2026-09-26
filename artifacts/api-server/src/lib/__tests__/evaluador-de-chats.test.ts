@@ -69,3 +69,32 @@ describe("cosas que nunca deben salir", () => {
     expect(h.map((x) => x.regla)).toEqual(expect.arrayContaining(["id-interno", "respuesta-generica"]));
   });
 });
+
+describe("ser honesto con lo que no está cargado NO es negar el producto", () => {
+  // Simulador del Agent Lab, 26-09-2026: falsas alarmas de "niega-el-foco".
+  const corrector = [{ id: 1, name: "Corrector de postura en X", price: 36000 }];
+  const niega = (texto: string) =>
+    evaluarChat(
+      [
+        // Primero la ficha: el corrector queda en foco, como en la simulación.
+        t("Hola, vi el corrector", "Te dejo la info 👇", { tarjetas: [{ productId: 1, seccion: "completa" }] }),
+        t("¿Esto sirve de verdad?", texto),
+      ],
+      corrector,
+    ).some((h) => h.regla.startsWith("niega"));
+
+  it.each([
+    "Mira, te lo digo derecho: no tengo cargado ni un caso real de clientes ni la política de devolución.",
+    "Te soy honesta: no tengo testimonios ni cifras de clientes para mostrarte.",
+    "No tenemos datos de devoluciones todavía.",
+    "No manejamos contraentrega en esa ciudad.",
+    "Lo que sí sé es que el precio es el del catálogo y no lo manejo yo.",
+  ])("no marca: %s", (texto) => expect(niega(texto)).toBe(false));
+
+  it.each([
+    "Ese no lo tengo, pero te muestro otro.",
+    "Hmm, no tengo ese producto en el catálogo.",
+    "No tenemos correctores de ese tipo.",
+    "Ese modelo no está en el catálogo.",
+  ])("sí marca: %s", (texto) => expect(niega(texto)).toBe(true));
+});

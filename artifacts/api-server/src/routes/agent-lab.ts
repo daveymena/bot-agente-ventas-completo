@@ -76,12 +76,15 @@ export function intencionDelLab(mensaje: string): "simular" | "mejorar" | "aplic
 
 async function guardar(tenantId: number, tipo: string, contenido: unknown) {
   try {
+    // `title` es obligatorio en la tabla y la fecha la pone la base: sin el
+    // título el insert fallaba siempre y "propone mejoras" nunca encontraba
+    // la simulación ("Primero simula clientes", recién simulado).
     await db.insert(architectMemory).values({
       tenantId,
       memoryType: tipo,
+      title: tipo === "agentlab_simulacion" ? "Simulación del Agent Lab" : "Reglas propuestas del Agent Lab",
       tags: ["agent-lab"],
       content: JSON.stringify(contenido),
-      createdAt: new Date(),
     } as any);
   } catch (e: any) {
     logger.warn({ err: e?.message }, "[AgentLab] no se guardó en architect_memory");

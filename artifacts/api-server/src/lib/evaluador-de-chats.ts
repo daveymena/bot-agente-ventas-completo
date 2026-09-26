@@ -36,8 +36,15 @@ export interface Hallazgo {
 export interface ProductoParaEvaluar { id: number; name: string; price: number | string; kind?: string | null }
 
 const GENERICO = /¿Qué te gustaría saber puntualmente\?/;
-// "no manejamos stock/envíos/contraentrega" no es negar el producto.
-const NIEGA_TENERLO = /\b(no\s+(lo\s+)?(tengo|tenemos|manejo|manejamos)(?!\s+(stock|inventario|env[ií]os?|contraentrega|sede|local|tienda\s+f[ií]sica))|no\s+(está|esta|aparece)\s+en\s+el\s+cat[aá]logo|no\s+tengo\s+ese\s+producto)\b/i;
+// "no manejamos stock/envíos/contraentrega" no es negar el producto. Tampoco
+// lo es ser honesto con lo que no está cargado: "no tengo testimonios", "no
+// tengo cargado ni un caso real", "no tenemos datos de devoluciones". Con la
+// regla vieja, cualquier "no tengo…" contaba como "no tengo el producto"
+// (simulador del Agent Lab, 26-09-2026: falsas alarmas en las dos charlas).
+// Negar el producto es: "no lo tengo", "no tenemos ese/correctores…", "no
+// tengo ese producto", "no está en el catálogo". "No lo manejo" (yo) tampoco:
+// "el precio no lo manejo yo" habla de quién decide, no del producto.
+const NIEGA_TENERLO = /\b(no\s+lo\s+(tengo|tenemos|manejamos)\b|no\s+(tenemos|manejamos|manejo)\b(?!\s+(stock|inventario|env[ií]os?|contraentrega|sede|local|tienda\s+f[ií]sica|datos?|testimonios?|cifras|casos?|informaci[oó]n|pol[ií]tica|garant[ií]a|videos?|fotos?|cargad[oa]s?|registros?|devoluci|cuotas|descuentos?|promoci|ni\b|nada|claro))|no\s+tengo\s+(ese|esa|este|esta)\s+(producto|modelo|art[ií]culo|referencia)|no\s+(está|esta|aparece)\s+en\s+el\s+cat[aá]logo)\b/i;
 const PIDE_COMPROBANTE = /\bcomprobante\b/i;
 // Se evalúa sobre el texto SIN tildes: `\b` no reconoce "pagué" como palabra.
 const DICE_QUE_PAGO = /\b(ya\s+(te\s+)?pague|ya\s+transferi|acabo\s+de\s+(pagar|transferir)|hice\s+(el\s+pago|la\s+transferencia))\b/;
