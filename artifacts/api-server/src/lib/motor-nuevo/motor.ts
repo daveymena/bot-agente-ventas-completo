@@ -576,7 +576,14 @@ export async function responder(params: {
 
   let razonamientoDelCerebro;
   let contextoMemoria;
-  try {
+  // ⚠️ APAGADO por defecto (26-09-2026). En producción, con el cerebro
+  // encendido, "Lo quiero, ¿cómo pago?" tumbaba al vendedor (500): al
+  // "escalar" devolvía `{ textoFinal }` sin `partes` y el envío reventaba
+  // ("reading 'filter'"); 50 tests del motor fallaban. Además sumaba una capa
+  // de prompt ("CONTEXTO DE MEMORIA"), que CLAUDE.md prohíbe en el camino del
+  // vendedor. Se prende solo a propósito con CEREBRO_EN_VIVO=true, y aun así
+  // ya no corta la respuesta: solo deja su lectura en la traza.
+  if (String(process.env.CEREBRO_EN_VIVO || "").toLowerCase() === "true") try {
     razonamientoDelCerebro = await razonar(ctxRazonamiento);
     traza.push({
       herramienta: "[CEREBRO:razonador]",
@@ -584,19 +591,9 @@ export async function responder(params: {
       resultado: `Confianza: ${razonamientoDelCerebro.confianza.toFixed(0)}% | Escalada: ${razonamientoDelCerebro.escalada}`,
     });
 
-    // Si detectó riesgo crítico, escala a humano
-    if (razonamientoDelCerebro.escalada) {
-      return {
-        textoFinal: `⚠️ [REVISIÓN REQUERIDA: ${razonamientoDelCerebro.motivoEscalada}] Pasando a un agente humano...`,
-        estado,
-        traza,
-        uso,
-        modelo: modoPlan ? "plan" : "normal",
-        proveedor,
-        historialDelTurno: messages,
-        ultimaHerramienta: null,
-      };
-    }
+    // Antes: si "escalaba", devolvía una respuesta sin `partes` y el vendedor
+    // se caía. La escalada a una persona ya existe (herramienta
+    // escalar_a_humano); acá solo queda anotado.
 
     // MEMORIA: buscar contexto relevante (episódios + patrones + reglas)
     try {
