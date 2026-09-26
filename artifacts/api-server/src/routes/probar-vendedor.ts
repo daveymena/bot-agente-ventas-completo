@@ -128,7 +128,7 @@ router.post("/mensaje", async (req: TenantRequest, res) => {
   try {
     const { correrEnSombra, servicioDePedidosDePrueba } = await import("../lib/motor-nuevo/adaptador");
     const { armarCadena, crearClienteLLM } = await import("../lib/motor-nuevo/cliente-llm");
-    const llm = crearClienteLLM({ cadena: await armarCadena({ tenantId }), tenantId });
+    const llm = crearClienteLLM({ cadena: await armarCadena({ tenantId }), tenantId, timeoutMsPorDefecto: 60_000 });
     // Pedidos simulados: la lista de datos de envío y el resumen salen como por
     // WhatsApp, pero no se abre ni se despacha ningún pedido real.
     const pedidos = servicioDePedidosDePrueba({ condiciones: await condicionesDe(tenantId), inicial: pedidoPrevio });
