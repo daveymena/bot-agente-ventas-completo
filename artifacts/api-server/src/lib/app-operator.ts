@@ -4213,6 +4213,28 @@ ${explicarObjetivos()}` };
     },
   },
   {
+    name: "generate_ai_ad_video",
+    description: "Genera el video publicitario del producto usando Image-to-Video real cuando está habilitado. Anima fotos con Grok/Veo y conserva texto, precio y CTA con el compositor de VentasPro. Si la IA no está disponible, usa el motor FFmpeg actual. Generar con proveedores externos puede consumir crédito; por eso requiere confirmación.",
+    args: '{ "productId": number (req), "provider": "auto"|"xai"|"google" (opcional), "maxAiScenes": number (opcional) }',
+    run: async (args, ctx) => {
+      const id = num(args.productId);
+      if (!id) return { ok: false, summary: "Falta productId" };
+      const previousProvider = process.env.VIDEO_AI_PROVIDER;
+      const previousMax = process.env.VIDEO_AI_MAX_SCENES;
+      if (args.provider) process.env.VIDEO_AI_PROVIDER = String(args.provider);
+      if (args.maxAiScenes !== undefined) process.env.VIDEO_AI_MAX_SCENES = String(Math.max(0, Math.min(6, Number(args.maxAiScenes))));
+      try {
+        const { generarVideoDeAnuncio } = await import("./video-anuncio");
+        const r = await generarVideoDeAnuncio(ctx.tenantId, id);
+        if (!r.ok) return { ok: false, summary: r.error || "No se pudo generar el video." };
+        return { ok: true, summary: "Video listo · " + (r.video?.duracion || 0) + "s · " + (r.video?.i2vScenes || 0) + " escenas con movimiento IA\n" + (r.video?.url || ""), data: r.video };
+      } finally {
+        if (previousProvider === undefined) delete process.env.VIDEO_AI_PROVIDER; else process.env.VIDEO_AI_PROVIDER = previousProvider;
+        if (previousMax === undefined) delete process.env.VIDEO_AI_MAX_SCENES; else process.env.VIDEO_AI_MAX_SCENES = previousMax;
+      }
+    },
+  },
+  {
     name: "set_product_image",
     description: "Asignar una imagen a un producto desde una URL. Solo acepta imágenes que el negocio PUEDE usar legalmente: las suyas propias, las generadas con IA (generate_image) o stock con licencia comercial (Pexels). Las fotos sacadas de webs ajenas (resultados de Brave/DuckDuckGo) se rechazan: publicarlas en un anuncio es usar material con derechos de otro. La sube a Cloudinary para que quede PERMANENTE y actualiza el producto. Cambia datos → requiere confirmación.",
     args: '{ "productId": number (req), "imageUrl": string (req, URL de la imagen), "esMia"?: boolean (solo si el admin CONFIRMA que la foto es de su negocio o tiene derechos sobre ella) }',
@@ -8325,6 +8347,7 @@ export const DESTRUCTIVE_TOOLS = new Set([
   // crear_anuncio guarda un borrador y, si se lo pide, crea la campana en
   // Meta: son cambios reales, van con confirmacion del admin.
   "crear_anuncio",
+  // Generar I2V puede consumir crédito externo; confirmar antes de ejecutar.\n  "generate_ai_ad_video",
   // Borrar una campaña es irreversible y Meta la borra EN CASCADA (conjuntos
   // y anuncios incluidos). No hay papelera del otro lado.
   // Programar cuando deja de entregar cambia la campana real en Meta.
