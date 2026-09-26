@@ -24,6 +24,7 @@
 import { db, pool, products } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
+import { notasParaElProveedor } from "./dropi-directo";
 import { CONDICIONES_DE_RESPALDO, esColombia, type CondicionesDelNegocio } from "./modelo-de-negocio";
 
 /** Los datos mínimos para que una transportadora entregue en Colombia. */
@@ -772,10 +773,11 @@ export async function despacharPedido(pedido: PedidoDropshipping): Promise<Resul
       payment_method_title: pedido.metodoPago === "contraentrega" ? "Pago contra entrega" : "Transferencia",
       status: "processing",
       customer_note: [
+        // La talla primero y en mayúsculas (Dropify la pasa tal cual a Dropi).
+        pedido.notas ? notasParaElProveedor(pedido.notas) : "",
         "Pedido tomado por el agente de WhatsApp.",
-        `Documento: ${pedido.documento}`,
+        pedido.documento ? `Documento: ${pedido.documento}` : "",
         pedido.barrio ? `Barrio: ${pedido.barrio}` : "",
-        pedido.notas ? `Notas: ${pedido.notas}` : "",
       ].filter(Boolean).join(" | "),
     } as any);
 

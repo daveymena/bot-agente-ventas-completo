@@ -478,6 +478,23 @@ export function normalizarCiudadParaDropi(ciudad: string): string {
  * El mismo payload que arma Dropify (OrdersModel.php `save`), porque es el
  * que Dropi acepta. `rate_type` "CON RECAUDO" = contraentrega.
  */
+/**
+ * La talla/color PRIMERO y en mayúsculas. Este corrector no tiene variantes
+ * en Dropi: la talla solo viaja en las notas, y el proveedor tiene que verla
+ * de un vistazo, no escondida después de "Pedido desde la landing…".
+ * Formatos que llegan: "Talla/variante: M" (WhatsApp) y "Talla: M" (landing).
+ */
+export function notasParaElProveedor(notas: string | null | undefined, documento?: string | null): string {
+  const partes = String(notas || "").split(/\s*[·|]\s*/).map((x) => x.trim()).filter(Boolean);
+  const esVariante = (x: string) => /^(talla(\/variante)?|color|modelo|variante)\s*:/i.test(x);
+  const variantes = partes.filter(esVariante).map((x) => {
+    const [k, ...v] = x.split(":");
+    return `${k.replace(/\/variante/i, "").trim().toUpperCase()}: ${v.join(":").trim().toUpperCase()}`;
+  });
+  const resto = partes.filter((x) => !esVariante(x));
+  return [variantes.join(" — "), ...resto, documento ? `Documento: ${documento}` : ""].filter(Boolean).join(" | ");
+}
+
 export async function crearPedidoDropi(token: string, producto: { dropiProductId: number; nombre: string; supplierId?: number | null; stock?: number | null; variationId?: number | null }, pedido: PedidoParaDropi): Promise<RespuestaDropi<{ id: number | string; raw: any }>> {
   const partes = String(pedido.nombre || "").trim().split(/\s+/);
   const name = partes[0] || pedido.nombre;
@@ -495,7 +512,7 @@ export async function crearPedidoDropi(token: string, producto: { dropiProductId
   if (producto.variationId) item.variation_id = producto.variationId;
   const body = {
     total_order: total,
-    notes: [pedido.notas, pedido.documento ? `Documento: ${pedido.documento}` : ""].filter(Boolean).join(" | "),
+    notes: notasParaElProveedor(pedido.notas, pedido.documento),
     name, surname,
     dir: `${pedido.direccion}${pedido.barrio ? ` ${pedido.barrio}` : ""}`,
     country: "CO",
