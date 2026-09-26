@@ -749,7 +749,16 @@ export const ejecutores: Record<string, Ejecutor> = {
     const p = ctx.catalogo.find((x) => x.id === idNumerico);
     if (!p) return { ok: false, mensaje: `No existe el producto #${idNumerico}. Busca en el catálogo primero.` };
 
-    const sec = String(seccion || "completa") as Seccion;
+    let sec = String(seccion || "completa") as Seccion;
+    // ── Físico sin precio dado: "info" es "completa" ───────────────────────
+    //
+    // Conversaciones reales 265–268 y 270 (25/26-09-2026): el cliente llega
+    // del anuncio con "Quiero más información", el modelo elige "info" (sin
+    // precio) y cierra con "¿Te cuento cuánto vale?". Tiene que escribir otra
+    // vez solo para saber el precio, y casi nadie lo hace: se van. La regla
+    // del dueño (25-09) es ficha completa de una; el prompt lo pedía y el
+    // modelo igual elegía "info", así que lo decide la herramienta.
+    if (sec === "info" && String(p.kind || "") === "physical" && !precioDado(ctx.estado, p.id)) sec = "completa";
     const yaVio = yaSeEnvio(ctx.estado, p.id, sec);
 
     // La regla que antes era una instrucción en el prompt (y que el modelo se

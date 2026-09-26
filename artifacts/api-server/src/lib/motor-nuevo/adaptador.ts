@@ -743,7 +743,24 @@ export async function responderComoVendedor(
     .join("\n\n")
     .trim();
   const cardProductIds = resultado.partes.filter((p) => p.kind === "card").map((p) => (p as any).productId);
-  const textoParaGuardar = texto || (cardProductIds.length ? `[ficha de ${cardProductIds.join(", ")}]` : "");
+  // ── Lo guardado tiene que decir QUÉ salió en la ficha ─────────────────────
+  //
+  // Conversación real 269 (26-09-2026): el cliente preguntó el precio, el
+  // modelo escribió "Acá te dejo el valor" y el precio salió en la ficha,
+  // que NO quedaba guardada. El dueño vio en el panel una frase sin número,
+  // creyó que el bot había fallado y escribió a mano "Vale 50.000" cuatro
+  // minutos después. Y el vendedor, en el turno siguiente, tampoco veía en su
+  // historial que ya había dado el precio.
+  const marcasDeFicha = resultado.partes
+    .filter((p) => p.kind === "card")
+    .map((p) => {
+      const prod = catalogoCompleto.find((x) => x.id === (p as any).productId);
+      const sec = String((p as any).seccion || "completa");
+      const precio = prod?.price != null && Number(prod.price) > 0 ? ` — $${Number(prod.price).toLocaleString("es-CO")}` : "";
+      const conPrecio = sec === "precio" || sec === "completa" ? precio : "";
+      return `[ficha ${sec} de ${prod?.name ?? (p as any).productId}${conPrecio}]`;
+    });
+  const textoParaGuardar = [texto, ...marcasDeFicha].filter(Boolean).join("\n\n");
 
   await saveAgentMessage(conversationId, textoParaGuardar || "…", ETAPA_A_STAGE[resultado.estado.etapa] as any, {
     intent: "motor_v2",

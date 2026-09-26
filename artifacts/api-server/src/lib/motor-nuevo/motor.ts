@@ -954,6 +954,16 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
   // cliente)." Es el modelo hablándose a sí mismo.
   textoFinal = quitarNotasInternas(textoFinal);
 
+  // ── La ficha ya trae el precio: no ofrecerlo en el texto ─────────────────
+  // Producción 26-09: "Te adjunto la información… ¿Te cuento cuánto vale?"
+  // encima de una ficha que ya decía el precio. Dos preguntas, una absurda.
+  if (ctx.partes.some((p: any) => p.kind === "card" && (p.seccion === "completa" || p.seccion === "precio"))) {
+    textoFinal = textoFinal
+      .replace(/¿[^?¿]*(cu[aá]nto (vale|est[aá]|cuesta|sale)|el precio|el valor)[^?¿]*\?\s*(\p{Extended_Pictographic}️?)?/giu, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
+
   // ── El mismo emoji al final de cada mensaje ──────────────────────────────
   // Prueba en producción (25-09-2026): cinco respuestas seguidas terminadas
   // en "🎹", otras cuatro en "😊". Leído de corrido parece un bot. Si el
