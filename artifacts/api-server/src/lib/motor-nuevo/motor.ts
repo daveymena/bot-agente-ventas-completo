@@ -54,6 +54,8 @@ import {
   type RepositorioEstado,
 } from "./estado-conversacion";
 import { buscarContextoRelevante } from "./buscar-contexto";
+import { bloqueDeLaFichaEnFoco } from "./lo-que-dice-la-ficha";
+import { sinCondicionesSinRespaldo, condicionesSinRespaldo } from "./condiciones-sin-respaldo";
 import { renderGuion, type GuionDelNegocio } from "./nicho";
 import { hablarColombiano } from "../hablar-colombiano";
 import type { ClienteLLM } from "./cliente-llm";
@@ -245,8 +247,17 @@ CATÁLOGO
 ${catalogoCompacto}${voz.instruccionesExtra ? `\n\nINDICACIONES DEL DUEÑO\n${voz.instruccionesExtra}` : ""}`;
 
   const temas = temasRespondidosPorElDueno(params.conocimiento, estado.productoEnFoco);
+  // La ficha del producto EN FOCO, con los datos que el servidor le muestra al
+  // cliente. Sin esto el modelo no ve la descripción de nada (el catálogo del
+  // prefijo es `#id · nombre · precio`) y termina desmintiendo su propia ficha:
+  // "el detalle exacto de los módulos te lo confirmo" dos mensajes después de
+  // haberlos listado (chat del dueño, 27-09-2026). Ver lo-que-dice-la-ficha.ts.
+  const fichaEnFoco =
+    estado.productoEnFoco != null
+      ? bloqueDeLaFichaEnFoco(catalogo.find((p) => p.id === estado.productoEnFoco))
+      : "";
   const delTurno = `LO QUE YA PASÓ EN ESTA CONVERSACIÓN
-${describirEstado(estado, params.nombrePorProducto)}${
+${describirEstado(estado, params.nombrePorProducto)}${fichaEnFoco ? `\n\n${fichaEnFoco}` : ""}${
     temas.length
       ? `\n\nRESPUESTAS QUE CARGÓ EL DUEÑO (valen aunque el tema figure en "NO TIENES ESTOS DATOS"; ` +
         `el texto exacto te lo da consultar_conocimiento): ${temas.join(" · ")}`
@@ -954,6 +965,41 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
   // anterior ya incluía la pregunta de cierre, espero la respuesta del
   // cliente)." Es el modelo hablándose a sí mismo.
   textoFinal = quitarNotasInternas(textoFinal);
+
+  // ── La letra chica tampoco se inventa ────────────────────────────────────
+  //
+  // Chat del dueño (27-09-2026), "precio" del curso de piano: la maqueta puso
+  // el número correcto ($60.000, pago único) y ENCIMA el modelo escribió "el
+  // acceso te queda de por vida, con garantía de 7 días". Ninguna de las dos
+  // cosas está cargada en ese negocio.
+  //
+  // `montosInventados` cuida las cifras; esto cuida lo otro que un cliente
+  // puede reclamar después. Va acá, sobre el texto ya limpio y antes de
+  // armar las partes, para que no haya forma de esquivarlo: ni el reintento
+  // ni el modo plan pueden dejar la promesa afuera del filtro.
+  if (textoFinal) {
+    const enFoco = estado.productoEnFoco != null ? catalogo.find((p) => p.id === estado.productoEnFoco) : null;
+    const respaldo = {
+      producto: enFoco ?? null,
+      guion,
+      conocimiento: (params.conocimiento || [])
+        .filter((c) => c.productId == null || c.productId === estado.productoEnFoco)
+        .map((c) => c.respuesta),
+    };
+    const promesas = condicionesSinRespaldo(textoFinal, respaldo);
+    if (promesas.length) {
+      console.log(
+        `🛡️ [MOTOR] Prometía condiciones que nadie cargó (${promesas.map((p) => p.promesa).join(", ")}): se quita la frase`,
+      );
+      textoFinal = sinCondicionesSinRespaldo(textoFinal, respaldo);
+      // Si la promesa ERA todo el mensaje ("Sí, tienes 7 días de garantía")
+      // y no hay maqueta que lo acompañe, el cliente no puede quedarse sin
+      // respuesta: se le dice lo único honesto que hay para decir.
+      if (!textoFinal && !hayTarjetas()) {
+        textoFinal = "Ese detalle puntual te lo confirmo con el equipo y te escribo 🙌";
+      }
+    }
+  }
 
   // ── La ficha ya trae el precio: no ofrecerlo en el texto ─────────────────
   // Producción 26-09: "Te adjunto la información… ¿Te cuento cuánto vale?"
