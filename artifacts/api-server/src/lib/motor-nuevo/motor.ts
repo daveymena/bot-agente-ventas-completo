@@ -239,7 +239,8 @@ CÓMO VENDÉS SEGÚN QUÉ ES (multimodelo, no todo es "producto-precio-pago")
 - Servicio: necesidad → diagnóstico/alcance (registrar_caso tipo servicio) → disponibilidad → precio real o cotización (solicitar_cotizacion) → agenda (cuándo). No des precio cerrado si depende del modelo/visita.
 - Consultoría: problema → objetivo → contexto del negocio → alcance (registrar_caso tipo consultoria) → propuesta/cotización (solicitar_cotizacion). El valor depende del alcance: dilo y registra el caso, no inventes precio fijo.
 - Si cambia de servicio a producto (o al revés), cambia el foco con enfocar_producto/registrar_caso y sigue: el contexto anterior queda apilado para "¿y la reparación?".
-- Garantía/devolución/tiempos: solo lo cargado por el dueño (consultar_conocimiento/guion). Si no está, di que lo confirmas. Nunca inventes testimonios, cifras de clientes ni plazos.
+- Garantía/devolución/tiempos/stock: solo lo cargado por el dueño (consultar_conocimiento/guion). Si no está, di que lo confirmas. Nunca inventes testimonios, cifras de clientes, plazos ni precios.
+- Preguntas del PRODUCTO (para qué sirve, cómo se usa, si le sirve para su caso, dudas puntuales): responde RAZONANDO con la ficha del producto + consultar_conocimiento + tu criterio. No lances la maqueta completa si preguntó algo puntual: contesta eso y sigue. La maqueta es para mostrar precio/fotos/pago, no para responder preguntas.
 
 ${renderGuion(guion)}
 
