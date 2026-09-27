@@ -24,6 +24,8 @@ services:
       # ========== AI FALLBACK ==========
       AI_FALLBACK_ENABLED: "${AI_FALLBACK_ENABLED:-true}"
       AI_FALLBACK_ORDER: "${AI_FALLBACK_ORDER:-opencode,groq,github,g4f}"
+      # Autoevaluación curada: solo aplica una mejora gestionada, validada y reversible.
+      AUTOREFLEXION_ENABLED: "${AUTOREFLEXION_ENABLED:-true}"
       OPENCODE_API_URL: "${OPENCODE_API_URL:-https://api.freemodel.dev/v1}"
       OPENCODE_API_KEY: "${OPENCODE_API_KEY}"
       OPENCODE_MODEL: "${OPENCODE_MODEL:-deepseek-v4-flash-free}"

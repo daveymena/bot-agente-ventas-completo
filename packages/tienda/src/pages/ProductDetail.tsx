@@ -36,7 +36,7 @@ interface RelatedProduct {
 
 const ProductDetail = () => {
   // Precio en la moneda del visitante (ver lib/moneda.ts).
-  const { formatear } = useMoneda();
+  const { formatear, visitante } = useMoneda();
   const { slug: paramSlug, productId } = useParams();
   const slug = paramSlug || 'sofia-premium';
   const navigate = useNavigate();
@@ -234,7 +234,12 @@ const ProductDetail = () => {
               {/* En celular text-5xl desborda con precios de siete cifras
                   ($1.899.000): el numero se sale de la columna. */}
               <span className="text-3xl sm:text-4xl font-black text-gray-900">{formatear(price)}</span>
-              <span className="text-base font-semibold text-gray-500">{product.currency || 'COP'}</span>
+              {/* formatear() ya incluye USD/MXN/EUR para visitantes de fuera.
+                  Añadir siempre la moneda original producía "USD $16.89 COP",
+                  una contradicción visible justo antes de comprar. */}
+              {visitante.esColombia && (
+                <span className="text-base font-semibold text-gray-500">COP</span>
+              )}
             </div>
             <p className="text-sm text-emerald-600 font-bold mt-1">
               {esDigital ? 'Pago único — sin mensualidades' : 'Precio final — sin sorpresas'}

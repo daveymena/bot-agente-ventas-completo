@@ -21,7 +21,14 @@ describe("el vendedor habla español colombiano, sin voseo", () => {
   });
 
   test("Colombia (y sin país) tutea; un negocio rioplatense vosea", () => {
-    expect(comoHablaElPais("CO")).toMatch(/tutea/);
+    const colombia = comoHablaElPais("CO");
+    expect(colombia).toMatch(/tutea/);
+    expect(colombia).toMatch(/tú, quieres, tienes, puedes, mira/);
+    expect(colombia).toMatch(/querés.*tenés.*mirá.*confirmás/);
+    // La prohibición no puede enumerar como incorrectas precisamente las
+    // formas de tuteo que acabamos de ordenar: esa contradicción hacía que el
+    // modelo alternara entre dialectos en una misma conversación.
+    expect(colombia).not.toMatch(/nada de "quieres", "tienes", "mira", "confirmas"/);
     expect(comoHablaElPais(null)).toMatch(/colombiano/);
     expect(comoHablaElPais("AR")).toMatch(/voseo/);
     expect(comoHablaElPais("MX")).toMatch(/Nunca uses voseo/);
