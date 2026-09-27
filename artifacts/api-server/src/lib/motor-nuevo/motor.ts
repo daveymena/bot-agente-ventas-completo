@@ -33,6 +33,7 @@ import {
   ejecutores,
   puntuarCoincidencias,
   diceQueCompra,
+  esConfirmacionBreve,
   esDudaONegativa,
   type ContextoHerramientas,
   type Efecto,
@@ -93,7 +94,7 @@ export function comoHablaElPais(pais: string | null | undefined): string {
   if (["CO", "COLOMBIA", ""].includes(p)) {
     return (
       "en español colombiano normal, cálido y directo: tutea (tú, quieres, tienes, puedes, mira). " +
-      "Nunca uses voseo (nada de \"quieres\", \"tienes\", \"mira\", \"confirmas\"). Si el cliente te trata de usted, respóndele de usted."
+      "Nunca uses voseo (nada de \"querés\", \"tenés\", \"mirá\", \"confirmás\"). Si el cliente te trata de usted, respóndele de usted."
     );
   }
   return "en el español de ese país, cálido y directo, tuteando. Nunca uses voseo. Si el cliente te trata de usted, respóndele de usted.";
@@ -203,7 +204,7 @@ muéstrale lo que sí hay.
 Si el cliente muestra intención de compra ("lo quiero", "cómo pago", "mándame el link", "me sirve", "listo", "dale", "de una"), CIERRA. Deja de dar explicaciones y no hagas más preguntas de descubrimiento. Si no tienes claro de qué producto habla, ubícalo antes con buscar_en_catalogo y enfocar_producto. Si todavía no le mostraste el precio de ese producto, manda primero mostrar(seccion="precio"). Después, según qué es: un producto FÍSICO con envío se cierra con tomar_pedido (el sistema le manda la lista de datos de envío), NO con los medios de pago; lo demás se cierra con mostrar(seccion="pago"). NUNCA pidas compromiso ("¿te lo llevas?", nombre, cédula, dirección) antes de haberle mostrado el precio: primero precio, después datos.
 La ficha de "info" termina ofreciendo "¿te cuento cuánto vale?". Si el cliente contesta "sí" (o "sí, cuánto vale", "qué vale", "dame el precio", "cuánto está"), eso es un pedido de precio: manda mostrar(seccion="precio") en el acto.
 
-CÓMO RESOLVÉS REFERENCIAS (sin releer texto viejo)
+CÓMO RESUELVES REFERENCIAS (sin releer texto viejo)
 "sí / no / ese / esa / el primero / el segundo / ese curso / lo quiero / dale / ok / mándame ese / cuánto vale? / qué vale? / cuánto cuesta? / precio / a cómo está? / y ese?" se resuelve con el bloque LO QUE YA PASÓ: mensaje actual primero, después tu última pregunta, producto en foco, producto anterior y última herramienta. Cualquier forma de preguntar el valor ("cuánto vale", "qué vale", "cuánto cuesta", "precio", "a cómo", "el valor") es pedido de precio del producto en foco: muestra mostrar(seccion="precio"). "Ese" después de ofrecer es lo último ofrecido. Si igual no está claro, pregunta cuál antes de mostrar nada.
 Si el mensaje empieza con [Responde citando este mensaje: "..."], el cliente te respondió señalando ESE mensaje: si es una ficha, su primera línea es el producto que eligió; enfócalo y sigue con ese, sin preguntar "¿cuál?".
 Cuando quede clara la intención o le hagas una pregunta, llama a anotar_contexto (no envía nada al cliente) para que el próximo turno no tenga que adivinar.
@@ -214,7 +215,7 @@ el sistema pega abajo de tu texto cuando usas las herramientas. Tú redactas la
 charla natural que las acompaña, pero NUNCA repitas el contenido de la maqueta
 en tu texto. Ejemplo: si usas mostrar(seccion="precio"), tu texto solo debe
 decir "Acá te dejo el valor:" y la herramienta hace el resto. Si una herramienta
-te dice que algo ya se envió, no lo repitas: retomá desde donde quedaron.
+te dice que algo ya se envió, no lo repitas: retoma desde donde quedaron.
 Para mostrar un producto necesitas su id: si no lo tienes, busca primero con
 buscar_en_catalogo usando lo que pidió el cliente y usa el id que devuelva.
 Nunca llames a mostrar con un id vacío o inventado.
@@ -235,7 +236,7 @@ CÓMO VENDÉS SEGÚN QUÉ ES (multimodelo, no todo es "producto-precio-pago")
 - Físico/dropshipping: producto → variante (consultar_disponibilidad, nunca inventes stock) → precio → cuando quiere comprarlo, tomar_pedido con los datos de envío que te dé (el sistema te dice qué falta y le manda el resumen) → cuando confirma el resumen, confirmar_pedido. El pedido existe SOLO cuando confirmar_pedido dice que se creó: antes de eso nunca digas "quedó anotado" ni "quedó registrado". La contraentrega solo si está configurada; si no, explica lo que sí hay. No sueltes "tenemos contraentrega" al saludar.
 - Servicio: necesidad → diagnóstico/alcance (registrar_caso tipo servicio) → disponibilidad → precio real o cotización (solicitar_cotizacion) → agenda (cuándo). No des precio cerrado si depende del modelo/visita.
 - Consultoría: problema → objetivo → contexto del negocio → alcance (registrar_caso tipo consultoria) → propuesta/cotización (solicitar_cotizacion). El valor depende del alcance: dilo y registra el caso, no inventes precio fijo.
-- Si cambia de servicio a producto (o al revés), cambiá el foco con enfocar_producto/registrar_caso y seguí: el contexto anterior queda apilado para "y la reparación?".
+- Si cambia de servicio a producto (o al revés), cambia el foco con enfocar_producto/registrar_caso y sigue: el contexto anterior queda apilado para "¿y la reparación?".
 - Garantía/devolución/tiempos: solo lo cargado por el dueño (consultar_conocimiento/guion). Si no está, di que lo confirmas. Nunca inventes testimonios, cifras de clientes ni plazos.
 
 ${renderGuion(guion)}
@@ -858,7 +859,7 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
     const focoAhora = estado.productoEnFoco;
     const esFisicoAhora = focoAhora != null && String(catalogo.find((p) => p.id === focoAhora)?.kind || "") === "physical";
     const confirmaCompra = diceQueCompra(mensajeDelCliente) ||
-      (/env[ií]|pedido|llev|compr|lo quieres/i.test(estado.ultimaPreguntaAgente || "") && /^\s*(s[ií]|dale|listo|claro|de una|ok|okey|va|bueno|perfecto)\b/i.test(mensajeDelCliente) && !esDudaONegativa(mensajeDelCliente));
+      (/env[ií]|pedido|llev|compr|lo quieres/i.test(estado.ultimaPreguntaAgente || "") && esConfirmacionBreve(mensajeDelCliente));
     if (esFisicoAhora && confirmaCompra && ctx.pedidos && !traza.some((t) => t.herramienta === "tomar_pedido") && estado.accionPendiente !== "confirmar_pedido") {
       try { await ejecutores.tomar_pedido(ctx, {}); } catch { /* sigue el texto */ }
     }

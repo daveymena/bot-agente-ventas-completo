@@ -612,27 +612,43 @@ export function puntuarCoincidencias(consulta: string, catalogo: Producto[], lim
     .split(/[^a-z0-9ñ]+/)
     .filter((w) => w.length > 2);
 
-  const textos = disponibles.map((p) => N(`${p.name} ${p.description || ""} ${p.categoria || ""} ${(p.opciones || []).join(" ")}`));
+  const nombres = disponibles.map((p) => N(p.name).trim());
+  const descripciones = disponibles.map((p) => N(p.description || ""));
+  const categorias = disponibles.map((p) => N(p.categoria || ""));
+  const opciones = disponibles.map((p) => N((p.opciones || []).join(" ")));
+  const textos = disponibles.map((_, i) => `${nombres[i]} ${descripciones[i]} ${categorias[i]} ${opciones[i]}`);
+  const consultaNormalizada = N(consulta).replace(/[^a-z0-9ñ]+/g, " ").replace(/\s+/g, " ").trim();
 
   const peso = (w: string) => {
-    const enCuantos = textos.filter((t) => t.includes(w)).length;
+    // Importante: contar también coincidencias con un typo. Antes la búsqueda
+    // encontraba "ciberseuridad" dentro de "ciberseguridad", pero peso() daba
+    // cero porque volvía a exigir coincidencia EXACTA; 19 productos reales
+    // quedaban fuera por una sola letra.
+    const enCuantos = textos.filter((t) => incluyeConTypo(t, w)).length;
     if (enCuantos === 0) return 0;
     const frecuencia = enCuantos / Math.max(1, disponibles.length);
-    // Palabra "de categoría": aparece en AL MENOS DOS TERCIOS del catálogo y no
-    // distingue. El umbral era 0.5, pero tumbaba búsquedas válidas en catálogos
-    // chicos: 3 taladros en una tienda de 5 productos (60%) se leían como
-    // "categoría" y el bot decía "no manejo taladros" a un producto que sí
-    // estaba (22-09). "Curso" en un catálogo de cursos (2 de 3 = 66%) sigue
-    // cayendo porque no distingue cuál curso quiere el cliente.
     if (disponibles.length >= 3 && enCuantos * 3 >= disponibles.length * 2) return 0;
-    return Math.log(1 / frecuencia);
+    return Math.max(0.1, Math.log(1 / frecuencia));
   };
 
   return disponibles
-    .map((p, i) => ({
-      p,
-      puntos: palabras.reduce((n, w) => n + (incluyeConTypo(textos[i], w) ? peso(w) : 0), 0),
-    }))
+    .map((p, i) => {
+      // El nombre es la identidad del producto. Antes descripción/opciones
+      // pesaban igual: buscar el nombre exacto "MARKETING DIGITAL" devolvía
+      // primero Ecommerce porque su descripción mencionaba esas palabras.
+      const exacto = nombres[i] === consultaNormalizada ? 10_000 : 0;
+      const nombreDentro = !exacto && (nombres[i].includes(consultaNormalizada) || consultaNormalizada.includes(nombres[i])) ? 500 : 0;
+      const puntos = palabras.reduce((total, w) => {
+        const base = peso(w);
+        if (!base) return total;
+        if (incluyeConTypo(nombres[i], w)) return total + base * 8;
+        if (incluyeConTypo(categorias[i], w)) return total + base * 2;
+        if (incluyeConTypo(opciones[i], w)) return total + base;
+        if (incluyeConTypo(descripciones[i], w)) return total + base * 0.5;
+        return total;
+      }, exacto + nombreDentro);
+      return { p, puntos };
+    })
     .filter((x) => x.puntos > 0)
     .sort((a, b) => b.puntos - a.puntos)
     .slice(0, limite);
@@ -1071,7 +1087,7 @@ export const ejecutores: Record<string, Ejecutor> = {
       // en su texto ("¿Te lo enviamos?" con que cerró su último mensaje).
       const preguntoEnElTexto = /env[ií]|pedido|llev[aá]s|llevas|compr|separ|apart|lo quer[eé]s|lo quieres|te animas|te animás/i.test(ctx.estado.ultimaPreguntaAgente || "");
       const preguntoAntes = (preguntado?.productoId === p.id && ctx.estado.turnos > preguntado.turno) || preguntoEnElTexto;
-      const respondioAlaPregunta = preguntoAntes && !esDudaONegativa(ctx.mensajeDelCliente);
+      const respondioAlaPregunta = preguntoAntes && esConfirmacionBreve(ctx.mensajeDelCliente);
       if (respondioAlaPregunta || diceQueCompra(ctx.mensajeDelCliente)) {
         ctx.estado.compraConfirmada = p.id;
       } else {
@@ -1414,13 +1430,32 @@ function tipoDeOferta(seccion: Seccion): Oferta["tipo"] {
 }
 
 /**
+ * Una respuesta corta afirmativa solo adquiere sentido porque existe una
+ * pregunta pendiente del agente. Se evalúa por mensaje COMPLETO: "sí" confirma
+ * "¿te lo enviamos?", pero "sí, ¿cuánto demora?" es una pregunta y no autoriza
+ * un pedido. Incluye errores coloquiales frecuentes sin convertir cualquier
+ * texto no negativo en un sí.
+ */
+export function esConfirmacionBreve(mensaje: string): boolean {
+  const t = String(mensaje || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[¡!.,;:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t || t.includes("?") || esDudaONegativa(t)) return false;
+  return /^(si+|s+|sip|sep|dale|listo|de una|ok|okay|okey|oki|va|bueno|claro|hagale|hagamole|perfecto|confirmo)$/.test(t);
+}
+
+/**
  * ¿El cliente dice, con sus palabras, que COMPRA? Solo frases explícitas:
  * "me interesa", "me gusta", "este" NO cuentan (pedido del dueño 25-09-2026).
  */
 export function diceQueCompra(mensaje: string): boolean {
   const t = String(mensaje || "").toLowerCase();
   if (esDudaONegativa(t)) return false;
-  return /\b(lo|la|los|las) (quiero|compro|pido|llevo)\b|\bquiero (uno|una|dos|tres|\d+)\b|\bme (lo|la) llevo\b|\bquiero (comprar|pedir|ordenar|hacer el pedido|encargar)|\bme (lo|la|los|las) (llevo|env[ií]as?|mand[aá]s?)\b|\b(env[ií]a|mand[aá])(me)?(lo|la|los|las)\b|\bhagamos el pedido\b|\bh[aá]gamelo\b|\bpedido\b.*\bconfirm/i.test(t);
+  return /\b(lo|la|los|las) (quiero|kiero|qiero|compro|pido|llevo)\b|\b(quiero|kiero|qiero) (uno|una|dos|tres|\d+|comprar|pedir|ordenar|hacer el pedido|encargar)\b|\bme (lo|la) llevo\b|\bme (lo|la|los|las) (llevo|env[ií]as?|mand[aá]s?)\b|\b(env[ií]a|mand[aá])(me)?(lo|la|los|las)\b|\bhagamos el pedido\b|\bh[aá]gamelo\b|\bpedido\b.*\bconfirm/i.test(t);
 }
 
 /** Una duda o un no: no es un sí aunque venga después de "¿te lo enviamos?". */

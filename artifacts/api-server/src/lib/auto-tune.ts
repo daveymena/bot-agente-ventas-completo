@@ -58,10 +58,21 @@ export class AutoTuneEngine {
     }
 
     if (version.agentId) {
-      await db
-        .update(agentsTable)
-        .set({ systemPrompt: version.previousPrompt as string })
-        .where(eq(agentsTable.id, version.agentId as number));
+      if (version.appliedBy === "auto-reflexion-v2") {
+        const [agente] = await db.select({ metadata: agentsTable.metadata })
+          .from(agentsTable).where(eq(agentsTable.id, version.agentId as number)).limit(1);
+        let metadata: Record<string, any> = {};
+        if (typeof agente?.metadata === "string") {
+          try { metadata = JSON.parse(agente.metadata) || {}; } catch { metadata = {}; }
+        } else if (agente?.metadata && typeof agente.metadata === "object") metadata = { ...(agente.metadata as any) };
+        metadata.indicaciones = version.previousPrompt as string;
+        await db.update(agentsTable).set({ metadata: metadata as any }).where(eq(agentsTable.id, version.agentId as number));
+      } else {
+        await db
+          .update(agentsTable)
+          .set({ systemPrompt: version.previousPrompt as string })
+          .where(eq(agentsTable.id, version.agentId as number));
+      }
     }
 
     if (version.profileId) {

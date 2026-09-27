@@ -6,6 +6,41 @@ import { getWhatsAppForTenant } from "./whatsapp-factory";
 import { toDbDate } from "./date-utils";
 import { facebookMessengerService } from "./facebook-messenger";
 
+export interface PoliticaSeguimiento {
+  demoraMs: number;
+  prioridad: "low" | "medium" | "high" | "urgent";
+  tipo: "nurture" | "check_in" | "decision_support" | "checkout_recovery";
+}
+
+/**
+ * Política comercial explícita y comprobable.
+ *
+ * El código anterior devolvía SIEMPRE 24 horas, prioridad media y `check_in`:
+ * trataba igual a quien apenas saludó y a quien ya pidió cómo pagar. Esta
+ * tabla no interpreta texto; recibe la etapa estructurada del scoring y decide
+ * cuándo retomar la conversación si el cliente deja de responder.
+ */
+export function politicaDeSeguimiento(stage: string, score = 0): PoliticaSeguimiento {
+  switch (stage) {
+    case "closing":
+      return { demoraMs: 6 * 60 * 60 * 1000, prioridad: "urgent", tipo: "checkout_recovery" };
+    case "negotiating":
+      return { demoraMs: 12 * 60 * 60 * 1000, prioridad: "high", tipo: "decision_support" };
+    case "qualified":
+    case "hot":
+      return { demoraMs: 24 * 60 * 60 * 1000, prioridad: score >= 70 ? "high" : "medium", tipo: "decision_support" };
+    case "warm":
+      return { demoraMs: 3 * 24 * 60 * 60 * 1000, prioridad: "medium", tipo: "check_in" };
+    case "cold":
+    default:
+      return { demoraMs: 7 * 24 * 60 * 60 * 1000, prioridad: "low", tipo: "nurture" };
+  }
+}
+
+export function calcularFechaSeguimiento(stage: string, score = 0, desde = new Date()): Date {
+  return new Date(desde.getTime() + politicaDeSeguimiento(stage, score).demoraMs);
+}
+
 export class FollowUpScheduler {
   private isRunning = false;
   private intervalId: NodeJS.Timeout | null = null;
@@ -49,24 +84,21 @@ export class FollowUpScheduler {
       const [conversation] = await db.select().from(conversations).where(eq(conversations.id, conversationId)).limit(1);
       if (!conversation) return null;
 
-      // Un solo seguimiento pendiente por conversación.
+      // Un solo seguimiento pendiente por conversación, pero VIVO.
       //
-      // Esto se llama desde el scoring en CADA mensaje entrante y no
-      // comprobaba nada: cada mensaje del cliente agregaba una fila más. Con
-      // un contacto que escribió unas pocas veces se juntaron 46 seguimientos
-      // pendientes para él solo (medido el 17-08-2026). Aunque el candado de
-      // `debeEnviarse` ya impide que salgan, no tiene sentido acumularlos.
-      const [pendiente] = await db.select({ id: followUps.id })
+      // Antes el primer mensaje ganaba para siempre: un lead "warm" dejaba un
+      // check-in genérico a 24 h y, aunque después pidiera el enlace de pago,
+      // la fila no se actualizaba. El vendedor parecía no ser proactivo justo
+      // en el momento de mayor intención. Conservamos una sola fila para no
+      // acosar ni acumular duplicados, pero más abajo la actualizamos con la
+      // etapa, prioridad, fecha y mensaje más recientes.
+      const [pendiente] = await db.select()
         .from(followUps)
         .where(and(eq(followUps.conversationId, conversationId), eq(followUps.completed, false)))
         .limit(1);
-      if (pendiente) {
-        logger.info({ conversationId, followUpId: pendiente.id }, "[FollowUpScheduler] Ya hay un seguimiento pendiente para esta conversación; no se agrega otro");
-        return null;
-      }
 
       if (!scheduledFor) {
-        scheduledFor = this.calculateFollowUpDate(stage);
+        scheduledFor = this.calculateFollowUpDate(stage, score);
       }
 
       const followUpType = this.determineFollowUpType(stage, score);
@@ -110,6 +142,27 @@ export class FollowUpScheduler {
           conversation.lastMessage || "",
           semilla,
         );
+      }
+
+      if (pendiente) {
+        const [actualizado] = await db.update(followUps).set({
+          leadId: conversation.leadId,
+          contactName: conversation.contactName,
+          contactPhone: conversation.contactPhone,
+          scheduledFor: toDbDate(scheduledFor),
+          followUpType,
+          message,
+          priority,
+          stage,
+          lastScore: score,
+          attempts: 0,
+        }).where(eq(followUps.id, pendiente.id)).returning();
+
+        logger.info(
+          { followUpId: pendiente.id, conversationId, etapaAnterior: pendiente.stage, stage, priority },
+          "[FollowUpScheduler] Seguimiento pendiente actualizado con la intención más reciente",
+        );
+        return actualizado ?? null;
       }
 
       const [followUp] = await db.insert(followUps).values({
@@ -215,6 +268,23 @@ export class FollowUpScheduler {
   private async debeEnviarse(followUp: FollowUp): Promise<{ ok: boolean; motivo?: string }> {
     const convoId = followUp.conversationId;
     if (!convoId) return { ok: false, motivo: "el seguimiento no tiene conversación asociada" };
+
+    const [conversacion] = await db.select({
+      status: conversations.status,
+      currentStage: conversations.currentStage,
+      paymentStatus: conversations.paymentStatus,
+    }).from(conversations).where(eq(conversations.id, convoId)).limit(1);
+
+    if (!conversacion) return { ok: false, motivo: "la conversación ya no existe" };
+    if (["confirmed", "approved"].includes(String(conversacion.paymentStatus || "").toLowerCase())) {
+      return { ok: false, motivo: "la compra ya fue pagada/confirmada" };
+    }
+    if (["post_sale", "converted", "won"].includes(String(conversacion.currentStage || "").toLowerCase())) {
+      return { ok: false, motivo: "la conversación ya está en posventa" };
+    }
+    if (["closed", "resolved"].includes(String(conversacion.status || "").toLowerCase())) {
+      return { ok: false, motivo: "la conversación está cerrada" };
+    }
 
     const historial = await db.select({
       role: messages.role,
@@ -380,19 +450,38 @@ export class FollowUpScheduler {
     return rows.map(r => r.followUp);
   }
 
-  private calculateFollowUpDate(stage: string): Date {
-    const now = new Date();
-    const delay = 24 * 60 * 60 * 1000;
-    return new Date(now.getTime() + delay);
+  private calculateFollowUpDate(stage: string, score: number): Date {
+    return calcularFechaSeguimiento(stage, score);
   }
 
   private determineFollowUpType(stage: string, score: number): string {
-    return "check_in";
+    return politicaDeSeguimiento(stage, score).tipo;
   }
 
   private determinePriority(stage: string, score: number): string {
-    return "medium";
+    return politicaDeSeguimiento(stage, score).prioridad;
   }
+}
+
+/**
+ * Cierra cualquier recuperación comercial pendiente cuando la venta terminó o
+ * el cliente rechazó continuar. Un seguimiento de preventa después de un pago
+ * reportado/confirmado deteriora la confianza y hace parecer que el agente no
+ * leyó la conversación.
+ */
+export async function cancelarSeguimientosPendientes(conversationId: number): Promise<number> {
+  const pendientes = await db.select({ id: followUps.id })
+    .from(followUps)
+    .where(and(eq(followUps.conversationId, conversationId), eq(followUps.completed, false)));
+  if (!pendientes.length) return 0;
+  await db.update(followUps)
+    .set({ completed: true })
+    .where(inArray(followUps.id, pendientes.map((f: { id: number }) => f.id)));
+  logger.info(
+    { conversationId, total: pendientes.length },
+    "[FollowUpScheduler] Seguimientos comerciales cancelados por cierre de ciclo",
+  );
+  return pendientes.length;
 }
 
 export const followUpScheduler = new FollowUpScheduler();

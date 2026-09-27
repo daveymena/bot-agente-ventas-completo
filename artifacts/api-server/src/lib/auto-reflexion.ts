@@ -13,7 +13,27 @@ interface ReflectionLesson {
   accion: string;
 }
 
-const PROHIBIDO = ["invent", "mentir", "mient", "exager", "alucin", "escasez falsa", "urgencia falsa", "garantía falsa", "testimonio falso"];
+const PROHIBIDO = [
+  "invent", "mentir", "mient", "exager", "alucin", "escasez falsa", "urgencia falsa", "garantía falsa", "testimonio falso",
+  "precio", "descuento", "promoción", "stock", "garantía de", "entrega en", "últimas unidades", "clientes satisfechos",
+];
+
+const BLOQUE_AUTO = /\n*## MEJORA CONTINUA AUTOMÁTICA\n[\s\S]*$/;
+
+/** Una sola mejora gestionada, reemplazable y acotada; nunca crecimiento infinito del prompt. */
+export function indicacionesConMejora(indicaciones: string | null | undefined, accion: string): string {
+  const base = String(indicaciones || "").replace(BLOQUE_AUTO, "").trim();
+  const mejora = String(accion || "").replace(/\s+/g, " ").trim().slice(0, 500);
+  return `${base}${base ? "\n\n" : ""}## MEJORA CONTINUA AUTOMÁTICA\n- ${mejora}`.slice(0, 2000);
+}
+
+function objeto(valor: unknown): Record<string, any> {
+  if (!valor) return {};
+  if (typeof valor === "string") {
+    try { const x = JSON.parse(valor); return x && typeof x === "object" ? x : {}; } catch { return {}; }
+  }
+  return typeof valor === "object" ? { ...(valor as Record<string, any>) } : {};
+}
 
 /**
  * Curación pura de una lección: rechaza las que fabrican datos o son genéricas.
@@ -165,20 +185,37 @@ Responde estrictamente en JSON:
     }
 
     try {
-      const currentPrompt = agent.systemPrompt as string;
-      const newPrompt = `${currentPrompt}\n\n## MEJORA CONTINUA\n- ${lesson.accion}`;
+      const { motorDelTenant } = await import("./motor-nuevo/activacion");
+      const motor = await motorDelTenant(tenantId);
+      const meta = objeto(agent.metadata);
+      const anterior = motor === "v2" ? String(meta.indicaciones || "") : String(agent.systemPrompt || "");
+      const nuevo = indicacionesConMejora(anterior, lesson.accion);
+
+      // Usa el mismo validador del constructor de agentes: una reflexión no
+      // puede colar hechos comerciales en instrucciones libres.
+      const { validarIndicaciones } = await import("./disenar-agente");
+      const validacion = validarIndicaciones(nuevo);
+      if (!validacion.ok) {
+        logger.warn({ agentId: agent.id, errores: validacion.errores }, "[AutoReflexion] Mejora rechazada por el validador comercial");
+        return false;
+      }
 
       await autoTuneEngine.saveVersion({
         agentId: agent.id,
-        previousPrompt: currentPrompt,
-        newPrompt,
-        diffSummary: `Auto-reflexión: ${lesson.titulo}`,
+        previousPrompt: anterior,
+        newPrompt: nuevo,
+        diffSummary: `Auto-reflexión ${motor}: ${lesson.titulo}`,
         reason: lesson.leccion,
-        appliedBy: "auto-reflexion",
-        performanceBefore: { gravity: lesson.gravedad },
+        appliedBy: motor === "v2" ? "auto-reflexion-v2" : "auto-reflexion",
+        performanceBefore: { gravity: lesson.gravedad, motor },
       });
 
-      await db.update(agents).set({ systemPrompt: newPrompt }).where(eq(agents.id, agent.id));
+      if (motor === "v2") {
+        meta.indicaciones = nuevo;
+        await db.update(agents).set({ metadata: meta as any }).where(eq(agents.id, agent.id));
+      } else {
+        await db.update(agents).set({ systemPrompt: nuevo }).where(eq(agents.id, agent.id));
+      }
 
       await architectMemoryService.recordLearning(
         tenantId,
