@@ -1455,7 +1455,7 @@ export function esConfirmacionBreve(mensaje: string): boolean {
 export function diceQueCompra(mensaje: string): boolean {
   const t = String(mensaje || "").toLowerCase();
   if (esDudaONegativa(t)) return false;
-  return /\b(lo|la|los|las) (quiero|kiero|qiero|compro|pido|llevo)\b|\b(quiero|kiero|qiero) (uno|una|dos|tres|\d+|comprar|pedir|ordenar|hacer el pedido|encargar)\b|\bme (lo|la) llevo\b|\bme (lo|la|los|las) (llevo|env[ií]as?|mand[aá]s?)\b|\b(env[ií]a|mand[aá])(me)?(lo|la|los|las)\b|\bhagamos el pedido\b|\bh[aá]gamelo\b|\bpedido\b.*\bconfirm/i.test(t);
+  return /\b(lo|la|los|las) (quiero|kiero|qiero|queiro|compro|pido|llevo)\b|\b(quiero|kiero|qiero|queiro) (uno|una|dos|tres|\d+|comprar|pedir|ordenar|hacer el pedido|realizar el pedido|encargar|confirmar el pedido)\b|\b(realizar|realizo|hacer|confirmar)( el)? pedido\b|\bme (lo|la) llevo\b|\bme (lo|la|los|las) (llevo|env[ií]as?|mand[aá]s?)\b|\b(env[ií]a|mand[aá])(me)?(lo|la|los|las)\b|\bhagamos el pedido\b|\bh[aá]gamelo\b|\bpedido\b.*\bconfirm/i.test(t);
 }
 
 /** Una duda o un no: no es un sí aunque venga después de "¿te lo enviamos?". */

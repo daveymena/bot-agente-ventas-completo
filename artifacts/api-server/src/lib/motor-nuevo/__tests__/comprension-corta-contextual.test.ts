@@ -68,7 +68,7 @@ describe("comprensión de palabras cortas con contexto", () => {
     expect(tomar).not.toHaveBeenCalled();
   });
 
-  it.each(["lo kiero", "quiero uno", "me lo llevo", "mandamelo", "envíamelo"])(
+  it.each(["lo kiero", "quiero uno", "me lo llevo", "mandamelo", "envíamelo", "si queiro realizar el pedido", "quiero realizar el pedido", "realizar pedido", "confirmar el pedido"])(
     'reconoce intención explícita de compra: "%s"',
     (texto) => expect(diceQueCompra(texto)).toBe(true),
   );
