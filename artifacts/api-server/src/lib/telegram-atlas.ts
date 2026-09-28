@@ -88,6 +88,35 @@ async function fotoComoDescripcion(cfg: ConfigTelegram, fileId: string): Promise
   }
 }
 
+/** Documento (PDF/Excel/Word) → texto con el lector del servidor. Si es una
+ *  imagen mandada como archivo, se lee con visión. Límite 15MB como en el
+ *  endpoint /upload-document del panel. */
+async function documentoComoTexto(cfg: ConfigTelegram, doc: any): Promise<string | null> {
+  try {
+    const nombre = String(doc?.file_name || "documento");
+    const mime = String(doc?.mime_type || "");
+    const r = await fetch(api(cfg.botToken, `getFile?file_id=${encodeURIComponent(doc.file_id)}`), { signal: AbortSignal.timeout(10000) });
+    const j: any = await r.json().catch(() => ({}));
+    const ruta = j?.result?.file_path;
+    if (!ruta) return null;
+    const f = await fetch(`https://api.telegram.org/file/bot${cfg.botToken}/${ruta}`, { signal: AbortSignal.timeout(60000) });
+    const buf = Buffer.from(await f.arrayBuffer());
+    if (!buf.length || buf.length > 15 * 1024 * 1024) return null;
+    if (mime.startsWith("image/")) {
+      const vista = await describirImagen(buf, mime);
+      return vista ? `[Imagen recibida como archivo: ${vista}]` : null;
+    }
+    const { leerDocumento } = await import("./leer-documentos");
+    const leido = await leerDocumento(buf, nombre);
+    if (!leido?.ok) return null;
+    const texto = leido.texto.length > 30_000 ? leido.texto.slice(0, 30_000) : leido.texto;
+    return `[Documento "${nombre}" (${leido.tipo}):\n${texto}]`;
+  } catch (e: any) {
+    logger.warn({ err: e?.message }, "[TelegramAtlas] no se pudo leer el documento");
+    return null;
+  }
+}
+
 /** Manda el pedido a Atlas por la puerta normal y devuelve el texto para el chat. */
 export async function preguntarleAAtlas(tenantId: number, entrada: { prompt?: string; audio?: string; mimeAudio?: string }): Promise<string> {
   const cuerpo: any = { sessionId: "telegram", history: [] };
@@ -123,8 +152,9 @@ async function atenderMensaje(tenantId: number, s: Sondeo, m: any): Promise<void
   }
   const voz = m.voice || m.audio;
   const fotos = Array.isArray(m.photo) ? m.photo : [];
-  if (!texto && !voz && !fotos.length) {
-    await enviarTelegram(s.cfg, "Por ahora leo texto, notas de voz y fotos. Archivos todavía no.");
+  const documento = m.document || null;
+  if (!texto && !voz && !fotos.length && !documento) {
+    await enviarTelegram(s.cfg, "Por acá leo texto, notas de voz, fotos y documentos (PDF, Excel, Word).");
     return;
   }
   const escribiendo = setInterval(() => { void accionEscribiendo(s.cfg); }, 4500);
@@ -143,6 +173,13 @@ async function atenderMensaje(tenantId: number, s: Sondeo, m: any): Promise<void
         const vista = await fotoComoDescripcion(s.cfg, mejorFoto.file_id);
         const pie = vista ? `[Foto recibida: ${vista}]` : "[Foto recibida pero no la pude ver bien]";
         prompt = `${pie}${texto ? ` ${texto}` : ""}`;
+      }
+      // PDF/Excel/Word adjunto: se extrae el texto y viaja en el prompt.
+      // Es lo que permite pasar la lista mayorista sin copiarla a mano.
+      if (documento?.file_id) {
+        const contenido = await documentoComoTexto(s.cfg, documento);
+        if (contenido) prompt = `${contenido}${prompt ? `\n\n${prompt}` : ""}`;
+        else prompt = `${prompt}\n\n(No pude abrir el archivo adjunto, pedile que lo reenvíe o lo pegue como texto.)`;
       }
       respuesta = await preguntarleAAtlas(tenantId, { prompt });
     }
