@@ -2694,7 +2694,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "web_scrape_images",
     description:
-      "EXTRAER las URLs de las imágenes reales de una página web (scraping). Úsala cuando el admin quiera una foto de producto que ya existe en internet (la página del proveedor, una tienda, un curso) en vez de generar una con IA. Devuelve las imágenes ordenadas de más a menos relevante (portada/og:image primero). Solo LEE, no asigna nada — después usa set_product_image con la URL elegida.",
+      "EXTRAER las URLs de las imágenes reales de una página web (scraping). Úsala cuando el admin quiera una foto de producto que ya existe en internet (la página del proveedor, una tienda, un curso) en vez de generar una con IA. Devuelve las imágenes ordenadas de más a menos relevante (portada/og:image primero), VERIFICADAS una por una: solo salen las que responden 2xx como imagen. Copiá cada URL EXACTA y completa como viene, jamás recortada ni 'limpiada' (una URL a medias da 404). Solo LEE, no asigna nada — después usa set_product_image con la URL elegida.",
     args: '{ "url": string (req), "limit": number (opcional, por defecto 12) }',
     run: async (args) => {
       const url = String(args.url || "").trim();
@@ -2736,13 +2736,28 @@ export const TOOLS: ToolDef[] = [
           if (best) push(abs(best));
         }
 
-        const images = ordered.slice(0, limit);
+        // ── Solo URLs que ABREN de verdad ─────────────────────────────
+        // Medido 2026-09-28 (megacomputer, producto Ryzen 5600GT): al admin le
+        // llegó `.../uploads/2026/05/edite`, recortada a mitad de nombre
+        // (`edited1-21...`) → 404. Una URL de imagen que no resuelve no es un
+        // resultado: se verifica cada candidata con un GET parcial (1 byte) y
+        // se descartan las muertas ANTES de mostrárselas al modelo, para que
+        // no tenga nada roto que copiar.
+        const vivas: string[] = [];
+        await Promise.all(ordered.slice(0, limit * 2).map(async (u) => {
+          try {
+            const r = await fetch(u, { method: "GET", headers: { Range: "bytes=0-0", "User-Agent": "Mozilla/5.0" }, redirect: "follow", signal: AbortSignal.timeout(8000) });
+            const ct = (r.headers.get("content-type") || "").toLowerCase();
+            if ((r.ok || r.status === 206) && (!ct || ct.startsWith("image/") || ct === "application/octet-stream")) vivas.push(u);
+          } catch { /* muerta: se descarta en silencio */ }
+        }));
+        const images = ordered.filter((u) => vivas.includes(u)).slice(0, limit);
         if (images.length === 0) {
-          return { ok: false, summary: "No encontré imágenes utilizables (la página puede cargarlas por JavaScript)." };
+          return { ok: false, summary: "No encontré imágenes utilizables (la página puede cargarlas por JavaScript o responder solo a su propio dominio)." };
         }
         return {
           ok: true,
-          summary: `🖼️ ${images.length} imágenes encontradas en ${base.hostname}. La primera suele ser la principal.`,
+          summary: `🖼️ ${images.length} imágenes verificadas en ${base.hostname} (abren de verdad). La primera suele ser la principal. Copiá la URL exacta, sin recortarla.`,
           data: { images, text: images.map((u, i) => `${i + 1}. ${u}`).join("\n") },
         };
       } catch (e: any) {
@@ -8841,6 +8856,9 @@ IMÁGENES — REGLAS DE CALIDAD PARA FACEBOOK ADS:
   ✅ Personas usando el producto > producto solo > ilustración genérica
 - 📸 Si el admin te da una foto (URL o enlace de Google Drive /file/d/...), proponela DIRECTAMENTE
   con propose_action + set_product_image. NO uses web_fetch para fotos.
+- 🔗 Las URLs de imágenes se copian EXACTAS y completas, carácter por carácter. Una URL recortada
+  (".../edite" en vez de ".../edited1-21...webp") da 404: usá la que dio la herramienta tal cual;
+  si falla al guardarla, re-extráela, jamás la completes a ojo.
 - 🎨 generate_image es el ÚLTIMO recurso. Solo si search_product_images y web_scrape_images
   fallan Y el admin no tiene foto propia. Siempre pregunta antes de generar con IA.
 - 📎 El admin también puede ADJUNTAR una imagen directamente en este chat: te llega como
@@ -9167,6 +9185,9 @@ IMÁGENES — REGLAS DE CALIDAD PARA FACEBOOK ADS:
   ✅ Personas usando el producto > producto solo > ilustración genérica
 - 📸 Si el admin te da una foto (URL o enlace de Google Drive /file/d/...), úsala DIRECTAMENTE
   con set_product_image. NO uses web_fetch para fotos.
+- 🔗 Las URLs de imágenes se copian EXACTAS y completas, carácter por carácter. Una URL recortada
+  (".../edite" en vez de ".../edited1-21...webp") da 404: usá la que dio la herramienta tal cual;
+  si falla al guardarla, re-extráela, jamás la completes a ojo.
 - 🎨 generate_image es el ÚLTIMO recurso. Solo si search_product_images y web_scrape_images
   fallan Y el admin no tiene foto propia. Siempre pregunta antes de generar con IA.
 - 📎 El admin también puede ADJUNTAR una imagen directamente en este chat: te llega como
