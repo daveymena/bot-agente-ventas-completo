@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip, RotateCcw, History, Trash2, Copy, Square, Mic, Volume2, VolumeX, Pause, Play } from "lucide-react";
+import { Bot, Send, User, Loader2, Sparkles, Check, X, Wrench, MessageSquare, Paperclip, RotateCcw, History, Trash2, Copy, Square, Mic, Volume2, VolumeX, Pause, Play, Globe } from "lucide-react";
+import { ScraperPanel } from "@/components/scraper-panel";
 import { toast } from "sonner";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -293,6 +294,7 @@ export default function CodeAgent() {
    */
   const [segundos, setSegundos] = useState(0);
   const [uploading, setUploading] = useState(false);
+  const [panelScraper, setPanelScraper] = useState(false);
   const [restoring, setRestoring] = useState(true);
   const [confirmingReset, setConfirmingReset] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -809,59 +811,63 @@ export default function CodeAgent() {
 
   // Subir una imagen/archivo desde el chat (botón 📎) y dejar su URL lista para
   // que el Architect la use (ej: "asigna esta imagen al producto ...").
+  // Subir archivos desde el chat (botón 📎): acepta VARIOS a la vez y cada
+  // uno queda identificado de forma profesional (nombre · tipo · tamaño).
+  // Una imagen y un documento NO se procesan igual: la imagen se guarda y se
+  // le pasa la URL a un modelo con visión; el documento se lee, se archiva
+  // una copia en el volumen y su texto entra en la conversación.
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Una imagen y un documento NO se procesan igual: la imagen se guarda y se
-    // le pasa la URL a un modelo con vision; el documento se lee acá, se le
-    // saca el texto y ese texto entra en la conversación. El archivo en sí no
-    // se guarda -- interesa el contenido, no tenerlo dando vueltas.
-    const esImagen = file.type.startsWith("image/");
-    const limite = esImagen ? 8 : 15;
-    if (file.size > limite * 1024 * 1024) {
-      toast.error(`El archivo supera ${limite}MB`);
-      return;
-    }
+    const archivos = Array.from(e.target.files || []);
+    if (!archivos.length) return;
+    const kb = (n: number) => `${Math.max(1, Math.round(n / 1024))} KB`;
     setUploading(true);
     try {
-      const dataUrl: string = await new Promise((resolve, reject) => {
-        const r = new FileReader();
-        r.onload = () => resolve(r.result as string);
-        r.onerror = reject;
-        r.readAsDataURL(file);
-      });
-      if (!esImagen) {
-        const r = await fetch("/api/code-agent/upload-document", {
+      for (const file of archivos) {
+        const esImagen = file.type.startsWith("image/");
+        const limite = esImagen ? 8 : 15;
+        if (file.size > limite * 1024 * 1024) {
+          toast.error(`"${file.name}" supera ${limite}MB y se omitió`);
+          continue;
+        }
+        const dataUrl: string = await new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(r.result as string);
+          r.onerror = reject;
+          r.readAsDataURL(file);
+        });
+        if (!esImagen) {
+          const r = await fetch("/api/code-agent/upload-document", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ file: dataUrl, filename: file.name }),
+            credentials: "include",
+          });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok) throw new Error(d.error || `No se pudo leer "${file.name}"`);
+          const SALTO = String.fromCharCode(10);
+          const ficha = `[Archivo: ${d.nombre || file.name} · ${d.tipo || "documento"} · ${kb(d.bytes || file.size)}${d.fileUrl ? ` · guardado en ${d.fileUrl}` : ""}]`;
+          setInput((prev) =>
+            (prev ? prev + SALTO + SALTO : "") +
+            `${ficha}${d.recortado ? " — es largo, va la primera parte" : ""}:` +
+            SALTO + SALTO + d.texto,
+          );
+          toast.success(d.resumen || `Archivo "${file.name}" leído`);
+          continue;
+        }
+        const res = await fetch("/api/code-agent/upload", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ file: dataUrl, filename: file.name }),
+          body: JSON.stringify({ image: dataUrl, filename: file.name }),
           credentials: "include",
         });
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok) throw new Error(d.error || "No se pudo leer el archivo");
-        const SALTO = String.fromCharCode(10);
-        setInput((prev) =>
-          (prev ? prev + SALTO + SALTO : "") +
-          `Te paso el contenido de "${d.nombre}" (${d.tipo})${d.recortado ? " — es largo, va la primera parte" : ""}:` +
-          SALTO + SALTO + d.texto,
-        );
-        toast.success(d.resumen || "Archivo leído");
-        return;
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `Error al subir "${file.name}"`);
+        const data = await res.json();
+        const fichaImg = `[Imagen: ${data.nombre || file.name} · ${data.mime || file.type || "imagen"} · ${kb(data.bytes || file.size)}]`;
+        setInput((prev) => (prev ? prev + "\n\n" : "") + `${fichaImg}\nUsa esta imagen:\n![Imagen subida](${data.url})`);
+        toast.success(`Imagen "${file.name}" subida ✓ — dime a qué producto asignarla`);
       }
-
-      const res = await fetch("/api/code-agent/upload", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: dataUrl, filename: file.name }),
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Error al subir");
-      const data = await res.json();
-      setInput((prev) => (prev ? prev + "\n\n" : "") + `Usa esta imagen:\n![Imagen subida](${data.url})`);
-      toast.success("Imagen subida ✓ — dime a qué producto asignarla");
     } catch (err: any) {
-      toast.error(err.message || "No se pudo subir la imagen");
+      toast.error(err.message || "No se pudo subir el archivo");
     } finally {
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -1381,6 +1387,15 @@ export default function CodeAgent() {
             <Button variant="outline" size="sm" onClick={nuevaConversacion} className="h-8 sm:h-9 text-xs px-2 sm:px-3">
               <RotateCcw className="h-3.5 w-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Nueva</span>
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPanelScraper(true)}
+              className="h-8 sm:h-9 text-xs px-2 sm:px-3"
+              title="Extraer datos de una web y mandarlos a Atlas"
+            >
+              <Globe className="h-3.5 w-3.5 sm:mr-1.5" /> <span className="hidden sm:inline">Scraper</span>
+            </Button>
             <div data-tour="code-agent-mode-toggle" className="inline-flex rounded-lg border border-border bg-secondary p-0.5">
               <button
                 onClick={() => switchMode("operator")}
@@ -1448,6 +1463,11 @@ export default function CodeAgent() {
           </div>
         )}
 
+        <ScraperPanel
+          abierto={panelScraper}
+          alCerrar={() => setPanelScraper(false)}
+          alEnviarAAtlas={(texto) => setInput((prev) => (prev ? prev + "\n\n" : "") + texto)}
+        />
         <div className="flex flex-1 min-h-0">
           <div className="flex-1 flex flex-col border border-border rounded-2xl bg-card overflow-hidden shadow-sm min-h-0">
             {/* El viewport interno de Radix es un `display:table` con
@@ -1559,6 +1579,7 @@ export default function CodeAgent() {
                 <input
                   ref={fileInputRef}
                   type="file"
+                  multiple
                   accept="image/*,.pdf,.docx,.xlsx,.xls,.csv,.pptx,.txt,.md"
                   className="hidden"
                   onChange={handleFileUpload}

@@ -172,16 +172,18 @@ export async function transcribirAudio(audio: Buffer, mime = "audio/ogg"): Promi
  * Devuelve null si ningun modelo pudo verla -- explicitamente null, para que
  * quien llama sepa que NO hay informacion en vez de recibir una invencion.
  */
-export async function describirImagen(imagen: Buffer, mime = "image/jpeg"): Promise<string | null> {
+export async function describirImagen(imagen: Buffer, mime = "image/jpeg", pregunta?: string): Promise<string | null> {
   const b64 = imagen.toString("base64");
   // El prompt le pide CAUTELA, no precisión. Un modelo de visión que afirma
   // montos y fechas es justo el que termina describiendo un Excel como "un
   // comprobante de transferencia con valor, fecha y banco" (caso real
   // 2026-09-05). Para detectar un comprobante alcanza con saber el TIPO de
   // imagen; los datos exactos los confirma una persona, no un modelo.
+  const foco = String(pregunta || "").trim().slice(0, 300);
   const instruccion =
     "Describí en 1-2 frases, en español, QUÉ TIPO de imagen es esta "
     + "(por ejemplo: comprobante de pago, hoja de cálculo de Excel, captura de pantalla, foto de un producto, etc.). "
+    + (foco ? `Enfocate en responder esto del admin: "${foco}". ` : "")
     + "NO afirmes montos, fechas, nombres de bancos ni números salvo que los leas con total claridad. "
     + "Si no estás seguro de qué es, decí 'no está claro'. No inventes nada que no se vea con claridad.";
 

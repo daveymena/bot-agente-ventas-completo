@@ -2751,6 +2751,79 @@ export const TOOLS: ToolDef[] = [
     },
   },
 
+  // ── 👁️ VER UNA IMAGEN (los ojos de Atlas) ────
+  // El admin adjunta imágenes en el chat y llegan como Markdown ![...](url) en
+  // el TEXTO: el modelo nunca ve los píxeles. Sin esta herramienta Atlas solo
+  // podía decir "no puedo ver imágenes" aunque la visión esté configurada
+  // (gemma4 local + DeepSeek visión de respaldo, ver media-entrante.ts).
+  {
+    name: "ver_imagen",
+    description:
+      "VER de verdad una imagen: devuelve qué es y qué se ve en ella (objetos, texto legible, tipo de documento). " +
+      "Úsala SIEMPRE que el admin te pregunte por una imagen del chat o te pida usar una foto que adjuntó: " +
+      "lo que ves como Markdown ![...](url) en la conversación es solo la URL en texto, vos NO ves los píxeles " +
+      "hasta llamar a esta herramienta. Pasale la URL tal cual aparece (http(s) o /uploads/...). " +
+      "Si dice que no pudo verla, decíselo al admin tal cual en vez de inventar lo que muestra. " +
+      "PROHIBIDO afirmar montos, fechas o datos exactos que la herramienta no haya dicho con claridad.",
+    args: '{ "url": string (req: la URL de la imagen tal como aparece en el chat, http(s) o /uploads/...), "pregunta"?: string (opcional: qué buscar en la imagen, ej "qué dice el error del pantallazo") }',
+    run: async (args) => {
+      const crudo = String(args?.url || "").trim();
+      const pregunta = String(args?.pregunta || "").trim().slice(0, 300);
+      if (!crudo) return { ok: false, summary: "Pasame la 'url' de la imagen (la que aparece en el chat como ![...](url))." };
+      const esPrivada = (ip: string): boolean => {
+        const v = ip.toLowerCase();
+        if (v === "::1" || v === "localhost") return true;
+        if (v.startsWith("127.") || v.startsWith("10.") || v.startsWith("192.168.") || v.startsWith("169.254.")) return true;
+        if (v.startsWith("172.")) { const n = Number(v.split(".")[1]); if (n >= 16 && n <= 31) return true; }
+        if (v.startsWith("fc") || v.startsWith("fd")) return true;
+        return false;
+      };
+      let buffer: Buffer | null = null;
+      let mime = "image/jpeg";
+      try {
+        if (crudo.startsWith("/uploads/")) {
+          const { getImageStoreDir } = await import("./image-store");
+          const path = await import("node:path");
+          const { readFile, stat } = await import("node:fs/promises");
+          const base = path.resolve(getImageStoreDir());
+          const full = path.resolve(base, crudo.replace(/^\/uploads\//, ""));
+          if (full !== base && !full.startsWith(base + path.sep)) return { ok: false, summary: "Ruta fuera del almacén de imágenes." };
+          const st = await stat(full).catch(() => null);
+          if (!st?.isFile()) return { ok: false, summary: "No encontré esa imagen en el servidor (¿se borró con un deploy?). Pedile al admin que la adjunte de nuevo." };
+          if (st.size > 8 * 1024 * 1024) return { ok: false, summary: "La imagen supera 8MB." };
+          buffer = await readFile(full);
+          const ext = full.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1];
+          mime = ext === "png" ? "image/png" : ext === "webp" ? "image/webp" : ext === "gif" ? "image/gif" : "image/jpeg";
+        } else if (/^https?:\/\//i.test(crudo)) {
+          const u = new URL(crudo);
+          const { lookup } = await import("node:dns/promises");
+          const { isIP } = await import("node:net");
+          const bloqueado = isIP(u.hostname) ? esPrivada(u.hostname) : (await lookup(u.hostname, { all: true }).catch(() => null))?.some((a: any) => esPrivada(a.address)) ?? true;
+          if (bloqueado) return { ok: false, summary: "URL no permitida (red privada)." };
+          const res = await fetch(u.toString(), { headers: { "User-Agent": "Mozilla/5.0" }, redirect: "follow", signal: AbortSignal.timeout(20000) });
+          if (!res.ok) return { ok: false, summary: `No se pudo descargar la imagen (HTTP ${res.status}).` };
+          const ct = (res.headers.get("content-type") || "").split(";")[0].trim();
+          if (ct && !ct.startsWith("image/")) return { ok: false, summary: "Esa URL no es una imagen." };
+          if (ct) mime = ct;
+          buffer = Buffer.from(await res.arrayBuffer());
+          if (buffer.length === 0 || buffer.length > 8 * 1024 * 1024) return { ok: false, summary: "Imagen vacía o mayor a 8MB." };
+        } else {
+          return { ok: false, summary: "La 'url' debe ser http(s) o una ruta /uploads/... del chat." };
+        }
+      } catch (e: any) {
+        return { ok: false, summary: `No pude traer la imagen: ${String(e?.message || e).slice(0, 160)}` };
+      }
+      const { describirImagen, visionDisponible } = await import("./media-entrante");
+      const descripcion = await describirImagen(buffer!, mime, pregunta || undefined);
+      if (!descripcion) {
+        const v = visionDisponible();
+        if (!v.hay) return { ok: false, summary: "Visión no configurada en este servidor (ningún modelo con visión tiene clave). Avisale al admin que revise VISION_MODELS u OLLAMA_LOCAL_URL." };
+        return { ok: false, summary: "El servicio de visión no respondió para esta imagen (timeout o formato). Probá de nuevo o pedile al admin una captura más simple." };
+      }
+      return { ok: true, summary: `👁️ Lo que se ve: ${descripcion}`, data: { descripcion } };
+    },
+  },
+
   // ── 🖼️ BÚSQUEDA DE IMÁGENES PROFESIONALES (para anuncios / productos) ────
   {
     name: "search_product_images",
@@ -8216,7 +8289,7 @@ export const READ_ONLY_TOOLS = new Set([
   "predict_customer", "optimize_price", "optimize_copy",
   "analyze_channel_performance", "reason_business_decision",
   // Lectura de web (información externa)
-  "web_fetch", "web_search", "web_scrape_images", "search_product_images", "deep_research", "fb_ad_library",
+  "web_fetch", "web_search", "web_scrape_images", "search_product_images", "ver_imagen", "deep_research", "fb_ad_library",
   // Que es y cuanto cuesta la plataforma: solo lectura, no cambia nada.
   "plataforma_info",
   "research_start", "research_check",
@@ -8770,8 +8843,12 @@ IMÁGENES — REGLAS DE CALIDAD PARA FACEBOOK ADS:
   con propose_action + set_product_image. NO uses web_fetch para fotos.
 - 🎨 generate_image es el ÚLTIMO recurso. Solo si search_product_images y web_scrape_images
   fallan Y el admin no tiene foto propia. Siempre pregunta antes de generar con IA.
-- 📎 El admin también puede ADJUNTAR una imagen directamente en este chat. Si lo hace, tomala
-  y proponela con set_product_image.
+- 📎 El admin también puede ADJUNTAR una imagen directamente en este chat: te llega como
+  Markdown ![...](url) en el texto. OJO: eso es solo la URL, vos NO ves los píxeles hasta
+  llamar a ver_imagen con esa URL. Cuando pregunte qué se ve, o antes de proponerla con
+  set_product_image, llamá ver_imagen PRIMERO. PROHIBIDO decir "no puedo ver imágenes":
+  tenés ojos (ver_imagen → gemma4 local, respaldo DeepSeek visión). Si ver_imagen falla,
+  decí exactamente eso en vez de inventar lo que muestra.
 - web_scrape_images sigue disponible para extraer fotos de la página de un proveedor específico
   cuando se conoce la URL exacta.
 
@@ -9092,8 +9169,12 @@ IMÁGENES — REGLAS DE CALIDAD PARA FACEBOOK ADS:
   con set_product_image. NO uses web_fetch para fotos.
 - 🎨 generate_image es el ÚLTIMO recurso. Solo si search_product_images y web_scrape_images
   fallan Y el admin no tiene foto propia. Siempre pregunta antes de generar con IA.
-- 📎 El admin también puede ADJUNTAR una imagen directamente en este chat. Si lo hace, tómala
-  y úsala con set_product_image.
+- 📎 El admin también puede ADJUNTAR una imagen directamente en este chat: te llega como
+  Markdown ![...](url) en el texto. OJO: eso es solo la URL, vos NO ves los píxeles hasta
+  llamar a ver_imagen con esa URL. Cuando pregunte qué se ve, o antes de usarla con
+  set_product_image, llamá ver_imagen PRIMERO. PROHIBIDO decir "no puedo ver imágenes":
+  tenés ojos (ver_imagen → gemma4 local, respaldo DeepSeek visión). Si ver_imagen falla,
+  decí exactamente eso en vez de inventar lo que muestra.
 - web_scrape_images sigue disponible para extraer fotos de la página de un proveedor específico
   cuando se conoce la URL exacta.
 

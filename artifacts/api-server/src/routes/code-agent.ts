@@ -2292,9 +2292,10 @@ router.post("/upload-document", async (req: TenantRequest, res, next) => {
     if (!file || typeof file !== "string") {
       return res.status(400).json({ error: "Falta 'file' (data URL base64)" });
     }
-    const nombre = String(filename || "documento");
+    const nombre = String(filename || "documento").slice(0, 120);
 
     // data:<mime>;base64,<datos>
+    const mime = file.match(/^data:([^;,]+)/)?.[1] || "application/octet-stream";
     const coma = file.indexOf(",");
     const base64 = coma >= 0 ? file.slice(coma + 1) : file;
     const buffer = Buffer.from(base64, "base64");
@@ -2315,13 +2316,30 @@ router.post("/upload-document", async (req: TenantRequest, res, next) => {
     const PARA_EL_CHAT = 30_000;
     const texto = r.texto.length > PARA_EL_CHAT ? r.texto.slice(0, PARA_EL_CHAT) : r.texto;
 
+    // Copia de referencia en el volumen: el admin puede volver a abrir el
+    // original sin re-subirlo, y queda identificado (nombre/tipo/tamaño).
+    let fileUrl: string | null = null;
+    try {
+      const { getImageStoreDir } = await import("../lib/image-store");
+      const { mkdir, writeFile } = await import("node:fs/promises");
+      const path = await import("node:path");
+      const dir = path.join(getImageStoreDir(), "docs");
+      await mkdir(dir, { recursive: true });
+      const safe = `${Date.now()}-${nombre.replace(/[^\w.\-áéíóúñ]/gi, "_")}`.slice(0, 100);
+      await writeFile(path.join(dir, safe), buffer);
+      fileUrl = `/uploads/docs/${safe}`;
+    } catch { /* la lectura es lo importante; si no se pudo archivar, igual responde */ }
+
     return res.json({
       ok: true,
       tipo: r.tipo,
       nombre,
+      mime,
+      bytes: buffer.length,
       resumen: r.resumen,
       recortado: r.texto.length > PARA_EL_CHAT,
       texto,
+      fileUrl,
     });
   } catch (e) {
     return next(e);
@@ -2384,7 +2402,13 @@ router.post("/upload", async (req: TenantRequest, res, next) => {
 
     const base = (process.env.APP_URL || "").replace(/\/$/, "");
     const url = base ? `${base}${rel}` : rel;
-    return res.json({ ok: true, url, path: rel });
+    const mimo = String(image).match(/^data:([^;,]+)/)?.[1] || "image/jpeg";
+    let bytes = 0;
+    try {
+      const b64 = String(image).split(",")[1] || "";
+      bytes = Buffer.from(b64, "base64").length;
+    } catch { /* solo identificativo */ }
+    return res.json({ ok: true, url, path: rel, nombre: String(filename || "imagen"), mime: mimo, bytes });
   } catch (e) {
     return next(e);
   }
