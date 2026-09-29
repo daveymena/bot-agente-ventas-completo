@@ -104,7 +104,7 @@ export default function Encabezado({
   };
 
   return (
-    <header className="sticky top-0 z-50 bg-white">
+    <header className="sticky top-0 z-50 bg-white shadow-[0_1px_12px_rgba(76,29,149,0.06)]">
       {/* ── 1. BARRA SUPERIOR ─────────────────────────────────────────── */}
       <div className="hidden md:block bg-[var(--mk-topbar)] border-b border-[var(--mk-border)]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center justify-between text-[12px] text-[var(--mk-muted)]">
@@ -154,17 +154,19 @@ export default function Encabezado({
               </span>
             </Link>
 
-            {/* El buscador de Market: selector de categoría pegado al campo y
-                botón de color. En móvil baja a su propia fila. */}
-            <form onSubmit={buscar} className="hidden md:flex flex-1 max-w-2xl h-11 rounded-md border-2 border-[var(--store-primary)] overflow-hidden">
+            {/* El buscador: píldora redondeada con botón circular violeta.
+                El selector de categoría se conserva (filtra de verdad); en el
+                diseño de referencia no existe, pero quitarlo sería perder
+                función por estética. */}
+            <form onSubmit={buscar} className="hidden h-11 max-w-2xl flex-1 items-center gap-1 rounded-full border border-violet-200 bg-violet-50/60 py-1 pl-1 pr-1 md:flex">
               {categorias.length > 0 && (
                 <select
                   value={categoria}
                   onChange={(e) => setCategoria(e.target.value)}
                   aria-label="Categoría"
-                  className="h-full bg-[var(--mk-panel)] border-r border-[var(--mk-border)] px-3 text-[13px] text-[var(--mk-ink)] outline-none max-w-[170px]"
+                  className="h-full max-w-[150px] rounded-full bg-transparent px-3 text-[13px] font-semibold text-[var(--tech-tinta)] outline-none"
                 >
-                  <option value="all">Todas las categorías</option>
+                  <option value="all">Todas</option>
                   {categorias.map((c) => (
                     <option key={c.key} value={c.key}>{c.name}</option>
                   ))}
@@ -173,44 +175,44 @@ export default function Encabezado({
               <input
                 value={termino}
                 onChange={(e) => setTermino(e.target.value)}
-                placeholder="Buscá un producto..."
-                className="flex-1 h-full px-4 text-sm text-[var(--mk-ink)] placeholder-[var(--mk-muted)] outline-none"
+                placeholder="Buscá productos..."
+                className="h-full min-w-0 flex-1 bg-transparent px-3 text-sm text-[var(--tech-tinta)] outline-none placeholder:text-[var(--tech-gris)]"
               />
               <button
                 type="submit"
                 aria-label="Buscar"
-                className="h-full px-6 bg-[var(--store-primary)] text-[var(--store-on-primary)] hover:bg-[var(--store-primary-hover)] transition-colors"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--tech-violeta)] text-white transition-colors hover:bg-[var(--tech-violeta-hover)]"
               >
-                <Search className="w-5 h-5" />
+                <Search className="h-[18px] w-[18px]" />
               </button>
             </form>
 
-            <div className="ml-auto flex items-center gap-2 md:gap-4">
+            <div className="ml-auto flex items-center gap-2 md:gap-3">
               <Link
                 to={`${base}/wishlist`}
                 aria-label="Lista de deseos"
-                className="relative hidden md:flex h-10 w-10 items-center justify-center rounded-full border border-[var(--mk-border)] text-[var(--mk-ink)] hover:border-[var(--store-primary)] hover:text-[var(--store-primary)] transition-colors"
+                className="relative hidden h-10 w-10 items-center justify-center rounded-full border border-violet-200 text-[var(--tech-tinta)] transition-colors hover:border-[var(--tech-violeta)] hover:text-[var(--tech-violeta)] md:flex"
               >
-                <Heart className="w-[18px] h-[18px]" />
+                <Heart className="h-[18px] w-[18px]" />
                 {wishlistCount > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--store-primary)] text-[var(--store-on-primary)] text-[10px] font-bold flex items-center justify-center">
+                  <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[var(--tech-violeta)] px-1 text-[10px] font-bold text-white">
                     {wishlistCount}
                   </span>
                 )}
               </Link>
 
-              <Link to={`${base}/carrito`} className="flex items-center gap-2.5 group">
-                <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[var(--store-primary)] text-[var(--store-on-primary)]">
-                  <ShoppingCart className="w-[18px] h-[18px]" />
+              <Link to={`${base}/carrito`} className="group flex items-center gap-2.5">
+                <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[var(--tech-violeta)] text-white">
+                  <ShoppingCart className="h-[18px] w-[18px]" />
                   {cartCount > 0 && (
-                    <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--mk-nav)] text-white text-[10px] font-bold flex items-center justify-center">
+                    <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[var(--tech-marino)] px-1 text-[10px] font-bold text-white">
                       {cartCount}
                     </span>
                   )}
                 </span>
-                <span className="hidden lg:block leading-tight">
-                  <span className="block text-[11px] text-[var(--mk-muted)]">Mi carrito</span>
-                  <span className="block text-[13px] font-bold text-[var(--mk-ink)] group-hover:text-[var(--store-primary)] transition-colors">
+                <span className="hidden leading-tight lg:block">
+                  <span className="block text-[11px] text-[var(--tech-gris)]">Mi carrito</span>
+                  <span className="block text-[13px] font-bold text-[var(--tech-tinta)] transition-colors group-hover:text-[var(--tech-violeta)]">
                     {cartCount} {cartCount === 1 ? 'artículo' : 'artículos'}
                   </span>
                 </span>
@@ -226,80 +228,82 @@ export default function Encabezado({
             </div>
           </div>
 
-          {/* Buscador en móvil: fila propia, siempre visible. */}
-          <form onSubmit={buscar} className="md:hidden mt-3 flex h-11 rounded-md border-2 border-[var(--store-primary)] overflow-hidden">
+              {/* Buscador en móvil: fila propia, siempre visible. */}
+          <form onSubmit={buscar} className="mt-3 flex h-11 items-center gap-1 rounded-full border border-violet-200 bg-violet-50/60 py-1 pl-4 pr-1 md:hidden">
             <input
               value={termino}
               onChange={(e) => setTermino(e.target.value)}
               placeholder="Buscá un producto..."
-              className="flex-1 h-full px-3 text-sm text-[var(--mk-ink)] placeholder-[var(--mk-muted)] outline-none"
+              className="h-full min-w-0 flex-1 bg-transparent text-sm text-[var(--tech-tinta)] outline-none placeholder:text-[var(--tech-gris)]"
             />
-            <button type="submit" aria-label="Buscar" className="h-full px-5 bg-[var(--store-primary)] text-[var(--store-on-primary)]">
-              <Search className="w-5 h-5" />
+            <button type="submit" aria-label="Buscar" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--tech-violeta)] text-white">
+              <Search className="h-[18px] w-[18px]" />
             </button>
           </form>
         </div>
       </div>
 
-      {/* ── 3. NAVEGACIÓN OSCURA ──────────────────────────────────────── */}
-      <div className="hidden md:block bg-[var(--mk-nav)]">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-stretch h-[46px]">
-            {/* El bloque de categorías: la firma de Market. Si la tienda
-                todavía no tiene categorías cargadas no se dibuja, porque un
-                menú que se abre vacío se lee como una tienda rota. */}
-            {categorias.length > 0 && (
-              <div ref={contenedorLista} className="relative w-[260px] shrink-0">
-                <button
-                  onClick={() => setListaAbierta((v) => !v)}
-                  aria-expanded={listaAbierta}
-                  className="w-full h-full flex items-center gap-2.5 px-5 bg-[var(--store-primary)] text-[var(--store-on-primary)] text-[13px] font-bold uppercase tracking-wide"
-                >
-                  <Menu className="w-4 h-4" />
-                  Todas las categorías
-                  <ChevronDown className={`w-4 h-4 ml-auto transition-transform ${listaAbierta ? 'rotate-180' : ''}`} />
-                </button>
-                {listaAbierta && (
-                  <div className="absolute left-0 top-full w-full bg-white border border-[var(--mk-border)] border-t-0 shadow-xl max-h-[70vh] overflow-y-auto">
-                    {categorias.map((c) => (
-                      <button
-                        key={c.key}
-                        onClick={() => irACategoria(c.key)}
-                        className="w-full flex items-center justify-between px-5 py-2.5 text-[13px] text-[var(--mk-ink)] hover:bg-[var(--mk-panel)] hover:text-[var(--store-primary)] transition-colors border-b border-[var(--mk-border)] last:border-0 text-left"
-                      >
-                        <span className="truncate">{c.name}</span>
-                        <span className="text-[11px] text-[var(--mk-muted)] shrink-0 ml-2">{c.count}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <nav className="flex items-center gap-1 px-2">
-              <Link to={base} className="px-4 h-full flex items-center text-[13px] font-semibold text-white/90 hover:bg-[var(--mk-nav-hover)] hover:text-white transition-colors uppercase tracking-wide">
-                Inicio
-              </Link>
-              <Link to={`${base}?cat=all#catalogo`} className="px-4 h-full flex items-center text-[13px] font-semibold text-white/90 hover:bg-[var(--mk-nav-hover)] hover:text-white transition-colors uppercase tracking-wide">
-                Catálogo
-              </Link>
-              <Link to={`${base}/wishlist`} className="px-4 h-full flex items-center text-[13px] font-semibold text-white/90 hover:bg-[var(--mk-nav-hover)] hover:text-white transition-colors uppercase tracking-wide">
-                Deseados
-              </Link>
-            </nav>
-
-            {waHref && (
-              <a
-                href={waHref}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="ml-auto flex items-center gap-2 px-4 text-white/90 hover:text-white transition-colors"
+      {/* ── 3. NAVEGACIÓN CLARA ─────────────────────────────────────────
+          En el diseño tech esta fila es blanca: píldora violeta de
+          categorías a la izquierda, enlaces al centro, contacto a la
+          derecha. Se conserva la misma lógica (dropdown real, mismas
+          rutas). */}
+      <div className="hidden border-t border-violet-100 md:block">
+        <div className="mx-auto flex h-[58px] max-w-6xl items-center gap-2 px-4 sm:px-6 lg:px-8">
+          {/* El bloque de categorías: la firma de Market. Si la tienda
+              todavía no tiene categorías cargadas no se dibuja, porque un
+              menú que se abre vacío se lee como una tienda rota. */}
+          {categorias.length > 0 && (
+            <div ref={contenedorLista} className="relative h-full shrink-0">
+              <button
+                onClick={() => setListaAbierta((v) => !v)}
+                aria-expanded={listaAbierta}
+                className="flex h-10 items-center gap-2.5 self-center rounded-full bg-[var(--tech-violeta)] px-5 text-[13px] font-bold text-white transition-colors hover:bg-[var(--tech-violeta-hover)]"
               >
-                <MessageCircle className="w-4 h-4 text-[#25D366]" />
-                <span className="text-[13px] font-bold">+{wa}</span>
-              </a>
-            )}
-          </div>
+                <Menu className="h-4 w-4" />
+                Todas las categorías
+                <ChevronDown className={`h-4 w-4 transition-transform ${listaAbierta ? 'rotate-180' : ''}`} />
+              </button>
+              {listaAbierta && (
+                <div className="absolute left-0 top-full z-50 mt-1 w-[260px] overflow-y-auto rounded-2xl border border-violet-100 bg-white py-2 shadow-xl shadow-violet-900/10 max-h-[70vh]">
+                  {categorias.map((c) => (
+                    <button
+                      key={c.key}
+                      onClick={() => irACategoria(c.key)}
+                      className="flex w-full items-center justify-between px-5 py-2.5 text-left text-[13px] font-medium text-[var(--tech-tinta)] transition-colors hover:bg-violet-50 hover:text-[var(--tech-violeta)]"
+                    >
+                      <span className="truncate">{c.name}</span>
+                      <span className="ml-2 shrink-0 text-[11px] text-[var(--tech-gris)]">{c.count}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          <nav className="flex items-center gap-1">
+            <Link to={base} className="flex h-full items-center px-4 text-[13px] font-bold text-[var(--tech-tinta)] transition-colors hover:text-[var(--tech-violeta)]">
+              Inicio
+            </Link>
+            <Link to={`${base}?cat=all#catalogo`} className="flex h-full items-center px-4 text-[13px] font-bold text-[var(--tech-tinta)] transition-colors hover:text-[var(--tech-violeta)]">
+              Tienda
+            </Link>
+            <Link to={`${base}/wishlist`} className="flex h-full items-center px-4 text-[13px] font-bold text-[var(--tech-tinta)] transition-colors hover:text-[var(--tech-violeta)]">
+              Deseados
+            </Link>
+          </nav>
+
+          {waHref && (
+            <a
+              href={waHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-auto flex items-center gap-2 text-[var(--tech-tinta)] transition-colors hover:text-[var(--tech-violeta)]"
+            >
+              <MessageCircle className="h-4 w-4 text-[#25D366]" />
+              <span className="text-[13px] font-bold">+{wa}</span>
+            </a>
+          )}
         </div>
       </div>
 

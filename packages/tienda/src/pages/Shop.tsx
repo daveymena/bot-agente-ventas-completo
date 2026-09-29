@@ -4,6 +4,13 @@ import { Search, Store } from 'lucide-react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import ProductCard from '../components/ProductCard';
 import Portada, { TituloDeSeccion } from '../components/market/Portada';
+import {
+  HeroTech, BarraConfianza, CirculosCategorias, GrillaProductos,
+  PromosDobles, CarruselProductos,
+} from '../components/tech/SeccionesTech';
+import {
+  CatsTop, OfertaEspecial, VistosRecientes, MarcasTop, marcasDelCatalogo,
+} from '../components/tech/RielTech';
 
 interface ApiProduct {
   id: number;
@@ -13,6 +20,7 @@ interface ApiProduct {
   image: string | null;
   category: string;
   kind: string;
+  highlight: string | null;
 }
 
 // El precio se muestra en la moneda del visitante: lo resuelve formatear() de
@@ -83,8 +91,9 @@ const Shop = () => {
         category: p.category,
         type: (p.kind || 'digital') as Product['type'],
         stock: 999,
+        resaltado: p.highlight || '',
       }))
-    : localProducts;
+    : localProducts.map(p => ({ ...p, resaltado: '' }));
 
   // Qué vende REALMENTE esta tienda, para no prometer envíos que no existen
   // ni entrega digital de algo que se manda por correo (ver el hero abajo).
@@ -214,29 +223,95 @@ const Shop = () => {
 
   const displayedProducts = filteredProducts.slice(0, visibleCount);
 
-  return (
-    <div className="max-w-6xl mx-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-8 pb-24 md:pb-8">
-      {/* ── PORTADA ────────────────────────────────────────────────────
-          La fila de apertura de Market --columna de categorías, banner grande,
-          dos banners chicos-- más la tira de garantías.
+  // ── Portada tech: secciones armadas con datos reales ────────────────────
+  type ConResaltado = (typeof products[number]) & { resaltado?: string };
+  const todos = products as ConResaltado[];
+  const conResaltado = todos.filter(p => (p.resaltado || '').trim());
+  const ofertas = (conResaltado.length ? conResaltado : todos).slice(0, 4);
+  const idsOfertas = new Set(ofertas.map(p => p.id));
+  const destacados = todos.filter(p => !idsOfertas.has(p.id)).slice(0, 8);
+  const conFoto = (p: ConResaltado) => !!p.image;
+  const productoHero = todos.find(p => p.type === 'physical' && conFoto(p)) || todos.find(conFoto);
+  const ofertaEspecial = conResaltado.find(conFoto) || todos.find(conFoto);
+  // "General"/"Otros" son el cajón de lo sin clasificar: reales como filtro,
+  // pero horribles como banners ("Todo en General" no vende nada). Los promos
+  // salen de las dos categorías con más identidad que tengan foto.
+  const esGenerica = (n: string) => /^(general|otros|varios|sin categor[ií]a|default)$/i.test(String(n || '').trim());
+  const catsConFoto = categories.filter(c => c.image && !esGenerica(c.name));
+  const promos = (catsConFoto.length >= 2 ? catsConFoto : categories.filter(c => c.image)).slice(0, 2).map((c, i) => ({
+    key: c.key,
+    titulo: `Todo en ${c.name}`,
+    bajada: `${c.count} ${c.count === 1 ? 'producto' : 'productos'}`,
+    imagen: c.image,
+    oscuro: i === 0,
+  }));
+  const marcas = marcasDelCatalogo(todos);
+  // Sello del hero: propuesta de valor real (sin % inventados: el catálogo
+  // no trae precio anterior, así que no hay "40% OFF" que mostrar).
+  const sello = hayFisicos && !hayDigitales ? 'Pago contra entrega' : 'Nuevos ingresos';
 
-          Reemplaza al héroe de dos bloques del kit anterior, al buscador
-          suelto (ahora vive en el encabezado, o sea en todas las páginas) y al
-          mosaico de ocho categorías con foto. El mosaico no se pierde: sus
-          categorías son las mismas y con los mismos conteos reales, pero ya no
-          empujan el catálogo fuera de la pantalla -- en Market la lista de
-          categorías es una columna angosta al costado, y el producto se ve
-          desde el primer scroll. */}
-      <Portada
-        storeName={config.storeName || 'Tienda'}
-        heroImagen={heroImagen}
-        categorias={categories}
-        hayFisicos={hayFisicos}
-        hayDigitales={hayDigitales}
-        totalProductos={products.length}
-        onCategoria={elegirFiltro}
-        onVerCatalogo={irAlCatalogo}
-      />
+  return (
+    <div className="mx-auto max-w-6xl bg-[var(--tech-fondo)] px-3 py-4 pb-24 sm:px-6 sm:py-6 md:pb-8 lg:px-8">
+      {/* ── PORTADA TECH ───────────────────────────────────────────────
+          Estructura de tienda de tecnología (hero + confianza + categorías
+          + ofertas + promos + destacados + riel lateral), armada SOLO con
+          datos reales del catálogo: sin reseñas, descuentos, marcas de
+          mentira ni blog inventados. Lo que no tiene dato, no se dibuja. */}
+      {!loading && !apiError && products.length > 0 && filter === 'all' && !searchTerm && (
+        <div className="grid gap-8 xl:grid-cols-[1fr_290px]">
+          <div className="min-w-0">
+            <HeroTech
+              storeName={config.storeName || 'Tienda'}
+              categorias={categories}
+              productoHero={productoHero}
+              sello={sello}
+              onCategoria={elegirFiltro}
+              onVerCatalogo={irAlCatalogo}
+            />
+            <BarraConfianza hayFisicos={hayFisicos} />
+            <CirculosCategorias categorias={categories} onCategoria={elegirFiltro} />
+            <GrillaProductos
+              eyebrow={conResaltado.length ? 'Elegidos' : 'Destacados'}
+              titulo={conResaltado.length ? 'Las ofertas de la semana' : 'Destacados de la semana'}
+              bajada="Selección de la tienda, con stock real."
+              productos={ofertas}
+              slug={slug}
+              mostrarTipo={catalogoMixto}
+              verTodoHref="#catalogo"
+            />
+            <PromosDobles promos={promos} onCategoria={elegirFiltro} />
+            <CarruselProductos
+              eyebrow="Tendencia"
+              titulo="Productos destacados"
+              productos={destacados}
+              slug={slug}
+              mostrarTipo={catalogoMixto}
+            />
+          </div>
+          <aside className="flex min-w-0 flex-col gap-8">
+            <CatsTop categorias={categories} onCategoria={elegirFiltro} />
+            <OfertaEspecial producto={ofertaEspecial} slug={slug} />
+            <VistosRecientes productos={todos} slug={slug} />
+            <MarcasTop marcas={marcas} />
+          </aside>
+        </div>
+      )}
+
+      {/* ── PORTADA CLÁSICA (respaldo) ─────────────────────────────────
+          Cuando se está filtrando/buscando, o mientras carga, o si la tienda
+          no tiene productos: se muestra la portada anterior, que ya funciona. */}
+      {(loading || apiError || products.length === 0 || filter !== 'all' || !!searchTerm) && (
+        <Portada
+          storeName={config.storeName || 'Tienda'}
+          heroImagen={heroImagen}
+          categorias={categories}
+          hayFisicos={hayFisicos}
+          hayDigitales={hayDigitales}
+          totalProductos={products.length}
+          onCategoria={elegirFiltro}
+          onVerCatalogo={irAlCatalogo}
+        />
+      )}
 
       {/* ── CATÁLOGO ──────────────────────────────────────────────────────
           El ancla que usa el botón "Ver productos" del héroe. */}

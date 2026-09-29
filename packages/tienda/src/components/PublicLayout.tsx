@@ -184,17 +184,21 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
         <MessageCircle className="w-7 h-7" />
       </a>
 
-      <footer className="bg-[var(--store-ink)] pb-20 md:pb-0">
-        <div className="max-w-6xl mx-auto px-4 py-12">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-10">
-            <div>
-              <div className="flex items-center gap-2.5 mb-3">
-                <div className="w-8 h-8 rounded-full bg-[var(--store-primary)] flex items-center justify-center">
-                  <Store className="w-4 h-4 text-white" />
-                </div>
-                <span className="text-base font-bold text-white">{config.storeName || 'Tienda'}</span>
+      <footer className="bg-[var(--tech-marino)] pb-20 text-white md:pb-0">
+        <div className="mx-auto max-w-6xl px-4 py-12">
+          <div className="grid grid-cols-2 gap-10 md:grid-cols-4">
+            <div className="col-span-2 md:col-span-1">
+              <div className="mb-3 flex items-center gap-2.5">
+                {config.logoUrl ? (
+                  <img src={config.logoUrl} alt={config.storeName} className="h-9 w-auto object-contain" />
+                ) : (
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--tech-violeta)]">
+                    <Store className="h-4 w-4 text-white" />
+                  </div>
+                )}
+                <span className="text-base font-black text-white">{config.storeName || 'Tienda'}</span>
               </div>
-              <p className="text-sm text-gray-400 leading-relaxed mb-5">{`Comprá en ${config.storeName || "nuestra tienda"} y escribinos por WhatsApp si necesitás ayuda.`}</p>
+              <p className="mb-5 text-[13px] leading-relaxed text-white/60">{`Comprá en ${config.storeName || "nuestra tienda"} y escribinos por WhatsApp si necesitás ayuda.`}</p>
 
               {/* Redes sociales -- solo se listan las que la tienda configuró
                   de verdad; sin URL no hay ícono, para no mostrar enlaces rotos */}
@@ -202,32 +206,32 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
                 <div className="flex items-center gap-2">
                   {config.socialLinks?.facebook && (
                     <a href={config.socialLinks.facebook} target="_blank" rel="noopener noreferrer" aria-label="Facebook"
-                      className="w-9 h-9 rounded-full bg-white/5 text-[var(--store-yellow)] hover:bg-[var(--store-yellow)] hover:text-[var(--store-ink)] flex items-center justify-center transition-colors">
-                      <FacebookIcon className="w-4 h-4" />
+                      className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-[var(--tech-violeta)] hover:text-white">
+                      <FacebookIcon className="h-4 w-4" />
                     </a>
                   )}
                   {config.socialLinks?.instagram && (
                     <a href={config.socialLinks.instagram} target="_blank" rel="noopener noreferrer" aria-label="Instagram"
-                      className="w-9 h-9 rounded-full bg-white/5 text-[var(--store-yellow)] hover:bg-[var(--store-yellow)] hover:text-[var(--store-ink)] flex items-center justify-center transition-colors">
-                      <InstagramIcon className="w-4 h-4" />
+                      className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-[var(--tech-violeta)] hover:text-white">
+                      <InstagramIcon className="h-4 w-4" />
                     </a>
                   )}
                   {config.socialLinks?.tiktok && (
                     <a href={config.socialLinks.tiktok} target="_blank" rel="noopener noreferrer" aria-label="TikTok"
-                      className="w-9 h-9 rounded-full bg-white/5 text-[var(--store-yellow)] hover:bg-[var(--store-yellow)] hover:text-[var(--store-ink)] flex items-center justify-center transition-colors">
-                      <TikTokIcon className="w-4 h-4" />
+                      className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-[var(--tech-violeta)] hover:text-white">
+                      <TikTokIcon className="h-4 w-4" />
                     </a>
                   )}
                   {config.socialLinks?.twitter && (
                     <a href={config.socialLinks.twitter} target="_blank" rel="noopener noreferrer" aria-label="X (Twitter)"
-                      className="w-9 h-9 rounded-full bg-white/5 text-[var(--store-yellow)] hover:bg-[var(--store-yellow)] hover:text-[var(--store-ink)] flex items-center justify-center transition-colors">
-                      <XIcon className="w-4 h-4" />
+                      className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-[var(--tech-violeta)] hover:text-white">
+                      <XIcon className="h-4 w-4" />
                     </a>
                   )}
                   {config.socialLinks?.linkedin && (
                     <a href={config.socialLinks.linkedin} target="_blank" rel="noopener noreferrer" aria-label="LinkedIn"
-                      className="w-9 h-9 rounded-full bg-white/5 text-[var(--store-yellow)] hover:bg-[var(--store-yellow)] hover:text-[var(--store-ink)] flex items-center justify-center transition-colors">
-                      <LinkedInIcon className="w-4 h-4" />
+                      className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-[var(--tech-violeta)] hover:text-white">
+                      <LinkedInIcon className="h-4 w-4" />
                     </a>
                   )}
                 </div>
@@ -235,41 +239,47 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             <div>
-              <h4 className="text-sm font-bold text-[var(--store-yellow)] mb-3">Enlaces</h4>
-              <div className="space-y-2">
-                <Link to={`${base}#catalogo`} className="block text-sm text-gray-400 hover:text-white transition-colors">Productos</Link>
-                <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
-                  className="block text-sm text-gray-400 hover:text-white transition-colors">WhatsApp</a>
-                <Link to={`${base}/carrito`} className="block text-sm text-gray-400 hover:text-white transition-colors">Carrito</Link>
-              </div>
-            </div>
-
-            <div>
-              <h4 className="text-sm font-bold text-[var(--store-yellow)] mb-3">Contacto</h4>
+              <h4 className="mb-4 text-sm font-black text-white">Enlaces rápidos</h4>
               <div className="space-y-2.5">
-                {config.whatsappPhone && (
-                  <a href={waHref || '#'} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors">
-                    <MessageCircle className="w-4 h-4 text-emerald-500 shrink-0" />
-                    <span>+{config.whatsappPhone}</span>
-                  </a>
-                )}
+                <Link to={base} className="block text-[13px] text-white/60 transition-colors hover:text-white">Inicio</Link>
+                <Link to={`${base}#catalogo`} className="block text-[13px] text-white/60 transition-colors hover:text-white">Tienda</Link>
+                <Link to={`${base}/wishlist`} className="block text-[13px] text-white/60 transition-colors hover:text-white">Deseados</Link>
+                <Link to={`${base}/carrito`} className="block text-[13px] text-white/60 transition-colors hover:text-white">Carrito</Link>
               </div>
             </div>
 
             <div>
-              <h4 className="text-sm font-bold text-[var(--store-yellow)] mb-3">Pagos seguros</h4>
+              <h4 className="mb-4 text-sm font-black text-white">Atención al cliente</h4>
+              <div className="space-y-2.5">
+                <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
+                  className="block text-[13px] text-white/60 transition-colors hover:text-white">Soporte por WhatsApp</a>
+                <Link to={`${base}/carrito`} className="block text-[13px] text-white/60 transition-colors hover:text-white">Mi pedido</Link>
+              </div>
+              <h4 className="mb-2 mt-6 text-sm font-black text-white">Pagos seguros</h4>
               <div className="flex flex-wrap gap-2">
                 <MercadoPagoBadge />
                 <NequiBadge />
                 <PSEBadge />
               </div>
             </div>
+
+            <div>
+              <h4 className="mb-4 text-sm font-black text-white">Contacto</h4>
+              <div className="space-y-2.5">
+                {config.whatsappPhone ? (
+                  <a href={waHref || '#'} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-2 text-[13px] text-white/60 transition-colors hover:text-white">
+                    <MessageCircle className="h-4 w-4 shrink-0 text-emerald-400" />
+                    <span>+{config.whatsappPhone}</span>
+                  </a>
+                ) : (
+                  <span className="block text-[13px] text-white/60">Escríbenos desde cualquier producto</span>
+                )}
+              </div>
+            </div>
           </div>
         </div>
-        {/* Barra de cierre púrpura a todo el ancho: es como termina cada
-            página del kit, y lo que separa el footer del borde del navegador. */}
-        <div className="bg-[var(--store-primary)] py-3 text-center text-xs text-white/90">
+        <div className="border-t border-white/10 py-4 text-center text-xs text-white/50">
           &copy; {new Date().getFullYear()} {config.storeName || 'Tienda'} &mdash; Todos los derechos reservados
         </div>
       </footer>

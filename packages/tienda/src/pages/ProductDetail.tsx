@@ -4,6 +4,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { ShoppingCart, Check, Package, ShieldCheck, Infinity as InfinityIcon, Download, MessageCircle, Truck } from 'lucide-react';
 import { initPixel, trackViewContent, trackAddToCart, trackInitiateCheckout, trackContact } from '../lib/pixel';
+import { registrarVisto } from '../lib/vistos';
 import { sanitizeRichHtml, plainTextToHtml } from '../lib/rich-text';
 import TrustBar from '../components/TrustBar';
 
@@ -58,6 +59,10 @@ const ProductDetail = () => {
       .then(data => {
         setProduct(data.product);
         setRelated(data.related || []);
+
+        // Visto recientemente: alimenta la sección de la portada con el
+        // historial real de este visitante (ver lib/vistos.ts).
+        registrarVisto(data.product.id);
 
         // ViewContent: el evento que Meta usa para armar audiencias de
         // remarketing (quien vio el producto pero no compró).
