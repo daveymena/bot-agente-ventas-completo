@@ -5209,7 +5209,12 @@ ${explicarObjetivos()}` };
     run: async (args, ctx) => {
       const { tokenDropiDelTenant, buscarProductosDropi } = await import("./dropi-directo");
       const token = await tokenDropiDelTenant(ctx.tenantId);
-      if (!token) return { ok: false, summary: "Este negocio no tiene token de Dropi: primero dropi_conectar." };
+      if (!token) {
+        // El mensaje distingue "nunca configurado" de "guardado pero ilegible"
+        // (29-09-2026: un token indescifrable hacía loop pidiendo otro sin decirlo).
+        const { estadoTokenDropi, mensajeTokenDropi } = await import("./dropi-directo");
+        return { ok: false, summary: mensajeTokenDropi(await estadoTokenDropi(ctx.tenantId)) };
+      }
       const r = await buscarProductosDropi(token, { q: String(args?.query || ""), conStock: !!args?.conStock, porPagina: num(args?.limit) || 20 });
       if (!r.ok) return { ok: false, summary: `Dropi no respondió: ${r.error}` };
       const lista = (r.data || []).map((p) => ({ id: p.id, nombre: p.name, precioSugerido: p.suggested_price ?? p.sale_price ?? null, costo: p.sale_price ?? null, stock: p.stock ?? null, proveedor: p.user_id ?? null }));
@@ -5223,7 +5228,12 @@ ${explicarObjetivos()}` };
     run: async (args, ctx) => {
       const { tokenDropiDelTenant, importarProductoDropi } = await import("./dropi-directo");
       const token = await tokenDropiDelTenant(ctx.tenantId);
-      if (!token) return { ok: false, summary: "Este negocio no tiene token de Dropi: primero dropi_conectar." };
+      if (!token) {
+        // El mensaje distingue "nunca configurado" de "guardado pero ilegible"
+        // (29-09-2026: un token indescifrable hacía loop pidiendo otro sin decirlo).
+        const { estadoTokenDropi, mensajeTokenDropi } = await import("./dropi-directo");
+        return { ok: false, summary: mensajeTokenDropi(await estadoTokenDropi(ctx.tenantId)) };
+      }
       const id = num(args?.dropiProductId);
       if (!id) return { ok: false, summary: "Falta 'dropiProductId'." };
       const r = await importarProductoDropi(ctx.tenantId, token, id, { precio: num(args?.price) || null, categoria: args?.categoria ? String(args.categoria) : null });
@@ -5239,7 +5249,12 @@ ${explicarObjetivos()}` };
     run: async (_args, ctx) => {
       const { tokenDropiDelTenant, verificarDisponibilidadDropi, vincularCatalogoDeWoo } = await import("./dropi-directo");
       const token = await tokenDropiDelTenant(ctx.tenantId);
-      if (!token) return { ok: false, summary: "Este negocio no tiene token de Dropi: primero dropi_conectar." };
+      if (!token) {
+        // El mensaje distingue "nunca configurado" de "guardado pero ilegible"
+        // (29-09-2026: un token indescifrable hacía loop pidiendo otro sin decirlo).
+        const { estadoTokenDropi, mensajeTokenDropi } = await import("./dropi-directo");
+        return { ok: false, summary: mensajeTokenDropi(await estadoTokenDropi(ctx.tenantId)) };
+      }
       const v = await vincularCatalogoDeWoo(ctx.tenantId).catch(() => ({ vinculados: 0, sinDato: 0 }));
       const r = await verificarDisponibilidadDropi(ctx.tenantId, token);
       return { ok: true, summary: `Revisé ${r.revisados} productos en Dropi${v.vinculados ? ` (vinculé ${v.vinculados} que venían de WooCommerce)` : ""}: ${r.desactivados.length} desactivados (${r.desactivados.map((d) => `${d.nombre}: ${d.motivo}`).join("; ") || "ninguno"}), ${r.reactivados.length} reactivados, ${r.errores} sin respuesta.`, data: r };
@@ -5286,7 +5301,12 @@ ${explicarObjetivos()}` };
     run: async (args, ctx) => {
       const { tokenDropiDelTenant, margenDeProductoDropi } = await import("./dropi-directo");
       const token = await tokenDropiDelTenant(ctx.tenantId);
-      if (!token) return { ok: false, summary: "Este negocio no tiene token de Dropi: primero dropi_conectar." };
+      if (!token) {
+        // El mensaje distingue "nunca configurado" de "guardado pero ilegible"
+        // (29-09-2026: un token indescifrable hacía loop pidiendo otro sin decirlo).
+        const { estadoTokenDropi, mensajeTokenDropi } = await import("./dropi-directo");
+        return { ok: false, summary: mensajeTokenDropi(await estadoTokenDropi(ctx.tenantId)) };
+      }
       const r = await margenDeProductoDropi(ctx.tenantId, token, { productId: num(args?.productId) || null, dropiId: num(args?.dropiProductId) || null, precio: num(args?.precio) || null });
       if (!r.ok || !r.data) return { ok: false, summary: r.error || "No se pudo calcular el margen." };
       return { ok: true, summary: r.data.texto, data: r.data };
@@ -5304,7 +5324,12 @@ ${explicarObjetivos()}` };
       const limite = Math.max(1, Math.min(num(args?.limit) || 8, 12));
       const { tokenDropiDelTenant, buscarProductosDropi } = await import("./dropi-directo");
       const token = await tokenDropiDelTenant(ctx.tenantId);
-      if (!token) return { ok: false, summary: "Este negocio no tiene token de Dropi: primero dropi_conectar." };
+      if (!token) {
+        // El mensaje distingue "nunca configurado" de "guardado pero ilegible"
+        // (29-09-2026: un token indescifrable hacía loop pidiendo otro sin decirlo).
+        const { estadoTokenDropi, mensajeTokenDropi } = await import("./dropi-directo");
+        return { ok: false, summary: mensajeTokenDropi(await estadoTokenDropi(ctx.tenantId)) };
+      }
       const r = await buscarProductosDropi(token, { q, conStock: args?.conStock !== false, porPagina: 30 });
       if (!r.ok) return { ok: false, summary: `Dropi no respondió: ${r.error}` };
       const candidatos = (r.data || []).slice(0, limite);
@@ -5368,7 +5393,12 @@ ${explicarObjetivos()}` };
     run: async (args, ctx) => {
       const { tokenDropiDelTenant, margenDeProductoDropi } = await import("./dropi-directo");
       const token = await tokenDropiDelTenant(ctx.tenantId);
-      if (!token) return { ok: false, summary: "Este negocio no tiene token de Dropi: primero dropi_conectar." };
+      if (!token) {
+        // El mensaje distingue "nunca configurado" de "guardado pero ilegible"
+        // (29-09-2026: un token indescifrable hacía loop pidiendo otro sin decirlo).
+        const { estadoTokenDropi, mensajeTokenDropi } = await import("./dropi-directo");
+        return { ok: false, summary: mensajeTokenDropi(await estadoTokenDropi(ctx.tenantId)) };
+      }
       const r = await margenDeProductoDropi(ctx.tenantId, token, {
         productId: num(args?.productId) || null, dropiId: num(args?.dropiProductId) || null, precio: num(args?.precio) || null,
       });
@@ -5472,7 +5502,12 @@ ${explicarObjetivos()}` };
       if (!args?.ciudad || !args?.departamento) return { ok: false, summary: "Faltan 'ciudad' y 'departamento'." };
       const { tokenDropiDelTenant, sondearTransportadorasDropi } = await import("./dropi-directo");
       const token = await tokenDropiDelTenant(ctx.tenantId);
-      if (!token) return { ok: false, summary: "Este negocio no tiene token de Dropi: primero dropi_conectar." };
+      if (!token) {
+        // El mensaje distingue "nunca configurado" de "guardado pero ilegible"
+        // (29-09-2026: un token indescifrable hacía loop pidiendo otro sin decirlo).
+        const { estadoTokenDropi, mensajeTokenDropi } = await import("./dropi-directo");
+        return { ok: false, summary: mensajeTokenDropi(await estadoTokenDropi(ctx.tenantId)) };
+      }
       const r = await sondearTransportadorasDropi(token, { ciudad: String(args.ciudad), departamento: String(args.departamento), valor: num(args.valor) || undefined });
       return { ok: true, summary: r.map((x) => `${x.ok ? "✅" : "❌"} ${x.metodo} ${x.ruta} (${x.status ?? "-"}): ${x.muestra}`).join("\n"), data: r };
     },
@@ -5484,7 +5519,12 @@ ${explicarObjetivos()}` };
     run: async (args, ctx) => {
       const { tokenDropiDelTenant, listarPedidosDropi } = await import("./dropi-directo");
       const token = await tokenDropiDelTenant(ctx.tenantId);
-      if (!token) return { ok: false, summary: "Este negocio no tiene token de Dropi: primero dropi_conectar." };
+      if (!token) {
+        // El mensaje distingue "nunca configurado" de "guardado pero ilegible"
+        // (29-09-2026: un token indescifrable hacía loop pidiendo otro sin decirlo).
+        const { estadoTokenDropi, mensajeTokenDropi } = await import("./dropi-directo");
+        return { ok: false, summary: mensajeTokenDropi(await estadoTokenDropi(ctx.tenantId)) };
+      }
       const r = await listarPedidosDropi(token, num(args?.limit) || 20);
       if (!r.ok) return { ok: false, summary: `Dropi no respondió: ${r.error}` };
       const f = (v: number | null) => (v == null ? "—" : `$${Math.round(v).toLocaleString("es-CO")}`);

@@ -29,6 +29,7 @@
 import { db, products } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { logger } from "./logger";
+import { decryptSecret } from "./credentials-vault";
 import { customerProductCopy } from "./dropi";
 
 const BASE = (process.env.DROPI_API_URL || "https://api.dropi.co").replace(/\/+$/, "") + "/integrations/";
@@ -51,13 +52,65 @@ export async function guardarTokenDropi(tenantId: number, token: string): Promis
   await guardarClaveDeTenant(tenantId, "dropi", { apiKey: token.trim() });
 }
 
+// ─── Diagnóstico del token guardado ─────────────────────────────────────────
+//
+// Medido en vivo (29-09-2026): el tenant tenía un token de Dropi GUARDADO
+// pero INDESCIFRABLE con la clave actual (probablemente encriptado antes de
+// fijar CREDENTIALS_ENCRYPTION_KEY). `decryptSecret` devuelve "" en silencio,
+// así que `tokenDropiDelTenant` devolvía null y cada herramienta decía
+// "primero dropi_conectar" — el admin pegaba tokens, nada cambiaba, y Atlas
+// entraba en loop pidiendo lo mismo. "Ausente" e "ilegible" son dos
+// situaciones distintas y piden dos mensajes distintos.
+
+export type EstadoTokenDropi =
+  | { estado: "ok"; huella: string; vence: string | null }
+  | { estado: "ausente" }
+  | { estado: "ilegible" };
+
+/** Clasifica un valor CRUDO tal cual está guardado. Pura, para probarla sin base. */
+export function diagnosticarValorTokenDropi(valor: unknown): EstadoTokenDropi {
+  const t = String(valor || "").trim();
+  if (!t) return { estado: "ausente" };
+  try {
+    const plano = decryptSecret(t);
+    // Tiene que ser un JWT (tres partes): un texto plano legacy o basura
+    // no es un token usable, aunque descifre.
+    if (!plano || plano.split(".").length < 3) return { estado: "ilegible" };
+    const info = integracionDelToken(plano);
+    return { estado: "ok", huella: `…${plano.slice(-6)}`, vence: info?.vence || null };
+  } catch {
+    return { estado: "ilegible" };
+  }
+}
+
+export async function estadoTokenDropi(tenantId: number): Promise<EstadoTokenDropi> {
+  try {
+    const { clavesDelTenant } = await import("./ai-keys-tenant");
+    const claves = await clavesDelTenant(tenantId);
+    return diagnosticarValorTokenDropi((claves as any)?.dropi?.apiKey);
+  } catch {
+    return { estado: "ausente" };
+  }
+}
+
+/** El mensaje exacto según el estado: lo que el admin tiene que hacer. */
+export function mensajeTokenDropi(e: EstadoTokenDropi): string {
+  if (e.estado === "ilegible") {
+    return (
+      `El token de Dropi guardado está dañado (no se puede leer con la clave actual del servidor): ` +
+      `hay que reemplazarlo. Pegá de nuevo el token de Dropi → Mis Integraciones con dropi_conectar y se verifica al acto. ` +
+      `No sirve el token del panel de Dropi (sesión) ni el de otra tienda.`
+    );
+  }
+  return "Este negocio no tiene token de Dropi: primero dropi_conectar (Dropi → Mis Integraciones → token).";
+}
+
 /**
  * Si el negocio ya tiene WooCommerce con productos de Dropify, el token está
  * ahí (meta `_dropi_token`). Se ofrece como sugerencia en el panel para que
  * no haya que ir a buscarlo a Dropi.
  */
-export async function tokenSugeridoDesdeWoo(tenantId: number): Promise<string | null> {
-  try {
+export async function tokenSugeridoDesdeWoo(tenantId: number): Promise<string | null> {  try {
     const { getWooCommerceService } = await import("./woocommerce");
     const woo = await getWooCommerceService(tenantId);
     if (!woo) return null;
