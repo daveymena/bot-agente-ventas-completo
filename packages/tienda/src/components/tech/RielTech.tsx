@@ -105,22 +105,22 @@ export function OfertaEspecial({
       style={{ background: 'linear-gradient(130deg,#3b1d7a 0%,#6d28e9 60%,#9333ea 100%)' }}>
       <div aria-hidden className="absolute inset-0"
         style={{ background: 'radial-gradient(300px 200px at 90% 10%, rgba(240,171,252,0.4), transparent 60%)' }} />
-      <div className="relative z-10 max-w-[62%]">
+      <div className="relative z-10 max-w-[60%]">
         <p className="text-[11px] font-bold uppercase tracking-[0.18em] text-fuchsia-200">Oferta especial</p>
         <p className="mt-1 line-clamp-2 text-lg font-black leading-tight">{producto.name}</p>
         <p className="mt-1 text-sm font-bold text-fuchsia-100">{formatear(producto.price)}</p>
-        <div className="mt-3 flex items-center gap-3">
+        <div className="mt-3">
           <Link
             to={`/tienda/${slug}/producto/${producto.id}`}
-            className="inline-flex items-center gap-2 rounded-full bg-white px-5 py-2.5 text-[13px] font-bold text-[var(--tech-tinta)] transition-transform hover:scale-105"
+            className="inline-flex items-center gap-1.5 rounded-full bg-white px-4 py-2 text-[12px] font-bold text-[var(--tech-tinta)] transition-transform hover:scale-105"
           >
-            Comprar ahora <ArrowRight className="h-4 w-4" />
+            Comprar ahora <ArrowRight className="h-3.5 w-3.5" />
           </Link>
         </div>
       </div>
       {producto.image && (
         <img src={producto.image} alt="" aria-hidden loading="lazy"
-          className="pointer-events-none absolute -bottom-4 -right-4 h-36 w-36 rounded-2xl bg-white/10 object-contain p-2 sm:h-44 sm:w-44" />
+          className="pointer-events-none absolute -bottom-3 -right-3 h-32 w-32 rounded-2xl bg-white/10 object-contain p-2 sm:h-36 sm:w-36" />
       )}
     </section>
   );
