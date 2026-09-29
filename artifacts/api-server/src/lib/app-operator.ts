@@ -3103,6 +3103,172 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     },
   },
   {
+    name: "fb_estimar",
+    description:
+      "ESTIMAR ALCANCE Y COSTO DE UN ANUNCIO ANTES DE PUBLICAR. Lectura pura: no crea nada, no gasta nada. " +
+      "Devuelve, con la FUENTE de cada número: (1) alcance diario estimado por la propia Meta para ese objetivo y presupuesto (si el token lo permite); " +
+      "(2) lo que pagó ESTA cuenta por resultado en sus campañas anteriores (dato real, no promedio de internet); " +
+      "(3) cuántos anunciantes están activos HOY en este nicho en Colombia (competencia real de la Biblioteca de Anuncios); " +
+      "más la cuenta de la prueba (presupuesto × días). Si algo no se puede saber, lo dice y no lo inventa. " +
+      "Usala siempre antes de pedirle al admin que confirme una publicación.",
+    args: '{ "productId"?: number (si va sobre un producto del catálogo), "objetivo": "mensajes"|"ventas"|"trafico" (req: a dónde lleva), "dailyBudget": number (req, por día, en COP), "dias"?: number (días de prueba, por defecto 3) }',
+    run: async (args, ctx) => {
+      const objetivo = /mensaje|whatsapp/i.test(String(args.objetivo || "")) ? "mensajes"
+        : /venta|compr/i.test(String(args.objetivo || "")) ? "ventas" : "trafico";
+      const diario = num(args.dailyBudget) || 0;
+      const dias = num(args.dias) || 3;
+      if (!(diario > 0)) return { ok: false, summary: "Falta 'dailyBudget': sin plata por día no hay nada que estimar." };
+
+      const bloques: string[] = [];
+      const datos: Record<string, any> = { objetivo, dailyBudget: diario, dias, totalPrueba: diario * dias };
+
+      // Producto (para nombrar el nicho en la competencia y el historial).
+      let nombreProd = "";
+      let categoriaProd = "";
+      const idProd = num(args.productId);
+      if (idProd) {
+        const [prod] = await db.select().from(products).where(and(eq(products.id, idProd), eq(products.tenantId, ctx.tenantId))).limit(1);
+        if (prod) { nombreProd = String(prod.name || ""); categoriaProd = String((prod as any).category || ""); }
+      }
+
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { credencialesFacebookDe } = await import("./tenant-facebook-credentials");
+      const cred = credencialesFacebookDe(tenant);
+      // La Marketing API (estimaciones e insights) exige token de USUARIO con
+      // ads_read; el de página falla. Mismo orden que ad-strategist.
+      const token = String(cred.userAccessToken || cred.accessToken || "");
+      const actId = String(cred.adAccountId || "").replace(/^act_/i, "");
+
+      // ── 1. La estimación de la propia Meta ────────────────────────────
+      // `reachestimate` es de la Marketing API: con el MISMO objetivo, país
+      // y presupuesto que va a usar la campaña, devuelve el alcance diario
+      // que Meta prevé. Es una estimación (no una promesa), pero es LA
+      // estimación de quien va a mostrar el anuncio, no un número de blog.
+      if (token && actId) {
+        try {
+          const { FB_GRAPH_BASE } = await import("./meta-api-version");
+          const objetivoMeta = objetivo === "mensajes" ? "MESSAGES" : objetivo === "ventas" ? "OUTCOME_SALES" : "LINK_CLICKS";
+          const targeting = encodeURIComponent(JSON.stringify({ geo_locations: { countries: ["CO"] }, age_min: 18, age_max: 65 }));
+          const url = `${FB_GRAPH_BASE}/act_${actId}/reachestimate?daily_budget=${Math.round(diario)}&currency=COP` +
+            `&targeting_spec=${targeting}&objective=${objetivoMeta}&access_token=${encodeURIComponent(token)}`;
+          const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+          const cuerpo: any = await res.json().catch(() => ({}));
+          const err = cuerpo?.error;
+          if (err) {
+            // 190/467 = el usuario cerró sesión o revocó: el camino es
+            // reconectar, no reintentar. Se sigue con las otras fuentes.
+            const codigo = Number(err?.code);
+            datos.metaError = `${codigo}: ${String(err?.message || "").slice(0, 160)}`;
+            bloques.push(
+              codigo === 190
+                ? `⚠️ La estimación de Meta no salió: el token de Facebook está vencido (hay que reconectar en Configuración). Sigo con lo demás.`
+                : `⚠️ Meta no devolvió estimación (${String(err?.message || "").slice(0, 120)}). Sigo con lo demás.`,
+            );
+          } else {
+            const fila = Array.isArray(cuerpo?.data) ? cuerpo.data[0] : cuerpo?.data;
+            const bajo = num(fila?.users_lower_bound ?? fila?.estimate_mau_lower_bound);
+            const alto = num(fila?.users_upper_bound ?? fila?.estimate_mau_upper_bound);
+            if (bajo && alto) {
+              datos.alcanceDiario = { min: bajo, max: alto, fuente: "Meta reachestimate (tu cuenta, objetivo " + objetivo + ")" };
+              bloques.push(
+                `📊 Alcance diario estimado por Meta: **${bajo.toLocaleString("es-CO")} a ${alto.toLocaleString("es-CO")} personas por día** ` +
+                `(tu cuenta, objetivo ${objetivo === "mensajes" ? "mensajes a WhatsApp" : objetivo === "ventas" ? "ventas" : "tráfico"}, $${Math.round(diario).toLocaleString("es-CO")}/día en Colombia). ` +
+                `Es estimación, no promesa: cuántos escriben o compran se ve en los primeros 3 días.`,
+              );
+            } else {
+              bloques.push(`⚠️ Meta contestó pero sin rango de alcance usable. Sigo con lo demás.`);
+            }
+          }
+        } catch (e: any) {
+          bloques.push(`⚠️ No se pudo consultar la estimación de Meta (${String(e?.message || e).slice(0, 100)}). Sigo con lo demás.`);
+        }
+      } else {
+        bloques.push(`⚠️ Sin cuenta publicitaria conectada no hay estimación de Meta: conectá Facebook para verla. Sigo con lo demás.`);
+      }
+
+      // ── 2. Lo que YA pagó esta cuenta ──────────────────────────────────
+      // El mejor predictor del costo por mensaje/clic de mañana es lo que
+      // esta misma cuenta pagó ayer. Sale de sus campañas reales (insights),
+      // no de ningún promedio de internet.
+      if (token && actId) {
+        try {
+          const { FB_GRAPH_BASE } = await import("./meta-api-version");
+          const url = `${FB_GRAPH_BASE}/act_${actId}/insights?fields=campaign_name,spend,actions&date_preset=last_30d&limit=25&access_token=${encodeURIComponent(token)}`;
+          const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+          const cuerpo: any = await res.json().catch(() => ({}));
+          if (cuerpo?.error) {
+            datos.historialError = String(cuerpo.error?.message || "").slice(0, 120);
+          } else {
+            const filas = Array.isArray(cuerpo?.data) ? cuerpo.data : [];
+            let gasto = 0;
+            let mensajes = 0;
+            let clics = 0;
+            for (const f of filas) {
+              gasto += Number(f?.spend) || 0;
+              for (const a of (f?.actions || [])) {
+                const tipo = String(a?.action_type || "");
+                if (/onsite_conversion.messaging_conversation_started|lead/i.test(tipo)) mensajes += Number(a?.value) || 0;
+                if (/link_click/i.test(tipo)) clics += Number(a?.value) || 0;
+              }
+            }
+            if (gasto > 0 && (mensajes > 0 || clics > 0)) {
+              const partes: string[] = [];
+              if (mensajes > 0) {
+                const cpm = Math.round(gasto / mensajes);
+                datos.costoPorMensajeHistorico = cpm;
+                partes.push(`cada conversación te costó **$${cpm.toLocaleString("es-CO")}**`);
+              }
+              if (clics > 0) {
+                const cpc = Math.round(gasto / clics);
+                datos.costoPorClicHistorico = cpc;
+                partes.push(`cada clic **$${cpc.toLocaleString("es-CO")}**`);
+              }
+              bloques.push(
+                `🧾 Tu historial real (últimos 30 días, $${Math.round(gasto).toLocaleString("es-CO")} gastados): ${partes.join(" y ")}. ` +
+                `Con $${Math.round(diario).toLocaleString("es-CO")}/día, eso rinde unas ` +
+                `**${Math.max(1, Math.floor(diario / (datos.costoPorMensajeHistorico || datos.costoPorClicHistorico || diario)))} ` +
+                `${mensajes > 0 ? "conversaciones" : "clics"} por día** si rinde igual. Es tu dato, no un promedio.`,
+              );
+            } else {
+              bloques.push(`🧾 Tu cuenta no tiene gasto medible en 30 días: no hay costo histórico propio para comparar. Los primeros 3 días lo definen.`);
+            }
+          }
+        } catch (e: any) {
+          bloques.push(`⚠️ No se pudo leer tu historial (${String(e?.message || e).slice(0, 100)}).`);
+        }
+      }
+
+      // ── 3. La competencia real, hoy ────────────────────────────────────
+      // Cuántos anunciantes están pagando HOY por este nicho en Colombia
+      // (Biblioteca pública de Anuncios, sin token). Mucha competencia =
+      // subasta más cara; poca = más barato llegar.
+      try {
+        const consulta = (nombreProd || "").split("|")[0].split(",")[0].trim().slice(0, 60) || categoriaProd || "producto";
+        const comp: any = await executeAction("fb_ad_library", { query: consulta, pais: "CO" }, ctx);
+        const n = Number(comp?.data?.anuncios?.length) || 0;
+        if (comp?.ok && n > 0) {
+          datos.competenciaActiva = n;
+          bloques.push(
+            `🔥 Competencia hoy: **${n} anuncios activos** en Colombia para "${consulta}" (Biblioteca de Anuncios). ` +
+            (n >= 10 ? `Nicho caliente: la subasta está cara, el ángulo tiene que diferenciarse.` : `Nicho con aire: menos puja, más barato probar.`),
+          );
+        } else {
+          bloques.push(`🔥 Competencia hoy: no se ven anuncios activos para ese nicho en la Biblioteca (o no se pudo leer). Nicho con aire para probar barato.`);
+        }
+      } catch {
+        bloques.push(`🔥 Competencia: no se pudo leer la Biblioteca ahora.`);
+      }
+
+      // ── 4. La cuenta de la prueba (esto sí es exacto) ──────────────────
+      bloques.push(
+        `💰 Tu prueba: **$${Math.round(diario).toLocaleString("es-CO")}/día × ${dias} días = $${Math.round(diario * dias).toLocaleString("es-CO")} en total**. ` +
+        `Crear el anuncio fue gratis; subirlo en pausa es gratis; solo gasta cuando lo actives, y se descuenta de la tarjeta de tu cuenta publicitaria.`,
+      );
+
+      return { ok: true, summary: bloques.join("\n\n"), data: datos };
+    },
+  },
+  {
     name: "payment_status",
     description: "Probar las credenciales reales de pago del tenant y mostrar qué métodos están disponibles, sin crear cobros.",
     args: "{}",

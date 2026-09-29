@@ -29,8 +29,7 @@ describe("El plan muestra URLs completas (nunca cortadas a mitad)", () => {
   });
 });
 
-describe("El plan muestra kind, categoría e imagen al crear productos", () => {
-  it("un físico sin foto ni categoría salta a la vista antes del sí", () => {
+describe("El plan muestra kind, categoría e imagen al crear productos", () => {  it("un físico sin foto ni categoría salta a la vista antes del sí", () => {
     const texto = describePlannedAction({
       tool: "create_product",
       args: { name: "Portátil Lenovo", price: 1859000, currency: "COP" },
@@ -47,5 +46,17 @@ describe("El plan muestra kind, categoría e imagen al crear productos", () => {
     expect(texto).toContain("physical");
     expect(texto).toContain("3");
     expect(texto).not.toContain("SIN imagen");
+  });
+});
+
+describe("La estimación se muestra como lectura (no como gasto)", () => {
+  it("fb_estimar dice objetivo, plata y que no gasta", () => {
+    const texto = describePlannedAction({
+      tool: "fb_estimar",
+      args: { objetivo: "mensajes", dailyBudget: 20000, dias: 3 },
+    });
+    expect(texto).toContain("mensajes");
+    expect(texto).toContain("20.000");
+    expect(texto).toContain("no crea nada ni gasta");
   });
 });

@@ -278,10 +278,11 @@ const ANUNCIO_GUIADO: Paso[] = [
     pregunta: () => "¿Con cuál de los 3 lo escribo? (o digo yo)",
     instruccion: () =>
       `Objetivo del paso: elegir el ENFOQUE del anuncio (el "ángulo": de qué lado se le habla al cliente). ` +
-      `Usá LOS 3 ÁNGULOS REALES que te pasa el sistema abajo: presentalos numerados, uno por línea, con tu recomendado marcado. ` +
+      `Usá LOS 3 ÁNGULOS REALES que te pasa el sistema abajo: presentalos numerados, uno por línea. ` +
+      `El ángulo A es el RECOMENDADO por el sistema para arrancar: marcalo como "✅ el que te recomiendo" y contá en una línea por qué (sin tecnicismos). ` +
       `Explicá "ángulo" entre paréntesis la primera vez (el lado por el que se le entra al cliente: su problema, su deseo, su curiosidad). ` +
       `Al final escribí el marcador con el elegido: [[ruta: angulo=EL ÁNGULO EN UNA FRASE]]. ` +
-      `Cerrá con "¿Con cuál lo escribo? Decime el número o decime 'elegí vos'". Si dice "elegí vos", vale tu recomendado.`,
+      `Cerrá con "¿Con cuál lo escribo? Decime el número o decime 'elegí vos'". Si dice "elegí vos" o "dale", vale el A.`,
     alEntrar: async (e, ctx, avisar) => {
       if (!e.productoId) return "[SISTEMA] No hay producto elegido: pedí que elija uno antes del ángulo.";
       avisar("Armando los enfoques posibles...");
@@ -296,12 +297,14 @@ const ANUNCIO_GUIADO: Paso[] = [
     pedido: "crear anuncio borrador",
     pregunta: () => "¿Te gusta así o le cambio algo?",
     instruccion: () =>
-      `Objetivo del paso: mostrarle el anuncio YA ESCRITO por el servidor (abajo está el resultado real) COMO SE VA A VER: ` +
-      `primero la foto con ![vista previa](URL de la imagen del producto), después el TÍTULO en negrita y después el texto completo. ` +
-      `Decí también a dónde lleva (WhatsApp o la página) y con cuánta plata por día quedó armado. ` +
+      `Objetivo del paso: mostrarle el anuncio YA ESCRITO por el servidor (abajo está el resultado real) COMO SE VA A VER, con el RESUMEN COMPLETO: ` +
+      `1) la foto con ![vista previa](URL de la imagen del producto); 2) el TÍTULO en negrita; 3) el texto completo; ` +
+      `4) el enfoque usado (una línea); 5) a dónde lleva (WhatsApp o la página); 6) con cuánta plata por día quedó armado. ` +
       `NO propongas ni llames ninguna acción: ya está escrito y guardado como borrador. ` +
-      `Cerrá con "¿Te gusta así o le cambio algo?". Si pide un cambio, decile que lo aplicás en el paso siguiente; ` +
-      `si dice que sí, escribí el marcador [[ruta: draftid=ID]] con el id del borrador.`,
+      `Cerrá con "¿Te gusta así o le cambio algo?". ` +
+      `Si pide un CAMBIO (texto, título, foto): aplicalo con propose_action → fb_update_draft_creative con el draftId del borrador y volvé a mostrarlo completo; ` +
+      `solo escribís el marcador [[ruta: draftid=ID]] cuando diga que sí (o "dale", "publicalo", "así está bien"). ` +
+      `Si dice que sí de entrada, escribí el marcador con el id del borrador.`,
     alEntrar: async (e, ctx, avisar) => {
       if (!e.producto) return "[SISTEMA] No hay producto elegido.";
       const presupuesto = e.presupuesto && e.presupuesto > 0 ? e.presupuesto : PRESUPUESTO_SUGERIDO;
@@ -319,7 +322,7 @@ const ANUNCIO_GUIADO: Paso[] = [
   {
     nombre: "Cuánto va a valer",
     sinAcciones: true,
-    pedido: "",
+    pedido: "estimar alcance costo presupuesto",
     pregunta: () => "¿Lo subo a tu cuenta en pausa?",
     instruccion: (e) => {
       const porDia = (e.presupuesto || PRESUPUESTO_SUGERIDO).toLocaleString("es-CO");
@@ -327,14 +330,24 @@ const ANUNCIO_GUIADO: Paso[] = [
       const total = ((e.presupuesto || PRESUPUESTO_SUGERIDO) * dias).toLocaleString("es-CO");
       const destino = e.objetivoDelAnuncio === "ventas" ? "tu página" : "tu WhatsApp";
       return (
-        `Objetivo del paso: explicarle la plata con LOS NÚMEROS REALES ya acordados, sin inventar alcance ni costos por clic. ` +
-        `Decí esto, con estas cifras: crear el anuncio salió GRATIS; subirlo en pausa es GRATIS y no gasta; ` +
-        `cuando se active, Facebook muestra el anuncio a gente interesada y cobra $${porDia} por día ` +
-        `(prueba de ${dias} días = $${total} en total), que se descuenta de la tarjeta de su cuenta publicitaria. ` +
-        `El anuncio lleva a ${destino}. Nadie puede decirte cuántos van a escribir antes de probarlo: ` +
-        `por eso son ${dias} días de prueba — si nadie escribe, se apaga y no se pierde más; si escriben, se sube. ` +
+        `Objetivo del paso: explicarle la plata con LOS DATOS REALES que te pasa el sistema abajo (estimación de Meta, tu historial, competencia, total de la prueba). ` +
+        `Presentá cada número diciendo de dónde sale: "según Meta", "según lo que pagaste antes", "según la competencia hoy". ` +
+        `Lo que NO tenga dato (porque el token está vencido o no hay historial) se dice tal cual y se explica la mecánica: ` +
+        `crear el anuncio salió GRATIS; subirlo en pausa es GRATIS y no gasta; cuando se active, Facebook muestra el anuncio y cobra $${porDia} por día ` +
+        `(prueba de ${dias} días = $${total} en total) de la tarjeta de su cuenta publicitaria. El anuncio lleva a ${destino}. ` +
+        `PROHIBIDO inventar alcance, clics o costo por mensaje: si no hay dato, la regla son los ${dias} días de prueba — si nadie escribe, se apaga y no se pierde más; si escriben, se sube. ` +
         `Cerrá con "¿Lo subo a tu cuenta en pausa?". Si pregunta por la tarjeta, decile que se pone en el Administrador de Anuncios de Meta.`
       );
+    },
+    alEntrar: async (e, ctx, avisar) => {
+      const presupuesto = e.presupuesto && e.presupuesto > 0 ? e.presupuesto : PRESUPUESTO_SUGERIDO;
+      const dias = e.dias && e.dias > 0 ? e.dias : DIAS_SUGERIDOS;
+      avisar("Calculando cuánto va a valer y a cuánta gente llega...");
+      const r = await executeAction("fb_estimar", {
+        productId: e.productoId, objetivo: e.objetivoDelAnuncio || "mensajes", dailyBudget: presupuesto, dias,
+      }, ctx);
+      if (!r.ok) return `[SISTEMA] No se pudo estimar (${r.summary}). Explicá la mecánica con las cifras acordadas ($${presupuesto.toLocaleString("es-CO")}/día × ${dias} días) sin inventar alcance.`;
+      return `[SISTEMA] Estimación REAL para este anuncio (cada número trae su fuente; lo que no se pudo saber ya dice por qué):\n${r.summary.slice(0, 4000)}`;
     },
   },
   {

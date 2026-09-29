@@ -500,6 +500,10 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
    Se crea EN PAUSA, no gasta hasta que la actives`;
     case "fb_sync_catalog":
       return `Sincronizar catálogo de productos a Facebook`;
+    case "fb_estimar":
+      // Lectura pura: no crea nada ni gasta. Se muestra igual para que el
+      // admin vea QUÉ se va a averiguar antes de confirmar nada.
+      return `📊 Estimar alcance y costo (${g.objetivo ?? "?"}) con $${Number(g.dailyBudget || 0).toLocaleString("es-CO")}/día — solo consulta, no crea nada ni gasta`;
     case "fb_page_publish":
       return `📢 PUBLICAR en el muro de la página de Facebook (público, gratis) el producto ${g.productId ?? "?"} — visible de inmediato para todos`;
     case "crear_anuncio":
@@ -1166,8 +1170,11 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     //
     // Acá viaja solo cuando de verdad se está pidiendo ver algo antes de
     // gastar: "mostrame la estrategia", "qué propondrías", "antes de invertir".
-    patron: /propuesta|propon|estrategia|[aá]ngulo|antes de (gastar|invertir|pagar|publicar|crear)|mostr[aá](me)?|ense[ñn][aá](me)?|c[oó]mo lo ver[ií]as|qu[eé] har[ií]as/i,
-    herramientas: ["propuesta_campana", "list_products", "anuncio_datos_expertos"],
+    // `fb_estimar` vive acá por lo mismo: alcance y costo se preguntan ANTES
+    // de publicar ("¿cuánto me va a costar?", "¿a cuántos llega?"), nunca en
+    // el pedido de crear a secas.
+    patron: /propuesta|propon|estrategia|[aá]ngulo|antes de (gastar|invertir|pagar|publicar|crear)|mostr[aá](me)?|ense[ñn][aá](me)?|c[oó]mo lo ver[ií]as|qu[eé] har[ií]as|cu[aá]nto (cuesta|vale|sale|cobra|gasta)|alcance|a cu[aá]ntos (llega|les llega)|estimaci[oó]n/i,
+    herramientas: ["propuesta_campana", "fb_estimar", "list_products", "anuncio_datos_expertos"],
   },
   {
     // Dónde se caen los clientes: sin esto Atlas proponía más anuncios con
