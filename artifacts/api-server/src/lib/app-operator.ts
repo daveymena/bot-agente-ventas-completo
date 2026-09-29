@@ -3106,9 +3106,10 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
     name: "fb_estimar",
     description:
       "ESTIMAR ALCANCE Y COSTO DE UN ANUNCIO ANTES DE PUBLICAR. Lectura pura: no crea nada, no gasta nada. " +
-      "Devuelve, con la FUENTE de cada número: (1) alcance diario estimado por la propia Meta para ese objetivo y presupuesto (si el token lo permite); " +
-      "(2) lo que pagó ESTA cuenta por resultado en sus campañas anteriores (dato real, no promedio de internet); " +
-      "(3) cuántos anunciantes están activos HOY en este nicho en Colombia (competencia real de la Biblioteca de Anuncios); " +
+      "Devuelve, con la FUENTE de cada número: (1) tamaño de audiencia en Colombia según la propia Meta (tu cuenta); " +
+      "(2) curva diaria de TU cuenta para ese objetivo y presupuesto (alcance y resultados por día: lo mismo que el gráfico de Ads Manager; si Meta no tiene confianza, lo dice en vez de inventar); " +
+      "(3) lo que pagó ESTA cuenta por resultado en sus campañas anteriores (dato real, no promedio de internet); " +
+      "(4) cuántos anunciantes están activos HOY en este nicho en Colombia (competencia real de la Biblioteca de Anuncios); " +
       "más la cuenta de la prueba (presupuesto × días). Si algo no se puede saber, lo dice y no lo inventa. " +
       "Usala siempre antes de pedirle al admin que confirme una publicación.",
     args: '{ "productId"?: number (si va sobre un producto del catálogo), "objetivo": "mensajes"|"ventas"|"trafico" (req: a dónde lleva), "dailyBudget": number (req, por día, en COP), "dias"?: number (días de prueba, por defecto 3) }',
@@ -3140,43 +3141,81 @@ Para Instagram, además, la cuenta tiene que ser Empresa o Creador y estar vincu
       const actId = String(cred.adAccountId || "").replace(/^act_/i, "");
 
       // ── 1. La estimación de la propia Meta ────────────────────────────
-      // `reachestimate` es de la Marketing API: con el MISMO objetivo, país
-      // y presupuesto que va a usar la campaña, devuelve el alcance diario
-      // que Meta prevé. Es una estimación (no una promesa), pero es LA
-      // estimación de quien va a mostrar el anuncio, no un número de blog.
+      // Verificado contra la API real (29-09-2026, cuenta del tenant):
+      //  - `reachestimate?targeting_spec=` devuelve el TAMAÑO de audiencia
+      //    (users_lower/upper_bound). NO acepta daily_budget ni objective
+      //    (error 100): esos parámetros no existen en este endpoint.
+      //  - `delivery_estimate?optimization_goal=&targeting_spec=` (+page_id
+      //    como promoted_object) devuelve la curva diaria spend→reach→actions
+      //    (lo mismo que el gráfico de Ads Manager). Con audiencias frías
+      //    Meta a veces devuelve un solo punto en ceros ("baja confianza"):
+      //    eso se dice, no se rellena.
       if (token && actId) {
         try {
           const { FB_GRAPH_BASE } = await import("./meta-api-version");
-          const objetivoMeta = objetivo === "mensajes" ? "MESSAGES" : objetivo === "ventas" ? "OUTCOME_SALES" : "LINK_CLICKS";
+          const objetivoMeta = objetivo === "mensajes" ? "CONVERSATIONS" : objetivo === "ventas" ? "OFFSITE_CONVERSIONS" : "LINK_CLICKS";
           const targeting = encodeURIComponent(JSON.stringify({ geo_locations: { countries: ["CO"] }, age_min: 18, age_max: 65 }));
-          const url = `${FB_GRAPH_BASE}/act_${actId}/reachestimate?daily_budget=${Math.round(diario)}&currency=COP` +
-            `&targeting_spec=${targeting}&objective=${objetivoMeta}&access_token=${encodeURIComponent(token)}`;
-          const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
-          const cuerpo: any = await res.json().catch(() => ({}));
-          const err = cuerpo?.error;
-          if (err) {
-            // 190/467 = el usuario cerró sesión o revocó: el camino es
-            // reconectar, no reintentar. Se sigue con las otras fuentes.
-            const codigo = Number(err?.code);
-            datos.metaError = `${codigo}: ${String(err?.message || "").slice(0, 160)}`;
+          const conToken = `access_token=${encodeURIComponent(token)}`;
+          const leer = async (url: string): Promise<any> => {
+            const res = await fetch(url, { signal: AbortSignal.timeout(20000) });
+            return res.json().catch(() => ({}));
+          };
+          const alcance: any = await leer(`${FB_GRAPH_BASE}/act_${actId}/reachestimate?targeting_spec=${targeting}&${conToken}`);
+          if (alcance?.error) {
+            const codigo = Number(alcance.error?.code);
+            datos.metaError = `${codigo}: ${String(alcance.error?.message || "").slice(0, 160)}`;
             bloques.push(
               codigo === 190
-                ? `⚠️ La estimación de Meta no salió: el token de Facebook está vencido (hay que reconectar en Configuración). Sigo con lo demás.`
-                : `⚠️ Meta no devolvió estimación (${String(err?.message || "").slice(0, 120)}). Sigo con lo demás.`,
+                ? `⚠️ La estimación de Meta no salió: el token de Facebook está vencido (reconectá Facebook en Configuración). Sigo con lo demás.`
+                : `⚠️ Meta no devolvió estimación (${String(alcance.error?.message || "").slice(0, 120)}). Sigo con lo demás.`,
             );
           } else {
-            const fila = Array.isArray(cuerpo?.data) ? cuerpo.data[0] : cuerpo?.data;
-            const bajo = num(fila?.users_lower_bound ?? fila?.estimate_mau_lower_bound);
-            const alto = num(fila?.users_upper_bound ?? fila?.estimate_mau_upper_bound);
+            const fila = Array.isArray(alcance?.data) ? alcance.data[0] : alcance?.data;
+            const bajo = num(fila?.users_lower_bound);
+            const alto = num(fila?.users_upper_bound);
             if (bajo && alto) {
-              datos.alcanceDiario = { min: bajo, max: alto, fuente: "Meta reachestimate (tu cuenta, objetivo " + objetivo + ")" };
+              datos.audiencia = { min: bajo, max: alto, fuente: "Meta reachestimate (tu cuenta, Colombia 18-65)" };
               bloques.push(
-                `📊 Alcance diario estimado por Meta: **${bajo.toLocaleString("es-CO")} a ${alto.toLocaleString("es-CO")} personas por día** ` +
-                `(tu cuenta, objetivo ${objetivo === "mensajes" ? "mensajes a WhatsApp" : objetivo === "ventas" ? "ventas" : "tráfico"}, $${Math.round(diario).toLocaleString("es-CO")}/día en Colombia). ` +
-                `Es estimación, no promesa: cuántos escriben o compran se ve en los primeros 3 días.`,
+                `👥 Audiencia disponible (Meta, tu cuenta): **${bajo.toLocaleString("es-CO")} a ${alto.toLocaleString("es-CO")} personas** en Colombia 18-65. ` +
+                `Ese es el universo; cuántos ven TU anuncio por día depende de tu plata (abajo).`,
               );
-            } else {
-              bloques.push(`⚠️ Meta contestó pero sin rango de alcance usable. Sigo con lo demás.`);
+            }
+            // Curva diaria para ESTE objetivo: spend → alcance → resultados.
+            const pageId = String((tenant as any)?.facebook?.pageId || "");
+            const promo = pageId ? `&promoted_object=${encodeURIComponent(JSON.stringify({ page_id: pageId }))}` : "";
+            const entrega: any = await leer(
+              `${FB_GRAPH_BASE}/act_${actId}/delivery_estimate?optimization_goal=${objetivoMeta}&targeting_spec=${targeting}${promo}&${conToken}`,
+            );
+            if (!entrega?.error) {
+              const curva: any[] = Array.isArray((Array.isArray(entrega?.data) ? entrega.data[0] : entrega?.data)?.daily_outcomes_curve)
+                ? (Array.isArray(entrega?.data) ? entrega.data[0] : entrega?.data).daily_outcomes_curve
+                : [];
+              const utiles = curva.filter((p) => Number(p?.spend) > 0);
+              if (utiles.length) {
+                // El punto de la curva más cercano a su presupuesto diario.
+                let mejor = utiles[0];
+                for (const p of utiles) {
+                  if (Math.abs(Number(p.spend) - diario) < Math.abs(Number(mejor.spend) - diario)) mejor = p;
+                }
+                const alcanceD = Math.round(Number(mejor.reach) || 0);
+                const resultados = Math.round(Number(mejor.actions) || 0);
+                datos.curvaMeta = {
+                  gasto: Math.round(Number(mejor.spend)), alcance: alcanceD, resultados,
+                  objetivo: objetivoMeta, fuente: "Meta delivery_estimate (tu cuenta)",
+                };
+                bloques.push(
+                  `📊 Estimación de Meta para $${Math.round(diario).toLocaleString("es-CO")}/día ` +
+                  `(objetivo ${objetivo === "mensajes" ? "conversaciones de WhatsApp" : objetivo === "ventas" ? "ventas" : "clics"}): ` +
+                  `**~${alcanceD.toLocaleString("es-CO")} personas alcanzadas por día` +
+                  (resultados > 0 ? ` y ~${resultados.toLocaleString("es-CO")} ${objetivo === "mensajes" ? "conversaciones" : "resultados"} por día` : "") +
+                  `**. Es la curva de tu cuenta (aprende de tu historial), no un promedio de internet — y sigue siendo estimación: los 3 primeros días mandan.`,
+                );
+              } else {
+                bloques.push(
+                  `📊 Meta no tiene confianza para predecir resultados diarios con esta audiencia fría (devuelve la curva en ceros): ` +
+                  `no invento el número. La prueba de ${dias} días ES la medición.`,
+                );
+              }
             }
           }
         } catch (e: any) {
