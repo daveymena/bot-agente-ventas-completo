@@ -25,7 +25,7 @@ import { isApproval, isRejection } from "./architect-store";
 import { executeAction, investigacionRapida, type OperatorContext } from "./app-operator";
 import { diagnosticoDelNegocio, GUIAS, SIGUIENTES, type SiguientePasoId } from "./diagnostico-de-inicio";
 
-export type RutaId = "producto-nuevo" | "empezar";
+export type RutaId = "producto-nuevo" | "empezar" | "anuncio-guiado";
 
 /**
  * Con quién habla Atlas. Pedido del dueño (14-09-2026) después de leer una
@@ -51,6 +51,9 @@ export interface EstadoDeRuta {
   objetivoDelAnuncio?: "ventas" | "mensajes";
   draftId?: number;
   campaignId?: string;
+  /** Ruta "anuncio-guiado": plata acordada para la prueba. */
+  presupuesto?: number;
+  dias?: number;
   /** Ruta "empezar": lo que el diagnóstico propuso hacer primero. */
   siguiente?: SiguientePasoId;
   iniciadaEn: string;
@@ -215,6 +218,150 @@ const PRODUCTO_NUEVO: Paso[] = [
 ];
 
 /**
+ * Ruta "Crear tu anuncio paso a paso": para quien NO sabe pautar.
+ *
+ * Pedido del dueño (29-09-2026): mucha gente no sabe hacer anuncios ni
+ * publicar en Meta. Atlas tiene que ser su guía: proponer y crear el anuncio
+ * completo, mostrar la foto que va a salir, enseñar cómo va a quedar, contar
+ * cuánto va a valer cada cosa y pedir el sí antes de publicar.
+ *
+ * 7 pasos, una decisión por paso: producto → a dónde → plata → ángulo →
+ * anuncio (vista previa real) → costos explicados → subir en pausa y activar.
+ * Lo que se puede calcular lo calcula el SERVIDOR (presupuesto × días); lo
+ * que no existe (CPM, alcance estimado) NO se inventa: se explica la mecánica
+ * y cómo leer los primeros 3 días.
+ */
+const PRESUPUESTO_SUGERIDO = 20_000;
+const DIAS_SUGERIDOS = 3;
+
+const ANUNCIO_GUIADO: Paso[] = [
+  {
+    nombre: "Qué vendemos",
+    sinAcciones: true,
+    pedido: "productos catálogo",
+    pregunta: (e) => e.producto ? `¿Hacemos el anuncio de **${e.producto}**?` : "¿De cuál producto hacemos el anuncio?",
+    instruccion: (e) =>
+      `Objetivo del paso: elegir UN producto con foto para anunciar. Mirá el catálogo (list_products) y RECOMENDÁ uno vos: ` +
+      `un físico con foto y precio (es lo que mejor convierte para un primer anuncio); si el admin ya nombró uno, ese. ` +
+      `Explicá en 2 líneas por qué ese. Mostrá su foto con ![foto](url) si tiene. ` +
+      `Al final escribí el marcador: [[ruta: productoId=ID; producto=NOMBRE]]. Cerrá con "¿Hacemos el anuncio de ese?".` +
+      (e.producto ? ` El admin ya tenía propuesto "${e.producto}" (id ${e.productoId}); si no lo quiere, proponé otro distinto.` : ""),
+  },
+  {
+    nombre: "A dónde llega la gente",
+    sinAcciones: true,
+    pedido: "objetivos campaña whatsapp web",
+    pregunta: () => "¿Lo llevamos a WhatsApp o a la página?",
+    instruccion: (e) =>
+      `Objetivo del paso: decidir A DÓNDE va quien toca el anuncio. Explicá las dos opciones en una línea cada una, sin tecnicismos: ` +
+      `"WhatsApp" = te escriben directo a tu celular (ideal para asesorar y cerrar vos); "la página" = ven la ficha y compran solos (ideal si ya vende sola). ` +
+      `Recomendá UNA según el producto${e.producto ? ` ("${e.producto}")` : ""}: si es físico con pago contra entrega, WhatsApp; si es digital con checkout, la página. ` +
+      `Al final escribí el marcador con tu recomendación: [[ruta: objetivo=mensajes]] o [[ruta: objetivo=ventas]]. ` +
+      `Cerrá con "¿Lo llevamos a WhatsApp o a la página?". Si dice "lo que digas", vale tu recomendación.`,
+  },
+  {
+    nombre: "Cuánta plata",
+    sinAcciones: true,
+    pedido: "",
+    pregunta: (e) => `¿Probamos con $${(e.presupuesto || PRESUPUESTO_SUGERIDO).toLocaleString("es-CO")} por día durante ${e.dias || DIAS_SUGERIDOS} días?`,
+    instruccion: () =>
+      `Objetivo del paso: acordar el presupuesto de PRUEBA. Proponé vos: $${PRESUPUESTO_SUGERIDO.toLocaleString("es-CO")} por día durante ${DIAS_SUGERIDOS} días ` +
+      `(total $${(PRESUPUESTO_SUGERIDO * DIAS_SUGERIDOS).toLocaleString("es-CO")}). Explicá en 2 líneas: es plata para PROBAR, no una suscripción; ` +
+      `si en 3 días nadie escribe, se apaga y no se sigue metiendo plata. Si el admin dice otra cifra o días, usá la suya. ` +
+      `Al final escribí el marcador con números exactos: [[ruta: presupuesto=20000; dias=3]] (o los que diga él). ` +
+      `Cerrá con "¿Probamos con esa plata?". Si dice "lo que digas" o "dale", valen los sugeridos.`,
+  },
+  {
+    nombre: "El enfoque",
+    sinAcciones: true,
+    pedido: "brief anuncio ángulos",
+    pregunta: () => "¿Con cuál de los 3 lo escribo? (o digo yo)",
+    instruccion: () =>
+      `Objetivo del paso: elegir el ENFOQUE del anuncio (el "ángulo": de qué lado se le habla al cliente). ` +
+      `Usá LOS 3 ÁNGULOS REALES que te pasa el sistema abajo: presentalos numerados, uno por línea, con tu recomendado marcado. ` +
+      `Explicá "ángulo" entre paréntesis la primera vez (el lado por el que se le entra al cliente: su problema, su deseo, su curiosidad). ` +
+      `Al final escribí el marcador con el elegido: [[ruta: angulo=EL ÁNGULO EN UNA FRASE]]. ` +
+      `Cerrá con "¿Con cuál lo escribo? Decime el número o decime 'elegí vos'". Si dice "elegí vos", vale tu recomendado.`,
+    alEntrar: async (e, ctx, avisar) => {
+      if (!e.productoId) return "[SISTEMA] No hay producto elegido: pedí que elija uno antes del ángulo.";
+      avisar("Armando los enfoques posibles...");
+      const r = await executeAction("ad_brief", { productId: e.productoId }, ctx);
+      if (!r.ok) return `[SISTEMA] No se pudo armar el brief: ${r.summary}. Proponé 3 ángulos vos con lo que sabés del producto, sin inventar datos.`;
+      return `[SISTEMA] Brief REAL del producto (hecho por el servidor). Usá SUS 3 ángulos tal cual, no inventes otros:\n${r.summary.slice(0, 4000)}`;
+    },
+  },
+  {
+    nombre: "Cómo va a quedar",
+    sinAcciones: true,
+    pedido: "crear anuncio borrador",
+    pregunta: () => "¿Te gusta así o le cambio algo?",
+    instruccion: () =>
+      `Objetivo del paso: mostrarle el anuncio YA ESCRITO por el servidor (abajo está el resultado real) COMO SE VA A VER: ` +
+      `primero la foto con ![vista previa](URL de la imagen del producto), después el TÍTULO en negrita y después el texto completo. ` +
+      `Decí también a dónde lleva (WhatsApp o la página) y con cuánta plata por día quedó armado. ` +
+      `NO propongas ni llames ninguna acción: ya está escrito y guardado como borrador. ` +
+      `Cerrá con "¿Te gusta así o le cambio algo?". Si pide un cambio, decile que lo aplicás en el paso siguiente; ` +
+      `si dice que sí, escribí el marcador [[ruta: draftid=ID]] con el id del borrador.`,
+    alEntrar: async (e, ctx, avisar) => {
+      if (!e.producto) return "[SISTEMA] No hay producto elegido.";
+      const presupuesto = e.presupuesto && e.presupuesto > 0 ? e.presupuesto : PRESUPUESTO_SUGERIDO;
+      e.presupuesto = presupuesto;
+      if (!e.dias || e.dias <= 0) e.dias = DIAS_SUGERIDOS;
+      const objetivo = e.objetivoDelAnuncio === "ventas" ? "ventas" : "mensajes";
+      e.objetivoDelAnuncio = objetivo;
+      avisar("Escribiendo tu anuncio...");
+      const a = await executeAction("crear_anuncio", { producto: e.producto, dailyBudget: presupuesto, objetivo }, ctx);
+      if (!a.ok) return `[SISTEMA] El anuncio NO se pudo escribir: ${a.summary}. Decíselo y ofrecé reintentar.`;
+      e.draftId = Number((a as any).data?.draftId) || Number((a as any).data?.id) || undefined;
+      return `[SISTEMA] Anuncio escrito por el servidor (borrador${e.draftId ? ` ${e.draftId}` : ""}, NO publicado, NO gasta):\n${a.summary.slice(0, 3000)}`;
+    },
+  },
+  {
+    nombre: "Cuánto va a valer",
+    sinAcciones: true,
+    pedido: "",
+    pregunta: () => "¿Lo subo a tu cuenta en pausa?",
+    instruccion: (e) => {
+      const porDia = (e.presupuesto || PRESUPUESTO_SUGERIDO).toLocaleString("es-CO");
+      const dias = e.dias || DIAS_SUGERIDOS;
+      const total = ((e.presupuesto || PRESUPUESTO_SUGERIDO) * dias).toLocaleString("es-CO");
+      const destino = e.objetivoDelAnuncio === "ventas" ? "tu página" : "tu WhatsApp";
+      return (
+        `Objetivo del paso: explicarle la plata con LOS NÚMEROS REALES ya acordados, sin inventar alcance ni costos por clic. ` +
+        `Decí esto, con estas cifras: crear el anuncio salió GRATIS; subirlo en pausa es GRATIS y no gasta; ` +
+        `cuando se active, Facebook muestra el anuncio a gente interesada y cobra $${porDia} por día ` +
+        `(prueba de ${dias} días = $${total} en total), que se descuenta de la tarjeta de su cuenta publicitaria. ` +
+        `El anuncio lleva a ${destino}. Nadie puede decirte cuántos van a escribir antes de probarlo: ` +
+        `por eso son ${dias} días de prueba — si nadie escribe, se apaga y no se pierde más; si escriben, se sube. ` +
+        `Cerrá con "¿Lo subo a tu cuenta en pausa?". Si pregunta por la tarjeta, decile que se pone en el Administrador de Anuncios de Meta.`
+      );
+    },
+  },
+  {
+    nombre: "Publicarlo",
+    pedido: "subir meta campaña pausa activar",
+    pregunta: (e) => e.campaignId ? "¿Lo activo ahora para que empiece a mostrarse?" : "¿Querés que lo intente de nuevo?",
+    instruccion: (e) =>
+      `Objetivo del paso: cerrar. ` +
+      (e.campaignId
+        ? `El anuncio YA está en su cuenta de Meta, en PAUSA (campaña ${e.campaignId}): no gasta nada todavía. Decíselo en una línea. ` +
+          `Activarlo sí gasta plata: proponelo con propose_action → fb_resume_campaign { "campaignId": "${e.campaignId}" } (una sola acción, el admin confirma). `
+        : `El anuncio NO se pudo subir a Meta (abajo está el motivo real). Explicáselo en lenguaje simple y decile qué hacer ` +
+          `(por ejemplo conectar Facebook en Configuración o poner un método de pago en Ads Manager); no propongas acciones. `) +
+      `Después, en 3 líneas: qué va a ver en 3 días (cuánta gente escribió, cuánto costó cada mensaje) y cuándo conviene apagar o subir. ` +
+      `Cerrá con UNA sola pregunta: ${e.campaignId ? '"¿Lo activo ahora?"' : '"¿Querés que lo intente de nuevo?"'}. Escribí el marcador [[ruta: fin]].`,
+    alEntrar: async (e, ctx, avisar) => {
+      if (!e.draftId) return "[SISTEMA] No hay borrador guardado (el paso anterior no lo creó).";
+      avisar("Subiendo el anuncio a tu cuenta (en pausa, no gasta)...");
+      const r = await executeAction("fb_upload_draft_to_meta", { draftId: e.draftId, objetivo: e.objetivoDelAnuncio || "mensajes" }, ctx);
+      if (!r.ok) return `[SISTEMA] La subida a Meta falló: ${r.summary}`;
+      e.campaignId = String(r.summary).match(/campaña\s+([\w-]+)/)?.[1] || undefined;
+      return `[SISTEMA] Subido a Meta en pausa: ${r.summary}`;
+    },
+  },
+];
+
+/**
  * Ruta "No sé por dónde empezar": el servidor mira el negocio y propone UNA
  * cosa. Si es "vender un producto", se salta a esa ruta; si es algo que el
  * cliente tiene que hacer con sus manos (conectar WhatsApp, poner el pago de
@@ -258,6 +405,7 @@ const EMPEZAR: Paso[] = [
 const RUTAS: Record<RutaId, { nombre: string; pasos: Paso[] }> = {
   "producto-nuevo": { nombre: "Vender un producto nuevo", pasos: PRODUCTO_NUEVO },
   empezar: { nombre: "Empezar", pasos: EMPEZAR },
+  "anuncio-guiado": { nombre: "Crear tu anuncio paso a paso", pasos: ANUNCIO_GUIADO },
 };
 
 // ── Estado por sesión ────────────────────────────────────────────────────
@@ -325,6 +473,13 @@ export function sinEncabezadoDePaso(texto: string): string {
 
 const INICIO_PRODUCTO_NUEVO = /\b(vender\s+(un\s+)?(producto\s+)?nuevo|producto\s+nuevo|nuevo\s+producto|quiero\s+(empezar\s+a\s+)?vender|empezar\s+a\s+vender|lanzar\s+(un\s+)?producto|ay[uú]dame\s+a\s+vender)\b/i;
 const INICIO_EMPEZAR = /\b(no\s+s[eé]\s+por\s+d[oó]nde\s+empezar|por\s+d[oó]nde\s+empiezo|qu[eé]\s+hago\s+primero|c[oó]mo\s+empiezo|revis[aá]\s+(mi|el)\s+negocio)\b/i;
+/**
+ * Arranca la ruta "Crear tu anuncio paso a paso". Solo con señales de
+ * PRINCIPIANTE o pedido explícito de guía: un "creá un anuncio para X" a
+ * secas sigue por el flujo experto normal (proponer → confirmar → crear),
+ * sin meterlo en 7 pasos que no pidió.
+ */
+const INICIO_ANUNCIO_GUIADO = /\b(no\s+s[eé]\s+(hacer|crear|nada\s+de)\s+(anuncios?|pauta|publicidad)|nunca\s+(he\s+)?(paut[eé]|anunciado|(hecho|hice)\s+(un\s+)?anuncio)|gu[ií]ame\s+(con\s+)?(el\s+|mi\s+|los\s+)?anuncios?|paso\s+a\s+paso.*anuncio|anuncio.*paso\s+a\s+paso|primer\s+anuncio|quiero\s+(publicitar|anunciar|pautar)(.*(no\s+s[eé]|c[oó]mo|ayuda|gu[ií]a))?|c[oó]mo\s+(hago|creo|publico|subo)\s+(un\s+)?anuncio|ens[eé][ñn]ame\s+a\s+(pautar|anunciar))\b/i;
 /** Los botones del diagnóstico mandan estos mensajes: van directo a la guía. */
 const GUIA_DIRECTA: Array<{ patron: RegExp; id: Exclude<SiguientePasoId, "producto-nuevo"> }> = [
   { patron: /conectar\s+whatsapp/i, id: "whatsapp" },
@@ -349,6 +504,9 @@ export function detectarInicioDeRuta(prompt: string): RutaId | null {
   if (bruto.length > LARGO_MAXIMO_DE_UN_INICIO) return null;
   const t = bruto.replace(/“[^”]*”|"[^"]*"|«[^»]*»/g, " ");
   if (INICIO_EMPEZAR.test(t) || GUIA_DIRECTA.some((g) => g.patron.test(t))) return "empezar";
+  // El que habla como experto (CPM, ROAS, conjuntos, lookalike) no quiere 7
+  // pasos: usa el flujo corto aunque diga "quiero pautar".
+  if (INICIO_ANUNCIO_GUIADO.test(t) && !HABLA_COMO_EXPERTO.test(t)) return "anuncio-guiado";
   return INICIO_PRODUCTO_NUEVO.test(t) ? "producto-nuevo" : null;
 }
 
@@ -536,7 +694,8 @@ export async function prepararRuta(o: {
   };
 
   // En el paso 1, nombrar el producto ES elegirlo: no se vuelve a preguntar.
-  const nombrado = estado.ruta === "producto-nuevo" && estado.paso === 1 && !recienIniciada && !isApproval(prompt) && !isRejection(prompt)
+  // Vale para las dos rutas que empiezan eligiendo producto.
+  const nombrado = (estado.ruta === "producto-nuevo" || estado.ruta === "anuncio-guiado") && estado.paso === 1 && !recienIniciada && !isApproval(prompt) && !isRejection(prompt)
     ? productoNombrado(prompt, await catalogoDelTenant(o.tenantId))
     : null;
 
@@ -601,6 +760,28 @@ export function sinMecanicaInterna(texto: string): string {
 const ENCABEZADO_DE_PASO = /^\s*\**\s*Paso\s+\d+\s+de\s+\d+\s*[·:\-–]\s*[^\n]*\**\s*\n+/i;
 
 /**
+ * Aplica al estado lo que el modelo declaró en su marcador
+ * (`[[ruta: productoId=..; objetivo=..; presupuesto=..; dias=..; ...]]`).
+ * Función pura para poder probarla sin base de datos.
+ */
+export function aplicarMarcadores(e: EstadoDeRuta, campos: Record<string, string>): EstadoDeRuta {
+  if (campos.productoid && Number(campos.productoid) > 0) e.productoId = Number(campos.productoid);
+  if (campos.producto) e.producto = campos.producto;
+  if (campos.angulo) e.angulo = campos.angulo;
+  if (campos.landingid && Number(campos.landingid) > 0) e.landingId = Number(campos.landingid);
+  if (campos.siguiente && (campos.siguiente in SIGUIENTES)) e.siguiente = campos.siguiente as SiguientePasoId;
+  const obj = String(campos.objetivo || "").toLowerCase();
+  if (/mensaje|whatsapp/.test(obj)) e.objetivoDelAnuncio = "mensajes";
+  else if (/venta/.test(obj)) e.objetivoDelAnuncio = "ventas";
+  const pres = Number(String(campos.presupuesto || "").replace(/[^\d]/g, ""));
+  if (Number.isFinite(pres) && pres > 0) e.presupuesto = pres;
+  const dias = Number(String(campos.dias || "").replace(/[^\d]/g, ""));
+  if (Number.isFinite(dias) && dias > 0 && dias <= 90) e.dias = dias;
+  if (campos.draftid && Number(campos.draftid) > 0) e.draftId = Number(campos.draftid);
+  return e;
+}
+
+/**
  * Después del modelo: guarda lo que declaró, quita el marcador, pone el
  * encabezado del paso y garantiza que termina proponiendo el siguiente.
  */
@@ -612,12 +793,7 @@ export async function cerrarTurnoDeRuta(o: {
 }): Promise<string> {
   const { estado, paso, total } = o.ruta;
   const decl = avanceQueDeclara(o.texto);
-  const c = decl.campos;
-  if (c.productoid && Number(c.productoid) > 0) estado.productoId = Number(c.productoid);
-  if (c.producto) estado.producto = c.producto;
-  if (c.angulo) estado.angulo = c.angulo;
-  if (c.landingid && Number(c.landingid) > 0) estado.landingId = Number(c.landingid);
-  if (c.siguiente && (c.siguiente in SIGUIENTES)) estado.siguiente = c.siguiente as SiguientePasoId;
+  aplicarMarcadores(estado, decl.campos);
 
   let texto = sinMecanicaInterna(decl.textoLimpio.replace(ENCABEZADO_DE_PASO, "").replace(ENCABEZADO_DE_PASO, ""));
   // Basta con que el cierre (últimas líneas) tenga una pregunta: el modelo a
@@ -641,6 +817,7 @@ export async function cerrarTurnoDeRuta(o: {
 /** Para la pantalla: el saludo con las metas que Atlas sabe guiar. */
 export const METAS_DE_INICIO = [
   { id: "producto-nuevo", texto: "🚀 Vender un producto nuevo", mensaje: "Quiero vender un producto nuevo" },
+  { id: "anuncio-guiado", texto: "📢 No sé hacer anuncios: guíame", mensaje: "No sé hacer anuncios, guíame paso a paso" },
   { id: "vender-mas", texto: "📈 Vender más de lo que ya tengo", mensaje: "Ayúdame a vender más de un producto que ya tengo" },
   { id: "empezar", texto: "🧭 No sé por dónde empezar", mensaje: "No sé por dónde empezar" },
   { id: "experto", texto: "⚡ Ya sé pautar: solo ejecutá", mensaje: "Ya sé pautar, quiero vender un producto nuevo: solo ejecutá" },

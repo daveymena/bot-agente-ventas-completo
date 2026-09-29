@@ -4,7 +4,7 @@
  * lo que el modelo declara, y que el marcador nunca llega al admin.
  */
 import { describe, it, expect } from "vitest";
-import { detectarInicioDeRuta, pideSalirDeRuta, avanceQueDeclara, guiaDirectaPedida } from "../ruta-guiada";
+import { detectarInicioDeRuta, pideSalirDeRuta, avanceQueDeclara, guiaDirectaPedida, aplicarMarcadores } from "../ruta-guiada";
 
 describe("cuándo arranca la ruta", () => {
   it("con las metas del saludo y con formas naturales", () => {
@@ -27,6 +27,36 @@ describe("cuándo arranca la ruta", () => {
 
   it("no arranca con pedidos normales", () => {
     for (const t of ["cuántos leads tengo", "creá el anuncio del curso", "cambiá el precio del bolso", "sí"]) {
+      expect(detectarInicioDeRuta(t), t).toBeNull();
+    }
+  });
+
+  it("el principiante que quiere anunciar entra en la ruta guiada", () => {
+    // Pedido del dueño (29-09-2026): el que no sabe pautar necesita que Atlas
+    // lo lleve paso a paso (producto → dónde → plata → ángulo → vista previa
+    // → costos → publicar), no el flujo corto de proponer y listo.
+    for (const t of [
+      "No sé hacer anuncios, guíame paso a paso",
+      "nunca hice un anuncio",
+      "cómo hago un anuncio",
+      "enséñame a pautar",
+      "quiero publicitar pero no sé cómo",
+      "ayudame con mi primer anuncio",
+      "quiero pautar el corrector",
+    ]) {
+      expect(detectarInicioDeRuta(t), t).toBe("anuncio-guiado");
+    }
+  });
+
+  it("un pedido experto de anuncio NO entra en la ruta guiada", () => {
+    // Imperativo con parámetros o jerga (CPM, conjuntos, lookalike): el flujo
+    // corto (proponer → confirmar → crear) sigue intacto para el que ya sabe.
+    for (const t of [
+      "creá el anuncio del curso",
+      "creá un anuncio para el curso de piano con 30 mil diarios",
+      "subí el borrador 89 a Meta en pausa",
+      "quiero pautar con lookalike al conjunto ganador",
+    ]) {
       expect(detectarInicioDeRuta(t), t).toBeNull();
     }
   });
@@ -55,6 +85,26 @@ describe("lo que el modelo declara", () => {
   it("sin marcador no toca nada", () => {
     const t = "Texto normal con [corchetes] simples.";
     expect(avanceQueDeclara(t)).toEqual({ campos: {}, fin: false, textoLimpio: t });
+  });
+});
+
+describe("la ruta de anuncios guarda plata, días y destino", () => {
+  it("aplica objetivo, presupuesto, días y borrador del marcador", () => {
+    const e: any = { ruta: "anuncio-guiado", paso: 3 };
+    aplicarMarcadores(e, { objetivo: "mensajes", presupuesto: "20000", dias: "3" });
+    expect(e.objetivoDelAnuncio).toBe("mensajes");
+    expect(e.presupuesto).toBe(20000);
+    expect(e.dias).toBe(3);
+    aplicarMarcadores(e, { objetivo: "ventas", draftid: "77" });
+    expect(e.objetivoDelAnuncio).toBe("ventas");
+    expect(e.draftId).toBe(77);
+  });
+
+  it("ignora números rotos en vez de guardar basura", () => {
+    const e: any = { ruta: "anuncio-guiado", paso: 3, presupuesto: 20000 };
+    aplicarMarcadores(e, { presupuesto: "lo que digas", dias: "0" });
+    expect(e.presupuesto).toBe(20000);
+    expect(e.dias).toBeUndefined();
   });
 });
 
