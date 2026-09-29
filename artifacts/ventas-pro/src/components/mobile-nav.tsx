@@ -1,5 +1,5 @@
 import { useLocation } from "wouter";
-import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store, Activity, Crown, Megaphone, HelpCircle, BadgeCheck, LayoutTemplate, LogOut , Truck, FlaskConical, BarChart3, MessageSquareText, GraduationCap } from "lucide-react";
+import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store, Activity, Crown, Megaphone, HelpCircle, BadgeCheck, LayoutTemplate, LogOut , Truck, MessageSquareText, GraduationCap } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "@/App";
 
@@ -18,8 +18,11 @@ const baseMoreItems = [
   { label: "Agentes IA", href: "/agents", icon: Bot },
   { label: "Probar vendedor", href: "/probar-vendedor", icon: MessageSquareText },
   { label: "Enseñar con ejemplo", href: "/ensenar-con-ejemplo", icon: GraduationCap },
-  { label: "Agent Lab", href: "/agent-lab", icon: FlaskConical },
-  { label: "Lab Dashboard", href: "/agent-lab-dashboard", icon: BarChart3 },
+  // Ocultos del menú móvil 29-09-2026 (igual que en el lateral web): son
+  // herramientas de laboratorio; las rutas /agent-lab y /agent-lab-dashboard
+  // siguen vivas para quien las necesite.
+  // { label: "Agent Lab", href: "/agent-lab", icon: FlaskConical },
+  // { label: "Lab Dashboard", href: "/agent-lab-dashboard", icon: BarChart3 },
   { label: "WhatsApp", href: "/whatsapp", icon: Phone },
   { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
   { label: "Dropi", href: "/dropi", icon: Truck },

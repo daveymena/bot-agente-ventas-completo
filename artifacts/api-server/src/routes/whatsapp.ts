@@ -17,6 +17,18 @@ function tenantIdFromReq(req: any): number {
   return req.tenant?.id ?? req.user?.tenantId ?? 1;
 }
 
+/**
+ * Normaliza el teléfono de /test-ia al espacio de simulación.
+ * Sin `sim-` el despacho crearía un pedido REAL: por eso se fuerza
+ * siempre. Exportada para pruebas.
+ */
+export function normalizarTelefonoSimulacion(raw: unknown): { telefono: string; forzado: boolean } {
+  const pedido = String(raw || "test-ia").slice(0, 44);
+  const limpio = pedido.replace(/[^a-zA-Z0-9_-]/g, "") || "test-ia";
+  if (/^sim-/i.test(limpio)) return { telefono: limpio, forzado: false };
+  return { telefono: `sim-${limpio}`, forzado: true };
+}
+
 router.get("/status", (req, res) => {
   const tid = tenantIdFromReq(req);
   const mgr = getWhatsAppForTenant(tid, (req as any).tenant);
@@ -91,7 +103,12 @@ router.post("/test-ia", async (req, res) => {
     const tenant = await tenantManager.getTenantById(tenantId);
     if (!tenant) return res.status(404).json({ error: "Negocio no encontrado (tenant " + tenantId + ")" });
 
-    const telefonoRaw = String(req.body.phone || "test-ia").slice(0, 50);
+    // Candado 2026-09-29: esta ruta NUNCA puede crear un pedido real. Todo
+    // teléfono se fuerza al espacio de simulación (`sim-...`): sin ese
+    // prefijo el despacho lo trata como compra real (Dropi/Woo de verdad).
+    // El prefijo se informa en la respuesta para que el simulador lo sepa.
+    const { telefono: telefonoRaw, forzado: telefonoForzado } =
+      normalizarTelefonoSimulacion(String(req.body.phone || ""));
     const { variantesDeTelefono } = await import("../lib/customer-profile");
     let variantes: string[];
     try {
@@ -187,6 +204,9 @@ router.post("/test-ia", async (req, res) => {
     return res.json({
       ok: true,
       message: msg,
+      phone: telefonoRaw,
+      simulacion: true,
+      telefonoForzado: telefonoForzado || undefined,
       stage: (reply as any)?.stage ?? null,
       proveedor: (reply as any)?.aiProvider ?? null,
       response: (reply as any)?.content?.substring(0, 1500) ?? "",

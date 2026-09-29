@@ -180,7 +180,17 @@ async function explicarRechazo(token: string, error: string, ipQueVioDropi?: str
   if (payload.exp && Number(payload.exp) * 1000 < Date.now()) {
     return `Dropi rechazó el token: venció el ${new Date(Number(payload.exp) * 1000).toISOString().slice(0, 10)}. Generá uno nuevo en Dropi → Mis Integraciones.`;
   }
-  const ips = [payload.ip_url, payload.ip].flat().filter((x: any) => x != null && String(x).trim() !== "").map(String);
+  const aTexto = (x: any): string | null => {
+    if (x == null) return null;
+    if (typeof x === "string") return x.trim() ? x.trim() : null;
+    if (typeof x === "object") {
+      const v = x.ip || x.address || x.host || x.value || null;
+      return typeof v === "string" && v.trim() ? v.trim() : null;
+    }
+    const s = String(x).trim();
+    return s && s !== "[object Object]" ? s : null;
+  };
+  const ips = [payload.ip_url, payload.ip].flat().map(aTexto).filter((x): x is string => !!x);
   const nuestra = ipQueVioDropi || (await ipDeSalida());
   const tipo = payload.integration_url ? `WooCommerce (tienda ${payload.integration_url})` : "sin tienda (tipo Chatbot/API)";
   if (ips.length && !(nuestra && ips.some((ip) => ip.includes(nuestra)))) {

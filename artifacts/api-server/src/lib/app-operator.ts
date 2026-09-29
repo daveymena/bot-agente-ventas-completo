@@ -2692,6 +2692,50 @@ export const TOOLS: ToolDef[] = [
   },
 
   {
+    name: "atlas_ad_intelligence",
+    description:
+      "INTELIGENCIA sobre anuncios de la competencia (AD INTELLIGENCE): lee la Biblioteca de Anuncios de Meta para un nicho/producto y devuelve PATRONES (qué ángulos/hooks/formatos saturan el mercado), HUECOS de diferenciación y ángulos sugeridos ORIGINALES para alimentar al Creative Director. Un patrón repetido es una HIPÓTESIS para probar con A/B, nunca prueba de que convierte. Guarda el hallazgo en la memoria de marketing. Solo LEE, no publica nada.",
+    args: '{ "query": string (req) — nicho o producto, ej: "corrector de postura", "producto"?: string (nombre del producto propio para la diferenciación), "pais"?: string (ISO2, por defecto CO), "limite"?: number (por defecto 10, máx 20) }',
+    run: async (args, ctx) => {
+      const query = String(args.query || "").trim();
+      if (!query) return { ok: false, summary: "Falta 'query' (nicho o producto a investigar)" };
+      const nombreProducto = String(args.producto || query).trim().slice(0, 80);
+      const pais = String(args.pais || "CO").toUpperCase().slice(0, 2);
+      const limite = Math.min(Math.max(num(args.limite) || 10, 3), 20);
+      const r = await executeAction("fb_ad_library", { query, pais, limite }, ctx);
+      if (!r.ok || !r.data?.anuncios?.length) {
+        return { ok: false, summary: `Sin anuncios para analizar: ${r.summary || "sin datos"}. No inventes patrones.` };
+      }
+      const { clasificarAnuncio, extraerPatrones } = await import("./marketing-team/ad-intelligence");
+      const clasificados = (r.data.anuncios as string[]).map((b) => clasificarAnuncio(b));
+      const intel = extraerPatrones(clasificados, nombreProducto);
+      // Persistir como aprendizaje de marketing (fuente de inteligencia para
+      // el equipo existente: creativeDirection lo consume vía research.angulos).
+      try {
+        const { saveLearning } = await import("./marketing-team/agents/marketing-memory");
+        await saveLearning(ctx.tenantId, {
+          product: nombreProducto,
+          content: `AD INTELLIGENCE "${query}" (${pais}): ${intel.total} anuncios. Saturado: ${intel.angulosSaturados.join(", ") || "nada claro"}. Huecos: ${intel.huecos.map((h) => h.categoria).join(", ") || "ninguno"}. Lenguaje: ${intel.lenguajeDelMercado.slice(0, 5).join(" | ")}. Ángulos: ${intel.angulosSugeridos.join(" // ")}`,
+          tags: ["ad-intelligence", `pais:${pais}`],
+        });
+      } catch (e: any) {
+        logger.warn({ err: e?.message }, "[AdIntelligence] no se pudo guardar el aprendizaje");
+      }
+      const lineas = intel.patrones.map((p) => `• ${p.categoria}: ${Math.round(p.frecuencia * 100)}% — ej: "${p.ejemplos[0] || "—"}"`).join("\n");
+      return {
+        ok: true,
+        summary:
+          `🧠 AD INTELLIGENCE "${query}" (${pais}, ${intel.total} anuncios):\n${lineas}\n` +
+          `Saturado: ${intel.angulosSaturados.join(", ") || "—"}\n` +
+          `Huecos: ${intel.huecos.map((h) => `${h.categoria} (${h.porQue})`).join(" / ") || "—"}\n` +
+          `Ángulos sugeridos (originales, para Creative Director): ${intel.angulosSugeridos.join(" // ")}\n` +
+          `⚠️ ${intel.advertencia}`,
+        data: { query, pais, total: intel.total, patrones: intel.patrones, huecos: intel.huecos, angulosSugeridos: intel.angulosSugeridos, clasificados: clasificados.slice(0, limite) },
+      };
+    },
+  },
+
+  {
     name: "web_scrape_images",
     description:
       "EXTRAER las URLs de las imágenes reales de una página web (scraping). Úsala cuando el admin quiera una foto de producto que ya existe en internet (la página del proveedor, una tienda, un curso) en vez de generar una con IA. Devuelve las imágenes ordenadas de más a menos relevante (portada/og:image primero). Solo LEE, no asigna nada — después usa set_product_image con la URL elegida.",
@@ -8216,7 +8260,7 @@ export const READ_ONLY_TOOLS = new Set([
   "predict_customer", "optimize_price", "optimize_copy",
   "analyze_channel_performance", "reason_business_decision",
   // Lectura de web (información externa)
-  "web_fetch", "web_search", "web_scrape_images", "search_product_images", "deep_research", "fb_ad_library",
+  "web_fetch", "web_search", "web_scrape_images", "search_product_images", "deep_research", "fb_ad_library", "atlas_ad_intelligence",
   // Que es y cuanto cuesta la plataforma: solo lectura, no cambia nada.
   "plataforma_info",
   "research_start", "research_check",

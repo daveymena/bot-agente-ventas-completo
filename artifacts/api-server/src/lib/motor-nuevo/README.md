@@ -105,12 +105,12 @@ marcado y la próxima vez va directo al JSON.
 
 ## Cómo se prende
 
-Está en producción **apagado**. El valor por defecto es `v1` para todo el mundo,
-así que desplegar esto no le cambia nada a ningún cliente.
+Está en producción **encendido por defecto** desde 2026-09-22
+(`activacion.ts`: `MOTOR_VENDEDOR || "v2"`). Para volver a v1, explícito:
 
 ```bash
 # Variables de entorno (EasyPanel)
-MOTOR_VENDEDOR=v1                 # defecto: nadie cambia
+MOTOR_VENDEDOR=v2                 # defecto actual: todos en v2
 MOTOR_VENDEDOR_TENANTS=3,7        # estos negocios sí
 MOTOR_VENDEDOR_PORCENTAJE=10      # o un porcentaje estable por negocio
 ```

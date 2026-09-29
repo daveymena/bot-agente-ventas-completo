@@ -31,6 +31,8 @@ const guardarSchema = z.object({
     // reescribir un token que el usuario no volvió a tipear (no lo tiene: el
     // GET nunca se lo devolvió).
     accessToken: z.string().optional(),
+    // Secreto del webhook de MercadoPago (x-signature). Vacío/ausente = no se toca.
+    webhookSecret: z.string().optional(),
     enabled: z.boolean().optional(),
   }).optional(),
   paypal: z.object({
@@ -134,6 +136,10 @@ router.put("/credentials", async (req, res, next) => {
         // Solo se pisa el token si mandaron uno nuevo y no vacío.
         ...(mercadopago.accessToken
           ? { accessToken: cifrarSecreto(mercadopago.accessToken.trim()) }
+          : {}),
+        // Solo se pisa el secreto si mandaron uno nuevo y no vacío.
+        ...(mercadopago.webhookSecret
+          ? { webhookSecret: cifrarSecreto(mercadopago.webhookSecret.trim()) }
           : {}),
         enabled: mercadopago.enabled ?? prev.enabled ?? true,
       };

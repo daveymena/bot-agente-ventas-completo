@@ -384,8 +384,7 @@ async function spendProtectionForTenant(tenant: TenantContext): Promise<void> {
     // apagar campañas que recién empiezan.
     const movioAlgo = ventasReales > 0 || conversacionesReales > 0;
 
-    if (!movioAlgo && insights.spend > 0) {
-      const reason =
+    if (!movioAlgo && insights.spend > 0) {      const reason =
         `Lleva ${fmtCOP(insights.spend)} gastados hoy con ${insights.impressions} impresiones. ` +
         `Meta reporta ${insights.results} "resultado(s)", pero en tu negocio eso no se tradujo en NADA: ` +
         `0 ventas y 0 conversaciones nuevas. ` +
@@ -427,6 +426,43 @@ La pausé para que deje de gastar. Si querés que siga corriendo igual, respond�
       } else {
         // No se pudo pausar: al menos avisar y ofrecer hacerlo.
         await notifyAdmin(tenant.id, log.id, campaign.name, "pause", reason);
+      }
+    }
+
+    // ── FRENO DE MARGEN (2026-09-29) ───────────────────────────────────
+    // Vende pero pierde plata: CPA real vs ticket×margen del negocio.
+    // Solo actúa con margen configurado (tenants.settings.margenFraccion);
+    // sin datos no juzga. Mismo patrón que arriba: pausa y avisa.
+    if (movioAlgo && ventasReales > 0) {
+      try {
+        const { evaluarFrenoMargenDeTenant } = await import("./marketing-team/budget-guard");
+        const freno = await evaluarFrenoMargenDeTenant(tenant.id, Number(insights.spend) || 0, ventasReales);
+        if (freno.accion === "matar") {
+          const pausada = await fb.pauseCampaign(campaign.id);
+          const logM = await logSuggestion({
+            tenantId: tenant.id,
+            campaignId: campaign.id,
+            productName: campaign.name,
+            checkType: "spend_protection",
+            suggestedAction: "pause",
+            status: pausada ? "applied" : "suggested",
+            reason: `Freno de margen: ${freno.motivo}`,
+            metricsSnapshot: { ...insights, cpa: freno.cpa, cpaObjetivo: freno.cpaObjetivo } as any,
+          });
+          if (pausada) {
+            logger.warn({ tenantId: tenant.id, campaignId: campaign.id, cpa: freno.cpa }, "[AdGrowthAgent] Campana pausada por freno de margen");
+            await notifyAdminExecuted(
+              tenant,
+              logM.id,
+              `Freno de margen: ${freno.motivo}\n\nLa pausé para que deje de perder plata. Si querés que siga corriendo igual, respondé "reanudar ${logM.id}".`,
+              [campaign.name],
+            );
+          } else {
+            await notifyAdmin(tenant.id, logM.id, campaign.name, "pause", `Freno de margen: ${freno.motivo}`);
+          }
+        }
+      } catch (e: any) {
+        logger.warn({ err: e?.message, tenantId: tenant.id }, "[AdGrowthAgent] Freno de margen no evaluado");
       }
     }
   }
