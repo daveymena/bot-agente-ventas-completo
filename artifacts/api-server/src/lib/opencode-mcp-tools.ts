@@ -132,6 +132,49 @@ const TOOL_SCHEMAS: Record<string, object> = {
     required: ["query"],
     additionalProperties: false,
   },
+  // ── Inteligencia estilo DropKiller + estimación previa ───────────────────
+  // Esquemas explícitos (no el genérico): son de lectura y Atlas las llama
+  // con lo que leyó del pedido; sin esquema llegaban `{}` vacíos.
+  fb_estimar: {
+    type: "object",
+    properties: {
+      productId: { type: "number", description: "Id del producto del catálogo (opcional)" },
+      objetivo: { type: "string", description: "mensajes, ventas o trafico (requerido)" },
+      dailyBudget: { type: "number", description: "Presupuesto por día en COP (requerido)" },
+      dias: { type: "number", description: "Días de prueba, por defecto 3" },
+    },
+    required: ["objetivo", "dailyBudget"],
+    additionalProperties: false,
+  },
+  producto_ganador: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "Nicho o producto a evaluar en Dropi" },
+      conStock: { type: "boolean", description: "Solo con stock, por defecto true" },
+      limit: { type: "number", description: "Candidatos a puntuar, máx 12, por defecto 8" },
+    },
+    required: ["query"],
+    additionalProperties: false,
+  },
+  dropi_roi: {
+    type: "object",
+    properties: {
+      productId: { type: "number", description: "Id del catálogo (opcional)" },
+      dropiProductId: { type: "number", description: "Id en Dropi (opcional)" },
+      precio: { type: "number", description: "Para simular otro precio (opcional)" },
+      adsDiario: { type: "number", description: "Pauta por día, por defecto 20000" },
+      dias: { type: "number", description: "Días de prueba, por defecto 3" },
+    },
+    additionalProperties: false,
+  },
+  espiar_tienda: {
+    type: "object",
+    properties: {
+      url: { type: "string", description: "Dominio o link de la tienda Shopify a espiar" },
+    },
+    required: ["url"],
+    additionalProperties: false,
+  },
   deep_research: {
     type: "object",
     properties: {
@@ -504,6 +547,12 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
       // Lectura pura: no crea nada ni gasta. Se muestra igual para que el
       // admin vea QUÉ se va a averiguar antes de confirmar nada.
       return `📊 Estimar alcance y costo (${g.objetivo ?? "?"}) con $${Number(g.dailyBudget || 0).toLocaleString("es-CO")}/día — solo consulta, no crea nada ni gasta`;
+    case "producto_ganador":
+      return `🎯 Radar de ganadores para "${g.query ?? "?"}": puntúa margen + stock + competencia (solo lee, no importa nada)`;
+    case "dropi_roi":
+      return `🧮 Calcular rentabilidad${g.productId ? ` del producto ${g.productId}` : ""}${g.dropiProductId ? ` (Dropi #${g.dropiProductId})` : ""} con pauta ${g.adsDiario || 20000}/día × ${g.dias || 3} días — solo matemática, no cambia nada`;
+    case "espiar_tienda":
+      return `🕵️ Leer el catálogo público de ${valorLegible(g.url ?? "", 80)} (solo lee, no toca nada)`;
     case "fb_page_publish":
       return `📢 PUBLICAR en el muro de la página de Facebook (público, gratis) el producto ${g.productId ?? "?"} — visible de inmediato para todos`;
     case "crear_anuncio":
@@ -1210,8 +1259,8 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
   {
     // "busc"/"búsqueda" y "competidor" faltaban: pedirle literalmente que
     // buscara algo no matcheaba este grupo. Ver el comentario del NÚCLEO.
-    patron: /investig|averigu|indag|research|busc|b[uú]squeda|tendencia|competencia|competidor|mercado|benchmark|qu[eé] funciona/i,
-    herramientas: ["fb_ad_library", "web_search", "web_fetch"],
+    patron: /investig|averigu|indag|research|busc|b[uú]squeda|tendencia|competencia|competidor|mercado|benchmark|qu[eé] funciona|shopify|espi(ar|a|o|ando)/i,
+    herramientas: ["fb_ad_library", "web_search", "web_fetch", "espiar_tienda"],
   },
   {
     patron: /precio|cobr|pago|vender|venta|ingreso|factur|suscrip/i,
@@ -1222,8 +1271,8 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     herramientas: ["generate_image", "search_product_images", "web_scrape_images"],
   },
   {
-    patron: /dropi|proveedor|dropshipping|transportadora|flete|cotiz|stock|woo\s?commerce|wordpress|dropify|pedidos? (llega|recib)|descripci[oó]n|ficha/i,
-    herramientas: ["dropi_status", "dropi_search_products", "woocommerce_estado", "dropi_transportadoras_sondeo", "producto_ficha_desde_imagenes_ver", "producto_ficha_desde_imagenes_guardar"],
+    patron: /dropi|proveedor|dropshipping|transportadora|flete|cotiz|stock|woo\s?commerce|wordpress|dropify|pedidos? (llega|recib)|descripci[oó]n|ficha|ganador|radar|potencial|qu[eé] (vender|importar|producto)|rentab|roi|equilibrio|vale la pena/i,
+    herramientas: ["dropi_status", "dropi_search_products", "woocommerce_estado", "dropi_transportadoras_sondeo", "producto_ficha_desde_imagenes_ver", "producto_ficha_desde_imagenes_guardar", "producto_ganador", "dropi_roi"],
   },
   {
     patron: /copy|texto|redact|descripci|t[ií]tulo/i,

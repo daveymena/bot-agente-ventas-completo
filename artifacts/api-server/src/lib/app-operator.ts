@@ -5293,6 +5293,178 @@ ${explicarObjetivos()}` };
     },
   },
   {
+    name: "producto_ganador",
+    description:
+      "RADAR DE PRODUCTOS GANADORES: cruza el catálogo de Dropi con la Biblioteca de Anuncios y puntúa cada candidato 0–100 con la fórmula a la vista: margen real (40) + stock en Dropi (30) + competencia validada (30). Lectura pura: no importa nada, no gasta nada. " +
+      "Úsala cuando el admin pregunte qué vender, qué importar o qué producto tiene potencial. El veredicto sale de los datos, no del entusiasmo.",
+    args: '{ "query": string (req, nicho o producto a evaluar), "conStock"?: boolean (solo con stock, por defecto true), "limit"?: number (candidatos a puntuar, máx 12, por defecto 8) }',
+    run: async (args, ctx) => {
+      const q = String(args?.query || "").trim();
+      if (!q) return { ok: false, summary: "Falta 'query': qué nicho o producto evaluamos." };
+      const limite = Math.max(1, Math.min(num(args?.limit) || 8, 12));
+      const { tokenDropiDelTenant, buscarProductosDropi } = await import("./dropi-directo");
+      const token = await tokenDropiDelTenant(ctx.tenantId);
+      if (!token) return { ok: false, summary: "Este negocio no tiene token de Dropi: primero dropi_conectar." };
+      const r = await buscarProductosDropi(token, { q, conStock: args?.conStock !== false, porPagina: 30 });
+      if (!r.ok) return { ok: false, summary: `Dropi no respondió: ${r.error}` };
+      const candidatos = (r.data || []).slice(0, limite);
+      if (!candidatos.length) return { ok: true, summary: `Sin candidatos en Dropi para "${q}".`, data: { candidatos: [] } };
+
+      // Calor del nicho: UNA sola lectura de la Biblioteca para todos (leerla
+      // por producto multiplicaría minutos de navegador por cada candidato).
+      let calor = -1;
+      try {
+        const comp: any = await executeAction("fb_ad_library", { query: q, pais: "CO" }, ctx);
+        if (comp?.ok) calor = Number(comp?.data?.anuncios?.length) || 0;
+      } catch { /* sin biblioteca: se puntúa sin ese bloque */ }
+
+      const f = (v: number | null) => (v == null ? "—" : `$${Math.round(v).toLocaleString("es-CO")}`);
+      const filas = candidatos.map((p: any) => {
+        const sugerido = p.suggested_price != null ? Number(p.suggested_price) : (p.sale_price != null ? Number(p.sale_price) : null);
+        const costo = p.sale_price != null ? Number(p.sale_price) : null;
+        const margenPct = sugerido && costo && sugerido > 0 ? Math.round(((sugerido - costo) / sugerido) * 100) : null;
+        const stock = p.stock != null ? Number(p.stock) : null;
+        let pts = 0;
+        const notas: string[] = [];
+        if (margenPct != null) {
+          if (margenPct >= 40) pts += 40;
+          else if (margenPct >= 25) pts += 30;
+          else if (margenPct >= 15) pts += 20;
+          else if (margenPct >= 10) { pts += 10; notas.push("margen justo"); }
+          else notas.push("SIN margen");
+        } else notas.push("sin precio para medir margen");
+        if (stock != null) {
+          if (stock > 20) pts += 30;
+          else if (stock > 0) { pts += 20; notas.push("poco stock"); }
+          else notas.push("SIN stock");
+        } else notas.push("stock desconocido");
+        if (calor >= 0) {
+          if (calor >= 1 && calor < 10) pts += 30;
+          else if (calor >= 10) { pts += 20; notas.push("nicho caliente"); }
+          else { pts += 10; notas.push("sin anuncios activos"); }
+        } else { pts += 10; notas.push("biblioteca no leída"); }
+        const veredicto = pts >= 70 ? "🏆 GANADOR" : pts >= 50 ? "👍 PROBAR" : "⚠️ FLOJO";
+        return { id: p.id, nombre: p.name, sugerido, costo, margenPct, stock, pts, veredicto, notas };
+      });
+      filas.sort((a, b) => b.pts - a.pts);
+      const lineas = filas.map((x) =>
+        `${x.veredicto} ${x.pts}/100 · #${x.id} ${x.nombre} — sugerido ${f(x.sugerido)} · costo ${f(x.costo)}` +
+        (x.margenPct != null ? ` · margen ${x.margenPct}%` : "") +
+        (x.stock != null ? ` · stock ${x.stock}` : "") +
+        (x.notas.length ? ` (${x.notas.join(", ")})` : ""),
+      );
+      const encabezado =
+        `🎯 Radar "${q}": ${filas.length} candidatos. Fórmula a la vista: margen real hasta 40 + stock hasta 30 + ` +
+        (calor >= 0 ? `competencia (${calor} anuncios activos en CO) hasta 30.` : `competencia no leída (+10 base).`);
+      return { ok: true, summary: `${encabezado}\n${lineas.join("\n")}`, data: { query: q, calorNicho: calor, candidatos: filas } };
+    },
+  },
+  {
+    name: "dropi_roi",
+    description:
+      "CALCULADORA DE RENTABILIDAD: con el margen REAL de Dropi (precio − costo − flete promedio de TUS pedidos reales) más tu pauta, calcula ganancia por venta, punto de equilibrio, ROAS mínimo y costo máximo por venta. Matemática pura, cero inventos. " +
+      "Úsala antes de pautar un producto o al fijar su precio: te dice cuántas ventas empatan la pauta y cuándo un producto pierde plata por pedido.",
+    args: '{ "productId"?: number (del catálogo), "dropiProductId"?: number, "precio"?: number (para simular otro precio), "adsDiario"?: number (pauta por día, por defecto 20000), "dias"?: number (días de prueba, por defecto 3) }',
+    run: async (args, ctx) => {
+      const { tokenDropiDelTenant, margenDeProductoDropi } = await import("./dropi-directo");
+      const token = await tokenDropiDelTenant(ctx.tenantId);
+      if (!token) return { ok: false, summary: "Este negocio no tiene token de Dropi: primero dropi_conectar." };
+      const r = await margenDeProductoDropi(ctx.tenantId, token, {
+        productId: num(args?.productId) || null, dropiId: num(args?.dropiProductId) || null, precio: num(args?.precio) || null,
+      });
+      if (!r.ok || !r.data) return { ok: false, summary: r.error || "No se pudo calcular el margen." };
+      const d = r.data;
+      const adsDiario = num(args?.adsDiario) || 20000;
+      const dias = num(args?.dias) || 3;
+      const adsTotal = adsDiario * dias;
+      const f = (v: number | null) => (v == null ? "—" : `$${Math.round(v).toLocaleString("es-CO")}`);
+      const g = d.ganancia;
+      const lineas = [
+        `🧮 *${d.producto.nombre}* — precio ${f(d.precioVenta)} · costo ${f(d.costoProveedor)} · flete ${f(d.flete.estimado)}`,
+        `• Ganancia por pedido entregado: *${f(g)}*${d.margenPct != null ? ` (${d.margenPct}%)` : ""}`,
+        `• Tu prueba: ${f(adsDiario)}/día × ${dias} días = *${f(adsTotal)}* en pauta`,
+      ];
+      if (g == null || g <= 0) {
+        lineas.push(`• ❌ Con estos números el producto PIERDE ${f(g === 0 ? 0 : Math.abs(g || 0))} por pedido ANTES de pauta: no lo pautes ni lo importes a ese precio. Subí el precio o buscá otro proveedor.`);
+      } else {
+        const equilibrio = Math.ceil(adsTotal / g);
+        // ROAS mínimo: ingreso / egreso total = 1 → (precio×n) / (costo×n + flete×n + ads) = 1.
+        // Despejando sobre la pauta: por cada $1 en ads hay que traer $precio/ganancia en ventas para empatar.
+        const roasMin = d.precioVenta > 0 ? (d.precioVenta / g) : null;
+        lineas.push(`• Punto de equilibrio: *${equilibrio} ventas* en ${dias} días empatan la pauta (${f(adsTotal)} ÷ ${f(g)}).`);
+        lineas.push(`• ROAS mínimo: *${roasMin != null ? roasMin.toFixed(1) : "—"}* (por cada $1.000 en ads necesitás $${roasMin != null ? Math.round(roasMin * 1000).toLocaleString("es-CO") : "—"} en ventas).`);
+        lineas.push(`• Costo máximo por venta viable: *${f(g)}* (si un cliente te cuesta más que eso, perdés).`);
+        lineas.push(equilibrio <= 3 ? `• ✅ Barato de validar: con ${equilibrio} ventas ya empatás.` : `• ⚠️ Caro de validar: necesitás ${equilibrio} ventas solo para empatar; probá con menos días o mejor ángulo.`);
+      }
+      return { ok: true, summary: lineas.join("\n"), data: { ...d, adsDiario, dias, adsTotal } };
+    },
+  },
+  {
+    name: "espiar_tienda",
+    description:
+      "ESPIAR TIENDA SHOPIFY: lee el catálogo PÚBLICO de cualquier tienda Shopify (/products.json, sin clave ni login): productos, precios, fotos, categorías y proveedor. Lectura pura. " +
+      "Úsala para ver qué vende la competencia y a cuánto. Si no es Shopify, lo dice y no inventa el catálogo.",
+    args: '{ "url": string (req, dominio o link de la tienda) }',
+    run: async (args) => {
+      let crudo = String(args?.url || "").trim();
+      if (!crudo) return { ok: false, summary: "Falta 'url': qué tienda espiamos." };
+      if (!/^https?:\/\//i.test(crudo)) crudo = `https://${crudo}`;
+      let base: URL;
+      try { base = new URL(crudo); } catch { return { ok: false, summary: "URL inválida." }; }
+      const raiz = `${base.protocol}//${base.hostname}`;
+      let res: Response | null = null;
+      try {
+        res = await fetch(`${raiz}/products.json?limit=250`, {
+          headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122 Safari/537.36" },
+          redirect: "follow",
+          signal: AbortSignal.timeout(20000),
+        });
+      } catch (e: any) {
+        return { ok: false, summary: `No se pudo leer la tienda: ${String(e?.message || e).slice(0, 120)}` };
+      }
+      if (!res || !res.ok) {
+        return {
+          ok: false,
+          summary: `Esa tienda no expone catálogo público de Shopify (${res ? res.status : "sin respuesta"}). ` +
+            `Si es WooCommerce o a medida, usá web_scrape_images sobre sus páginas de producto.`,
+        };
+      }
+      let cuerpo: any = null;
+      try { cuerpo = await res.json(); } catch { /* no era JSON */ }
+      const lista = Array.isArray(cuerpo?.products) ? cuerpo.products : null;
+      if (!lista) {
+        return { ok: false, summary: "No es una tienda Shopify (su /products.json no trae productos). Probá con web_scrape_images." };
+      }
+      const f = (v: any) => (v == null || v === "" ? "—" : `$${Number(v).toLocaleString("es-CO")}`);
+      const items = lista.map((p: any) => {
+        const v = Array.isArray(p?.variants) && p.variants.length ? p.variants[0] : {};
+        return {
+          titulo: String(p?.title || "Sin título"),
+          precio: v?.price ?? null,
+          antes: v?.compare_at_price ?? null,
+          tipo: String(p?.product_type || "—"),
+          proveedor: String(p?.vendor || "—"),
+          foto: Array.isArray(p?.images) && p.images.length ? String(p.images[0]?.src || "") : "",
+          link: `${raiz}/products/${String(p?.handle || "")}`,
+        };
+      });
+      const precios = items.map((i) => Number(i.precio)).filter((n) => Number.isFinite(n) && n > 0);
+      const porTipo: Record<string, number> = {};
+      for (const i of items) porTipo[i.tipo] = (porTipo[i.tipo] || 0) + 1;
+      const topTipos = Object.entries(porTipo).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([t, n]) => `${t} (${n})`).join(" · ");
+      const lineas = items.slice(0, 25).map((i) => `• ${i.titulo} — ${f(i.precio)}${i.antes ? ` (antes ${f(i.antes)})` : ""} · ${i.tipo} · ${i.link}`);
+      return {
+        ok: true,
+        summary:
+          `🕵️ ${raiz}: **${items.length} productos públicos**. ` +
+          (precios.length ? `Rango ${f(Math.min(...precios))} – ${f(Math.max(...precios))}. ` : "") +
+          (topTipos ? `Categorías: ${topTipos}.` : "") +
+          `\n${lineas.join("\n")}${items.length > 25 ? `\n…y ${items.length - 25} más.` : ""}`,
+        data: { dominio: raiz, total: items.length, productos: items },
+      };
+    },
+  },
+  {
     name: "dropi_transportadoras_sondeo",
     description: "DIAGNÓSTICO de solo lectura: prueba contra Dropi las rutas candidatas para listar transportadoras, ciudades y cotizar flete a una ciudad, y muestra qué respondió cada una. No crea pedidos ni cambia nada. Sirve para confirmar cuál ruta usa Dropi antes de ofrecerle transportadoras al cliente.",
     args: '{ "ciudad": string (req), "departamento": string (req), "valor"?: number }',
@@ -8519,6 +8691,12 @@ export const READ_ONLY_TOOLS = new Set([
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
   "dropi_status", "dropi_margen", "dropi_pedidos", "dropi_buscar", "video_anuncio_estado", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
   "dropi_verificar_producto",
+  // Radar de ganadores + calculadora de rentabilidad + espía de tiendas +
+  // estimación previa: las cuatro son lectura pura (cruzan datos y calculan,
+  // ninguna crea, publica ni gasta). Van acá para que Atlas las llame solo,
+  // sin pedir permiso: si hubiera que aprobar cada consulta, nadie las usaría
+  // antes de decidir.
+  "producto_ganador", "dropi_roi", "espiar_tienda", "fb_estimar",
   // Leer el estado de una landing en generación y simular el reentrenamiento no cambian nada.
   "landing_estado", "agente_reentrenar_ver",
   // Diagnosticar al vendedor, ver en qué motor está y probarlo en sombra son

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { describePlannedAction } from "../opencode-mcp-tools";
+import { describePlannedAction, buildMcpToolRegistry } from "../opencode-mcp-tools";
 
 /**
  * El plan que aprueba el admin tiene que mostrar LO QUE SE VA A EJECUTAR.
@@ -58,5 +58,18 @@ describe("La estimación se muestra como lectura (no como gasto)", () => {
     expect(texto).toContain("mensajes");
     expect(texto).toContain("20.000");
     expect(texto).toContain("no crea nada ni gasta");
+  });
+});
+
+describe("Las herramientas estilo DropKiller llegan al modelo", () => {
+  const nombres = (pedido: string) => buildMcpToolRegistry(pedido).map((t) => t.name);
+  it("radar de ganadores con 'qué vender' / 'ganador'", () => {
+    expect(nombres("qué producto ganador me recomiendas para vender")).toContain("producto_ganador");
+  });
+  it("calculadora con 'roi' / 'punto de equilibrio'", () => {
+    expect(nombres("calcula el roi y el punto de equilibrio de este producto")).toContain("dropi_roi");
+  });
+  it("espía con 'espiar tienda'", () => {
+    expect(nombres("quiero espiar esta tienda shopify de la competencia")).toContain("espiar_tienda");
   });
 });
