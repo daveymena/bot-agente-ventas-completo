@@ -49,6 +49,21 @@ import type { OperatorContext } from "./app-operator";
 /** DeepSeek habla el formato de OpenAI, así que esto vale para cualquier compatible. */
 const URL_POR_DEFECTO = "https://api.deepseek.com/chat/completions";
 
+/**
+ * Nivel de razonamiento del modelo (DeepSeek-V4.1-Flash lo acepta como
+ * `effort`: verificado contra la API real el 2026-09-29 -- responde con
+ * `reasoning_content` separado y el parámetro no da error).
+ *
+ *   low  turno simple: saludo, lectura puntual, "sí" a una pregunta.
+ *   high turno normal: el default de la API, razona antes de contestar.
+ *   max  tarea difusa o cara si sale mal: investigación, anuncio completo,
+ *        importación de catálogo, insistencia tras un fallo.
+ *
+ * No es "temperatura": es cuánto piensa antes de escribir. Low ahorra
+ * tokens de razonamiento y latency; max se reserva para lo que lo necesita.
+ */
+export type NivelDeEsfuerzo = "low" | "high" | "max";
+
 export interface OpcionesDeTurnoDirecto {
   /** El system ya armado (promptDeAtlas + catálogo de capacidades). */
   system: string;
@@ -61,6 +76,8 @@ export interface OpcionesDeTurnoDirecto {
   apiKey: string;
   modelo?: string;
   baseUrl?: string;
+  /** Cuánto piensa el modelo antes de contestar. Default: "high" (el de la API). */
+  esfuerzo?: NivelDeEsfuerzo;
   /** Cuánto tiempo le queda al turno entero. */
   presupuestoMs: number;
   /** El botón de "Detener" del admin. */
@@ -209,6 +226,11 @@ export async function correrTurnoDirecto(o: OpcionesDeTurnoDirecto): Promise<Res
         body: JSON.stringify({
           model: o.modelo || "deepseek-v4-flash",
           messages: mensajes,
+          // `effort` solo lo entiende DeepSeek nativo; otros compatibles con
+          // OpenAI lo ignoran o lo rechazan, así que viaja únicamente cuando
+          // el llamador lo pide explícito (el default "high" es el de la API
+          // y no hace falta mandarlo).
+          ...(o.esfuerzo && o.esfuerzo !== "high" ? { effort: o.esfuerzo } : {}),
           ...(o.herramientas.length ? { tools: o.herramientas.map(comoHerramientaDeOpenAI) } : {}),
         }),
         signal: o.cancelSignal ? AbortSignal.any([porTiempo, o.cancelSignal]) : porTiempo,

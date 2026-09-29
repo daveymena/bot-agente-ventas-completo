@@ -1808,7 +1808,7 @@ export const TOOLS: ToolDef[] = [
   // ── Productos (CRUD) ──
   {
     name: "create_product",
-    description: "Crear un producto o servicio nuevo. Si das 'category' (texto) y no un 'categoryId' puntual, se resuelve/crea automáticamente la categoría real -- nunca queda un producto con la etiqueta de texto desconectada de la categoría real (eso es lo que rompía el filtrado por categoría antes).",
+    description: "Crear un producto o servicio nuevo. KIND ES OBLIGATORIO: si es un objeto que SE ENVIA a una direccion (computador, impresora, ropa, repuesto) es kind=physical; si se entrega por enlace/descarga es digital; si es cita/asesoria es service. Un fisico creado como digital queda sin envio y rompe la venta (vivo el 2026-09-29: 5 computadores quedaron como digitales en Papeleria/Cocina). CATEGORY/CATEGORYID VAN SIEMPRE: crea la categoria real primero si no existe (ej: Computadores, Impresoras). Si el fisico aun no tiene foto, inclui en el MISMO plan el paso set_product_image correspondiente: un fisico SIN imagen no se vende. Si das 'category' (texto) y no un 'categoryId' puntual, se resuelve/crea automaticamente la categoria real.",
     args: '{ "name": string (req), "price"?: number, "currency"?: string, "description"?: string, "category"?: string, "categoryId"?: number, "kind"?: "digital"|"physical"|"service" (cita/asesoría/atención personal: se agenda)|"subscription" (cobro recurrente)|"quote" (sin precio cerrado: se cotiza)|"lead" (el cierre lo hace un asesor humano), "imageUrl"?: string, "features"?: string[], "deliveryLink"?: string, "paymentLink"?: string, "isActive"?: boolean }',
     run: async (args, ctx) => {
       if (!args.name) return { ok: false, summary: "Falta 'name'" };
@@ -4302,7 +4302,7 @@ ${explicarObjetivos()}` };
   },
   {
     name: "set_product_image",
-    description: "Asignar una imagen a un producto desde una URL. Solo acepta imágenes que el negocio PUEDE usar legalmente: las suyas propias, las generadas con IA (generate_image) o stock con licencia comercial (Pexels). Las fotos sacadas de webs ajenas (resultados de Brave/DuckDuckGo) se rechazan: publicarlas en un anuncio es usar material con derechos de otro. La sube a Cloudinary para que quede PERMANENTE y actualiza el producto. Cambia datos → requiere confirmación.",
+    description: "Asignar una imagen a un producto desde una URL. Solo acepta imágenes que el negocio PUEDE usar legalmente: las suyas propias, las generadas con IA (generate_image) o stock con licencia comercial (Pexels). Las fotos sacadas de webs ajenas (resultados de Brave/DuckDuckGo) se rechazan: publicarlas en un anuncio es usar material con derechos de otro. La sube a Cloudinary para que quede PERMANENTE y actualiza el producto. Cambia datos → requiere confirmación. EXCEPCION PROVEEDOR: si el admin te pidio importar productos de SU PROVEEDOR (el mayorista/distribuidor que lo abastece, ej: su tienda WooCommerce) al catalogo, esas fotos VIENEN con los productos que vende: pedile UNA sola vez que confirme que tiene derechos sobre las fotos de ese proveedor («confirmame que tenes derechos sobre las fotos de X para vender sus productos»); con su SI, pasa esMia:true y no vuelvas a preguntarlo para ese proveedor en esta conversacion.",
     args: '{ "productId": number (req), "imageUrl": string (req, URL de la imagen), "esMia"?: boolean (solo si el admin CONFIRMA que la foto es de su negocio o tiene derechos sobre ella) }',
     run: async (args, ctx) => {
       const id = num(args.productId);
@@ -8869,6 +8869,12 @@ IMÁGENES — REGLAS DE CALIDAD PARA FACEBOOK ADS:
   decí exactamente eso en vez de inventar lo que muestra.
 - web_scrape_images sigue disponible para extraer fotos de la página de un proveedor específico
   cuando se conoce la URL exacta.
+- IMPORTAR PRODUCTOS DE UN PROVEEDOR (el admin te pasa su tienda/mayorista para cargar su catálogo):
+  1️⃣ Entrá a la PÁGINA DE CADA PRODUCTO (la ficha, ej: /producto/...), jamás uses solo el listado: el listado trae nombres cortados y fotos chicas/rotas.
+  2️⃣ De cada ficha sacá precio, ficha técnica y la foto principal con web_scrape_images (ya vienen verificadas: abren de verdad).
+  3️⃣ Derechos UNA sola vez por proveedor: «confirmame que tenés derechos sobre las fotos de X para vender sus productos». Con su sí, todos los set_product_image de ese proveedor van con esMia:true.
+  4️⃣ Creá cada producto con kind=physical, la categoría REAL (creala primero si no existe) y el precio del proveedor o con el margen que te pida; incluí el set_product_image en el MISMO plan.
+  5️⃣ Cargá por LOTES chicos (5 por vez) para que el admin revise cada tanda, y DESPUÉS de ejecutar verificá: volvé a leer cada producto y confirmá precio, foto y categoría reales. Un profesional comprueba su trabajo.
 
 FACEBOOK — PUBLICAR (gratis) vs ANUNCIAR (paga), no las confundas:
 - 📢 fb_page_publish (vía propose_action): publica en el MURO de la página, orgánico, SIN costo, visible de inmediato. Proponelo cuando el admin diga "publica", "postea" o "sube esto a Facebook". SIEMPRE llamá fb_page_preview antes (es de lectura, se ejecuta sola) para que el admin vea el texto y la imagen, y fb_page_can_post si hay dudas de permisos.
@@ -9198,6 +9204,12 @@ IMÁGENES — REGLAS DE CALIDAD PARA FACEBOOK ADS:
   decí exactamente eso en vez de inventar lo que muestra.
 - web_scrape_images sigue disponible para extraer fotos de la página de un proveedor específico
   cuando se conoce la URL exacta.
+- IMPORTAR PRODUCTOS DE UN PROVEEDOR (el admin te pasa su tienda/mayorista para cargar su catalogo):
+  1. Entra a la PAGINA DE CADA PRODUCTO (la ficha, ej: /producto/...), jamas uses solo el listado: el listado trae nombres cortados y fotos chicas/rotas.
+  2. De cada ficha saca precio, ficha tecnica y la foto principal con web_scrape_images (ya vienen verificadas: abren de verdad).
+  3. Derechos UNA sola vez por proveedor: «confirmame que tenes derechos sobre las fotos de X para vender sus productos». Con su si, todos los set_product_image de ese proveedor van con esMia:true.
+  4. Crea cada producto con kind=physical, la categoria REAL (creala primero si no existe) y el precio del proveedor o con el margen que te pida; inclui el set_product_image en el MISMO plan.
+  5. Carga por LOTES chicos (5 por vez) para que el admin revise cada tanda, y DESPUES de ejecutar verifica: volve a leer cada producto y confirma precio, foto y categoria reales.
 
 FACEBOOK — PUBLICAR (gratis) vs ANUNCIAR (paga), no las confundas:
 - 📢 fb_page_publish: publica en el MURO de la página, orgánico, SIN costo, visible de inmediato. Úsalo cuando el admin diga "publica", "postea" o "sube esto a Facebook". SIEMPRE llama fb_page_preview antes para que el admin vea el texto y la imagen, y fb_page_can_post si hay dudas de permisos.

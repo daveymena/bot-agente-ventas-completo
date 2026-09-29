@@ -384,7 +384,14 @@ const GENERIC_FALLBACK_SCHEMA = { type: "object", additionalProperties: true } a
 function valorLegible(v: any, max = 60): string {
   if (v === null || v === undefined) return String(v);
   const t = typeof v;
-  if (t === "string") return (v as string).replace(/\s+/g, " ").trim().slice(0, max) || "(vacío)";
+  // El "…" avisa que hubo corte: antes una URL recortada a mitad de nombre
+  // (.../2026/09/edite) parecía completa y el admin/modelo la copiaba tal
+  // cual → 404. Vivo el 2026-09-29 con el proveedor megacomputer.
+  if (t === "string") {
+    const s = (v as string).replace(/\s+/g, " ").trim();
+    if (!s) return "(vacío)";
+    return s.length > max ? s.slice(0, max) + "…" : s;
+  }
   if (t === "number" || t === "boolean") return String(v);
   try {
     const s = JSON.stringify(v);
@@ -470,7 +477,11 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
     case "update_product":
       return `Actualizar producto ${g.id ?? g.name ?? "?"}: ${Object.entries(g).filter(([k]) => k !== "id").map(([k, v]) => `${k}=${valorLegible(v)}`).join(", ")}`;
     case "create_product":
-      return `Crear producto "${g.name ?? "?"}" (${g.price ?? "?"} ${g.currency ?? ""})`;
+      // El admin aprueba a ciegas si no ve kind/categoría/imagen: el 2026-09-29
+      // cinco físicos quedaron como digitales, en categorías absurdas y SIN
+      // foto, porque el plan solo mostraba nombre y precio.
+      return `Crear producto "${g.name ?? "?"}" (${g.price ?? "?"} ${g.currency ?? ""})` +
+        ` — tipo: ${g.kind ?? "?"}, categoría: ${g.categoryId ?? g.category ?? "?"}${g.imageUrl ? "" : " — ⚠️ SIN imagen"}`;
     case "delete_product":
       return `⚠️ ELIMINAR producto ${g.id ?? "?"}`;
     case "create_category":
@@ -520,7 +531,9 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
         g.dailyBudget ? `\n   💰 Presupuesto: $${Number(g.dailyBudget).toLocaleString("es-CO")}/día` : "",
       ].filter(Boolean).join("");
     case "set_product_image":
-      return `Asignar imagen al producto ${g.productId ?? "?"} (se hospeda permanente): ${valorLegible(g.imageUrl ?? "")}`;
+      // La URL va COMPLETA (200, no 60): recortada a mitad de nombre parecía
+      // válida y se aprobaba rota → 404 al guardarla. Vivo el 2026-09-29.
+      return `Asignar imagen al producto ${g.productId ?? "?"} (se hospeda permanente): ${valorLegible(g.imageUrl ?? "", 200)}`;
     case "set_product_video":
       // El admin tiene que ver el ENLACE entero antes de aprobar. Es lo
       // único que va a ver el cliente: si está mal, se entera el cliente.

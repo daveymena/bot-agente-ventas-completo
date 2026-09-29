@@ -42,6 +42,7 @@
 import { createAIClient, getProviderConfig } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
 import { modelosDe } from "./modelos-por-tarea";
+import { esSiConCorreccion } from "./architect-store";
 
 /** Los proveedores que se prueban, en orden. El primero que conteste gana.
  *  `ollama_local` (gemma4, gratis) va después de Groq y ANTES de DeepSeek:
@@ -88,8 +89,16 @@ export async function esUnSiParaEstePlan(
   opciones: { timeoutMs?: number } = {},
 ): Promise<boolean> {
   const texto = String(mensaje || "").trim();
-  // Un mensaje largo no es una confirmación: es una instrucción nueva.
-  if (!texto || texto.length > 120) return false;
+  if (!texto) return false;
+  // Un mensaje largo que NO abreva aprobación es una instrucción nueva
+  // ("mira, mejor cambiá el título..."): se resuelve NO sin gastar llamada.
+  //
+  // Pero un "sí, pero…" ("dale pero en rojo", "confirmado, pero sin esos
+  // emojis") SÍ abre con aprobación: antes se cortaba acá en NO automático y
+  // el plan se descartaba, entrando al loop propone → descarta → restaura
+  // (vivo el 2026-09-29). Eso lo decide el modelo, que tiene el plan delante;
+  // el prompt ya recorta a 300 caracteres, así que dejarlo pasar no inunda.
+  if (texto.length > 120 && !esSiConCorreccion(texto)) return false;
 
   const timeout = opciones.timeoutMs ?? 6000;
   const prompt = construirPrompt(texto, plan);

@@ -933,9 +933,13 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
         `IMPORTANTE: No pidas disculpas ni le hables de este error interno al usuario. NO puedes usar herramientas en este turno, responde solo con texto.`,
     };
     try {
+      // Reintento con razonamiento al máximo: si ya inventó una cifra una
+      // vez, reescribir bien es más importante que contestar rápido. El
+      // `effort` solo lo usa DeepSeek (el cliente lo filtra por proveedor).
       const reintento = await llm.crear({
         messages: [...messages, { role: "assistant", content: textoFinal }, aviso],
         temperature: 0.5,
+        effort: "high",
       });
       contar(reintento.uso);
       const nuevo = (reintento.content || "")

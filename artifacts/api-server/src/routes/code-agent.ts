@@ -20,7 +20,7 @@ import { OPERATOR_SYSTEM_PROMPT, buildToolsDoc, executeAction, isReadOnlyTool, i
 import { leerBusinessConfig } from "../lib/ai-keys";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
-  clearPendingPlan, clearArchitectHistory, isApproval, isRejection,
+  clearPendingPlan, clearArchitectHistory, isApproval, isRejection, esSiConCorreccion,
   saveRepairLesson, loadRecentLessons,
 } from "../lib/architect-store";
 import { toEmojiStyle } from "../lib/conversation-engine";
@@ -1677,6 +1677,10 @@ ESTADO REAL DEL CATALOGO, MEDIDO AHORA MISMO (${new Date().toISOString()}):
     await saveArchitectTurn(tenantId, sessionId, "user", String(prompt));
 
     // ── ¿Hay un PLAN PENDIENTE esperando confirmación? ──
+    // "Sí, pero…" (aprobación con corrección): se llena en el bloque del plan
+    // pendiente y se le pega al modelo como NOTA DEL SISTEMA. Ver
+    // esSiConCorreccion() en lib/architect-store.ts.
+    let notaSiConCorreccion = "";
     const pending = await getPendingPlan(tenantId, sessionId);
     if (pending && pending.actions.length > 0) {
       // ── Y si la lista no lo reconocio, que lo lea el modelo ──────────────
@@ -1769,6 +1773,19 @@ ESTADO REAL DEL CATALOGO, MEDIDO AHORA MISMO (${new Date().toISOString()}):
       if (isRejection(String(prompt))) {
         await clearPendingPlan(tenantId, sessionId);
         // Continúa abajo para re-planificar según la nueva instrucción.
+      } else if (esSiConCorreccion(String(prompt))) {
+        // ── "Sí, pero…" (vivo el 2026-09-29): aprueba CON un ajuste ──────
+        // No es rechazo ni pedido nuevo: el plan sigue valiendo, solo cambia
+        // un detalle. NO se borra (borrarlo hacía que el turno siguiente
+        // propusiera LO MISMO sin el ajuste, en loop). Se le pega plan +
+        // ajuste al modelo para que re-proponga corregido.
+        const planTexto = pending.actions.map((a, i) => `${i + 1}. ${describePlannedAction(a)}`).join("\n");
+        notaSiConCorreccion =
+          `\n\n[NOTA DEL SISTEMA] El admin APROBÓ el plan pendiente pero con este ajuste: «${String(prompt).slice(0, 300)}». ` +
+          `El plan vigente es:\n${planTexto}\n` +
+          `Aplicá el ajuste a las acciones que corresponda y volvé a PROPONER el plan corregido (no lo ejecutes directo: el admin confirma una vez más y listo). ` +
+          `No expliques el plan viejo ni preguntes lo que el ajuste ya resolvió.`;
+        logger.info({ tenantId, prompt: String(prompt).slice(0, 80) }, "[AppOperator] Sí con corrección: se conserva el plan y se re-propone corregido");
       } else {
         // Ni aprobó ni rechazó claramente → re-planificamos con su mensaje
         // (puede estar ajustando el plan). Limpiamos el plan viejo.
@@ -1779,7 +1796,7 @@ ESTADO REAL DEL CATALOGO, MEDIDO AHORA MISMO (${new Date().toISOString()}):
     const messages: any[] = [
       { role: "system", content: sys },
       ...convo.map((m: any) => ({ role: m.role, content: m.content })),
-      { role: "user", content: String(prompt) },
+      { role: "user", content: String(prompt) + notaSiConCorreccion },
     ];
 
     // ── FASE PLAN: ejecutamos SOLO lecturas (mirar antes de actuar); las

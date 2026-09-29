@@ -30,11 +30,11 @@ import { randomUUID } from "node:crypto";
 import { requireAdmin, type TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
 import { esUnSiParaEstePlan } from "../lib/es-un-si";
-import { correrTurnoDirecto, directoDisponible } from "../lib/atlas-directo";
+import { correrTurnoDirecto, directoDisponible, type NivelDeEsfuerzo } from "../lib/atlas-directo";
 import { promptDeAtlas, executeAction, verifyMutation, investigacionRapida, mensajeParaAdmin, isReadOnlyTool, notaDeLandingsEnSegundoPlano, type OperatorContext } from "../lib/app-operator";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
-  clearPendingPlan, isApproval, isRejection, loadRecentLessons,
+  clearPendingPlan, isApproval, isRejection, esSiConCorreccion, loadRecentLessons,
 } from "../lib/architect-store";
 import { toEmojiStyle } from "../lib/conversation-engine";
 import { esResumenInterno, pareceIngles, avisoDeTurnoIncompleto, avisoDeCierreVacio } from "../lib/respuesta-al-admin";
@@ -109,6 +109,24 @@ function conCandado<T>(fn: () => Promise<T>): Promise<T> {
   const run = opencodeQueue.then(fn, fn);
   opencodeQueue = run.then(() => undefined, () => undefined);
   return run;
+}
+
+// ── ¿Redactó un anuncio/contenido y no lo guardó? ──────────────────────────
+//
+// Medido en vivo (2026-08-18): el admin pidió el anuncio, Atlas lo redactó
+// ENTERO sin llamar ninguna herramienta, y el turno terminó con CERO
+// borradores guardados pese a que el admin ya había confirmado dos veces.
+// Mirar lo que el modelo ESCRIBIÓ es más confiable que adivinar la intención
+// del admin: si en la respuesta hay un anuncio redactado y no se propuso
+// nada, hay que insistir, sin importar cómo se pidió.
+//
+// Vive en el módulo (no adentro del handler) porque se usa en DOS lugares:
+// la insistencia del camino OpenCode (abajo) y la del camino directo
+// (justo después del turno directo). Misma detección, mismo criterio.
+const PATRON_ANUNCIO_REDACTADO = /(🔥\s*GANCHO|TEXTO PRINCIPAL|📝\s*Borrador de anuncio|borrador de anuncio (listo|preparado)|📌\s*TITULAR)/i;
+function redactoAnuncioSinGuardar(texto: string, herramientasUsadas: string[]): boolean {
+  if (!texto || PATRON_ANUNCIO_REDACTADO.test(texto) === false) return false;
+  return !herramientasUsadas.includes("propose_action");
 }
 
 // Respaldo fijo confirmado funcionando en vivo (2026-08-12, contenedor
@@ -788,6 +806,11 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
     // entregar y hay que devolvérselo al admin (ver el cierre vacío, abajo).
     // Un rechazo explícito NO se devuelve: ahí el admin dijo que no lo quiere.
     let planDescartado: any[] | null = null;
+    // ── "Sí, pero…" (aprobación con corrección): el plan se CONSERVA ─────
+    // Se llena acá si el mensaje aprueba con un ajuste, y se le pega al
+    // modelo más abajo como NOTA DEL SISTEMA junto al plan vigente. Ver
+    // esSiConCorreccion() en lib/architect-store.ts.
+    let notaSiConCorreccion = "";
     if (pending && pending.actions.length > 0) {
       // ── Y si la lista no lo reconocio, que lo lea el modelo ──────────────
       //
@@ -967,8 +990,30 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         return finish({ reply, plan: pending.actions, status: "awaiting_confirmation" });
       }
 
+      // ── "Sí, pero…" (vivo el 2026-09-29): aprueba CON un ajuste ──────────
+      // NO es rechazo ni pedido nuevo: el plan sigue valiendo, solo cambia un
+      // detalle. Descartarlo hacía que el turno siguiente propusiera LO MISMO
+      // sin el ajuste, y el admin lo pedía otra vez -- loop infinito.
+      //
+      // El plan NO se borra: queda pendiente, y el turno sigue con plan +
+      // corrección en una NOTA DEL SISTEMA para que el modelo re-proponga el
+      // plan CORREGIDO (no lo ejecuta directo: sigue pasando por confirmación).
+      // Si el turno termina sin proponer nada, el plan viejo sigue ahí, así
+      // que el piso es el mismo que antes.
+      if (!loLeyoComoPedido && esSiConCorreccion(respuesta)) {
+        const planTexto = pending.actions.map((a, i) => `${i + 1}. ${describePlannedAction(a)}`).join("\n");
+        notaSiConCorreccion =
+          `\n\n[NOTA DEL SISTEMA] El admin APROBÓ el plan pendiente pero con este ajuste: «${respuesta.slice(0, 300)}». ` +
+          `El plan vigente es:\n${planTexto}\n` +
+          `Aplicá el ajuste a las acciones que corresponda y volvé a PROPONER el plan corregido con propose_action (no lo ejecutes directo: el admin confirma una vez más y listo). ` +
+          `No expliques el plan viejo ni preguntes lo que el ajuste ya resolvió.`;
+        logger.info({ tenantId, respuesta: respuesta.slice(0, 80) }, "[AtlasOpenCode] Sí con corrección: se conserva el plan y se re-propone corregido");
+      }
+
       // Rechazo explícito o pedido nuevo de verdad: recién ahí se descarta el
-      // plan viejo y se planifica con el mensaje nuevo.
+      // plan viejo y se planifica con el mensaje nuevo. (Con "sí, pero…" no
+      // se llega acá: notaSiConCorreccion ya se llenó arriba y el plan sigue
+      // vigente para que el modelo lo re-proponga corregido.)
       //
       // Se guarda una copia antes de borrarlo. Descartarlo tiene sentido
       // mientras el turno nuevo vaya a reemplazarlo; si el turno nuevo no
@@ -976,7 +1021,15 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // llevaba minutos esperando su confirmación --perdiendo las dos cosas de
       // una--, y ahí el cierre lo devuelve. Ver avisoDeCierreVacio().
       planDescartado = isRejection(respuesta) ? null : pending.actions;
-      await clearPendingPlan(tenantId, sessionId);
+      if (!notaSiConCorreccion) {
+        // Con "sí, pero…" el plan NO se toca: sigue pendiente y el modelo lo
+        // re-propone corregido en este mismo turno (ver NOTA DEL SISTEMA).
+        // planDescartado se deja en null para que el cierre vacío no lo
+        // duplique: nunca se borró.
+        await clearPendingPlan(tenantId, sessionId);
+      } else {
+        planDescartado = null;
+      }
     }
 
     progreso("Pensando...");
@@ -1193,6 +1246,12 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       if (esUnSi && preguntaAnterior) {
         text += `\n\n[NOTA DEL SISTEMA] El admin acaba de contestar que SÍ a tu pregunta anterior: «${preguntaAnterior.slice(0, 300)}». Hacé exactamente eso ahora. No repitas lo que ya le dijiste ni vuelvas a explicar el contexto: entregá el resultado o ejecutá la acción. Si tu pregunta ofrecía varias opciones, tomá la primera que propusiste.`;
         logger.info({ tenantId, pregunta: preguntaAnterior.slice(0, 80) }, "[AtlasOpenCode] 'sí' a la pregunta anterior: se le indica al modelo");
+      }
+      // ── "Sí, pero…" (aprobación con corrección): plan + ajuste ──────────
+      // El plan pendiente sigue vigente (no se borró arriba); acá se le pega
+      // al modelo junto con el ajuste para que re-proponga corregido.
+      if (notaSiConCorreccion) {
+        text += notaSiConCorreccion;
       }
 
       // ── El módulo de publicidad, SOLO cuando se está hablando de anuncios ─
@@ -1519,6 +1578,21 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         // sin respuesta. Cambiar de camino es una variable de entorno.
         if (directoDisponible()) {
           progreso("Pensando...");
+          // ── Cuánto piensa el modelo en este turno ─────────────────────
+          // Verificado contra la API real (2026-09-29): DeepSeek-V4.1-Flash
+          // acepta `effort` low/high/max (default high). Low para lo trivial
+          // (un "sí", una lectura puntual): menos tokens de razonamiento y
+          // menos espera. Max para lo difuso o caro si sale mal
+          // (investigar, armar un anuncio, importar un catálogo): ahí el
+          // razonamiento profundo sí paga. El resto queda en high, el
+          // default de la API. ATLAS_DIRECTO_EFFORT lo fija a mano.
+          const esfuerzoDelTurno: NivelDeEsfuerzo | undefined = (() => {
+            const forzado = (process.env.ATLAS_DIRECTO_EFFORT || "").trim().toLowerCase();
+            if (forzado === "low" || forzado === "high" || forzado === "max") return forzado;
+            if (esSeguimientoCorto) return "low";
+            if (PEDIDO_DE_ANUNCIO.test(String(prompt)) || PEDIDO_DE_INVESTIGACION.test(String(prompt))) return "max";
+            return undefined;
+          })();
           const r = await correrTurnoDirecto({
             system,
             herramientas: toolRegistry,
@@ -1532,15 +1606,61 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             baseUrl: process.env.ATLAS_DIRECTO_URL || undefined,
                 apiKey: String(process.env.DEEPSEEK_API_KEY || ""),
             modelo: process.env.ATLAS_DIRECTO_MODELO || "deepseek-v4-flash",
+            esfuerzo: esfuerzoDelTurno,
             presupuestoMs: Math.max(turnDeadline - Date.now(), 10_000),
             cancelSignal: senalDeCorte,
             onProgreso: progreso,
           });
           marcar(`directo:${r.vueltas}v`, Date.now() - r.ms);
           logger.info(
-            { tenantId, vueltas: r.vueltas, ms: r.ms, herramientas: r.herramientasUsadas, error: r.error },
+            { tenantId, vueltas: r.vueltas, ms: r.ms, herramientas: r.herramientasUsadas, esfuerzo: esfuerzoDelTurno ?? "high", error: r.error },
             "[AtlasDirecto] turno terminado",
           );
+          // ── Insistencia en camino directo ────────────────────────────
+          // El mismo hueco que la insistencia del camino OpenCode (abajo):
+          // el modelo redactó el anuncio/contenido pero NO llamó
+          // propose_action, así que del lado del admin no existe nada. Por
+          // este camino antes solo quedaba el aviso "quedó solo como texto"
+          // y había que pedirlo de nuevo a mano. Una sola insistencia, con
+          // esfuerzo máximo (viene de un fallo) y acotada por el tiempo que
+          // quede del turno; si tampoco guarda, sigue el flujo normal.
+          if (!r.error && redactoAnuncioSinGuardar(r.texto || "", r.herramientasUsadas) && turnDeadline - Date.now() > 25_000) {
+            logger.info({ tenantId, sessionId }, "[AtlasDirecto] Redactó sin proponer en camino directo -- se insiste una vez");
+            progreso("Guardando lo que preparé...");
+            const r2 = await correrTurnoDirecto({
+              system,
+              herramientas: toolRegistry,
+              mensaje:
+                text +
+                "\n\n[SISTEMA] Escribiste el anuncio pero NO lo guardaste: no llamaste ninguna herramienta, " +
+                "así que del lado del admin no existe nada.\n\n" +
+                "Llamá AHORA `propose_action` con:\n" +
+                '  tool: "crear_anuncio"\n' +
+                '  args: { "producto": "<el nombre del producto tal como lo dijo el admin>", ' +
+                '"dailyBudget": <el presupuesto diario que dijo el admin>, ' +
+                '"subirAMeta": <true solo si pidió subirlo o publicarlo, si no false> }\n\n' +
+                "Reglas de este paso:\n" +
+                "- NO necesitás el id del producto ni copiar el copy: `crear_anuncio` busca el producto, arma el brief, " +
+                "escribe el texto con los datos reales, lo valida y guarda el borrador. Todo eso lo hace el servidor.\n" +
+                "- Si el admin NO dijo un presupuesto, no lo inventes: preguntáselo, es su plata.\n" +
+                "- No vuelvas a escribir el copy en el chat ni pidas confirmación otra vez: el sistema ya le muestra " +
+                "la propuesta al admin y le pide el sí. Solo hacé la llamada.",
+              ctx: { tenantId, sessionId, turnId, turnDeadline, objetivoDelAdmin: objetivoDelAdmin ?? undefined },
+              baseUrl: process.env.ATLAS_DIRECTO_URL || undefined,
+              apiKey: String(process.env.DEEPSEEK_API_KEY || ""),
+              modelo: process.env.ATLAS_DIRECTO_MODELO || "deepseek-v4-flash",
+              esfuerzo: "max",
+              presupuestoMs: Math.max(turnDeadline - Date.now(), 10_000),
+              cancelSignal: senalDeCorte,
+              onProgreso: progreso,
+            });
+            marcar(`directo-insiste:${r2.vueltas}v`, Date.now() - r2.ms);
+            logger.info(
+              { tenantId, vueltas: r2.vueltas, ms: r2.ms, herramientas: r2.herramientasUsadas, error: r2.error },
+              "[AtlasDirecto] insistencia terminada",
+            );
+            if (r2.texto || r2.error === "detenido") return { text: r2.texto, error: r2.error };
+          }
           if (r.texto || r.error === "detenido") return { text: r.texto, error: r.error };
           logger.warn({ tenantId, err: r.error }, "[AtlasDirecto] sin respuesta: se cae a OpenCode");
         }
@@ -2279,9 +2399,11 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // Mirar lo que el modelo ESCRIBIÓ es más confiable que adivinar la
       // intención del admin: si en la respuesta hay un anuncio redactado y no
       // se guardó nada, hay que insistir, sin importar cómo se pidió.
+      // Acá la señal de "no se guardó nada" es plannedActions vacío (lo que
+      // el modelo propuso en este turno); en el camino directo es la lista
+      // de herramientas usadas. Ver redactoAnuncioSinGuardar().
       const REDACTO_UN_ANUNCIO =
-        /(🔥\s*GANCHO|TEXTO PRINCIPAL|📝\s*Borrador de anuncio|borrador de anuncio (listo|preparado)|📌\s*TITULAR)/i
-          .test(String(finalReplyVerificado || ""));
+        PATRON_ANUNCIO_REDACTADO.test(String(finalReplyVerificado || "")) && plannedActions.length === 0;
       const pidioCrearAlgo =
         (PEDIDO_DE_ACCION.test(String(prompt)) && MENCIONA_ANUNCIO.test(String(prompt)))
         || REDACTO_UN_ANUNCIO;

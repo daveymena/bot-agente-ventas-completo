@@ -78,6 +78,15 @@ export interface ClienteLLM {
     tools?: any[];
     temperature?: number;
     maxTokens?: number;
+    /**
+     * Cuánto piensa el modelo (DeepSeek-V4.1-Flash lo acepta como `effort`,
+     * verificado contra la API real el 2026-09-29). Solo viaja cuando el
+     * proveedor es DeepSeek: otros compatibles lo rechazarían.
+     * Se usa en "high" para los reintentos de corrección (el motor lo pasa
+     * cuando hay que reescribir sin inventar cifras): ahí la calidad paga
+     * más que la velocidad.
+     */
+    effort?: "low" | "high" | "max";
   }): Promise<RespuestaLLM>;
 }
 
@@ -293,7 +302,7 @@ export function crearClienteLLM(opts: {
   const fabrica = opts.fabrica ?? createAIClient;
 
   return {
-    async crear({ messages, tools, temperature, maxTokens }): Promise<RespuestaLLM> {
+    async crear({ messages, tools, temperature, maxTokens, effort }): Promise<RespuestaLLM> {
       const errores: string[] = [];
 
       for (const { config, source } of cadena) {
@@ -303,6 +312,9 @@ export function crearClienteLLM(opts: {
         const usaHerramientas = tools && tools.length > 0 && !opts.forzarPlan && !sinHerramientas.has(source);
         const timeout = getProviderTimeout(providerName) || opts.timeoutMsPorDefecto || 25_000;
         const t0 = Date.now();
+        // `effort` solo existe en DeepSeek nativo: mandarlo a otro proveedor
+        // rompería su llamada (400 por parámetro desconocido).
+        const esDeepSeek = providerName === "deepseek" || /^deepseek\//i.test(source);
 
         try {
           const client = fabrica(config);
@@ -311,6 +323,7 @@ export function crearClienteLLM(opts: {
             messages,
             temperature: temperature ?? 0.6,
             max_tokens: maxTokens ?? 700,
+            ...(effort && esDeepSeek ? { effort } : {}),
           };
 
           // En modo plan la instrucción va como un mensaje del sistema extra,
@@ -395,6 +408,7 @@ export function crearClienteLLM(opts: {
                   messages: [...messages, { role: "system", content: INSTRUCCION_DE_PLAN }],
                   temperature: temperature ?? 0.6,
                   max_tokens: maxTokens ?? 700,
+                  ...(effort && esDeepSeek ? { effort } : {}),
                 },
                 { timeout, maxRetries: 0 } as any,
               );

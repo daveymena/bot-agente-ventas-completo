@@ -328,3 +328,34 @@ export function isRejection(text: string): boolean {
     text.trim(),
   );
 }
+
+// ── "Sí, pero…" (aprobación CON corrección) ─────────────────────────────────
+//
+// Medido en vivo (2026-09-29): el admin aprueba el plan pero pide un ajuste
+// en el mismo mensaje ("sí", "dale pero en rojo", "confirmado, pero sin esos
+// emojis"). Hasta acá eso caía en "pedido nuevo": el plan se DESCARTABA y el
+// turno siguiente proponía lo MISMO sin el ajuste, el admin volvía a pedirlo,
+// y así en loop -- propone → descarta → restaura.
+//
+// No es un rechazo (el plan sigue valiendo, solo cambia un detalle) y no es
+// una aprobación pura (no se puede ejecutar tal cual). Es un tercer caso: el
+// plan se CONSERVA y el turno sigue con plan + corrección, para que el modelo
+// re-proponga el plan corregido en vez de empezar de cero.
+//
+// Se detecta barato y sin modelo: tiene que EMPEZAR con una apertura de
+// aprobación y traer una marca de corrección después. Un "cambia el texto"
+// a secas (sin apertura) sigue siendo pedido nuevo, no esto.
+const APERTURA_DE_SI = /^(s[ií]+|sip|dale|listo|ok(ay|ey)?|confirmo|confirmado|confirmada|claro(\s+que\s+s[ií])?|perfecto|bueno|va|de\s+una|hagale|hazlo|adelante|procede|apruebo|obvio|por\s+supuesto|est[aá]\s+bien|todo\s+bien|me\s+gusta|de\s+acuerdo)(?=[\s,!.]|$)/i;
+const MARCA_DE_CORRECCION = /\b(pero|cambia(r|lo|la|le|me)?|cámbia|mejor|en\s+vez\s+de|sin\s+(el|la|los|las|ese|esa|esos|esas|esos)?\s*[a-záéíóúñ]+\b|que\s+(sea|diga|lleve|tenga|vaya|quede)|pon(le|me)?|quit(a|ale|ame)?|sac(a|ale|ame)?|agreg(a|ale|ame)?|con\s+(este|esta|ese|esa)\b)/i;
+
+export function esSiConCorreccion(text: string): boolean {
+  const t = String(text || "").trim();
+  if (!t || t.length > 400) return false;
+  const m = APERTURA_DE_SI.exec(t);
+  if (!m) return false;
+  const resto = t.slice(m[0].length);
+  // "sí, súbelo" es aprobación (súbelo está en la lista de isApproval), no
+  // corrección: la marca tiene que estar en lo que sigue a la apertura.
+  if (isApproval(t)) return false;
+  return MARCA_DE_CORRECCION.test(resto);
+}

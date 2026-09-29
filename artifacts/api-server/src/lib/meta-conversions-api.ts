@@ -30,6 +30,73 @@ export interface PurchaseEventInput {
   customerPhone?: string | null;
 }
 
+export interface LeadEventInput {
+  pixelId: string;
+  accessToken: string;
+  /** Teléfono del contacto (dígitos), para emparejar en Meta. */
+  customerPhone?: string | null;
+  /** Id del anuncio / ctwaClid, si vino de click-to-WhatsApp. */
+  adId?: string | null;
+  /** Título del anuncio, como referencia. */
+  adTitle?: string | null;
+}
+
+/**
+ * Manda el evento Lead a Meta cuando un contacto llega desde un anuncio
+ * (click-to-WhatsApp / click-to-Instagram). Es la señal que le faltaba a la
+ * optimización: el Purchase solo llega si el chat cierra en venta, pero Meta
+ * necesita aprender ANTES con quién empieza conversaciones reales. Sin este
+ * evento, las campañas de mensajes optimizan a ciegas (clic barato, cero
+ * conversación).
+ *
+ * Nunca lanza: se llama fire-and-forget desde el message handler.
+ */
+export async function sendLeadEvent(input: LeadEventInput): Promise<boolean> {
+  if (!input.pixelId || !input.accessToken) {
+    logger.debug("[MetaCAPI] Sin pixelId o accessToken -- tenant sin Facebook conectado, se omite el Lead");
+    return false;
+  }
+  try {
+    const userData: Record<string, string[]> = {};
+    const digits = (input.customerPhone || "").replace(/\D/g, "");
+    if (digits) {
+      userData.ph = [sha256(digits)];
+    }
+    const res = await fetch(`${FB_GRAPH_BASE}/${input.pixelId}/events`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        access_token: input.accessToken,
+        data: [
+          {
+            event_name: "Lead",
+            event_time: Math.floor(Date.now() / 1000),
+            // La conversación pasa en WhatsApp, no en un navegador.
+            action_source: "chat",
+            user_data: userData,
+            custom_data: {
+              ...(input.adId ? { ad_id: String(input.adId) } : {}),
+              ...(input.adTitle ? { ad_title: String(input.adTitle).slice(0, 200) } : {}),
+              lead_source: "whatsapp_ctwa",
+            },
+          },
+        ],
+      }),
+      signal: AbortSignal.timeout(10000),
+    });
+    const data: any = await res.json();
+    if (!res.ok || data.error) {
+      logger.warn({ err: data.error, pixelId: input.pixelId }, "[MetaCAPI] Meta rechazó el evento Lead");
+      return false;
+    }
+    logger.info({ pixelId: input.pixelId, eventsReceived: data.events_received }, "[MetaCAPI] Evento Lead (conversación desde anuncio) enviado a Meta");
+    return true;
+  } catch (err) {
+    logger.warn({ err, pixelId: input.pixelId }, "[MetaCAPI] Error de red enviando el evento Lead");
+    return false;
+  }
+}
+
 /**
  * Manda el evento Purchase a Meta. Nunca lanza -- un fallo acá no debe
  * romper el flujo real de venta (notificación a la empresa, marcar la
