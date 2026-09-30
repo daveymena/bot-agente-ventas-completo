@@ -1029,6 +1029,8 @@ export interface TransportadorasCiudad {
    */
   fuente: "cobertura" | "general";
   nota: string;
+  /** Lo que Dropi SÍ dice de la ciudad (trajectory/bycity): si la cubre, el trayecto y si acepta contraentrega. */
+  ciudad?: { nombre: string; cubierta: boolean; trayecto: string | null; aceptaContraentrega: boolean | null } | null;
 }
 
 /** El array venga donde venga: plano, `objects`, `data`, etc. */
@@ -1099,39 +1101,75 @@ export async function transportadorasQueLlegan(
       },
     };
   }
+  // ── Forma REAL de trajectory/bycity (medida el 30-09-2026) ─────────────
+  // Dropi ignora el filtro y devuelve TODAS las ciudades (1.475), cada una
+  // con su trayecto, si acepta recaudo y una tabla de escalones de tarifa
+  // por peso ({id:1, name:"NACIONAL", price:6350}…). Esos escalones NO son
+  // precios por transportadora: el código anterior cruzaba su `id` (1, 2, 3…)
+  // con el id de la transportadora y "ordenaba por precio" con datos
+  // inventados; además daba la misma lista para Cali y para Quibdó.
+  // Con el token de integración, Dropi NO dice qué transportadora llega ni
+  // cuánto cobra cada una: eso se confirma al despachar.
+  const ciudades = Array.isArray(cov.data?.cities) ? (cov.data.cities as any[]) : null;
+  if (ciudades) {
+    const coinciden = ciudades.filter((c) => normalizarCiudadParaDropi(String(c?.name || "")) === ciudad);
+    if (!coinciden.length) {
+      return {
+        ok: true,
+        data: {
+          transportadoras: base, fuente: "general", ciudad: { nombre: ciudad, cubierta: false, trayecto: null, aceptaContraentrega: null },
+          nota: `Dropi no tiene a ${ciudad} en su cobertura (revisá cómo está escrita la ciudad). No se puede confirmar qué transportadora llega.`,
+        },
+      };
+    }
+    const c = coinciden[0];
+    const tarifas = String(c?.rate_type || "");
+    const aceptaContraentrega = tarifas ? /CON RECAUDO/i.test(tarifas) : null;
+    const trayecto = c?.trajectory_type ? String(c.trajectory_type) : null;
+    return {
+      ok: true,
+      data: {
+        transportadoras: base.map((t) => ({ id: t.id, nombre: t.nombre })),
+        fuente: "general",
+        ciudad: { nombre: ciudad, cubierta: true, trayecto, aceptaContraentrega },
+        nota:
+          `Dropi cubre ${ciudad}${trayecto ? ` (trayecto ${trayecto.toLowerCase()})` : ""}` +
+          (aceptaContraentrega === false ? ", pero SIN contraentrega" : aceptaContraentrega ? " y acepta contraentrega" : "") +
+          `. Dropi no dice por API qué transportadora llega ni su precio: estas son las ${base.length} que maneja en general y al despachar se confirma la elegida.` +
+          (coinciden.length > 1 ? ` Hay ${coinciden.length} municipios llamados ${ciudad}: se tomó el primero.` : ""),
+      },
+    };
+  }
+
+  // Forma alternativa (lista por empresa con su precio): solo se usan objetos
+  // que nombran la EMPRESA de forma explícita, nunca un `id` suelto ni
+  // números encontrados en el texto.
   const precios = new Map<string, number>();
   caminarJson(cov.data, 0, (o) => {
-    const precio = NUM(o.price ?? o.precio ?? o.valor ?? o.value ?? o.cost ?? o.costo ?? o.flete ?? o.shipping ?? o.shipping_cost);
+    if (o.from != null || o.until != null) return; // escalón de tarifa por peso, no una empresa
+    const idEmpresa = NUM(o.company_id ?? o.distribution_company_id ?? o.transportadora_id);
+    const nombre = String(o.company_name ?? o.company ?? o.transportadora ?? "").trim();
+    if (idEmpresa == null && !nombre) return;
+    const precio = NUM(o.price ?? o.precio ?? o.valor ?? o.cost ?? o.costo ?? o.flete ?? o.shipping_cost);
     if (precio == null) return;
-    const id = NUM(o.id ?? o.company_id ?? o.distribution_company_id ?? o.transportadora_id);
-    const nombre = String(o.name ?? o.nombre ?? o.company_name ?? o.company ?? "").trim();
-    if (id != null) precios.set(`id:${id}`, precio);
+    if (idEmpresa != null) precios.set(`id:${idEmpresa}`, precio);
     if (nombre) precios.set(`n:${CLAVE(nombre)}`, precio);
   });
-  const texto = CLAVE(JSON.stringify(cov.data ?? ""));
   const llegan = base
     .map((t) => {
       const p = (t.id != null ? precios.get(`id:${t.id}`) : undefined) ?? precios.get(`n:${CLAVE(t.nombre)}`);
       return { ...t, precio: p ?? null };
     })
-    .filter((t) => t.precio != null || (t.id != null && texto.includes(String(t.id))) || texto.includes(CLAVE(t.nombre)));
+    .filter((t) => t.precio != null);
   if (llegan.length) {
     llegan.sort((a, b) => (a.precio ?? Number.MAX_SAFE_INTEGER) - (b.precio ?? Number.MAX_SAFE_INTEGER));
-    return {
-      ok: true,
-      data: {
-        transportadoras: llegan, fuente: "cobertura",
-        nota: llegan.some((t) => t.precio != null)
-          ? `Ordenadas de la más económica a la más cara para ${ciudad}.`
-          : `Las que llegan a ${ciudad} según Dropi (sin precios en la respuesta: se mantiene su orden).`,
-      },
-    };
+    return { ok: true, data: { transportadoras: llegan, fuente: "cobertura", nota: `Ordenadas de la más económica a la más cara para ${ciudad}.` } };
   }
   return {
     ok: true,
     data: {
       transportadoras: base, fuente: "general",
-      nota: `${ciudad}: ninguna coincidió en la respuesta de cobertura (forma nueva), así que se muestran las ${base.length} de la lista general. Al despachar se confirma que la elegida llega.`,
+      nota: `${ciudad}: Dropi no indicó qué transportadoras llegan, así que se muestran las ${base.length} que maneja en general. Al despachar se confirma que la elegida llega.`,
     },
   };
 }

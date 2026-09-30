@@ -517,11 +517,24 @@ export function servicioDePedidos(p: {
         if (!r.ok || !lista.length) {
           return { ok: false, mensaje: `Dropi no devolvió transportadoras para ${destino}. Dile que el envío lo coordina el equipo y no inventes empresas.` };
         }
+        // Sin filtro real por ciudad NO se le lista al cliente el catálogo entero
+        // de transportadoras de Dropi (eran 23, con empresas locales de otras
+        // ciudades): se le dice lo que sí es cierto de su ciudad (30-09-2026).
+        if (r.data?.fuente !== "cobertura") {
+          const c = r.data?.ciudad;
+          if (c && !c.cubierta) {
+            return { ok: false, mensaje: `Dropi no tiene a ${destino} en su cobertura. Pídele al cliente que confirme cómo se escribe su ciudad o municipio; no le ofrezcas transportadoras.` };
+          }
+          const contra = c?.aceptaContraentrega === false ? " Ojo: a esa ciudad NO hay contraentrega; el pago sería anticipado." : c?.aceptaContraentrega ? " Acepta pago contraentrega." : "";
+          return {
+            ok: true,
+            mensaje:
+              `Sí hacemos envíos a ${destino}${c?.trayecto ? ` (trayecto ${c.trayecto.toLowerCase()})` : ""}.${contra} ` +
+              `La transportadora la asigna Dropi al despachar según la ruta. Si el cliente prefiere una en particular, anótala en tomar_pedido(transportadora=…) y se intenta con esa; no le listes empresas ni prometas precios de envío.`,
+          };
+        }
         const nombres = lista.map((t, i) => `${i + 1}) ${t.nombre}`).join("\n");
-        const titulo = r.data?.fuente === "cobertura"
-          ? `A ${destino} llegan estas:`
-          : `Para ${destino} muestro las que Dropi lista en general (no pudo filtrar por ciudad):`;
-        return { ok: true, mensaje: `${titulo}\n${nombres}\n${r.data?.nota || ""}`.trim() };
+        return { ok: true, mensaje: `A ${destino} llegan estas:\n${nombres}\n${r.data?.nota || ""}`.trim() };
       } catch (e: any) {
         logger.error({ err: e?.message, tenantId: p.tenantId }, "[MotorV2] no se pudieron listar transportadoras");
         return { ok: false, mensaje: "No se pudo consultar las transportadoras ahora. Dile que el envío lo coordina el equipo y no inventes empresas." };

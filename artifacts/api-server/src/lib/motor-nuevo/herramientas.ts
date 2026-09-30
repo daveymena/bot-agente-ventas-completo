@@ -474,12 +474,11 @@ export const definicionesDeHerramientas = [
     function: {
       name: "consultar_transportadoras",
       description:
-        "Lista las transportadoras REALES que entregan en la ciudad del cliente (la que ya dijo, o pásasela). " +
-        "Úsala cuando el cliente pregunte qué empresa lleva el envío o quiera elegir una. La respuesta NOMBRA las " +
-        "transportadoras que llegan a esa ciudad, sin precios de flete: el flete NUNCA se le muestra al cliente. " +
-        "Ordenalas de la más económica a la más cara en tu texto y ofrecé las 2 o 3 primeras. Cuando el cliente elija " +
-        "una, pasa su nombre en tomar_pedido(transportadora=…). Si no hay ninguna para esa ciudad, dilo con tus " +
-        "palabras y sigue con el envío normal.",
+        "Consulta en Dropi si enviamos a la ciudad del cliente, si acepta contraentrega y qué transportadoras hay. " +
+        "Úsala cuando el cliente pregunte qué empresa lleva el envío o quiera elegir una. Repetí SOLO lo que diga la " +
+        "respuesta: si trae una lista, ofrecé las 2 o 3 primeras en ese orden; si dice que la asigna Dropi, decilo así. " +
+        "El flete NUNCA se le muestra al cliente. Si el cliente elige una, pasa su nombre en tomar_pedido(transportadora=…). " +
+        "Si la ciudad no está en cobertura, pedí que confirme cómo se escribe; nunca inventes empresas.",
       parameters: {
         type: "object",
         properties: {

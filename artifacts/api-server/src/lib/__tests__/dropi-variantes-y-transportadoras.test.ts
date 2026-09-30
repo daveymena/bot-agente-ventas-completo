@@ -126,6 +126,41 @@ describe("transportadorasQueLlegan", () => {
     expect(bycity.city).toBe("CALI");
   });
 
+  // Forma REAL de trajectory/bycity (medida en vivo el 30-09-2026): TODAS las
+  // ciudades, con escalones de tarifa {id:1,name:"NACIONAL",price}. Antes esos
+  // ids se cruzaban con los de las transportadoras y salía "99MINUTOS $3.750"
+  // igual para Cali que para Quibdó.
+  const REAL = {
+    objects: {
+      cities: [
+        { id: 1, name: "CALI", rate_type: '["CON RECAUDO","SIN RECAUDO"]', trajectory_type: "URBANO",
+          precios: [{ id: 1, name: "URBANO", from: "1.00", until: "3.00", price: "3750.00" }, { id: 2, name: "URBANO", from: "4.00", until: "12.00", price: "6350.00" }],
+          distribution_companies: { id: 9, city_id: 1, distribution_company_id: 14 } },
+        { id: 2, name: "QUIBDO", rate_type: '["SIN RECAUDO"]', trajectory_type: "TRAYECTO ESPECIAL",
+          precios: [{ id: 1, name: "ESPECIAL", from: "1.00", until: "3.00", price: "16300.00" }] },
+      ],
+    },
+  };
+
+  it("forma real: no inventa precios por transportadora y dice lo que Dropi sabe de la ciudad", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementationOnce(okJson(GENERAL)).mockImplementationOnce(okJson(REAL)));
+    const r = await transportadorasQueLlegan(TOKEN, { ciudad: "Cali" });
+    expect(r.ok).toBe(true);
+    expect(r.data?.fuente).toBe("general");
+    expect(r.data?.transportadoras.every((t) => t.precio == null)).toBe(true);
+    expect(r.data?.ciudad).toEqual({ nombre: "CALI", cubierta: true, trayecto: "URBANO", aceptaContraentrega: true });
+    expect(r.data?.nota).not.toMatch(/más económica/);
+  });
+
+  it("forma real: una ciudad sin contraentrega y una que no está en cobertura", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementationOnce(okJson(GENERAL)).mockImplementationOnce(okJson(REAL)));
+    const quibdo = await transportadorasQueLlegan(TOKEN, { ciudad: "Quibdó" });
+    expect(quibdo.data?.ciudad).toMatchObject({ cubierta: true, trayecto: "TRAYECTO ESPECIAL", aceptaContraentrega: false });
+    vi.stubGlobal("fetch", vi.fn().mockImplementationOnce(okJson(GENERAL)).mockImplementationOnce(okJson(REAL)));
+    const nada = await transportadorasQueLlegan(TOKEN, { ciudad: "Pueblo Inventado" });
+    expect(nada.data?.ciudad?.cubierta).toBe(false);
+  });
+
   it("si la cobertura falla, devuelve la lista general sin inventar filtro", async () => {
     const fetchMock = vi.fn()
       .mockImplementationOnce(okJson(GENERAL))

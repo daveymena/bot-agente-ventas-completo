@@ -169,7 +169,7 @@ router.get("/transportadoras", async (req: any, res: any) => {
     const r = await transportadorasQueLlegan(token, { ciudad, departamento: String(req.query.departamento || "") });
     if (!r.ok) return res.status(200).json({ ok: false, error: r.error });
     res.json({
-      ok: true, fuente: r.data?.fuente, nota: r.data?.nota,
+      ok: true, fuente: r.data?.fuente, nota: r.data?.nota, ciudad: r.data?.ciudad ?? null,
       transportadoras: (r.data?.transportadoras || []).map((t) => ({ id: t.id, nombre: t.nombre })),
       ...(String(req.query.raw || "") === "1" ? { crudo: r.data?.transportadoras } : {}),
     });
