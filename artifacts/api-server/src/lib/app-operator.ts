@@ -5341,13 +5341,17 @@ ${explicarObjetivos()}` };
   {
     name: "dropi_cotizar_envio",
     description: "Cotiza el envío de un producto a una ciudad: transportadoras disponibles con flete y ganancia real.",
-    args: '{ "productId": number, "ciudad": string, "departamento"?, "precio"?, "cantidad"? }',
+    args: '{ "productId"?: number, "dropiProductId"?: number, "ciudad": string, "departamento"?, "precio"?, "cantidad"? }',
     run: async (args, ctx) => {
       const id = num(args?.productId);
+      const dropiId = num(args?.dropiProductId);
       const ciudad = String(args?.ciudad || "").trim();
-      if (!id || !ciudad) return { ok: false, summary: "Faltan 'productId' y 'ciudad'." };
-      const { cotizarProductoDelCatalogo } = await import("./dropi-cotizador");
-      const r = await cotizarProductoDelCatalogo(ctx.tenantId, id, { ciudad, departamento: args?.departamento ? String(args.departamento) : null, precioUnitario: num(args?.precio) || null, cantidad: num(args?.cantidad) || 1 });
+      if ((!id && !dropiId) || !ciudad) return { ok: false, summary: "Faltan 'productId' (o 'dropiProductId') y 'ciudad'." };
+      const { cotizarProductoDelCatalogo, cotizarEnvioDropi } = await import("./dropi-cotizador");
+      // Producto del catálogo de Dropi SIN importar: se cotiza con su id de Dropi.
+      const r = !id && dropiId
+        ? { ...(await cotizarEnvioDropi(ctx.tenantId, { dropiProductId: dropiId as number, ciudad, departamento: args?.departamento ? String(args.departamento) : null, precioVenta: (num(args?.precio) || 50000) * (num(args?.cantidad) || 1), cantidad: num(args?.cantidad) || 1 })), producto: `Dropi #${dropiId}` }
+        : await cotizarProductoDelCatalogo(ctx.tenantId, id as number, { ciudad, departamento: args?.departamento ? String(args.departamento) : null, precioUnitario: num(args?.precio) || null, cantidad: num(args?.cantidad) || 1 });
       if (!r.ok) return { ok: false, summary: r.error || "Dropi no cotizó." };
       const f = (v: number | null) => (v == null ? "—" : `$${Math.round(v).toLocaleString("es-CO")}`);
       const lineas = (r.transportadoras || []).map((t, i) =>

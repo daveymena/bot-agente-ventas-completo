@@ -444,12 +444,13 @@ const TOOL_SCHEMAS: Record<string, object> = {
     type: "object",
     properties: {
       productId: { type: "number", description: "Id del producto en el catálogo" },
+      dropiProductId: { type: "number", description: "Id en Dropi, para cotizar sin importar" },
       ciudad: { type: "string" },
       departamento: { type: "string" },
       precio: { type: "number", description: "Precio de venta unitario (opcional)" },
       cantidad: { type: "number" },
     },
-    required: ["productId", "ciudad"],
+    required: ["ciudad"],
     additionalProperties: false,
   },
   dropi_verificar_producto: {
