@@ -315,9 +315,13 @@ export async function buscarProductosDropi(token: string, opts: { q?: string; co
 }
 
 async function buscarProductosDropiSinCache(token: string, opts: { q?: string; conStock?: boolean; categoria?: string | number; pagina?: number; porPagina?: number } = {}): Promise<RespuestaDropi<ProductoDropi[]>> {
+  const pageSize = Math.min(50, opts.porPagina ?? 20);
   const body: Record<string, any> = {
-    startData: Math.max(0, (opts.pagina ?? 1) - 1),
-    pageSize: Math.min(50, opts.porPagina ?? 20),
+    // `startData` es un DESPLAZAMIENTO, no un número de página: el SQL que
+    // devuelve Dropi en sus errores dice "limit N offset <startData>"
+    // (medido 29-09-2026). Con `pagina - 1` la página 2 empezaba en el ítem 1.
+    startData: Math.max(0, ((opts.pagina ?? 1) - 1) * pageSize),
+    pageSize,
     order_type: "desc",
     order_by: "id",
     keywords: opts.q || "",
@@ -461,11 +465,25 @@ export interface ResultadoImportacion { ok: boolean; productId?: number; yaExist
  * dropiProductId), actualiza stock/fotos/proveedor y no duplica. El precio
  * de venta lo decide el dueño; si no lo pasa, se usa el sugerido por Dropi.
  */
-export async function importarProductoDropi(tenantId: number, token: string, dropiId: number, opts: { precio?: number | null; categoria?: string | null; curar?: boolean } = {}): Promise<ResultadoImportacion> {
+/**
+ * Precio de venta = costo del proveedor × factor, redondeado como precio de
+ * vitrina colombiano (hacia arriba a miles, terminado en 900): 13.000 × 2,5 =
+ * 32.500 → 32.900. Pura: la usa la importación por lotes.
+ */
+export function precioPorFactor(costo: number, factor: number): number | null {
+  if (!(costo > 0) || !(factor > 1)) return null;
+  const crudo = costo * factor;
+  let v = Math.ceil(crudo / 1000) * 1000 - 100;
+  if (v < crudo) v += 1000; // 32.950 → 33.900, nunca por debajo del factor
+  return v;
+}
+
+export async function importarProductoDropi(tenantId: number, token: string, dropiId: number, opts: { precio?: number | null; factorSobreCosto?: number | null; categoria?: string | null; curar?: boolean } = {}): Promise<ResultadoImportacion> {
   const r = await detalleProductoDropi(token, dropiId);
   if (!r.ok || !r.data) return { ok: false, error: `No se pudo leer el producto ${dropiId} en Dropi: ${r.error}` };
   const p = r.data;
-  const precio = Number(opts.precio) || Number(p.suggested_price) || Number(p.sale_price) || 0;
+  const porFactor = opts.factorSobreCosto ? precioPorFactor(Number(p.sale_price) || 0, Number(opts.factorSobreCosto)) : null;
+  const precio = Number(opts.precio) || porFactor || Number(p.suggested_price) || Number(p.sale_price) || 0;
   if (!precio) return { ok: false, error: "El producto no trae precio sugerido; pasá un precio de venta." };
   const prov = proveedorDe(p);
 

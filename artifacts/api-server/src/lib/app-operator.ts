@@ -5246,6 +5246,40 @@ ${explicarObjetivos()}` };
     },
   },
   {
+    name: "dropi_importar_lote",
+    description: "Importa VARIOS productos de Dropi en segundo plano (ids o búsqueda, máx 200). Precio: sugerido o costo × factorSobreCosto. Avisa al terminar.",
+    args: '{ "dropiProductIds"?: number[], "query"?: string, "max"?: number, "factorSobreCosto"?: number, "curar"?: boolean }',
+    run: async (args, ctx) => {
+      const { tokenDropiDelTenant, estadoTokenDropi, mensajeTokenDropi } = await import("./dropi-directo");
+      const token = await tokenDropiDelTenant(ctx.tenantId);
+      if (!token) return { ok: false, summary: mensajeTokenDropi(await estadoTokenDropi(ctx.tenantId)) };
+      const { iniciarLote, idsDesdeBusqueda, resumenDelLote } = await import("./dropi-importacion-lote");
+      let ids: number[] = Array.isArray(args?.dropiProductIds) ? args.dropiProductIds.map((x: any) => num(x)).filter(Boolean) : [];
+      let nota = "";
+      if (!ids.length && args?.query) {
+        const b = await idsDesdeBusqueda(ctx.tenantId, token, String(args.query), { conStock: args?.conStock !== false, max: num(args?.max) || 20 });
+        if (!b.ids.length) return { ok: false, summary: b.error ? `Dropi no respondió: ${b.error}` : `No hay productos nuevos para "${args.query}"${b.yaEstaban ? ` (${b.yaEstaban} ya estaban en el catálogo)` : ""}.` };
+        ids = b.ids;
+        if (b.yaEstaban) nota = ` (salteé ${b.yaEstaban} que ya estaban)`;
+      }
+      if (!ids.length) return { ok: false, summary: "Pasá 'dropiProductIds' o una 'query' para buscar." };
+      const r = iniciarLote(ctx.tenantId, token, ids.map((id) => ({ dropiProductId: id })), { curar: args?.curar !== false, factorSobreCosto: num(args?.factorSobreCosto) || null, origen: "atlas" });
+      if (!r.ok) return { ok: false, summary: r.error };
+      return { ok: true, summary: `📦 Importación en marcha: ${r.lote.total} productos${nota}. Va de a uno con pausa (Dropi limita las peticiones): calculá ~${Math.max(1, Math.round((r.lote.total * (r.lote.curar ? 12 : 4)) / 60))} min. Te aviso al terminar.\n${resumenDelLote(r.lote)}` };
+    },
+  },
+  {
+    name: "dropi_importar_lote_estado",
+    description: "Progreso de la importación en lote de Dropi de este negocio (cuántos van, cuáles fallaron). Solo lee.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { loteDelNegocio, resumenDelLote } = await import("./dropi-importacion-lote");
+      const l = loteDelNegocio(ctx.tenantId);
+      if (!l) return { ok: true, summary: "No hay ninguna importación en lote desde el último reinicio del servidor." };
+      return { ok: true, summary: resumenDelLote(l) };
+    },
+  },
+  {
     name: "dropi_verificar_disponibilidad",
     description: "Revisa en Dropi cada producto importado y desactiva los archivados o sin stock (reactiva los que volvieron). Úsala cuando el admin pregunte qué sigue disponible. Modifica productos → requiere confirmación.",
     args: "{}",
@@ -8777,7 +8811,7 @@ export const READ_ONLY_TOOLS = new Set([
   "fb_list_adsets", "fb_radiografia_campana", "anuncio_datos_expertos",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
   "dropi_status", "dropi_margen", "dropi_pedidos", "dropi_buscar", "video_anuncio_estado", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
-  "dropi_verificar_producto", "dropi_con_ordenes",
+  "dropi_verificar_producto", "dropi_con_ordenes", "dropi_importar_lote_estado",
   // Radar de ganadores + calculadora de rentabilidad + espía de tiendas +
   // estimación previa: las cuatro son lectura pura (cruzan datos y calculan,
   // ninguna crea, publica ni gasta). Van acá para que Atlas las llame solo,

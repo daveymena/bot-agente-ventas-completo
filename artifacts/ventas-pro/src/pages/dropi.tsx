@@ -32,7 +32,23 @@ interface ProductoDropi {
   proveedor: string | null; categoria: string | null; foto: string | null; tipo: string | null; bodega: string | null; importadoComo: number | null;
 }
 
+interface Lote {
+  id: string; estado: "en_curso" | "terminado" | "detenido"; total: number; hechos: number;
+  importados: Array<{ dropiProductId: number; productId: number; nombre: string; nuevo: boolean }>;
+  fallidos: Array<{ dropiProductId: number; error: string }>;
+  factorSobreCosto: number | null; curar: boolean;
+}
+
 const cop = (v: number | null | undefined) => (v == null ? "—" : `$${Math.round(Number(v)).toLocaleString("es-CO")}`);
+
+/** Misma regla que el servidor (precioPorFactor): costo × factor, a miles terminado en 900. */
+const precioPorFactor = (costo: number | null, factor: number): number | null => {
+  if (!costo || !(costo > 0) || !(factor > 1)) return null;
+  const crudo = costo * factor;
+  let v = Math.ceil(crudo / 1000) * 1000 - 100;
+  if (v < crudo) v += 1000;
+  return v;
+};
 
 export default function DropiPage() {
   const { toast } = useToast();
@@ -54,7 +70,17 @@ export default function DropiPage() {
   const [buscando, setBuscando] = useState(false);
   const [resultados, setResultados] = useState<ProductoDropi[]>([]);
   const [precios, setPrecios] = useState<Record<number, string>>({});
-  const [importando, setImportando] = useState<number | null>(null);
+  // Catálogo tipo Dropi: filtros, páginas, selección múltiple e importación en lote.
+  const [categorias, setCategorias] = useState<Array<{ id: number; name: string }>>([]);
+  const [categoria, setCategoria] = useState<string>("");
+  const [pagina, setPagina] = useState(1);
+  const [hayMas, setHayMas] = useState(false);
+  const [seleccion, setSeleccion] = useState<Set<number>>(new Set());
+  const [modoPrecio, setModoPrecio] = useState<"sugerido" | "factor">("sugerido");
+  const [factor, setFactor] = useState("2.5");
+  const [curar, setCurar] = useState(true);
+  const [lote, setLote] = useState<Lote | null>(null);
+  const [iniciandoLote, setIniciandoLote] = useState(false);
   const [verificando, setVerificando] = useState(false);
   const [verificacion, setVerificacion] = useState<string | null>(null);
 
@@ -93,28 +119,77 @@ export default function DropiPage() {
     try { await api("/dropi/config", { method: "DELETE" }); await cargar(); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
-  const buscar = async () => {
+  const buscar = async (paginaPedida = 1) => {
     setBuscando(true);
     try {
-      const r = await api(`/dropi/buscar?q=${encodeURIComponent(q)}&conStock=${conStock ? 1 : 0}&porPagina=24`);
+      const r = await api(`/dropi/buscar?q=${encodeURIComponent(q)}&conStock=${conStock ? 1 : 0}&porPagina=24&pagina=${paginaPedida}${categoria ? `&categoria=${categoria}` : ""}`);
       if (!r.ok) throw new Error(r.error || "Dropi no respondió");
-      setResultados(r.productos || []);
-      if (!r.productos?.length) toast({ title: "Sin resultados en Dropi", description: q ? `Nada para "${q}"` : "Probá con una palabra" });
+      const nuevos: ProductoDropi[] = r.productos || [];
+      setResultados((prev) => (paginaPedida === 1 ? nuevos : [...prev, ...nuevos.filter((n) => !prev.some((p) => p.id === n.id))]));
+      setPagina(paginaPedida);
+      setHayMas(!!r.hayMas);
+      if (paginaPedida === 1) setSeleccion(new Set());
+      if (paginaPedida === 1 && !nuevos.length) toast({ title: "Sin resultados en Dropi", description: q ? `Nada para "${q}"` : "Probá con otra palabra o categoría" });
     } catch (e: any) { toast({ title: "Dropi no respondió", description: e.message, variant: "destructive" }); }
     finally { setBuscando(false); }
   };
 
-  const importar = async (p: ProductoDropi) => {
-    setImportando(p.id);
+  // Al conectar: categorías + una primera página para que el catálogo no arranque vacío.
+  useEffect(() => {
+    if (!config?.conectado) return;
+    api("/dropi/categorias").then((r) => setCategorias(r.categorias || [])).catch(() => {});
+    if (!resultados.length) void buscar(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config?.conectado]);
+
+  const alternar = (id: number) => setSeleccion((prev) => { const s = new Set(prev); if (s.has(id)) s.delete(id); else s.add(id); return s; });
+  const seleccionables = resultados.filter((p) => !p.importadoComo);
+  const todaLaPaginaSeleccionada = seleccionables.length > 0 && seleccionables.every((p) => seleccion.has(p.id));
+  const seleccionarPagina = () => setSeleccion((prev) => {
+    const s = new Set(prev);
+    if (todaLaPaginaSeleccionada) seleccionables.forEach((p) => s.delete(p.id)); else seleccionables.forEach((p) => s.add(p.id));
+    return s;
+  });
+  const factorNum = modoPrecio === "factor" ? Number(String(factor).replace(",", ".")) : 0;
+  const precioDeVenta = (p: ProductoDropi) => Number(precios[p.id]) || (factorNum > 1 ? precioPorFactor(p.costo, factorNum) : null) || p.precioSugerido;
+
+  // Progreso del lote: se consulta al entrar y cada 3 s mientras corre.
+  const leerLote = useCallback(async () => {
     try {
-      const precio = Number(precios[p.id]) || null;
-      const r = await api("/dropi/importar", { method: "POST", body: JSON.stringify({ items: [{ dropiProductId: p.id, precio }], lanzar: false }) });
-      const it = r.resultados?.[0];
-      if (!it?.ok) throw new Error(it?.error || "No se pudo importar");
-      toast({ title: it.yaExistia ? "Producto actualizado" : "Producto importado", description: `${it.nombre}${it.curadoPor ? ` · ficha organizada por ${it.curadoPor}` : ""}${!it.yaExistia ? " · sin anuncio automático (usá 🚀 Lanzar si querés landing/copies/borrador)" : ""}` });
-      setResultados((prev) => prev.map((x) => (x.id === p.id ? { ...x, importadoComo: it.productId } : x)));
-    } catch (e: any) { toast({ title: "No se pudo importar", description: e.message, variant: "destructive" }); }
-    finally { setImportando(null); }
+      const r = await api("/dropi/importar-lote");
+      const l: Lote | null = r.lote || null;
+      setLote(l);
+      if (l?.importados?.length) {
+        const porDropi = new Map(l.importados.map((x) => [x.dropiProductId, x.productId]));
+        setResultados((prev) => prev.map((p) => (porDropi.has(p.id) ? { ...p, importadoComo: porDropi.get(p.id)! } : p)));
+      }
+      return l;
+    } catch { return null; }
+  }, []);
+  useEffect(() => { if (config?.conectado) void leerLote(); }, [config?.conectado, leerLote]);
+  useEffect(() => {
+    if (lote?.estado !== "en_curso") return;
+    const t = setInterval(() => { void leerLote(); }, 3000);
+    return () => clearInterval(t);
+  }, [lote?.estado, leerLote]);
+
+  const importarSeleccionados = async () => {
+    if (!seleccion.size) return;
+    if (modoPrecio === "factor" && !(factorNum > 1)) { toast({ title: "Revisá el multiplicador", description: "Tiene que ser mayor que 1 (ej. 2.5 = vender a 2,5 veces el costo).", variant: "destructive" }); return; }
+    setIniciandoLote(true);
+    try {
+      const items = [...seleccion].map((id) => ({ dropiProductId: id, precio: Number(precios[id]) || null }));
+      const r = await api("/dropi/importar-lote", { method: "POST", body: JSON.stringify({ items, curar, factorSobreCosto: modoPrecio === "factor" ? factorNum : null }) });
+      setLote(r.lote);
+      setSeleccion(new Set());
+      toast({ title: `Importando ${r.lote.total} productos`, description: "Corre en segundo plano: podés seguir usando el panel. Te aviso por WhatsApp al terminar." });
+    } catch (e: any) { toast({ title: "No se pudo empezar la importación", description: e.message, variant: "destructive" }); }
+    finally { setIniciandoLote(false); }
+  };
+
+  const detenerImportacion = async () => {
+    try { await api("/dropi/importar-lote/detener", { method: "POST" }); toast({ title: "Deteniendo", description: "Termina el producto en curso y para. Lo ya importado queda." }); }
+    catch (e: any) { toast({ title: "No se pudo detener", description: e.message, variant: "destructive" }); }
   };
 
   const [lanzando, setLanzando] = useState<number | null>(null);
@@ -209,35 +284,110 @@ export default function DropiPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base"><Search className="h-4 w-4" /> Catálogo de Dropi</CardTitle>
-                <CardDescription>Buscá productos de los proveedores y traelos a tu catálogo. El precio de venta lo decidís vos; si lo dejás vacío se usa el sugerido.</CardDescription>
+                <CardDescription>Explorá el catálogo de los proveedores, marcá los que quieras y traelos todos juntos. La importación corre en segundo plano y te avisa al terminar.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {/* Filtros */}
                 <div className="flex gap-2 flex-wrap items-center">
-                  <Input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && buscar()} placeholder="Ej: corrector de postura, faja, licuadora…" className="flex-1 min-w-[220px]" />
+                  <Input value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === "Enter" && buscar(1)} placeholder="Buscar: corrector de postura, faja, licuadora…" className="flex-1 min-w-[200px]" />
+                  <select value={categoria} onChange={(e) => setCategoria(e.target.value)} className="h-10 rounded-md border bg-background px-3 text-sm min-w-[160px]" aria-label="Categoría">
+                    <option value="">Todas las categorías</option>
+                    {categorias.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
                   <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={conStock} onChange={(e) => setConStock(e.target.checked)} /> Solo con stock</label>
-                  <Button onClick={buscar} disabled={buscando}>{buscando ? <Loader2 className="h-4 w-4 animate-spin" /> : "Buscar"}</Button>
+                  <Button onClick={() => buscar(1)} disabled={buscando}>{buscando && pagina === 1 ? <Loader2 className="h-4 w-4 animate-spin" /> : "Buscar"}</Button>
                 </div>
+
+                {/* Progreso del lote */}
+                {lote ? (
+                  <div className={`rounded-xl border p-3 space-y-2 ${lote.estado === "en_curso" ? "bg-primary/5" : "bg-muted/40"}`}>
+                    <div className="flex items-center justify-between gap-2 text-sm">
+                      <span className="font-medium">
+                        {lote.estado === "en_curso" ? <><Loader2 className="h-4 w-4 animate-spin inline mr-1" />Importando {lote.hechos}/{lote.total}</> : lote.estado === "detenido" ? `Importación detenida: ${lote.hechos}/${lote.total}` : `Importación terminada: ${lote.hechos}/${lote.total}`}
+                        <span className="text-muted-foreground font-normal"> · {lote.importados.filter((x) => x.nuevo).length} nuevos{lote.fallidos.length ? ` · ${lote.fallidos.length} con error` : ""}</span>
+                      </span>
+                      {lote.estado === "en_curso" ? <Button size="sm" variant="outline" onClick={detenerImportacion}>Detener</Button> : null}
+                    </div>
+                    <div className="h-2 rounded-full bg-muted overflow-hidden"><div className="h-full bg-primary transition-all" style={{ width: `${lote.total ? Math.round((lote.hechos / lote.total) * 100) : 0}%` }} /></div>
+                    {lote.estado !== "en_curso" && lote.fallidos.length ? (
+                      <details className="text-xs text-muted-foreground"><summary className="cursor-pointer">Ver los que fallaron</summary>
+                        <ul className="mt-1 space-y-0.5">{lote.fallidos.map((f) => <li key={f.dropiProductId}>#{f.dropiProductId}: {f.error}</li>)}</ul>
+                      </details>
+                    ) : null}
+                  </div>
+                ) : null}
+
                 {resultados.length ? (
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                    {resultados.map((p) => (
-                      <div key={p.id} className="border rounded-xl p-3 flex flex-col gap-2 bg-background">
-                        <div className="aspect-[4/3] rounded-lg bg-muted overflow-hidden">{p.foto ? <img src={p.foto} alt={p.nombre} className="w-full h-full object-cover" loading="lazy" /> : null}</div>
-                        <div className="text-sm font-semibold leading-snug line-clamp-2">{p.nombre}</div>
-                        <div className="text-xs text-muted-foreground">Costo {cop(p.costo)} · sugerido {cop(p.precioSugerido)} · stock {p.stock ?? "—"}{p.categoria ? ` · ${p.categoria}` : ""}</div>
-                        {p.proveedor ? <div className="text-xs text-muted-foreground">Proveedor: {p.proveedor}{p.bodega ? ` · ${p.bodega}` : ""}</div> : null}
-                        {p.importadoComo ? (
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="text-xs text-green-700 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> En tu catálogo (id {p.importadoComo})</div>
-                            <Button size="sm" variant="outline" onClick={() => lanzar(p.importadoComo!)} disabled={lanzando === p.importadoComo}>{lanzando === p.importadoComo ? <Loader2 className="h-4 w-4 animate-spin" /> : "🚀 Lanzar"}</Button>
+                  <>
+                    <div className="flex items-center justify-between gap-2 text-sm">
+                      <span className="text-muted-foreground">{resultados.length} productos{seleccion.size ? ` · ${seleccion.size} seleccionados` : ""}</span>
+                      {seleccionables.length ? <Button size="sm" variant="ghost" onClick={seleccionarPagina}>{todaLaPaginaSeleccionada ? "Quitar selección" : "Seleccionar todos"}</Button> : null}
+                    </div>
+                    <div className="grid gap-3 grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+                      {resultados.map((p) => {
+                        const elegido = seleccion.has(p.id);
+                        const venta = precioDeVenta(p);
+                        const ganancia = venta != null && p.costo != null ? venta - p.costo : null;
+                        return (
+                          <div
+                            key={p.id}
+                            onClick={() => !p.importadoComo && alternar(p.id)}
+                            className={`relative border rounded-xl p-2 sm:p-3 flex flex-col gap-1.5 bg-background transition ${p.importadoComo ? "opacity-80" : "cursor-pointer hover:shadow-sm"} ${elegido ? "ring-2 ring-primary border-primary" : ""}`}
+                          >
+                            <div className="relative aspect-square rounded-lg bg-muted overflow-hidden">
+                              {p.foto ? <img src={p.foto} alt={p.nombre} className="w-full h-full object-cover" loading="lazy" /> : <Package className="h-8 w-8 m-auto mt-[40%] text-muted-foreground" />}
+                              {!p.importadoComo ? (
+                                <input type="checkbox" checked={elegido} onChange={() => alternar(p.id)} onClick={(e) => e.stopPropagation()} aria-label={`Seleccionar ${p.nombre}`} className="absolute top-2 left-2 h-5 w-5 accent-primary" />
+                              ) : (
+                                <span className="absolute top-2 left-2 rounded-full bg-green-600 text-white text-[10px] px-2 py-0.5 flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> En tu catálogo</span>
+                              )}
+                              {p.stock != null ? <span className={`absolute bottom-2 right-2 rounded-full text-[10px] px-2 py-0.5 ${p.stock > 0 ? "bg-black/60 text-white" : "bg-red-600 text-white"}`}>Stock {p.stock}</span> : null}
+                            </div>
+                            <div className="text-xs sm:text-sm font-semibold leading-snug line-clamp-2 min-h-[2.5em]">{p.nombre}</div>
+                            <div className="text-[11px] text-muted-foreground">Costo <b className="text-foreground">{cop(p.costo)}</b> · sugerido {cop(p.precioSugerido)}</div>
+                            <div className="text-[11px]">
+                              Vendés a <b>{cop(venta)}</b>
+                              {ganancia != null ? <span className={ganancia > 0 ? "text-green-700" : "text-red-600"}> · ganás {cop(ganancia)} antes de flete</span> : null}
+                            </div>
+                            {p.proveedor ? <div className="text-[11px] text-muted-foreground truncate">{p.proveedor}{p.bodega ? ` · ${p.bodega}` : ""}</div> : null}
+                            {p.importadoComo ? (
+                              <Button size="sm" variant="outline" className="h-7 text-xs" onClick={(e) => { e.stopPropagation(); lanzar(p.importadoComo!); }} disabled={lanzando === p.importadoComo}>{lanzando === p.importadoComo ? <Loader2 className="h-3 w-3 animate-spin" /> : "🚀 Lanzar"}</Button>
+                            ) : elegido ? (
+                              <Input type="number" inputMode="numeric" onClick={(e) => e.stopPropagation()} placeholder={`Precio propio (${cop(venta)})`} value={precios[p.id] ?? ""} onChange={(e) => setPrecios((prev) => ({ ...prev, [p.id]: e.target.value }))} className="h-7 text-xs" />
+                            ) : null}
                           </div>
-                        ) : (
-                          <div className="flex gap-2 items-center">
-                            <Input type="number" inputMode="numeric" placeholder={p.precioSugerido ? String(Math.round(p.precioSugerido)) : "Precio de venta"} value={precios[p.id] ?? ""} onChange={(e) => setPrecios((prev) => ({ ...prev, [p.id]: e.target.value }))} className="h-8 text-sm" />
-                            <Button size="sm" onClick={() => importar(p)} disabled={importando === p.id}>{importando === p.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Importar"}</Button>
-                          </div>
-                        )}
-                      </div>
-                    ))}
+                        );
+                      })}
+                    </div>
+                    {hayMas ? (
+                      <div className="flex justify-center"><Button variant="outline" onClick={() => buscar(pagina + 1)} disabled={buscando}>{buscando ? <Loader2 className="h-4 w-4 animate-spin" /> : "Cargar más"}</Button></div>
+                    ) : null}
+                  </>
+                ) : buscando ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Trayendo el catálogo de Dropi…</div>
+                ) : null}
+
+                {/* Barra de importación: fija abajo mientras haya selección */}
+                {seleccion.size ? (
+                  <div className="sticky bottom-2 z-10 rounded-xl border bg-background/95 backdrop-blur shadow-lg p-3 flex flex-wrap items-center gap-3">
+                    <span className="text-sm font-semibold">{seleccion.size} seleccionados</span>
+                    <div className="flex items-center gap-2 text-sm">
+                      <select value={modoPrecio} onChange={(e) => setModoPrecio(e.target.value as any)} className="h-9 rounded-md border bg-background px-2 text-sm" aria-label="Precio de venta">
+                        <option value="sugerido">Precio sugerido de Dropi</option>
+                        <option value="factor">Costo × multiplicador</option>
+                      </select>
+                      {modoPrecio === "factor" ? <Input value={factor} onChange={(e) => setFactor(e.target.value)} inputMode="decimal" className="h-9 w-20" aria-label="Multiplicador" /> : null}
+                    </div>
+                    <label className="flex items-center gap-2 text-sm" title="La IA reescribe nombre, descripción y características para el comprador (usa modelos gratuitos primero). Sin esto queda la descripción del proveedor limpia y es más rápido.">
+                      <input type="checkbox" checked={curar} onChange={(e) => setCurar(e.target.checked)} /> Fichas con IA
+                    </label>
+                    <div className="flex gap-2 ml-auto">
+                      <Button variant="ghost" size="sm" onClick={() => setSeleccion(new Set())}>Limpiar</Button>
+                      <Button onClick={importarSeleccionados} disabled={iniciandoLote || lote?.estado === "en_curso"}>
+                        {iniciandoLote ? <Loader2 className="h-4 w-4 animate-spin" /> : `Importar ${seleccion.size}`}
+                      </Button>
+                    </div>
+                    {lote?.estado === "en_curso" ? <p className="w-full text-xs text-muted-foreground">Hay una importación corriendo: esperá a que termine para empezar otra.</p> : null}
                   </div>
                 ) : null}
               </CardContent>

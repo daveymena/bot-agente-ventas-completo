@@ -78,7 +78,8 @@ router.get("/buscar", async (req: any, res: any) => {
     const { tokenDropiDelTenant, buscarProductosDropi } = await import("../lib/dropi-directo");
     const token = await tokenDropiDelTenant(tenantId);
     if (!token) return res.status(400).json({ ok: false, error: "Sin token de Dropi" });
-    const r = await buscarProductosDropi(token, { q: String(req.query.q || ""), conStock: String(req.query.conStock || "") === "1", pagina: Number(req.query.pagina) || 1, porPagina: Math.min(50, Number(req.query.porPagina) || 24) });
+    const porPagina = Math.min(50, Number(req.query.porPagina) || 24);
+    const r = await buscarProductosDropi(token, { q: String(req.query.q || ""), conStock: String(req.query.conStock || "") === "1", categoria: Number(req.query.categoria) || undefined, pagina: Number(req.query.pagina) || 1, porPagina });
     if (!r.ok) return res.status(200).json({ ok: false, error: /exceeded/i.test(String(r.error)) ? "Dropi limitó las peticiones por un momento: esperá un minuto y volvé a buscar." : `Dropi no respondió: ${r.error}` });
     const { db, products } = await import("@workspace/db");
     const { eq } = await import("drizzle-orm");
@@ -88,6 +89,8 @@ router.get("/buscar", async (req: any, res: any) => {
     const { fotosDe, stockDe, proveedorDe, bodegaDe } = await import("../lib/dropi-directo");
     res.json({
       ok: true,
+      // Página llena = puede haber más (Dropi no manda el total con no_count).
+      hayMas: (r.data || []).length >= porPagina,
       ...(String(req.query.raw || "") === "1" ? { crudo: (r.data || []).slice(0, 2) } : {}),
       productos: (r.data || []).map((p) => ({
         id: p.id, nombre: p.name, precioSugerido: p.suggested_price ?? null, costo: p.sale_price ?? null, stock: stockDe(p),
@@ -207,6 +210,66 @@ router.post("/importar", async (req: any, res: any) => {
   } catch (error: any) {
     res.status(500).json({ ok: false, error: error.message });
   }
+});
+
+/** Categorías de Dropi (para el filtro del catálogo). Cambian poco: caché de 1 h. */
+let cacheCategorias: { en: number; data: Array<{ id: number; name: string }> } | null = null;
+router.get("/categorias", async (req: any, res: any) => {
+  try {
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ error: "No autenticado" });
+    if (cacheCategorias && Date.now() - cacheCategorias.en < 3_600_000) return res.json({ ok: true, categorias: cacheCategorias.data });
+    const { tokenDropiDelTenant, categoriasDropi } = await import("../lib/dropi-directo");
+    const token = await tokenDropiDelTenant(tenantId);
+    if (!token) return res.status(400).json({ ok: false, error: "Sin token de Dropi" });
+    const r = await categoriasDropi(token);
+    if (!r.ok) return res.json({ ok: false, categorias: [], error: r.error });
+    const data = (r.data || []).filter((c) => c.id && c.name).sort((a, b) => a.name.localeCompare(b.name, "es"));
+    cacheCategorias = { en: Date.now(), data };
+    res.json({ ok: true, categorias: data });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+/**
+ * Importar EN LOTE, en segundo plano (ver lib/dropi-importacion-lote.ts).
+ * Body: { items?: [{dropiProductId, precio?}], busqueda?: {q, conStock, max}, curar?, factorSobreCosto? }
+ */
+router.post("/importar-lote", async (req: any, res: any) => {
+  try {
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ error: "No autenticado" });
+    const { tokenDropiDelTenant } = await import("../lib/dropi-directo");
+    const token = await tokenDropiDelTenant(tenantId);
+    if (!token) return res.status(400).json({ ok: false, error: "Sin token de Dropi" });
+    const { iniciarLote, idsDesdeBusqueda } = await import("../lib/dropi-importacion-lote");
+    let items: Array<{ dropiProductId: number; precio?: number | null }> = Array.isArray(req.body?.items) ? req.body.items : [];
+    if (!items.length && req.body?.busqueda?.q) {
+      const b = await idsDesdeBusqueda(tenantId, token, String(req.body.busqueda.q), { conStock: req.body.busqueda.conStock !== false, max: Number(req.body.busqueda.max) || 20 });
+      if (!b.ids.length) return res.status(400).json({ ok: false, error: b.error ? `Dropi no respondió: ${b.error}` : `No hay productos nuevos para "${req.body.busqueda.q}"${b.yaEstaban ? ` (${b.yaEstaban} ya estaban en tu catálogo)` : ""}.` });
+      items = b.ids.map((id) => ({ dropiProductId: id }));
+    }
+    const r = iniciarLote(tenantId, token, items, { curar: req.body?.curar !== false, factorSobreCosto: Number(req.body?.factorSobreCosto) || null, origen: "panel" });
+    if (!r.ok) return res.status(409).json(r);
+    res.json({ ok: true, lote: r.lote });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
+router.get("/importar-lote", async (req: any, res: any) => {
+  const tenantId = tenantDe(req);
+  if (!tenantId) return res.status(401).json({ error: "No autenticado" });
+  const { loteDelNegocio } = await import("../lib/dropi-importacion-lote");
+  res.json({ ok: true, lote: loteDelNegocio(tenantId) });
+});
+
+router.post("/importar-lote/detener", async (req: any, res: any) => {
+  const tenantId = tenantDe(req);
+  if (!tenantId) return res.status(401).json({ error: "No autenticado" });
+  const { detenerLote } = await import("../lib/dropi-importacion-lote");
+  res.json({ ok: detenerLote(tenantId) });
 });
 
 /** Verificar disponibilidad (y vincular lo que vino de Woo). */
