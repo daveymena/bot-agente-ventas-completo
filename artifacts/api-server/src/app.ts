@@ -602,6 +602,12 @@ const publicRoutes = [
   // arriba. Sin esto, resolveTenant() exigiría una cookie de sesión que
   // OpenCode nunca va a tener.
   "/internal/mcp",
+  // Formulario de la landing pública (/l/:slug): pedido, cupón, evento y
+  // transportadoras. Lo usa el VISITANTE del anuncio, sin sesión; cada ruta
+  // resuelve el negocio por el slug de la landing publicada. Faltaba en esta
+  // lista y el pedido le daba 401 a todo cliente real (30-09-2026): solo
+  // funcionaba al probarlo con la sesión del dueño abierta.
+  "/landing-publica",
   // "/landing-studio" ya NO es pública (29-09-2026): sin sesión, cualquiera
   // podía reescribir la landing de cualquier negocio (/design, /chat con otro
   // landingId) y gastar los proveedores de IA del negocio 1. El panel la

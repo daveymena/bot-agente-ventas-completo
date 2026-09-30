@@ -6,8 +6,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
  * disponibles primero y de la más económica a la más cara, y que el token de
  * sesión del .env solo lo use el dueño del servidor (multi-inquilino).
  */
+const integracion = vi.hoisted(() => ({ responder: null as null | ((path: string, body: any) => any) }));
 vi.mock("../dropi-directo", () => ({
   tokenDropiDelTenant: vi.fn(async (tenantId: number) => (tenantId === 7 ? "tok-integracion-7" : null)),
+  // Por defecto la API de integraciones "falla" y se prueba el respaldo api-v2.
+  dropiIntegracion: vi.fn(async (_t: string, path: string, body: any) =>
+    integracion.responder ? integracion.responder(path, body) : { ok: false, error: "sin integración en este test" }),
 }));
 vi.mock("../respaldo-del-dueno", () => ({
   envSoloDelDueno: (tenantId: number, v?: string) => (tenantId === 1 ? String(v || "") : ""),
@@ -75,6 +79,38 @@ describe("cotizador de envío de Dropi", () => {
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/cobertura/);
     expect(r.transportadoras).toBeUndefined();
+  });
+});
+
+describe("cotizador por la API de integraciones (formas reales de Dropi, 30-09-2026)", () => {
+  afterEach(() => { integracion.responder = null; });
+
+  it("resuelve el DANE de la ciudad, manda el producto y ordena por flete; los que dan error quedan no disponibles", async () => {
+    let enviado: any = null;
+    integracion.responder = (path, body) => {
+      if (path === "trajectory/bycity") return { ok: true, data: { cities: [
+        ...Array.from({ length: 150 }, (_, i) => ({ name: `PUEBLO ${i}`, department_id: 99, cod_dane: `9${i}`, rate_type: '["CON RECAUDO"]' })),
+        { name: "MEDELLIN", department_id: 13, cod_dane: "05001000", rate_type: '["CON RECAUDO","SIN RECAUDO"]' },
+      ] } };
+      if (path === "department") return { ok: true, data: [{ id: 13, name: "ANTIOQUIA" }] };
+      if (path === "orders/cotizaEnvioTransportadoraV2") {
+        enviado = body;
+        return { ok: true, data: [
+          { transportadora: "INTERRAPIDISIMO", transportadora_id: 3, objects: { precioEnvio: 18145 } },
+          { transportadora: "DOMINA", transportadora_id: 4, objects: {}, error: "No se tiene configurada tarifa" },
+          { transportadora: "ENVIA", transportadora_id: 2, objects: { precioEnvio: 14599, seguroEnvio: 0 } },
+        ] };
+      }
+      return { ok: false, error: "ruta inesperada" };
+    };
+    const r = await cotizarEnvioDropi(7, { dropiProductId: 2082770, ciudad: "Medellín", departamento: "Antioquia", precioVenta: 85000, costoUnitario: 39900 });
+    expect(r.ok).toBe(true);
+    expect(r.autenticacion).toBe("integracion");
+    expect(enviado.ciudad_destino).toEqual({ nombre: "MEDELLIN", departamento: "ANTIOQUIA", cod_dane: "05001000" });
+    expect(enviado.products[0]).toMatchObject({ id: 2082770, quantity: 1, type: "SIMPLE" });
+    expect(r.transportadoras!.map((t) => [t.transportadora, t.id, t.disponible])).toEqual([["ENVIA", 2, true], ["INTERRAPIDISIMO", 3, true], ["DOMINA", 4, false]]);
+    expect(r.transportadoras![0].ganancia).toBe(85000 - 39900 - 14599);
+    expect(r.motivos).toEqual([{ transportadora: "DOMINA", motivo: "No se tiene configurada tarifa" }]);
   });
 });
 
