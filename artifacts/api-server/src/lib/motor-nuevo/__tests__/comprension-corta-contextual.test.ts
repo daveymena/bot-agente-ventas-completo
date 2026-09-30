@@ -72,4 +72,17 @@ describe("comprensión de palabras cortas con contexto", () => {
     'reconoce intención explícita de compra: "%s"',
     (texto) => expect(diceQueCompra(texto)).toBe(true),
   );
+
+  // Chat de prueba del dueño (30-09-2026): "Listo, la quiero. ¿Cómo hago el
+  // pedido?" → "¿Te gustaría que hagamos el pedido de una vez?". El "?"
+  // bastaba para tomar todo el mensaje como duda.
+  it.each(["Listo, la quiero. ¿Cómo hago el pedido?", "¿Cómo hago el pedido?", "me la llevo, ¿cómo la pido?", "dale, ¿cómo pago?"])(
+    'una pregunta sobre CÓMO comprar es compra: "%s"',
+    (texto) => expect(diceQueCompra(texto)).toBe(true),
+  );
+
+  it.each(["la quiero pero ¿la tienen en negro?", "¿cuánto se demora en llegar?", "¿la quiero en azul, hay?", "no, ¿cómo hago el pedido después?", "lo voy a pensar, ¿cómo hago el pedido luego?"])(
+    'una duda real o un aplazamiento no es compra: "%s"',
+    (texto) => expect(diceQueCompra(texto)).toBe(false),
+  );
 });

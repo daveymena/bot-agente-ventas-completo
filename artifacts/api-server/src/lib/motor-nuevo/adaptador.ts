@@ -125,15 +125,13 @@ export async function cargarMediosDePago(tenantId: number): Promise<{ etiqueta: 
 export async function cargarGuion(tenantId: number, catalogo: Producto[], productoEnFoco?: number | null): Promise<GuionDelNegocio> {
   const ctx = await getBusinessContext(tenantId);
   const medios = await cargarMediosDePago(tenantId);
-  // FASE 4 contraentrega: vive en condiciones.pagoEnvio, no en PaymentGateway.
-  // Si el dueño la configuró, es un medio real y el cierre puede ofrecerlo.
-  try {
-    const pagoEnvio = String((ctx.condiciones as any)?.pagoEnvio || "");
-    if (/contra\s*entrega/i.test(pagoEnvio) && !medios.some((m) => /contra/i.test(m.etiqueta))) {
-      medios.push({ etiqueta: "Contraentrega", tipo: "transferencia" });
-    }
-  } catch {
-    /* no crítico */
+  // Contraentrega: vive en condiciones.envio.pago, no en PaymentGateway. Es
+  // un medio real para lo que se despacha y el cierre puede ofrecerlo. (Antes
+  // se leía `condiciones.pagoEnvio`, un campo que no existe: nunca entraba.)
+  const pagoDelEnvio = String(ctx.condiciones?.envio?.pago || "");
+  const hayDespachables = catalogo.some((p) => /^(physical|fisico|dropshipping)$/i.test(String((p as any).kind || "")));
+  if (hayDespachables && /contraentrega|ambos/.test(pagoDelEnvio) && !medios.some((m) => /contra/i.test(m.etiqueta))) {
+    medios.push({ etiqueta: "Contraentrega (productos físicos)", tipo: "transferencia" });
   }
 
   const negocio: NegocioParaNicho = {
@@ -151,13 +149,7 @@ export async function cargarGuion(tenantId: number, catalogo: Producto[], produc
     loQueDebeSaber: ctx.loQueDebeSaber,
     modoCatalogo: ctx.modoCatalogo,
     condiciones: ctx.condiciones
-      ? {
-          pais: (ctx.condiciones as any).pais ?? null,
-          envio: (ctx.condiciones as any).envio ?? null,
-          costoEnvio: (ctx.condiciones as any).costoEnvio ?? null,
-          pagoEnvio: (ctx.condiciones as any).pagoEnvio ?? null,
-          agenda: (ctx.condiciones as any).agenda ?? null,
-        }
+      ? { pais: ctx.condiciones.pais ?? null, envio: ctx.condiciones.envio ?? null, agenda: ctx.condiciones.agenda ?? null }
       : null,
     negociaPrecio: ctx.negociaPrecio,
   };

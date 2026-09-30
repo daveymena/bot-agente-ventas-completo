@@ -39,6 +39,7 @@ import {
   type Oferta,
 } from "./estado-conversacion";
 import { datosQueFaltan, type GuionDelNegocio } from "./nicho";
+import { puntosDeLaFicha } from "./lo-que-dice-la-ficha";
 
 export interface Producto {
   id: number;
@@ -993,11 +994,26 @@ export const ejecutores: Record<string, Ejecutor> = {
     }
 
     if (!mejor) {
+      // Antes: "No inventes: dile que lo confirmas con el equipo y le
+      // respondes". Nadie recibe esa pregunta (no hay aviso al dueño), así que
+      // la promesa no se cumplía nunca, y como es la última instrucción que lee
+      // el modelo, le ganaba a la regla de RAZONAR del prompt (chat de prueba,
+      // 30-09-2026: "¿graba si se va la luz?" → "te aviso por acá mismo").
+      // Ahora le llega lo que dice la ficha y la regla para razonar sin
+      // inventar. Ver __tests__/razonar-sin-respuesta-cargada.test.ts.
+      const producto = enFoco ? ctx.catalogo.find((p) => p.id === enFoco) : null;
+      const puntos = producto ? puntosDeLaFicha(producto) : [];
       return {
         ok: true,
         mensaje:
           `El dueño no cargó nada sobre "${pregunta}". ` +
-          `No inventes: dile que lo confirmas con el equipo y le respondes.`,
+          (puntos.length ? `Lo que dice la ficha de ${producto!.name}: ${puntos.join(" · ")}. ` : "") +
+          `Responde RAZONANDO: afirma lo que diga la ficha o los datos del negocio; lo que sepas de cómo funciona ` +
+          `este TIPO de producto dilo como criterio general ("en general, las cámaras que van conectadas…"), nunca ` +
+          `como una característica de este modelo. Si es una condición comercial (garantía, devolución, descuento, ` +
+          `stock, plazo) y no está cargada, no la afirmes. Si la respuesta depende de un dato que no tienes, dilo con ` +
+          `honestidad en una frase y sigue ayudando. No prometas que alguien del equipo le va a responder: nadie ` +
+          `recibe esa pregunta.`,
       };
     }
 
@@ -1452,14 +1468,41 @@ export function esConfirmacionBreve(mensaje: string): boolean {
  * ¿El cliente dice, con sus palabras, que COMPRA? Solo frases explícitas:
  * "me interesa", "me gusta", "este" NO cuentan (pedido del dueño 25-09-2026).
  */
+const AFIRMA_COMPRA = /\b(lo|la|los|las) (quiero|kiero|qiero|queiro|compro|pido|llevo)\b|\b(quiero|kiero|qiero|queiro) (uno|una|dos|tres|\d+|comprar|pedir|ordenar|hacer el pedido|realizar el pedido|encargar|confirmar el pedido)\b|\b(realizar|realizo|hacer|confirmar)( el)? pedido\b|\bme (lo|la) llevo\b|\bme (lo|la|los|las) (llevo|env[ií]as?|mand[aá]s?)\b|\b(env[ií]a|mand[aá])(me)?(lo|la|los|las)\b|\bhagamos el pedido\b|\bh[aá]gamelo\b|\bpedido\b.*\bconfirm/i;
+
+/**
+ * Una pregunta sobre CÓMO comprar es una señal de compra, no una duda.
+ *
+ * Chat de prueba (30-09-2026): "Listo, la quiero. ¿Cómo hago el pedido?" →
+ * el vendedor contestó "¿Te gustaría que hagamos el pedido de una vez?". El
+ * signo de pregunta bastaba para que todo el mensaje contara como duda, y el
+ * pedido nunca se abría.
+ */
+const PREGUNTA_COMO_COMPRAR = /\bc[oó]mo (hago|hacemos|realizo|se hace|puedo hacer|es)( el| mi)? (pedido|compra)\b|\bc[oó]mo (lo|la|los|las) (pido|compro|encargo|pago)\b|\bc[oó]mo (te |les )?(pago|se paga)\b|\bd[oó]nde (hago|realizo|dejo) (el |mi )?pedido\b/i;
+
+const NEGATIVA_O_APLAZA = /^\s*no\b|\bno (gracias|todav[ií]a|por ahora|s[eé])\b|\b(lo voy a pensar|lo pienso|despu[eé]s|m[aá]s tarde|luego te|d[eé]jame (ver|pensar)|todav[ií]a no)\b/i;
+
 export function diceQueCompra(mensaje: string): boolean {
-  const t = String(mensaje || "").toLowerCase();
-  if (esDudaONegativa(t)) return false;
-  return /\b(lo|la|los|las) (quiero|kiero|qiero|queiro|compro|pido|llevo)\b|\b(quiero|kiero|qiero|queiro) (uno|una|dos|tres|\d+|comprar|pedir|ordenar|hacer el pedido|realizar el pedido|encargar|confirmar el pedido)\b|\b(realizar|realizo|hacer|confirmar)( el)? pedido\b|\bme (lo|la) llevo\b|\bme (lo|la|los|las) (llevo|env[ií]as?|mand[aá]s?)\b|\b(env[ií]a|mand[aá])(me)?(lo|la|los|las)\b|\bhagamos el pedido\b|\bh[aá]gamelo\b|\bpedido\b.*\bconfirm/i.test(t);
+  const t = String(mensaje || "").toLowerCase().trim();
+  if (!t || NEGATIVA_O_APLAZA.test(t)) return false;
+  // Frase por frase: "la quiero" afirma; "¿cómo hago el pedido?" también. Una
+  // pregunta de otra cosa ("¿la tienen en negro?") es una duda real y manda:
+  // primero se responde, después se cierra.
+  const frases = t.split(/(?=¿)|(?<=[.!?\n])\s+/).map((f) => f.trim()).filter(Boolean);
+  let compra = false;
+  for (const f of frases) {
+    if (f.includes("?") || f.startsWith("¿")) {
+      if (!PREGUNTA_COMO_COMPRAR.test(f)) return false;
+      compra = true;
+    } else if (AFIRMA_COMPRA.test(f)) {
+      compra = true;
+    }
+  }
+  return compra;
 }
 
 /** Una duda o un no: no es un sí aunque venga después de "¿te lo enviamos?". */
 export function esDudaONegativa(mensaje: string): boolean {
   const t = String(mensaje || "").toLowerCase().trim();
-  return /\?|^\s*no\b|\bno (gracias|todav[ií]a|por ahora|s[eé])\b|\b(lo voy a pensar|lo pienso|despu[eé]s|m[aá]s tarde|luego te|d[eé]jame (ver|pensar)|todav[ií]a no)\b/i.test(t);
+  return t.includes("?") || NEGATIVA_O_APLAZA.test(t);
 }

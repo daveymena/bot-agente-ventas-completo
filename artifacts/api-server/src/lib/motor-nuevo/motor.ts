@@ -46,6 +46,8 @@ import {
   volvioDespuesDe,
   abrirVisitaNueva,
   registrarHerramienta,
+  registrarEnvio,
+  yaSeEnvio,
   actualizarResumenDesdeEstado,
   apilarContexto,
   ordinalDeMensaje,
@@ -877,18 +879,31 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
     }
   }
 
-  // ── Preguntó el precio y el texto no lo dice ─────────────────────────────
+  // ── Preguntó el precio (o aceptó que se lo dijeran) y el texto no lo dice ─
   // Simulación: "Precio?" → "¿Te gustaría pedirlo?". Ya lo tenía en la ficha,
   // pero si lo pregunta de nuevo, se le dice (el dato lo pone el catálogo).
+  //
+  // Y el "ok" del cliente pasivo (chat de prueba, 30-09-2026): la ficha de
+  // información no trae el precio a propósito y queda ofreciéndolo; "ok" /
+  // "sí" / "dale" es aceptar esa oferta, y el modelo contestaba "¿Te gustaría
+  // que te cuente cuánto vale?" otra vez. Se decide por el ESTADO (salió la
+  // ficha de info y el precio todavía no), no leyendo el texto de la ficha.
   {
     const focoAhora = estado.productoEnFoco;
     const prod = focoAhora != null ? catalogo.find((p) => p.id === focoAhora) : null;
     const preguntaPrecio = /\b(cu[aá]nto (vale|cuesta|es|sale|queda)|precio|valor|a c[oó]mo)\b/i.test(mensajeDelCliente);
+    const aceptaPrecioOfrecido = !!prod && esConfirmacionBreve(mensajeDelCliente) &&
+      yaSeEnvio(estado, prod.id, "info") && !yaSeEnvio(estado, prod.id, "precio") && !yaSeEnvio(estado, prod.id, "completa");
     const yaLoDice = /\$\s?\d/.test(textoFinal) || ctx.partes.some((p: any) => p.kind === "card" && /precio|completa/.test(String(p.seccion)));
-    if (prod && preguntaPrecio && !yaLoDice && Number(prod.price) > 0) {
+    if (prod && (preguntaPrecio || aceptaPrecioOfrecido) && !yaLoDice && Number(prod.price) > 0) {
       const monto = `$${Number(prod.price).toLocaleString("es-CO")}`;
       const extra = String(prod.kind || "") === "physical" ? ", con envío incluido y pagas al recibir" : "";
+      // La pregunta que ofrecía el precio sobra: ya se está dando.
+      if (aceptaPrecioOfrecido) {
+        textoFinal = textoFinal.replace(/¿[^?¿]*(cu[aá]nto (vale|est[aá]|cuesta|sale)|el precio|el valor)[^?¿]*\?\s*(\p{Extended_Pictographic}️?)?/giu, "").trim();
+      }
       textoFinal = `Está en ${monto}${extra}.${textoFinal ? `\n\n${textoFinal}` : ""}`;
+      registrarEnvio(estado, prod.id, "precio");
     }
   }
 
