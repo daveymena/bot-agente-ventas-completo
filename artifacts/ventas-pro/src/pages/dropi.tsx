@@ -50,6 +50,97 @@ const precioPorFactor = (costo: number | null, factor: number): number | null =>
   return v;
 };
 
+/**
+ * Cotizador de envío (30-09-2026): el mismo cálculo que el panel de Dropi —
+ * transportadoras que pueden llevar el producto a la ciudad, con flete,
+ * comisión y la ganancia que queda. Lo mismo usan Atlas, la landing y el
+ * vendedor de WhatsApp (ellos sin mostrarle el flete al cliente).
+ */
+interface CotizacionFila { transportadora: string; disponible: boolean; flete: number | null; comisionDropi: number | null; alProveedor: number | null; ganancia: number | null; totalCobrado: number | null }
+function CotizadorEnvio() {
+  const { toast } = useToast();
+  const [productos, setProductos] = useState<Array<{ id: number; name: string; price: number }>>([]);
+  const [productId, setProductId] = useState("");
+  const [ciudad, setCiudad] = useState("");
+  const [departamento, setDepartamento] = useState("");
+  const [precio, setPrecio] = useState("");
+  const [cantidad, setCantidad] = useState("1");
+  const [recaudo, setRecaudo] = useState(true);
+  const [cotizando, setCotizando] = useState(false);
+  const [res, setRes] = useState<{ ciudad?: { nombre: string; departamento: string; aceptaContraentrega: boolean | null }; transportadoras?: CotizacionFila[]; error?: string } | null>(null);
+
+  useEffect(() => {
+    api("/products").then((r) => setProductos((Array.isArray(r) ? r : r.products || []).map((p: any) => ({ id: p.id, name: p.name, price: Number(p.price) || 0 })))).catch(() => {});
+  }, []);
+
+  const cotizar = async () => {
+    if (!productId || !ciudad.trim()) { toast({ title: "Elegí producto y ciudad" }); return; }
+    setCotizando(true); setRes(null);
+    try {
+      const qs = new URLSearchParams({ productId, ciudad: ciudad.trim(), departamento: departamento.trim(), cantidad: cantidad || "1", recaudo: recaudo ? "1" : "0" });
+      if (Number(precio) > 0) qs.set("precio", String(Number(precio)));
+      const r = await api(`/dropi/cotizar?${qs}`);
+      setRes(r.ok ? r : { error: r.error || "Dropi no cotizó" });
+    } catch (e: any) { setRes({ error: e.message }); }
+    finally { setCotizando(false); }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base"><Truck className="h-4 w-4" /> Cotizar envío</CardTitle>
+        <CardDescription>Qué transportadoras pueden llevar el producto a esa ciudad, cuánto cuesta el flete y cuánto te queda. Si el cliente no elige, el pedido sale con la disponible más económica.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid gap-3 md:grid-cols-2">
+          <div className="space-y-1 md:col-span-2">
+            <Label>Producto</Label>
+            <select className="w-full h-10 rounded-md border bg-background px-3 text-sm" value={productId} onChange={(e) => { setProductId(e.target.value); const p = productos.find((x) => String(x.id) === e.target.value); setPrecio(p?.price ? String(p.price) : ""); }}>
+              <option value="">Elegí un producto importado de Dropi…</option>
+              {productos.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          <div className="space-y-1"><Label>Ciudad</Label><Input value={ciudad} onChange={(e) => setCiudad(e.target.value)} placeholder="Ej: Medellín" /></div>
+          <div className="space-y-1"><Label>Departamento</Label><Input value={departamento} onChange={(e) => setDepartamento(e.target.value)} placeholder="Ej: Antioquia" /></div>
+          <div className="space-y-1"><Label>Precio de venta (unidad)</Label><Input inputMode="numeric" value={precio} onChange={(e) => setPrecio(e.target.value.replace(/\D/g, ""))} /></div>
+          <div className="space-y-1"><Label>Cantidad</Label><Input inputMode="numeric" value={cantidad} onChange={(e) => setCantidad(e.target.value.replace(/\D/g, ""))} /></div>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={recaudo} onChange={(e) => setRecaudo(e.target.checked)} /> Pago contraentrega</label>
+          <Button onClick={cotizar} disabled={cotizando} className="ml-auto">{cotizando ? <Loader2 className="h-4 w-4 animate-spin" /> : "Cotizar"}</Button>
+        </div>
+        {res?.error ? <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertDescription>{res.error}</AlertDescription></Alert> : null}
+        {res?.transportadoras ? (
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              {res.ciudad?.nombre}{res.ciudad?.departamento ? `, ${res.ciudad.departamento}` : ""}
+              {res.ciudad?.aceptaContraentrega === false ? " · sin contraentrega (pago anticipado)" : res.ciudad?.aceptaContraentrega ? " · acepta contraentrega" : ""}
+            </p>
+            {res.transportadoras.length === 0 ? <p className="text-sm">Ninguna transportadora cotizó para esa ciudad.</p> : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead><tr className="text-left text-muted-foreground"><th className="py-1 pr-3">Transportadora</th><th className="py-1 pr-3">Flete</th><th className="py-1 pr-3">Comisión</th><th className="py-1 pr-3">Proveedor</th><th className="py-1">Ganancia</th></tr></thead>
+                  <tbody>
+                    {res.transportadoras.map((t, i) => (
+                      <tr key={t.transportadora + i} className={`border-t ${t.disponible ? "" : "opacity-50"}`}>
+                        <td className="py-1.5 pr-3">{t.transportadora}{i === 0 && t.disponible ? <span className="ml-2 text-xs text-emerald-600">más económica</span> : null}{!t.disponible ? <span className="ml-2 text-xs">no disponible</span> : null}</td>
+                        <td className="py-1.5 pr-3">{cop(t.flete)}</td>
+                        <td className="py-1.5 pr-3">{cop(t.comisionDropi)}</td>
+                        <td className="py-1.5 pr-3">{cop(t.alProveedor)}</td>
+                        <td className={`py-1.5 font-medium ${t.ganancia != null && t.ganancia < 0 ? "text-destructive" : ""}`}>{cop(t.ganancia)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        ) : null}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function DropiPage() {
   const { toast } = useToast();
   const [config, setConfig] = useState<Config | null>(null);
@@ -392,6 +483,8 @@ export default function DropiPage() {
                 ) : null}
               </CardContent>
             </Card>
+
+            <CotizadorEnvio />
 
             <Card>
               <CardHeader>

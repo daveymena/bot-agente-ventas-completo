@@ -157,6 +157,31 @@ router.get("/producto/:id", async (req: any, res: any) => {
 });
 
 /** Transportadoras que llegan a una ciudad (`?ciudad=CALI&departamento=VALLE`). Lo mismo que ve el bot. `?raw=1` agrega la respuesta cruda para diagnosticar la forma de Dropi. */
+/**
+ * Cotizar el envío de un producto del catálogo a una ciudad: transportadoras
+ * disponibles con flete, comisión, lo del proveedor y la ganancia. Es el mismo
+ * cotizador del panel de Dropi (ver lib/dropi-cotizador.ts). Solo para el
+ * negocio: el flete no se le muestra al cliente.
+ */
+router.get("/cotizar", async (req: any, res: any) => {
+  try {
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ ok: false, error: "No autenticado" });
+    const productId = Number(req.query.productId);
+    const ciudad = String(req.query.ciudad || "").trim();
+    if (!productId || !ciudad) return res.status(400).json({ ok: false, error: "Faltan productId y ciudad" });
+    const { cotizarProductoDelCatalogo } = await import("../lib/dropi-cotizador");
+    const r = await cotizarProductoDelCatalogo(tenantId, productId, {
+      ciudad, departamento: String(req.query.departamento || "") || null,
+      cantidad: Number(req.query.cantidad) || 1, precioUnitario: Number(req.query.precio) || null,
+      conRecaudo: String(req.query.recaudo ?? "1") !== "0",
+    });
+    res.json(r);
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 router.get("/transportadoras", async (req: any, res: any) => {
   try {
     const tenantId = tenantDe(req);

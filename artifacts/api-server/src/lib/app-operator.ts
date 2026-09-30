@@ -5339,6 +5339,23 @@ ${explicarObjetivos()}` };
     },
   },
   {
+    name: "dropi_cotizar_envio",
+    description: "Cotiza el envío de un producto a una ciudad: transportadoras disponibles con flete y ganancia real.",
+    args: '{ "productId": number, "ciudad": string, "departamento"?, "precio"?, "cantidad"? }',
+    run: async (args, ctx) => {
+      const id = num(args?.productId);
+      const ciudad = String(args?.ciudad || "").trim();
+      if (!id || !ciudad) return { ok: false, summary: "Faltan 'productId' y 'ciudad'." };
+      const { cotizarProductoDelCatalogo } = await import("./dropi-cotizador");
+      const r = await cotizarProductoDelCatalogo(ctx.tenantId, id, { ciudad, departamento: args?.departamento ? String(args.departamento) : null, precioUnitario: num(args?.precio) || null, cantidad: num(args?.cantidad) || 1 });
+      if (!r.ok) return { ok: false, summary: r.error || "Dropi no cotizó." };
+      const f = (v: number | null) => (v == null ? "—" : `$${Math.round(v).toLocaleString("es-CO")}`);
+      const lineas = (r.transportadoras || []).map((t, i) =>
+        `${t.disponible ? `${i + 1})` : "✗"} ${t.transportadora} · flete ${f(t.flete)} · ganancia ${f(t.ganancia)}${t.disponible ? "" : " (no disponible)"}`);
+      return { ok: true, summary: `🚚 ${r.producto} → ${r.ciudad?.nombre} (${r.ciudad?.departamento})${r.ciudad?.aceptaContraentrega === false ? " · SIN contraentrega" : ""}:\n${lineas.join("\n")}` };
+    },
+  },
+  {
     name: "dropi_importar_lote",
     description: "Importa varios productos de Dropi. En segundo plano (ids o búsqueda, máx 200); precio sugerido o costo × factorSobreCosto; avisa al terminar.",
     args: '{ "dropiProductIds"?: number[], "query"?: string, "max"?: number, "factorSobreCosto"?: number, "curar"?: boolean }',
@@ -8954,7 +8971,7 @@ export const READ_ONLY_TOOLS = new Set([
   "fb_list_adsets", "fb_radiografia_campana", "anuncio_datos_expertos",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
   "dropi_status", "dropi_margen", "dropi_pedidos", "dropi_buscar", "video_anuncio_estado", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
-  "dropi_verificar_producto", "dropi_con_ordenes", "dropi_importar_lote_estado",
+  "dropi_verificar_producto", "dropi_con_ordenes", "dropi_importar_lote_estado", "dropi_cotizar_envio",
   // Radar de ganadores + calculadora de rentabilidad + espía de tiendas +
   // estimación previa: las cuatro son lectura pura (cruzan datos y calculan,
   // ninguna crea, publica ni gasta). Van acá para que Atlas las llame solo,

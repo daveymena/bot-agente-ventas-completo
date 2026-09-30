@@ -151,6 +151,44 @@ landingPublicaRouter.post("/api/landing-publica/:slug/evento", async (req: Reque
   }
 });
 
+/**
+ * GET /api/landing-publica/:slug/envio?ciudad=&departamento=
+ * Transportadoras de Dropi que pueden llevar el producto de la landing a esa
+ * ciudad, de la más económica a la más cara. Solo NOMBRES: el flete no se le
+ * muestra al cliente (regla del dueño). Caché de 10 min por ciudad para que un
+ * formulario público no martille la API de Dropi.
+ */
+const cacheEnvio = new Map<string, { t: number; body: any }>();
+landingPublicaRouter.get("/api/landing-publica/:slug/envio", async (req: Request, res: Response) => {
+  try {
+    const encontrada = await landingPorSlug(String(req.params.slug || ""));
+    if (!encontrada || !encontrada.producto) return res.status(404).json({ ok: false, error: "Landing no encontrada" });
+    const ciudad = String(req.query.ciudad || "").replace(/\s+/g, " ").trim().slice(0, 60);
+    const departamento = String(req.query.departamento || "").replace(/\s+/g, " ").trim().slice(0, 60);
+    if (ciudad.length < 3) return res.status(400).json({ ok: false, error: "Falta la ciudad" });
+    const clave = `${encontrada.row.id}|${ciudad.toLowerCase()}|${departamento.toLowerCase()}`;
+    const hit = cacheEnvio.get(clave);
+    if (hit && Date.now() - hit.t < 10 * 60_000) return res.json(hit.body);
+    const { cotizarProductoDelCatalogo } = await import("../lib/dropi-cotizador");
+    const r = await cotizarProductoDelCatalogo(encontrada.row.tenantId, encontrada.producto.id, { ciudad, departamento: departamento || null });
+    const body = r.ok
+      ? {
+          ok: true,
+          ciudad: r.ciudad?.nombre || ciudad,
+          aceptaContraentrega: r.ciudad?.aceptaContraentrega ?? null,
+          transportadoras: (r.transportadoras || []).filter((t) => t.disponible).slice(0, 4).map((t) => t.transportadora),
+          mensaje: (r.transportadoras || []).some((t) => t.disponible) ? "" : "Coordinamos la transportadora contigo al confirmar.",
+        }
+      : { ok: false };
+    if (cacheEnvio.size > 2000) cacheEnvio.clear();
+    cacheEnvio.set(clave, { t: Date.now(), body });
+    return res.json(body);
+  } catch (e: any) {
+    logger.warn({ err: e?.message }, "[LandingPublica] no se pudo cotizar el envío");
+    return res.json({ ok: false });
+  }
+});
+
 landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Request, res: Response) => {
   try {
     const encontrada = await landingPorSlug(String(req.params.slug || ""));
@@ -280,6 +318,22 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
     });
     const notas = [detalleOpciones, cuponNota, datos.notas, `Pedido desde la landing ${row.slug}`].filter(Boolean).join(" · ");
     pedido = (await ds.guardarDatos(pedido.id, { ...datos, notas })) || pedido;
+    // Transportadora elegida en el formulario: solo si Dropi la conoce (id
+    // real); si no, el despacho elige la disponible más económica.
+    const transportadoraElegida = limpio(b.transportadora, 80);
+    if (transportadoraElegida) {
+      try {
+        const { transportadoraConId } = await import("../lib/dropi-cotizador");
+        const t = await transportadoraConId(row.tenantId, transportadoraElegida);
+        if (t) {
+          await ds.guardarTransportadoraDelPedido(pedido.id, t);
+          pedido.transportadora = t.nombre;
+          pedido.transportadoraId = t.id;
+        }
+      } catch (e: any) {
+        logger.warn({ err: e?.message }, "[LandingPublica] no se pudo asociar la transportadora elegida");
+      }
+    }
     await ds.marcarEstado(pedido.id, "confirmado");
     pedido.estado = "confirmado";
     const r = await ds.despacharPedido(pedido);

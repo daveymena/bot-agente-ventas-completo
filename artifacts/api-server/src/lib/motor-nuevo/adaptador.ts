@@ -512,6 +512,37 @@ export function servicioDePedidos(p: {
         if (!token) {
           return { ok: false, mensaje: "Este negocio no tiene el token de Dropi cargado: no puedo listar transportadoras reales. Dile que el envío lo coordina el equipo y no inventes empresas." };
         }
+        // Con el pedido en curso se COTIZA el producto real hacia esa ciudad (el
+        // mismo cotizador que el panel de Dropi): solo las transportadoras que
+        // pueden hacer el envío, de la más económica a la más cara. El flete se
+        // queda en el sistema: al cliente no se le dice (regla del dueño).
+        try {
+          const ds = await import("../dropshipping");
+          const pedido = await ds.pedidoEnCurso(p.conversationId);
+          if (pedido?.productId) {
+            const { cotizarProductoDelCatalogo } = await import("../dropi-cotizador");
+            const cot = await cotizarProductoDelCatalogo(p.tenantId, pedido.productId, {
+              ciudad: destino, departamento: pedido.departamento || null, cantidad: pedido.quantity,
+              precioUnitario: Number(pedido.unitPrice) || null, variationId: pedido.dropiVariationId ?? null,
+              conRecaudo: !pedido.metodoPago || pedido.metodoPago === "contraentrega",
+            });
+            if (cot.ok) {
+              const disponibles = (cot.transportadoras || []).filter((t) => t.disponible).slice(0, 3);
+              if (!disponibles.length) {
+                return { ok: false, mensaje: `Para ${destino} ninguna transportadora de Dropi puede hacer este envío ahora. Dile que el equipo lo coordina y no prometas fecha.` };
+              }
+              return {
+                ok: true,
+                mensaje:
+                  `A ${destino} pueden enviarlo (de la más económica a la más cara):\n` +
+                  disponibles.map((t, i) => `${i + 1}) ${t.transportadora}`).join("\n") +
+                  `\nOfrecé estas en ese orden, sin mencionar precios de envío. Si elige una, pasala en tomar_pedido(transportadora=…); si no elige, se usa la más económica.`,
+              };
+            }
+          }
+        } catch (e: any) {
+          logger.warn({ err: e?.message, tenantId: p.tenantId }, "[MotorV2] no se pudo cotizar; se usa la cobertura general");
+        }
         const r = await transportadorasQueLlegan(token, { ciudad: destino });
         const lista = r.ok ? r.data?.transportadoras || [] : [];
         if (!r.ok || !lista.length) {

@@ -1083,6 +1083,27 @@ async function despacharDirectoEnDropi(pedido: PedidoDropshipping): Promise<Resu
     }
   }
 
+  // Sin transportadora elegida por el cliente: la DISPONIBLE más económica
+  // según el cotizador de Dropi (regla del dueño: económicas primero). Si no
+  // se puede cotizar, sale sin elegir y Dropi asigna, como siempre.
+  if (!(pedido.transportadora && pedido.transportadoraId != null) && pedido.productId) {
+    try {
+      const { transportadoraMasEconomica } = await import("./dropi-cotizador");
+      const t = await transportadoraMasEconomica(pedido.tenantId, pedido.productId, {
+        ciudad: ciudadCli, departamento: String(pedido.departamento || ""), cantidad: pedido.quantity,
+        precioUnitario: Number(pedido.unitPrice) || null, variationId, conRecaudo: contraentrega,
+      });
+      if (t) {
+        await guardarTransportadoraDelPedido(pedido.id, { id: t.id, nombre: t.nombre });
+        pedido.transportadora = t.nombre;
+        pedido.transportadoraId = t.id;
+        logger.info({ pedidoId: pedido.id, transportadora: t.nombre, flete: t.flete }, "[Dropshipping] Transportadora más económica elegida por el sistema");
+      }
+    } catch (e: any) {
+      logger.warn({ pedidoId: pedido.id, err: e?.message }, "[Dropshipping] No se pudo cotizar transportadora; Dropi asigna");
+    }
+  }
+
   const r = await crearPedidoDropi(token, {
     dropiProductId,
     nombre: String((prod as any).name),
