@@ -407,6 +407,52 @@ const TOOL_SCHEMAS: Record<string, object> = {
     required: ["query"],
     additionalProperties: false,
   },
+  dropi_buscar: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "Qué buscar en el catálogo de Dropi" },
+      conStock: { type: "boolean", description: "Solo con stock" },
+      limit: { type: "number", description: "Máx 50, por defecto 20" },
+    },
+    required: ["query"],
+    additionalProperties: false,
+  },
+  dropi_con_ordenes: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "Nicho o producto (opcional)" },
+      limit: { type: "number", description: "Máx 50, por defecto 20" },
+    },
+    additionalProperties: false,
+  },
+  dropi_margen: {
+    type: "object",
+    properties: {
+      productId: { type: "number", description: "Id del catálogo (opcional)" },
+      dropiProductId: { type: "number", description: "Id en Dropi (opcional)" },
+      precio: { type: "number", description: "Para simular otro precio de venta (opcional)" },
+    },
+    additionalProperties: false,
+  },
+  dropi_pedidos: {
+    type: "object",
+    properties: { limit: { type: "number", description: "Máx 100, por defecto 20" } },
+    additionalProperties: false,
+  },
+  dropi_verificar_producto: {
+    type: "object",
+    properties: {
+      productId: { type: "number", description: "Id en esta tienda (opcional)" },
+      wooProductId: { type: "number", description: "Id en WooCommerce (opcional)" },
+    },
+    additionalProperties: false,
+  },
+  dropi_transportadoras_sondeo: {
+    type: "object",
+    properties: { ciudad: { type: "string" }, departamento: { type: "string" }, valor: { type: "number" } },
+    required: ["ciudad", "departamento"],
+    additionalProperties: false,
+  },
 };
 
 const GENERIC_FALLBACK_SCHEMA = { type: "object", additionalProperties: true } as const;
@@ -1257,9 +1303,11 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     herramientas: ["codigo_leer", "codigo_buscar", "codigo_listar", "git_estado", "tests_correr"],
   },
   {
-    // "busc"/"búsqueda" y "competidor" faltaban: pedirle literalmente que
-    // buscara algo no matcheaba este grupo. Ver el comentario del NÚCLEO.
-    patron: /investig|averigu|indag|research|busc|b[uú]squeda|tendencia|competencia|competidor|mercado|benchmark|qu[eé] funciona|shopify|espi(ar|a|o|ando)/i,
+    // "busc"/"búsqueda" ya NO activan este grupo (29-09-2026): "buscá en Dropi
+    // X" o "buscá el producto 12" le cargaban la Biblioteca de Anuncios a un
+    // pedido interno. Buscar en la web no lo necesita: web_search y web_fetch
+    // viajan siempre en el NÚCLEO.
+    patron: /investig|averigu|indag|research|tendencia|competencia|competidor|mercado|benchmark|qu[eé] funciona|shopify|espi(ar|a|o|ando)/i,
     herramientas: ["fb_ad_library", "web_search", "web_fetch", "espiar_tienda"],
   },
   {
@@ -1271,8 +1319,13 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     herramientas: ["generate_image", "search_product_images", "web_scrape_images"],
   },
   {
-    patron: /dropi|proveedor|dropshipping|transportadora|flete|cotiz|stock|woo\s?commerce|wordpress|dropify|pedidos? (llega|recib)|descripci[oó]n|ficha|ganador|radar|potencial|qu[eé] (vender|importar|producto)|rentab|roi|equilibrio|vale la pena/i,
-    herramientas: ["dropi_status", "dropi_search_products", "woocommerce_estado", "dropi_transportadoras_sondeo", "producto_ficha_desde_imagenes_ver", "producto_ficha_desde_imagenes_guardar", "producto_ganador", "dropi_roi"],
+    // Las herramientas DIRECTAS (token de integración del negocio). Hasta el
+    // 29-09-2026 este grupo mandaba solo `dropi_status` + `dropi_search_products`,
+    // las del puente viejo: Atlas nunca veía dropi_buscar/margen/pedidos y en
+    // los 3 turnos de Dropi de ese día contestó "el catálogo directo rechaza el
+    // token" (el error del puente) con el directo respondiendo.
+    patron: /dropi|proveedor|dropshipping|transportadora|flete|cotiz|stock|woo\s?commerce|wordpress|dropify|pedidos? (llega|recib)|descripci[oó]n|ficha|ganador|radar|potencial|qu[eé] (vender|importar|producto)|rentab|roi|equilibrio|vale la pena|m[aá]s vendid/i,
+    herramientas: ["dropi_status", "dropi_buscar", "dropi_con_ordenes", "dropi_margen", "dropi_pedidos", "dropi_verificar_producto", "woocommerce_estado", "dropi_transportadoras_sondeo", "producto_ficha_desde_imagenes_ver", "producto_ficha_desde_imagenes_guardar", "producto_ganador", "dropi_roi"],
   },
   {
     patron: /copy|texto|redact|descripci|t[ií]tulo/i,
@@ -1569,7 +1622,9 @@ const FAMILIAS_DE_CONSULTA: Array<{ tema: string; herramientas: string[] }> = [
   { tema: "Facebook Ads", herramientas: ["objetivos_de_campana", "fb_permisos_formularios", "fb_status", "fb_list_campaigns", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics", "fb_why_not_delivering", "fb_page_can_post", "fb_page_preview", "fb_suggest_audience", "fb_pixel_status", "fb_ad_library", "fb_agent_logs", "que_hago_con_la_campana", "ad_brief"] },
   { tema: "Marketing y contenido", herramientas: ["marketing_diagnostico", "marketing_aprendizajes", "marketing_attribution", "plan_de_contenido", "generate_image", "web_scrape_images"] },
   { tema: "Investigacion", herramientas: ["web_search", "web_fetch", "deep_research", "research_start", "research_check"] },
-  { tema: "Entregas", herramientas: ["dropi_status", "dropi_search_products", "woocommerce_estado", "terabox_list_folder", "verificar_link_entrega", "payment_status"] },
+  // Dropi: las DIRECTAS (token del negocio), no las del puente viejo. El resto
+  // (margen, pedidos, radar) llega con el grupo de Dropi al nombrarlo.
+  { tema: "Entregas y Dropi", herramientas: ["dropi_status", "dropi_buscar", "dropi_con_ordenes", "terabox_list_folder", "verificar_link_entrega", "payment_status"] },
   { tema: "Sistema", herramientas: ["analyze_system", "system_diagnose", "automatizacion_estado", "negocio_que_falta", "plataforma_info", "test_ai_models", "reason_business_decision"] },
 ];
 

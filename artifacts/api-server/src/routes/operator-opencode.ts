@@ -51,6 +51,7 @@ import { afirmaHaberloHecho } from "../lib/afirma-haberlo-hecho";
 import { mensajeDeCierre } from "../lib/entrega-por-partes";
 import { partirElPedido } from "../lib/partir-el-pedido";
 import { avisoDeArranque } from "../lib/aviso-de-arranque";
+import { PIDE_FUENTES_EXTERNAS, debeInvestigarAntes, esContinuacionAutomatica as esContinuacionAutomaticaDelPanel } from "../lib/investigacion-previa";
 import { arrancaPedidoNuevo } from "../lib/es-pedido-nuevo";
 import { verloEsAutorizarlo } from "../lib/pedir-ver-el-resultado";
 import { anotarTurno, ultimosTurnos, resumirTurnos } from "../lib/diagnostico-de-turnos";
@@ -1425,18 +1426,20 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // promocionando", "en la web", "en la biblioteca de anuncios" no
       // enganchaban, y Atlas se iba a las ventas internas del admin (que eran
       // cero) en vez de a internet.
-      const PEDIDO_DE_INVESTIGACION = /\b(investig|averigu|indag|research|analiz[aá] el mercado|qu[eé] funciona|tendencia|competencia|benchmark|busc[aá]\w*\s+(en\s+)?(la\s+)?(web|internet|google)|biblioteca de anuncios|ad library|(m[aá]s|mejor)\s+(\w+\s+){0,2}(vend|promocion)|qu[eé]\s+se\s+est[aá]\s+(vendiendo|promocionando|pautando)|en la web|en internet)/i;
-      // El admin pidió datos DE AFUERA, no los suyos: "no con mis datos",
-      // "en la web", "en la biblioteca de anuncios". Sin esto el modelo
-      // rankeaba con las ventas internas y contestaba "tenés 0 ventas".
-      const PIDE_FUENTES_EXTERNAS = /\b(no\s+(con\s+)?(mis|los)\s+datos|datos\s+(de\s+)?(la\s+)?(web|internet)|en\s+la\s+web|en\s+internet|bibliotecas?\s+de\s+anuncios|ad library|del mercado)\b/i;
+      // Las reglas viven en lib/investigacion-previa.ts (con sus pruebas).
       if (PIDE_FUENTES_EXTERNAS.test(String(prompt))) {
         text += `\n\n[SISTEMA] El admin quiere datos EXTERNOS (web y Biblioteca de Anuncios de Meta), NO los de su cuenta: no rankees con sus ventas ni le digas que no tiene ventas. Usá web_search / fb_ad_library sobre el nicho o producto que se está hablando.`;
       }
+      // ── ¿Se investiga ANTES de que el modelo piense? ─────────────────────
+      // Solo si la respuesta está AFUERA y nunca en la continuación automática
+      // del panel: ver lib/investigacion-previa.ts (medido 29-09-2026).
+      const pedidoTexto = String(prompt);
+      const esContinuacionAutomatica = esContinuacionAutomaticaDelPanel(pedidoTexto);
+      const investigacionPrevia = debeInvestigarAntes(pedidoTexto);
       // Investigar varios productos o nichos no entra en un turno: se hace
       // UNO por turno y el modelo declara qué falta. El servidor encadena
       // las partes (misma maquinaria que partirElPedido).
-      if (PEDIDO_DE_INVESTIGACION.test(String(prompt)) || PIDE_FUENTES_EXTERNAS.test(String(prompt))) {
+      if (investigacionPrevia) {
         text += `\n\n[SISTEMA] Trabajá POR PARTES: si la investigación abarca varios productos, nichos o fuentes, en esta respuesta resolvé UNA sola (la más prometedora o la primera) con datos reales y sus fuentes, y entregala completa. Al final, en una línea aparte, declará lo que falta EXACTAMENTE así: [[partes: siguiente producto o consulta; otra; otra]] -- el sistema te va a llamar por cada una. No intentes todo junto: no entra en el tiempo y termina sin entregar nada. No le pidas al admin que espere ni que te escriba.`;
       }
       // Crear un anuncio TAMBIÉN dispara la investigación, aunque el admin no
@@ -1448,7 +1451,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // "Todavía no investigaste nada en esta sesión". El candado hacía bien
       // su trabajo y aun así el admin quedaba trabado. Si el anuncio necesita
       // investigación, se investiga y punto.
-      if (!rutaActiva && (PEDIDO_DE_INVESTIGACION.test(String(prompt)) || PEDIDO_DE_ANUNCIO.test(String(prompt)))) {
+      if (!rutaActiva && (investigacionPrevia || (PEDIDO_DE_ANUNCIO.test(pedidoTexto) && !esContinuacionAutomatica))) {
         progreso("Investigando en internet...");
         // Sincrónica y corta a propósito (ver investigacionRapida): el
         // resultado real llega en ESTA respuesta, sin trabajos en segundo
@@ -1590,7 +1593,8 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             const forzado = (process.env.ATLAS_DIRECTO_EFFORT || "").trim().toLowerCase();
             if (forzado === "low" || forzado === "high" || forzado === "max") return forzado;
             if (esSeguimientoCorto) return "low";
-            if (PEDIDO_DE_ANUNCIO.test(String(prompt)) || PEDIDO_DE_INVESTIGACION.test(String(prompt))) return "max";
+            if (esContinuacionAutomatica) return undefined;
+            if (PEDIDO_DE_ANUNCIO.test(pedidoTexto) || investigacionPrevia) return "max";
             return undefined;
           })();
           const r = await correrTurnoDirecto({

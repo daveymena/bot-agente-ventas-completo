@@ -165,7 +165,10 @@ function cabeceras(token: string, variante: Variante): Record<string, string> {
 export async function dropiIntegracion<T = any>(token: string, path: string, body?: Record<string, any>, method: "GET" | "POST" = body ? "POST" : "GET", timeoutMs = 12000): Promise<RespuestaDropi<T>> {
   const huella = token.slice(-12);
   const preferida = varianteQueSirve.get(huella);
-  const orden: Variante[] = preferida ? [preferida, preferida === "plana" ? "wordpress" : "plana"] : ["wordpress", "plana"];
+  // Un token sin tienda (Chatbot Agents) no tiene WordPress que imitar: las
+  // cabeceras "wordpress" le inventaban una URL de tienda ajena.
+  const conTienda = !!integracionDelToken(token)?.tienda;
+  const orden: Variante[] = !conTienda ? ["plana"] : preferida ? [preferida, preferida === "plana" ? "wordpress" : "plana"] : ["wordpress", "plana"];
   let ultima: RespuestaDropi<T> = { ok: false, error: "sin intento" };
   for (const variante of orden) {
     try {
@@ -223,6 +226,18 @@ export async function ipDeSalida(): Promise<string | null> {
  * todo lo que sale de nuestro servidor es "Access denied". El token que sí
  * funciona (19-09) tiene la IP vacía.
  */
+/**
+ * Las IP autorizadas que trae el JWT. En los WooCommerce `ip_url` es texto;
+ * en los "Chatbot Agents" viene como OBJETO (29-09-2026: el panel mostró
+ * "solo acepta las IP [object Object]" al pegar uno). Se extrae toda cadena
+ * con forma de IP, venga como venga anidada.
+ */
+export function ipsAutorizadasDelToken(payload: any): string[] {
+  const texto = JSON.stringify([payload?.ip_url ?? null, payload?.ip ?? null, payload?.ips ?? null]);
+  const encontradas = texto.match(/\b(?:\d{1,3}\.){3}\d{1,3}\b|\b(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{1,4}\b/gi) || [];
+  return [...new Set(encontradas)];
+}
+
 export async function explicarRechazo(token: string, error: string, ipQueVioDropi?: string | null): Promise<string> {
   let payload: any = null;
   try { payload = JSON.parse(Buffer.from(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")); } catch { /* no es JWT */ }
@@ -233,14 +248,17 @@ export async function explicarRechazo(token: string, error: string, ipQueVioDrop
   if (payload.exp && Number(payload.exp) * 1000 < Date.now()) {
     return `Dropi rechazó el token: venció el ${new Date(Number(payload.exp) * 1000).toISOString().slice(0, 10)}. Generá uno nuevo en Dropi → Mis Integraciones.`;
   }
-  const ips = [payload.ip_url, payload.ip].flat().filter((x: any) => x != null && String(x).trim() !== "").map(String);
+  const ips = ipsAutorizadasDelToken(payload);
   const nuestra = ipQueVioDropi || (await ipDeSalida());
   const tipo = payload.integration_url ? `WooCommerce (tienda ${payload.integration_url})` : "sin tienda (tipo Chatbot/API)";
   if (ips.length && !(nuestra && ips.some((ip) => ip.includes(nuestra)))) {
     // La lista de IPs NO está en el formulario de Dropi: la administra Dropi
     // (dropi.ts, investigado jul-2026; confirmado por el dueño 23-09).
-    return `Dropi rechazó el token (${error}): esa integración ${tipo} solo acepta las IP ${ips.join(", ")} y nuestro servidor sale por ${nuestra || "otra IP"}. ` +
-      `Esa lista la maneja Dropi, no aparece en el formulario: probá crear la integración de tipo "Chatbot Agents" en vez de WooCommerce, o pedile a soporte de Dropi que autorice la IP ${nuestra || "del servidor"} para esa integración.`;
+    // La IP va GRABADA en el token al emitirlo: si Dropi autoriza la IP nueva
+    // después, este token sigue diciendo la vieja y hay que generar otro.
+    return `Dropi rechazó el token (${error}): esta integración ${tipo} se generó autorizando solo ${ips.join(", ")} y nuestro servidor sale por ${nuestra || "otra IP"}. ` +
+      `La IP queda grabada dentro del token cuando se genera: si Dropi ya autorizó ${nuestra || "la IP del servidor"}, generá un token NUEVO en Dropi → Mis Integraciones y pegalo acá. ` +
+      `Si todavía no la autorizó, hay que pedírselo a soporte de Dropi (la lista no aparece en el formulario).`;
   }
   return `Dropi rechazó el token (${error}). Integración ${tipo}, IP autorizadas: ${ips.join(", ") || "ninguna"}, Dropi nos vio desde ${nuestra || "?"}. ` +
     `Verificado (29-09-2026): un token WooCommerce VÁLIDO sí abre el catálogo directo desde este servidor; si este no abre, lo más probable es que esté REVOCADO ` +
@@ -389,6 +407,39 @@ export function proveedorDe(p: ProductoDropi): { id: number | null; nombre: stri
 export function bodegaDe(p: ProductoDropi): string | null {
   const wp = (p as any).warehouse_product?.[0] || (p as any).warehouses?.[0] || (p as any).warehouse || null;
   return wp?.warehouse?.city?.name || wp?.city?.name || wp?.city || (p as any).city?.name || null;
+}
+
+/**
+ * Lo que Atlas y el panel muestran de un producto de Dropi. Existe porque
+ * cada herramienta leía los campos a su manera: `dropi_buscar` y el radar
+ * usaban `p.stock` y `p.user_id`, que en el listado NO vienen (el stock está
+ * por bodega en `warehouse_product[]`, el proveedor en `user`). Resultado
+ * medido el 29-09-2026: "stock desconocido" en los 8 candidatos del radar,
+ * que además perdían los 30 puntos de stock.
+ */
+export function resumenProductoDropi(p: ProductoDropi) {
+  const sugerido = p.suggested_price != null ? Number(p.suggested_price) : null;
+  const costo = p.sale_price != null ? Number(p.sale_price) : null;
+  return {
+    id: Number(p.id),
+    nombre: String(p.name || ""),
+    precioSugerido: sugerido,
+    costo,
+    margenPct: sugerido && costo != null && sugerido > 0 ? Math.round(((sugerido - costo) / sugerido) * 100) : null,
+    stock: stockDe(p),
+    proveedor: proveedorDe(p).nombre,
+    bodega: bodegaDe(p),
+    categoria: p.categories?.[0]?.name || null,
+    foto: fotosDe(p)[0] || null,
+  };
+}
+
+/** Una línea legible para el admin. */
+export function lineaProductoDropi(r: ReturnType<typeof resumenProductoDropi>): string {
+  const f = (v: number | null) => (v == null ? "—" : `$${Math.round(v).toLocaleString("es-CO")}`);
+  return `#${r.id} ${r.nombre} — sugerido ${f(r.precioSugerido)} · costo ${f(r.costo)}` +
+    (r.margenPct != null ? ` · margen ${r.margenPct}%` : "") +
+    ` · stock ${r.stock ?? "?"}` + (r.bodega ? ` (${r.bodega})` : "") + (r.proveedor ? ` · ${r.proveedor}` : "");
 }
 
 /** ¿Está disponible para vender? (activo y con stock) */

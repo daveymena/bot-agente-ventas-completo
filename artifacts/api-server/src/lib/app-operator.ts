@@ -5217,8 +5217,11 @@ ${explicarObjetivos()}` };
       }
       const r = await buscarProductosDropi(token, { q: String(args?.query || ""), conStock: !!args?.conStock, porPagina: num(args?.limit) || 20 });
       if (!r.ok) return { ok: false, summary: `Dropi no respondió: ${r.error}` };
-      const lista = (r.data || []).map((p) => ({ id: p.id, nombre: p.name, precioSugerido: p.suggested_price ?? p.sale_price ?? null, costo: p.sale_price ?? null, stock: p.stock ?? null, proveedor: p.user_id ?? null }));
-      return { ok: true, summary: lista.length ? `📦 ${lista.length} productos en Dropi para "${args?.query || ""}"` : `Sin resultados en Dropi para "${args?.query || ""}"`, data: { productos: lista, text: lista.map((p) => `#${p.id} ${p.nombre} — sugerido $${p.precioSugerido} (costo $${p.costo}, stock ${p.stock})`).join("\n") } };
+      const { resumenProductoDropi, lineaProductoDropi } = await import("./dropi-directo");
+      const lista = (r.data || []).map(resumenProductoDropi);
+      // Solo el texto: `data` viaja entero en JSON al modelo (textoDelResultado)
+      // y duplicaba la lista con URLs de fotos que nadie lee.
+      return { ok: true, summary: lista.length ? `📦 ${lista.length} productos en Dropi para "${args?.query || ""}":\n${lista.map(lineaProductoDropi).join("\n")}` : `Sin resultados en Dropi para "${args?.query || ""}"` };
     },
   },
   {
@@ -5344,11 +5347,10 @@ ${explicarObjetivos()}` };
       } catch { /* sin biblioteca: se puntúa sin ese bloque */ }
 
       const f = (v: number | null) => (v == null ? "—" : `$${Math.round(v).toLocaleString("es-CO")}`);
+      const { resumenProductoDropi } = await import("./dropi-directo");
       const filas = candidatos.map((p: any) => {
-        const sugerido = p.suggested_price != null ? Number(p.suggested_price) : (p.sale_price != null ? Number(p.sale_price) : null);
-        const costo = p.sale_price != null ? Number(p.sale_price) : null;
-        const margenPct = sugerido && costo && sugerido > 0 ? Math.round(((sugerido - costo) / sugerido) * 100) : null;
-        const stock = p.stock != null ? Number(p.stock) : null;
+        // Stock sumado por bodega (el listado no trae `p.stock`: ver resumenProductoDropi).
+        const { precioSugerido: sugerido, costo, margenPct, stock } = resumenProductoDropi(p);
         let pts = 0;
         const notas: string[] = [];
         if (margenPct != null) {
@@ -5538,16 +5540,49 @@ ${explicarObjetivos()}` };
   },
   {
     name: "dropi_status",
-    description: "Verifica la conexión DIRECTA a la API de Dropi (solo catálogo). Los PEDIDOS van por WooCommerce → Dropify → Dropi y ese camino funciona (verificado 19-09-2026). Un 'Access denied' en un pedido = producto sin `_dropi_token` → dropify_reparar_tokens, no esta herramienta.",
+    description: "Estado de la conexión con Dropi de este negocio: prueba el token de integración (catálogo y pedidos DIRECTOS, sin WooCommerce) y dice si responde. Úsala antes de afirmar que Dropi 'no deja' o 'rechaza' algo.",
     args: "{}",
-    run: async () => {
+    run: async (_args, ctx) => {
+      // Primero el token de integración del negocio: es la puerta que opera
+      // (catálogo + pedidos). Medido el 29-09-2026 desde el servidor nuevo
+      // (161.97.182.95): responde el catálogo real. Antes esta herramienta
+      // probaba SOLO el puente viejo (token de sesión global, lib/dropi.ts) y
+      // su error decía "api.dropi.co no acepta tokens del panel, la
+      // integración va por WooCommerce": Atlas lo repetía como si el directo
+      // no funcionara, con el directo andando.
+      const { tokenDropiDelTenant, probarTokenDropi, estadoTokenDropi, mensajeTokenDropi } = await import("./dropi-directo");
+      const token = await tokenDropiDelTenant(ctx.tenantId);
+      if (token) {
+        const p = await probarTokenDropi(token);
+        if (p.ok) {
+          return { ok: true, summary: `📦 Dropi DIRECTO conectado: el catálogo responde con el token del negocio${p.integracion?.vence ? ` (vence ${p.integracion.vence})` : ""}. Buscar: dropi_buscar · con órdenes: dropi_con_ordenes · pedidos: dropi_pedidos · margen: dropi_margen.` };
+        }
+        return { ok: false, summary: `Dropi rechazó el token del negocio: ${p.detalle}` };
+      }
+      const estado = await estadoTokenDropi(ctx.tenantId);
+      if (estado.estado === "ilegible") return { ok: false, summary: mensajeTokenDropi(estado) };
+      // Sin token de integración: queda el puente (token de sesión global).
       const { dropiStatus } = await import("./dropi");
       const r = await dropiStatus();
-      if (r.ok) return { ok: true, summary: "📦 Dropi conectado y respondiendo." };
+      if (r.ok) return { ok: true, summary: "📦 Dropi responde por el puente (token de sesión del servidor). Para pedidos directos falta el token de integración: dropi_conectar." };
+      return { ok: false, summary: `${mensajeTokenDropi(estado)} (El puente de respaldo tampoco respondió: ${r.error})`, data: r.blockedIp ? { ipBloqueada: r.blockedIp } : undefined };
+    },
+  },
+  {
+    name: "dropi_con_ordenes",
+    description:
+      "Productos de Dropi que YA TIENEN ÓRDENES (el filtro 'Con órdenes' del panel de Dropi): lo más cercano a 'los más vendidos'. Dropi NO publica un ranking por cantidad vendida, así que no inventes posiciones ni unidades. Filtro opcional por texto. Solo lee.",
+    args: '{ "query"?: string (nicho o producto), "limit"?: number (máx 50, por defecto 20) }',
+    run: async (args) => {
+      const { dropiProductosConOrdenes } = await import("./dropi");
+      const r = await dropiProductosConOrdenes({ q: String(args?.query || "").trim() || undefined, limite: num(args?.limit) || 20 });
+      if (!r.ok) return { ok: false, summary: `No pude leer los productos con órdenes de Dropi: ${r.error}. El catálogo por token (dropi_buscar) sigue funcionando, pero no trae señal de ventas.` };
+      const { resumenProductoDropi, lineaProductoDropi } = await import("./dropi-directo");
+      const lista = (r.data || []).map((p: any) => resumenProductoDropi(p));
+      if (!lista.length) return { ok: true, summary: `Dropi no devolvió productos con órdenes${args?.query ? ` para "${args.query}"` : ""}.`, data: { productos: [] } };
       return {
-        ok: false,
-        summary: `Dropi no disponible: ${r.error}`,
-        data: r.blockedIp ? { ipBloqueada: r.blockedIp } : undefined,
+        ok: true,
+        summary: `🛒 ${lista.length} productos de Dropi CON órdenes${args?.query ? ` para "${args.query}"` : ""} (Dropi no dice cuántas: es "tiene ventas", no un ranking):\n${lista.map(lineaProductoDropi).join("\n")}`,
       };
     },
   },
@@ -5555,7 +5590,13 @@ ${explicarObjetivos()}` };
     name: "dropi_search_products",
     description: "Buscar productos en el catálogo de proveedores de Dropi (dropshipping: los despacha el proveedor, no hace falta stock propio). Solo LEE — devuelve nombre, precio sugerido, stock e imagen para que el admin elija cuáles importar.",
     args: '{ "query": string (req, qué buscar), "limit": number (opcional, por defecto 10) }',
-    run: async (args) => {
+    run: async (args, ctx) => {
+      // Con token de integración del negocio se busca DIRECTO (es la puerta
+      // que funciona, medido 29-09-2026); el puente de sesión queda de respaldo.
+      {
+        const { tokenDropiDelTenant } = await import("./dropi-directo");
+        if (await tokenDropiDelTenant(ctx.tenantId)) return executeAction("dropi_buscar", { query: args?.query, limit: args?.limit }, ctx);
+      }
       const { dropiSearchProducts, dropiProductImage } = await import("./dropi");
       const q = String(args.query || "").trim();
       const r = await dropiSearchProducts(q, num(args.limit) || 10);
@@ -5580,9 +5621,15 @@ ${explicarObjetivos()}` };
     description: "Importar un producto de Dropi al catálogo de ESTA tienda (con su foto, descripción y precio). A partir de ahí el bot lo vende como cualquier otro producto. Crea datos → requiere confirmación. El precio de venta lo decide el admin: si no lo pasa, se usa el sugerido por Dropi.",
     args: '{ "dropiProductId": number (req), "price": number (opcional, precio de venta al cliente) }',
     run: async (args, ctx) => {
-      const { customerProductCopy, dropiGetProduct, dropiProductImages } = await import("./dropi");
       const dropiId = num(args.dropiProductId);
       if (!dropiId) return { ok: false, summary: "Falta 'dropiProductId'" };
+      // Con token de integración, la importación completa (curada, fotos sin
+      // repetir, stock por bodega, sin duplicar) es dropi_importar.
+      {
+        const { tokenDropiDelTenant } = await import("./dropi-directo");
+        if (await tokenDropiDelTenant(ctx.tenantId)) return executeAction("dropi_importar", { dropiProductId: dropiId, price: args?.price }, ctx);
+      }
+      const { customerProductCopy, dropiGetProduct, dropiProductImages } = await import("./dropi");
 
       const r = await dropiGetProduct(dropiId);
       if (!r.ok || !r.data) return { ok: false, summary: `No se pudo traer el producto de Dropi: ${r.error}` };
@@ -8730,7 +8777,7 @@ export const READ_ONLY_TOOLS = new Set([
   "fb_list_adsets", "fb_radiografia_campana", "anuncio_datos_expertos",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
   "dropi_status", "dropi_margen", "dropi_pedidos", "dropi_buscar", "video_anuncio_estado", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
-  "dropi_verificar_producto",
+  "dropi_verificar_producto", "dropi_con_ordenes",
   // Radar de ganadores + calculadora de rentabilidad + espía de tiendas +
   // estimación previa: las cuatro son lectura pura (cruzan datos y calculan,
   // ninguna crea, publica ni gasta). Van acá para que Atlas las llame solo,

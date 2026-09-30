@@ -203,6 +203,57 @@ export async function dropiGetProduct(id: number): Promise<DropiResult<DropiProd
   return p ? { ok: true, data: p } : { ok: false, error: `Producto ${id} no encontrado en Dropi` };
 }
 
+/**
+ * Productos CON ÓRDENES: lo más parecido a "los más vendidos" que Dropi expone.
+ *
+ * Medido el 29-09-2026: la API de integraciones (`/integrations/products/index`,
+ * la del token por negocio) NO tiene señal de ventas. Su `order_by` va directo
+ * a una columna de `products` ("sales" → SQL "column does not exist") y
+ * `with_orders` tampoco existe ahí. El único lugar con ese filtro es el
+ * catálogo del panel web: el interruptor "Con órdenes" manda `with_orders`
+ * a `api-v2.dropi.co/bff/catalog/products/v4/index` con el token de SESIÓN
+ * (cabeceras `X-Authorization: Bearer …` y `X-Country-Code`, leídas del
+ * código del panel). Dropi no ordena por cantidad vendida en ningún lado:
+ * lo que se obtiene es "tiene órdenes", no un ranking.
+ */
+export async function dropiProductosConOrdenes(opts: { q?: string; categoria?: number | null; limite?: number } = {}): Promise<DropiResult<DropiProduct[]>> {
+  const token = getDropiToken();
+  if (!token) return { ok: false, error: "Falta DROPI_TOKEN (token de sesión del panel de Dropi): sin él no hay filtro de productos con órdenes." };
+  const base = (process.env.DROPI_BFF_URL || "https://api-v2.dropi.co").replace(/\/+$/, "");
+  const body: Record<string, any> = {
+    pageSize: Math.min(Math.max(opts.limite || 20, 1), 50),
+    startData: 0,
+    order_by: "id",
+    order_type: "desc",
+    with_orders: true,
+    with_collection: true,
+    privated_product: false,
+    get_stock: false,
+    no_count: true,
+    ...(opts.q ? { keywords: opts.q } : {}),
+    ...(opts.categoria ? { category: opts.categoria } : {}),
+  };
+  try {
+    const res = await fetch(`${base}/bff/catalog/products/v4/index`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Authorization": `Bearer ${token}`, "X-Country-Code": "co" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(20000),
+    });
+    const raw = await res.text();
+    let json: any = null;
+    try { json = JSON.parse(raw); } catch { /* no-JSON */ }
+    if (!res.ok || json?.isSuccess === false || json?.is_successful === false) {
+      const msg = String(json?.message || json?.error || raw.slice(0, 160) || `HTTP ${res.status}`);
+      return { ok: false, error: res.status === 401 || /unauth|token/i.test(msg) ? `el token de sesión de Dropi (DROPI_TOKEN) ya no sirve (${msg}): hay que renovarlo desde el panel` : msg };
+    }
+    const lista = json?.data?.objects ?? json?.objects ?? json?.data ?? [];
+    return { ok: true, data: (Array.isArray(lista) ? lista : []) as DropiProduct[] };
+  } catch (e: any) {
+    return { ok: false, error: e?.name === "TimeoutError" ? "Dropi no respondió a tiempo (20s)" : e?.message || String(e) };
+  }
+}
+
 export interface DropiOrderInput {
   dropiProductId: number;
   quantity: number;

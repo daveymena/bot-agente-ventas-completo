@@ -893,7 +893,10 @@ export default function CodeAgent() {
   // "escribiendo" queda prendido todo el tiempo) hasta un tope razonable de
   // vueltas -- nunca se le muestra al admin nada que suene a error técnico.
   const MAX_AUTO_CONTINUATIONS = 4;
-  const CONTINUAR = "Continuá con lo que ya tenías, sin repetir lo que ya investigaste o hiciste.";
+  // Sin la palabra "investigaste": el servidor la leía como pedido de
+  // investigar y re-investigaba en cada vuelta (29-09-2026). El servidor
+  // reconoce este texto por su comienzo ("Continuá con lo que ya tenías").
+  const CONTINUAR = "Continuá con lo que ya tenías, sin repetir lo que ya hiciste.";
 
   /**
    * Se acabaron las continuaciones automáticas: recién ACÁ tiene sentido
