@@ -649,6 +649,10 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
   const [videos, setVideos] = useState<string[]>([]);
   const [videoNuevo, setVideoNuevo] = useState("");
   const [subiendo, setSubiendo] = useState(false);
+  // Prueba social REAL del producto (30-09-2026): la landing muestra la
+  // garantía y los testimonios solo si están cargados acá; nunca se inventan.
+  const [garantia, setGarantia] = useState("");
+  const [testimonios, setTestimonios] = useState<Array<{ nombre: string; ciudad: string; texto: string }>>([]);
   const leerMeta = (p: any): any => { const m = p?.metadata; if (!m) return {}; if (typeof m === "string") { try { return JSON.parse(m) || {}; } catch { return {}; } } return m; };
 
   const subirArchivos = async (files: FileList | null) => {
@@ -760,8 +764,10 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
       setGaleria([...new Set([...propias, ...deWoo])].filter(u => u && u !== product.imageUrl));
       setVideoPrincipal(String(m.videoIntro || m.videoUrl || ""));
       setVideos(Array.isArray(m.videos) ? m.videos.map(String) : []);
+      setGarantia(String(m.garantia || ""));
+      setTestimonios(Array.isArray(m.testimonios) ? m.testimonios.map((t: any) => ({ nombre: String(t?.nombre || ""), ciudad: String(t?.ciudad || ""), texto: String(t?.texto || "") })) : []);
     } else if (mode === 'create') {
-      setGaleria([]); setVideoPrincipal(""); setVideos([]);
+      setGaleria([]); setVideoPrincipal(""); setVideos([]); setGarantia(""); setTestimonios([]);
       setFormData({
         name: initialData?.name || "",
         description: initialData?.description || "",
@@ -805,6 +811,9 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
         const m = mode === "edit" && product ? leerMeta(product) : {};
         const out: any = { ...m, imagenes: galeria.filter(u => u && u !== formData.imageUrl), videos };
         if (videoPrincipal) out.videoIntro = videoPrincipal; else delete out.videoIntro;
+        if (garantia.trim()) out.garantia = garantia.trim(); else delete out.garantia;
+        const ts = testimonios.map(t => ({ nombre: t.nombre.trim(), ciudad: t.ciudad.trim(), texto: t.texto.trim() })).filter(t => t.nombre && t.texto);
+        if (ts.length) out.testimonios = ts.slice(0, 6); else delete out.testimonios;
         return JSON.stringify(out);
       })(),
     };
@@ -932,6 +941,28 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
                   <ToggleGroupItem value="digital" className="w-full flex-1 border data-[state=on]:bg-primary/10 data-[state=on]:text-primary data-[state=on]:border-primary/30">⚡ Digital</ToggleGroupItem>
                   <ToggleGroupItem value="physical" className="w-full flex-1 border data-[state=on]:bg-primary/10 data-[state=on]:text-primary data-[state=on]:border-primary/30">📦 Físico</ToggleGroupItem>
                 </ToggleGroup>
+              </div>
+            </div>
+
+            {/* Garantía y testimonios reales: la landing los usa tal cual */}
+            <div className="space-y-3 rounded-lg border p-3">
+              <div className="space-y-1">
+                <Label>Garantía de este producto</Label>
+                <Input value={garantia} onChange={e => setGarantia(e.target.value)} placeholder="Ej. 30 días de garantía por defectos de fábrica" />
+                <p className="text-xs text-muted-foreground">Solo si de verdad la das (la del proveedor de Dropi o la tuya). Vacío = se usa la del negocio, o ninguna.</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Testimonios reales de clientes (2 a 3)</Label>
+                {testimonios.map((t, i) => (
+                  <div key={i} className="grid gap-2 rounded-md border bg-muted/20 p-2 sm:grid-cols-[1fr_1fr_auto]">
+                    <Input value={t.nombre} placeholder="Nombre (ej. Laura M.)" onChange={e => setTestimonios(xs => xs.map((x, j) => j === i ? { ...x, nombre: e.target.value } : x))} />
+                    <Input value={t.ciudad} placeholder="Ciudad" onChange={e => setTestimonios(xs => xs.map((x, j) => j === i ? { ...x, ciudad: e.target.value } : x))} />
+                    <button type="button" className="text-muted-foreground hover:text-destructive p-1" onClick={() => setTestimonios(xs => xs.filter((_, j) => j !== i))} title="Quitar"><X className="h-4 w-4" /></button>
+                    <textarea className="sm:col-span-3 min-h-[60px] rounded-md border bg-background px-3 py-2 text-sm" value={t.texto} placeholder="Lo que dijo el cliente, tal cual (WhatsApp, reseña)" onChange={e => setTestimonios(xs => xs.map((x, j) => j === i ? { ...x, texto: e.target.value } : x))} />
+                  </div>
+                ))}
+                {testimonios.length < 6 ? <Button type="button" variant="outline" size="sm" onClick={() => setTestimonios(xs => [...xs, { nombre: "", ciudad: "", texto: "" }])}>Agregar testimonio</Button> : null}
+                <p className="text-xs text-muted-foreground">Copiá lo que te dijo un cliente real. Inventarlos es publicidad engañosa y Meta puede rechazar el anuncio.</p>
               </div>
             </div>
 

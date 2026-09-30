@@ -843,12 +843,20 @@ export async function generarLandingConOpenCode(opts: {
   try {
     const { getBusinessContext } = await import("../lib/business-context");
     const ctx: any = await getBusinessContext(tenantIdDelProducto);
-    tieneGarantia = !!ctx?.garantia?.descripcion;
+    const { garantiaDelProducto, testimoniosDelProducto } = await import("../lib/landing/plantillas");
+    // La garantía del PRODUCTO (ej. la de 30 días del proveedor de Dropi) manda
+    // sobre la del negocio; sin ninguna de las dos, no se menciona.
+    const garantia = garantiaDelProducto(product) || ctx?.garantia?.descripcion || "";
+    tieneGarantia = !!garantia;
+    const testimonios = testimoniosDelProducto(product);
     hechosDelNegocio =
       "\n\nHECHOS DEL NEGOCIO (lo único que podés prometer):" +
       `\n- Entrega: ${ctx?.entrega ? `${ctx.entrega.metodo} — ${ctx.entrega.plazo}` : "NO definida: no prometas plazos ni 'envío gratis'"}` +
-      `\n- Garantía: ${tieneGarantia ? ctx.garantia.descripcion : "NO definida: NO menciones garantía, devolución ni reembolso en ninguna parte"}` +
-      "\n- Duraciones, cantidades de uso ('20-30 min al día'), testimonios con nombre y cifras: solo si vienen en los datos del producto.";
+      `\n- Garantía: ${tieneGarantia ? garantia : "NO definida: NO menciones garantía, devolución ni reembolso en ninguna parte"}` +
+      (testimonios.length
+        ? `\n- TESTIMONIOS REALES (usalos TEXTUALES, con nombre y ciudad, en tarjetas; no agregues ni cambies ninguno):\n${testimonios.map((t) => `  • ${t.nombre}${t.ciudad ? ` (${t.ciudad})` : ""}: "${t.texto}"`).join("\n")}`
+        : "\n- Testimonios: NO hay. No pongas sección de testimonios, reseñas, estrellas ni calificaciones.") +
+      "\n- Duraciones, cantidades de uso ('20-30 min al día') y cifras: solo si vienen en los datos del producto.";
   } catch { /* sin contexto: el saneador igual actúa */ }
   const system = `${getSystemPrompt(tipo)}\n\n${REGLAS_DEL_AGENTE_DE_LANDINGS}${hechosDelNegocio}`;
 

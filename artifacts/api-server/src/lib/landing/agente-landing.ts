@@ -202,6 +202,7 @@ REGLAS DEL AGENTE DE LANDINGS (mandan sobre cualquier otra instrucción de forma
    - Tarjetas con esquinas de 24px, borde muy suave y sombra difusa; botones en píldora con degradado del color de marca y sombra de color.
    - Oferta + formulario en una tarjeta blanca elevada; total a pagar visible justo encima del botón.
    - Barra fija abajo SOLO en móvil con el botón de pedir.
+   - COLORES modernos, NEUTROS y para ambos sexos (salvo que el producto sea claramente de un público): base hueso/piedra (#FAFAF9, #F5F5F4), texto casi negro (#1C1917), sección oscura en pizarra o carbón (#0F172A / #1C1917), y UN acento sobrio tomado del producto o de la paleta del brief: verde salvia/teal (#0F766E), azul petróleo (#155E75), terracota (#C2410C) u oliva (#4D7C0F). Nada de rosa, violeta o azul bebé por defecto, ni neón. Máximo 3 colores más los neutros.
    - Nunca inventes calificaciones, cantidad de reseñas, descuentos, "quedan N unidades" ni testimonios: si no vienen en los datos, esa pieza no va.
 `.trim();
 
