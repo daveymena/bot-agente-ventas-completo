@@ -42,6 +42,12 @@ export default function DropiPage() {
   const [probando, setProbando] = useState(false);
   const [prueba, setPrueba] = useState<{ ok: boolean; detalle: string } | null>(null);
   const [guardando, setGuardando] = useState(false);
+  // Cambiar el token SIN quitar el actual: el servidor prueba el nuevo antes
+  // de guardarlo (PUT /dropi/config), así que el que funciona solo se
+  // reemplaza si el nuevo también funciona. Antes la única salida era
+  // "Quitar token" y, si el nuevo era rechazado, el negocio quedaba sin
+  // Dropi (pasó el 29-09-2026 con un token Chatbot Agents atado a otra IP).
+  const [cambiando, setCambiando] = useState(false);
 
   const [q, setQ] = useState("");
   const [conStock, setConStock] = useState(true);
@@ -71,14 +77,19 @@ export default function DropiPage() {
     try {
       const r = await api("/dropi/config", { method: "PUT", body: JSON.stringify(desdeWoo ? { desdeWoo: true } : { token }) });
       toast({ title: "Dropi conectado", description: r.detalle });
-      setToken(""); setPrueba(null);
+      setToken(""); setPrueba(null); setCambiando(false);
       await cargar();
-    } catch (e: any) { toast({ title: "No se pudo conectar", description: e.message, variant: "destructive" }); }
+    } catch (e: any) {
+      // El motivo queda a la vista (el aviso flotante se va solo y el
+      // mensaje de IP es largo); el token anterior, si había, sigue intacto.
+      setPrueba({ ok: false, detalle: `${e.message}${config?.conectado ? " — El token anterior sigue conectado." : ""}` });
+      toast({ title: "No se pudo conectar", description: "Mirá el detalle debajo del campo.", variant: "destructive" });
+    }
     finally { setGuardando(false); }
   };
 
   const desconectar = async () => {
-    if (!confirm("¿Quitar el token de Dropi? Los pedidos volverán a ir por WooCommerce (si está configurado).")) return;
+    if (!confirm("¿Quitar el token de Dropi? El bot se queda SIN Dropi directo hasta que pegues otro que funcione. Si solo querés reemplazarlo, usá \"Cambiar token\": el actual se mantiene hasta que el nuevo pase la prueba.")) return;
     try { await api("/dropi/config", { method: "DELETE" }); await cargar(); } catch (e: any) { toast({ title: "Error", description: e.message, variant: "destructive" }); }
   };
 
@@ -153,12 +164,19 @@ export default function DropiPage() {
                       {config.integracion?.tienda ? <> · integración <span className="font-mono text-xs">{config.integracion.tienda}</span></> : null}
                       {config.integracion?.vence ? <> · vence {config.integracion.vence}</> : null}
                     </span>
-                    <Button variant="outline" size="sm" onClick={desconectar}>Quitar token</Button>
+                    <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => { setCambiando((v) => !v); setPrueba(null); }}>{cambiando ? "Cancelar" : "Cambiar token"}</Button>
+                      <Button variant="ghost" size="sm" onClick={desconectar}>Quitar</Button>
+                    </div>
                   </div>
                 </AlertDescription>
               </Alert>
-            ) : (
+            ) : null}
+            {!cargando && (!config?.conectado || cambiando) ? (
               <>
+                {config?.conectado ? (
+                  <p className="text-sm text-muted-foreground">El token actual sigue funcionando hasta que el nuevo pase la prueba.</p>
+                ) : null}
                 {config?.sugerencia ? (
                   <Alert>
                     <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
@@ -179,10 +197,10 @@ export default function DropiPage() {
                 ) : null}
                 <div className="flex gap-2 flex-wrap">
                   <Button variant="outline" onClick={probar} disabled={!token.trim() || probando}>{probando ? <Loader2 className="h-4 w-4 animate-spin" /> : "Probar"}</Button>
-                  <Button onClick={() => guardar(false)} disabled={!token.trim() || guardando}>{guardando ? <Loader2 className="h-4 w-4 animate-spin" /> : "Guardar y conectar"}</Button>
+                  <Button onClick={() => guardar(false)} disabled={!token.trim() || guardando}>{guardando ? <Loader2 className="h-4 w-4 animate-spin" /> : config?.conectado ? "Probar y reemplazar" : "Guardar y conectar"}</Button>
                 </div>
               </>
-            )}
+            ) : null}
           </CardContent>
         </Card>
 
