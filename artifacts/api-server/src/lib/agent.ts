@@ -2817,7 +2817,10 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
   // Con más contexto se corrige solo ("acá dije Excel, pero el cliente hablaba
   // del piano"). Configurable por CHAT_HISTORY_MESSAGES; por defecto 12.
   const MAX_HISTORIAL_CHAT = Number(process.env.CHAT_HISTORY_MESSAGES) || 12;
-  const chatHistory = buildChatHistory(memory, MAX_HISTORIAL_CHAT);
+  // Tope de caracteres del historial (2026-09-29): la cantidad de mensajes
+  // no alcanza, porque 30 mensajes largos meten 15k chars. Ventana por chars.
+  const MAX_HISTORIAL_CHARS = Number(process.env.CHAT_HISTORY_MAX_CHARS) || 6000;
+  const chatHistory = buildChatHistory(memory, MAX_HISTORIAL_CHAT, MAX_HISTORIAL_CHARS);
   console.log(`💬 [CHAT-HISTORY] Usando últimos ${chatHistory.length} mensajes`);
   const chatMessages = [
     ...chatHistory,
@@ -3146,6 +3149,16 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
               const elapsed = Date.now() - startTime;
               reportProviderResult(providerName, true, elapsed);
               registrarTurnoAtendido(providerName, source.split("/").slice(1).join("/") || source, posicion > 1);
+              // Medición de tokens por turno (2026-09-29): sin esto el costo
+              // por conversación era una estimación. usage viene en los
+              // proveedores OpenAI-compatibles; si falta, se estima chars/4.
+              try {
+                const u: any = (completion as any)?.usage;
+                const promptChars = chatMessages.reduce((a: number, m: any) => a + String(m?.content || "").length, 0);
+                const usoIn = Number(u?.prompt_tokens) || Math.round(promptChars / 4);
+                const usoOut = Number(u?.completion_tokens) || Math.round(result.length / 4);
+                console.log(`🔢 [TOKENS] tenant=${(convo as any)?.tenantId ?? "?"} conv=${conversationId} prov=${source} model=${config.model} in=${usoIn} out=${usoOut} promptChars=${promptChars} histMsgs=${chatHistory.length}${u?.prompt_tokens ? "" : " (estimado)"} - ${ts()}`);
+              } catch { /* nunca romper el turno por medir */ }
               console.log(`✅ [AI] Respuesta de ${source} - ${result.length}chars (${elapsed}ms) - ${ts()}`);
               // Lo que escribió el modelo, textual, para el diagnóstico: sin
               // esto solo se veía el largo y había que adivinar qué candado

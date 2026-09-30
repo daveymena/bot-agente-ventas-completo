@@ -75,9 +75,17 @@ export function leerIntegracionDropi(token: string | null | undefined): Integrac
   if (!t || t.split(".").length < 3) return null;
   try {
     const payload = JSON.parse(Buffer.from(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8"));
+    const ipCruda = payload.ip_url ?? payload.ip ?? null;
+    // ip_url a veces viene como objeto [{ip:...}] o array: normalizar a texto
+    // o null para no mostrar "[object Object]" en los diagnósticos.
+    const ipTxt = Array.isArray(ipCruda)
+      ? ipCruda.map((x: any) => (typeof x === "string" ? x : x?.ip || x?.address || "")).filter(Boolean).join(", ") || null
+      : typeof ipCruda === "object" && ipCruda !== null
+        ? ipCruda.ip || ipCruda.address || null
+        : ipCruda || null;
     return {
       tienda: payload.integration_url || payload.store || payload.url || null,
-      ipAutorizada: payload.ip_url || payload.ip || null,
+      ipAutorizada: typeof ipTxt === "string" ? ipTxt : null,
       usuario: payload.user_id || payload.sub || payload.id || null,
       vence: payload.exp ? new Date(Number(payload.exp) * 1000).toISOString().slice(0, 10) : null,
       tokenHuella: t.slice(0, 6) + "…" + t.slice(-6),

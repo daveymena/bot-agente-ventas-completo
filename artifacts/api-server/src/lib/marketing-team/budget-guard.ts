@@ -11,8 +11,8 @@
  *   humana aunque el modo autónomo esté activo.
  */
 
-import { db, marketingBudgets, tenants } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { db, marketingBudgets, tenants, products } from "@workspace/db";
+import { eq, and } from "drizzle-orm";
 import type { BudgetGuardrails } from "./types";
 
 export function todayKey(d = new Date()): string {
@@ -98,6 +98,64 @@ export function canScale(guardrails: BudgetGuardrails, current: number, next: nu
   return { allowed: true, reason: `Escalada de +${deltaPercent.toFixed(1)}% dentro del límite.`, deltaPercent };
 }
 
+/**
+ * FRENO DE MARGEN (2026-09-29).
+ *
+ * El guardián de gasto protege contra "gastar sin vender", pero una campaña
+ * puede vender y aun así PERDER plata si el CPA supera el margen. Esta
+ * función pura decide con 4 números:
+ * - gasto: lo quemado en la ventana (COP)
+ * - ventas: ventas reales atribuidas en la ventana
+ * - ticketPromedio: ingreso promedio por venta (COP)
+ * - margenFraccion: fracción del ticket que es ganancia (0-1, ej 0.4)
+ *
+ * CPA objetivo = ticket × margen. Reglas:
+ * - sin ventas: solo mata si el gasto ya superó 2× el CPA objetivo
+ *   (darle chance de arrancar, pero no quemar de más);
+ * - con ventas: mata si CPA > 1.25× objetivo con muestra mínima
+ *   (≥3 ventas o gasto > 2× objetivo).
+ * Sin ticket o sin margen configurado NO se juzga (observar): un freno
+ * sin datos apaga ganadores.
+ */
+export interface FrenoMargenEntrada {
+  gasto: number;
+  ventas: number;
+  ticketPromedio: number | null;
+  margenFraccion: number | null;
+}
+
+export interface FrenoMargenSalida {
+  accion: "matar" | "observar" | "ok";
+  cpa: number | null;
+  cpaObjetivo: number | null;
+  motivo: string;
+}
+
+export function evaluarFrenoMargen(e: FrenoMargenEntrada): FrenoMargenSalida {
+  const { gasto, ventas } = e;
+  const ticket = Number(e.ticketPromedio) || 0;
+  const margen = Number(e.margenFraccion) || 0;
+  if (!(ticket > 0) || !(margen > 0 && margen < 1)) {
+    return { accion: "observar", cpa: null, cpaObjetivo: null, motivo: "Sin ticket o margen configurado: no se juzga." };
+  }
+  const cpaObjetivo = ticket * margen;
+  if (!(cpaObjetivo > 0)) {
+    return { accion: "observar", cpa: null, cpaObjetivo: null, motivo: "CPA objetivo inválido." };
+  }
+  if (ventas <= 0) {
+    if (gasto > 2 * cpaObjetivo) {
+      return { accion: "matar", cpa: null, cpaObjetivo, motivo: `Sin ventas con $${Math.round(gasto)} gastados (> 2× CPA objetivo $${Math.round(cpaObjetivo)}).` };
+    }
+    return { accion: "observar", cpa: null, cpaObjetivo, motivo: "Sin ventas aún, dentro del presupuesto de prueba." };
+  }
+  const cpa = gasto / ventas;
+  const muestraSuficiente = ventas >= 3 || gasto > 2 * cpaObjetivo;
+  if (cpa > 1.25 * cpaObjetivo && muestraSuficiente) {
+    return { accion: "matar", cpa, cpaObjetivo, motivo: `CPA $${Math.round(cpa)} supera 1.25× el objetivo $${Math.round(cpaObjetivo)} con ${ventas} venta(s). Vende pero pierde plata.` };
+  }
+  return { accion: "ok", cpa, cpaObjetivo, motivo: `CPA $${Math.round(cpa)} dentro del objetivo $${Math.round(cpaObjetivo)}.` };
+}
+
 /** Registra gasto real (llamado cuando Meta confirma una acción con gasto). */
 export async function recordSpend(tenantId: number, amount: number): Promise<void> {
   const row = (await db.select().from(marketingBudgets).where(eq(marketingBudgets.tenantId, tenantId)).limit(1))[0];
@@ -127,7 +185,6 @@ export async function getBudgetStatus(tenantId: number) {
     todayDate: row?.todayDate ?? null,
   };
 }
-
 /** La moneda por defecto sale del tenant si está configurado. */
 export async function defaultCurrency(tenantId: number): Promise<string> {
   try {
@@ -136,5 +193,37 @@ export async function defaultCurrency(tenantId: number): Promise<string> {
     return "COP";
   } catch {
     return "COP";
+  }
+}
+
+/**
+ * Freno de margen con datos reales del tenant.
+ *
+ * Ticket = precio promedio de productos activos. Margen = `margenFraccion`
+ * en `tenants.settings` (0-1, lo configura el dueño en /settings; ej 0.4).
+ * Sin alguno de los dos → observar (no juzgar sin datos).
+ */
+export async function evaluarFrenoMargenDeTenant(
+  tenantId: number,
+  gasto: number,
+  ventas: number,
+): Promise<FrenoMargenSalida> {
+  try {
+    const [t] = await db.select({ settings: tenants.settings }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    const settings = (t?.settings as any) || {};
+    const margen = Number(settings.margenFraccion);
+    const prods = await db.select({ price: products.price }).from(products)
+      .where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)))
+      .limit(200);
+    const precios: number[] = prods.map((p: any) => Number(p.price)).filter((n: number) => Number.isFinite(n) && n > 0);
+    const ticket = precios.length ? precios.reduce((a: number, b: number) => a + b, 0) / precios.length : null;
+    return evaluarFrenoMargen({
+      gasto,
+      ventas,
+      ticketPromedio: ticket,
+      margenFraccion: Number.isFinite(margen) && margen > 0 && margen < 1 ? margen : null,
+    });
+  } catch {
+    return { accion: "observar", cpa: null, cpaObjetivo: null, motivo: "No se pudieron leer ticket/margen." };
   }
 }

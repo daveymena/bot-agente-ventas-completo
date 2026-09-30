@@ -50,7 +50,7 @@ describe("plan de la landing de imágenes", () => {
 });
 
 describe("render de la landing de imágenes", () => {
-  const base = {
+  const base: any = {
     nombre: "Landing",
     modo: "imagenes",
     producto: { name: "Faja", price: 29900, imageUrl: "https://cdn.test/faja.jpg", images: ["https://cdn.test/faja2.jpg"] },

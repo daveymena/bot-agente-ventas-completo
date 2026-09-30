@@ -1,4 +1,5 @@
 import { Router } from "express";
+import crypto from "node:crypto";
 import { logger } from "../lib/logger";
 import { SubscriptionPaymentService } from "../lib/subscription-payments";
 import { db, subscriptions, tenants } from "@workspace/db";
@@ -161,8 +162,42 @@ async function sendActivationEmail(subscriptionId: number): Promise<void> {
 }
 
 /**
+ * Verifica la firma x-signature de MercadoPago.
+ *
+ * Esquema oficial: header `x-signature: ts=...,v1=...` + header
+ * `x-request-id`. Manifiesto: `id:{dataId};request-id:{rid};ts:{ts};`
+ * HMAC-SHA256 con el secreto del webhook. El secreto sale de las
+ * credenciales del negocio (o MERCADO_PAGO_WEBHOOK_SECRET para el dueño).
+ * Sin secreto configurado NO se puede verificar: se registra y se sigue
+ * (el pago igual se re-consulta en la API), para no romper instalaciones
+ * que aún no lo cargaron.
+ */
+export function firmaMpValida(req: any, dataId: string, secreto: string): boolean {
+  try {
+    const firm = String(req.headers?.["x-signature"] || "");
+    const ts = /ts=([^,]+)/.exec(firm)?.[1] || "";
+    const v1 = /v1=([^,]+)/.exec(firm)?.[1] || "";
+    const rid = String(req.headers?.["x-request-id"] || "");
+    if (!ts || !v1 || !rid || !dataId || !secreto) return false;
+    const manifiesto = `id:${dataId};request-id:${rid};ts:${ts};`;
+    const esperado = crypto.createHmac("sha256", secreto).update(manifiesto).digest("hex");
+    const a = Buffer.from(esperado, "utf8");
+    const b = Buffer.from(v1, "utf8");
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Webhook de MercadoPago para suscripciones
  * POST /api/webhooks/subscription/mercadopago
+ *
+ * Seguridad (2026-09-29):
+ * - El tenant NUNCA sale de `?tenantId=`: se resuelve desde la suscripción
+ *   (external_reference `subscription_N` → fila → tenant). El query solo
+ *   elige con qué token re-consultar el pago en la API de MP.
+ * - Si hay secreto de webhook configurado se exige x-signature válida.
  */
 router.post("/mercadopago", async (req, res) => {
   try {
@@ -172,15 +207,24 @@ router.post("/mercadopago", async (req, res) => {
 
     // MercadoPago envía notificaciones de tipo "payment"
     if (type === "payment") {
-      const paymentId = data.id;
+      const paymentId = String((data as any)?.id || req.query["data.id"] || "");
 
       // Obtener detalles del pago
-      const tenantId = Number(req.query.tenantId);
-      const [webhookTenant] = Number.isFinite(tenantId) && tenantId > 0
-        ? await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1)
+      const tenantIdQuery = Number(req.query.tenantId);
+      const [webhookTenant] = Number.isFinite(tenantIdQuery) && tenantIdQuery > 0
+        ? await db.select().from(tenants).where(eq(tenants.id, tenantIdQuery)).limit(1)
         : [];
+      const credQ = credencialesDe(webhookTenant as any);
+      const secretoQ = credQ.mercadopago.webhookSecret;
+      if (secretoQ && !firmaMpValida(req, paymentId, secretoQ)) {
+        logger.warn("[Webhook] MercadoPago x-signature inválida -- se ignora");
+        return res.status(200).json({ received: true });
+      }
+      if (!secretoQ) {
+        logger.warn("[Webhook] MercadoPago sin webhookSecret: firma no verificada (solo re-consulta API). Configuralo en /settings pagos.");
+      }
       const accessToken = webhookTenant
-        ? credencialesDe(webhookTenant as any).mercadopago.accessToken
+        ? credQ.mercadopago.accessToken
         : process.env.MERCADO_PAGO_ACCESS_TOKEN;
       if (!accessToken) {
         logger.error("[Webhook] MercadoPago access token not configured");
@@ -205,6 +249,17 @@ router.post("/mercadopago", async (req, res) => {
       }
 
       const subscriptionId = parseInt(externalReference.replace("subscription_", ""));
+
+      // El tenant dueño de la suscripción manda: si el query traía otro,
+      // se ignora (era solo para elegir el token de consulta).
+      const [subRow] = await db.select().from(subscriptions).where(eq(subscriptions.id, subscriptionId)).limit(1);
+      if (!subRow) {
+        logger.warn({ subscriptionId }, "[Webhook] Suscripción inexistente -- no se activa nada");
+        return res.status(200).json({ received: true });
+      }
+      if (webhookTenant && (webhookTenant as any).id !== (subRow as any).tenantId) {
+        logger.warn({ subscriptionId, queryTenant: (webhookTenant as any).id, realTenant: (subRow as any).tenantId }, "[Webhook] tenantId del query no coincide con la suscripción -- se usa el real");
+      }
 
       // Verificar estado del pago
       if (payment.status === "approved") {

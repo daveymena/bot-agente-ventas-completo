@@ -68,6 +68,8 @@ export function cifrarSecreto(texto: string): Cifrado | "" {
 export interface CredencialesMercadoPago {
   accessToken: string;
   enabled: boolean;
+  /** Secreto del webhook (x-signature) de MercadoPago. Vacío = sin verificar firma. */
+  webhookSecret: string;
 }
 
 export interface CredencialesPayPal {
@@ -160,6 +162,7 @@ export function credencialesDe(tenant: TenantContext | null | undefined): Creden
     mercadopago: {
       accessToken: mpToken || env(process.env.MERCADO_PAGO_ACCESS_TOKEN),
       enabled: tieneMp ? pm.mercadopago?.enabled !== false : !!env(process.env.MERCADO_PAGO_ACCESS_TOKEN),
+      webhookSecret: leerSecreto(pm.mercadopago?.webhookSecret) || env(process.env.MERCADO_PAGO_WEBHOOK_SECRET),
     },
     paypal: {
       clientId: ppId || env(process.env.PAYPAL_CLIENT_ID),

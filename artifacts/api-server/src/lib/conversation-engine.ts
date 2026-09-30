@@ -3166,10 +3166,28 @@ export async function persistStage(conversationId: number, stage: Stage): Promis
 
 // ─── Construir historial para la IA ───────────────────────────────────────────
 
-export function buildChatHistory(memory: ConversationMemory, maxMessages?: number): Array<{ role: string; content: string }> {
+/**
+ * Historial para la IA con DOBLE tope (2026-09-29): últimos N mensajes y
+ * tope de caracteres. Sin el tope de chars, 30 mensajes largos (fichas
+ * reenviadas, catálogos pegados) metían 15k+ chars ≈ 4k tokens por turno.
+ * Ventana deslizante desde lo más reciente; siempre conserva al menos los
+ * últimos 4 mensajes para no romper la coherencia inmediata.
+ */
+export function buildChatHistory(memory: ConversationMemory, maxMessages?: number, maxChars = 6000): Array<{ role: string; content: string }> {
   const history = maxMessages ? memory.history.slice(-maxMessages) : memory.history;
-  return history.map(m => ({
+  const mapped = history.map(m => ({
     role: m.role === "customer" ? "user" : "assistant",
-    content: m.content,
+    content: String(m.content || ""),
   }));
+  let total = 0;
+  const elegidos: typeof mapped = [];
+  for (let i = mapped.length - 1; i >= 0; i--) {
+    const m = mapped[i]!;
+    const quedan = mapped.length - 1 - i;
+    if (total + m.content.length > maxChars && elegidos.length >= 4) break;
+    elegidos.unshift(m);
+    total += m.content.length;
+    void quedan;
+  }
+  return elegidos;
 }

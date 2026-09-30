@@ -21,9 +21,10 @@ WhatsApp AI sales bot + SaaS platform. Express backend, React dashboard, SQLite/
 ## Motor de ventas: v1 y v2
 
 `artifacts/api-server/src/lib/motor-nuevo/` es el motor nuevo. Está en
-producción **apagado**: el defecto es `v1`, así que desplegarlo no cambia nada
-para ningún cliente. Se prende por negocio con `MOTOR_VENDEDOR*`, por API
-(`POST /api/whatsapp/motor`) o desde Atlas (`vendedor_motor`).
+producción **encendido por defecto** (`v2`, ver `activacion.ts`), fijado
+además por `MOTOR_VENDEDOR=v2` en el entorno. Se puede volver a `v1` por
+negocio con `MOTOR_VENDEDOR*`, por API (`POST /api/whatsapp/motor`) o
+desde Atlas (`vendedor_motor`).
 
 - Los hechos (precio, ficha, video, medios de pago, entrega) los emiten las
   herramientas desde la base; el modelo escribe la conversación.
