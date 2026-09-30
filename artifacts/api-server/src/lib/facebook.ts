@@ -411,6 +411,22 @@ export class FacebookService {
   }
 
   /**
+   * P0 §3.2 del doc de faltantes: la cuenta configurada tiene que ser la COP
+   * autorizada del negocio y estar activa en Meta, ANTES de crear o activar
+   * nada. Lo usan createAdForProduct (vía publishDraft y subirBorradorAMeta
+   * también pasan por ahí) y publishDraft de AdStrategist.
+   */
+  async validarCuentaParaPublicar(origen: string): Promise<import("./meta-cuenta-autorizada").VeredictoCuenta> {
+    const { validarCuentaPublicitaria } = await import("./meta-cuenta-autorizada");
+    return validarCuentaPublicitaria({
+      tenantId: Number((this.tenant as any)?.id) || 0,
+      adAccountId: this.config.adAccountId,
+      token: this.config.userAccessToken || this.config.accessToken,
+      origen,
+    });
+  }
+
+  /**
    * Moneda de la cuenta publicitaria ("COP", "USD", ...), cacheada por
    * instancia. Meta guarda los presupuestos en la MONEDA DE LA CUENTA, no en
    * la del negocio.
@@ -770,6 +786,19 @@ Responde SOLO con este JSON exacto:
     try {
       const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
       if (!product) throw new Error("Producto no encontrado");
+
+      // ── Candado de cuenta autorizada (P0 §3.2) ─────────────────────────
+      // Sin esto se podía crear la campaña en una cuenta en otra moneda o
+      // deshabilitada, o en una cuenta que no es la del negocio. Se valida
+      // ANTES de tocar Meta: si bloquea, no queda nada a medias.
+      {
+        const vc = await this.validarCuentaParaPublicar("createAdForProduct");
+        if (!vc.ok) {
+          this.lastAdError = `Publicación bloqueada: ${vc.motivo}`;
+          logger.warn({ productId, motivo: vc.motivo }, "[Facebook] Publicación bloqueada por cuenta no autorizada");
+          return null;
+        }
+      }
 
       const { OBJETIVOS } = await import("./objetivos-campana");
       // El WhatsApp real del negocio, para las campanas de mensajes.

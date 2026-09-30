@@ -729,6 +729,24 @@ export class AdStrategist {
         const { accessToken, adAccountId } = this.credencialesFb();
         if (!accessToken || !adAccountId) return falla("Facebook no está conectado: falta el token o la cuenta publicitaria.");
 
+        // ── Candado de cuenta autorizada (P0 §3.2) ───────────────────────
+        // Activar es empezar a gastar: la cuenta tiene que ser la COP
+        // autorizada del negocio y estar activa en Meta. Un borrador viejo
+        // no se puede activar contra cualquier cuenta que haya configurada.
+        {
+          const { validarCuentaPublicitaria } = await import("./meta-cuenta-autorizada");
+          const vc = await validarCuentaPublicitaria({
+            tenantId: Number((this.tenant as any)?.id) || 0,
+            adAccountId,
+            token: accessToken,
+            origen: "publishDraft",
+          });
+          if (!vc.ok) {
+            logger.warn({ draftId, motivo: vc.motivo }, "[AdStrategist] Activación bloqueada por cuenta no autorizada");
+            return falla(`Publicación bloqueada: ${vc.motivo}`);
+          }
+        }
+
         // El anuncio (con su creativo real) ya se creó en createDraftAd,
         // PAUSED -- acá solo hay que activarlo con un POST directo a su
         // propio nodo (Graph API: POST /{ad-id} {status}). Antes esto
