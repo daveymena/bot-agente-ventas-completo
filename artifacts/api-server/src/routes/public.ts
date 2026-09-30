@@ -14,6 +14,7 @@ import { credencialesDe } from "../lib/tenant-payment-credentials";
 import { rateLimitPublico } from "../middleware/rateLimitPublico";
 import { FB_GRAPH_BASE } from "../lib/meta-api-version";
 import { respaldoEnvFacebook } from "../lib/tenant-facebook-credentials";
+import { lineaDeProducto } from "../lib/taxonomia";
 
 /**
  * Resuelve el número de WhatsApp asociado a la app (vía QR conectado).
@@ -111,6 +112,9 @@ router.get("/products/:slug", async (req, res, next) => {
       image: p.imageUrl,
       category: p.category ?? "General",
       kind: p.kind,
+      // digital | dropshipping | fisico | servicio: la tienda separa por
+      // esto para no mezclar un curso con un producto que se despacha.
+      linea: lineaDeProducto(p),
       currency: p.currency,
       sku: p.sku,
       features: p.features,

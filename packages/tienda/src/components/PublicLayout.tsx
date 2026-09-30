@@ -26,6 +26,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   const isOwner = isAdmin && config.slug === effectiveSlug;
 
   const [categorias, setCategorias] = useState<CategoriaDelMenu[]>([]);
+  const [hayFisicos, setHayFisicos] = useState(false);
 
   // ── El skin de la tienda ──────────────────────────────────────────────
   //
@@ -68,13 +69,15 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
         if (Array.isArray(d?.products)) {
           const porCategoria: Record<string, CategoriaDelMenu> = {};
           for (const p of d.products as any[]) {
-            const tipo = (p.kind || p.type) === 'physical' ? 'physical' : 'digital';
+            const k = p.kind || p.type;
+            const tipo = k === 'physical' ? 'physical' : (k === 'servicio' || k === 'service') ? 'servicio' : 'digital';
             const nombre = p.category || 'General';
             const key = `${nombre}__${tipo}`;
-            if (!porCategoria[key]) porCategoria[key] = { key, name: nombre, count: 0 };
+            if (!porCategoria[key]) porCategoria[key] = { key, name: nombre, count: 0, tipo };
             porCategoria[key].count++;
           }
           setCategorias(Object.values(porCategoria).sort((a, b) => b.count - a.count));
+          setHayFisicos((d.products as any[]).some(p => (p.kind || p.type) === 'physical'));
         }
         if (!d?.store) return;
         if (d.store.pixelId) initPixel(d.store.pixelId);
@@ -99,7 +102,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
   const waHref = config.whatsappPhone ? `https://wa.me/${config.whatsappPhone}` : null;
 
   return (
-    <div className="min-h-screen flex flex-col bg-white text-slate-900" style={themeVars}>
+    <div className="min-h-screen flex flex-col bg-white text-slate-900 antialiased" style={themeVars}>
       {/* ── El encabezado de tres pisos de Market ─────────────────────────
           Reemplaza al anterior, que era una sola barra de color con el logo y
           dos iconos. El cambio que más pesa no es el color: es que el BUSCADOR
@@ -116,6 +119,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
         wishlistCount={wishlist.length}
         isOwner={isOwner}
         categorias={categorias}
+        hayFisicos={hayFisicos}
       />
 
       <main className="flex-grow">
@@ -184,9 +188,9 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
         <MessageCircle className="w-7 h-7" />
       </a>
 
-      <footer className="bg-[var(--tech-marino)] pb-20 text-white md:pb-0">
-        <div className="mx-auto max-w-6xl px-4 py-12">
-          <div className="grid grid-cols-2 gap-10 md:grid-cols-4">
+      <footer className="mt-4 bg-[#0f0d27] pb-20 text-white md:pb-0">
+        <div className="mx-auto max-w-[1280px] px-4 py-14 sm:px-6 lg:px-8">
+          <div className="grid grid-cols-2 gap-10 md:grid-cols-[1.4fr_1fr_1fr_1.2fr]">
             <div className="col-span-2 md:col-span-1">
               <div className="mb-3 flex items-center gap-2.5">
                 {config.logoUrl ? (
@@ -198,7 +202,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
                 )}
                 <span className="text-base font-black text-white">{config.storeName || 'Tienda'}</span>
               </div>
-              <p className="mb-5 text-[13px] leading-relaxed text-white/60">{`Comprá en ${config.storeName || "nuestra tienda"} y escribinos por WhatsApp si necesitás ayuda.`}</p>
+              <p className="mb-5 text-[13px] leading-relaxed text-white/60">{`Tu tienda de confianza. Compra en ${config.storeName || "nuestra tienda"} y escríbenos por WhatsApp si necesitas ayuda.`}</p>
 
               {/* Redes sociales -- solo se listan las que la tienda configuró
                   de verdad; sin URL no hay ícono, para no mostrar enlaces rotos */}
@@ -239,7 +243,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             <div>
-              <h4 className="mb-4 text-sm font-black text-white">Enlaces rápidos</h4>
+              <h4 className="mb-4 text-[14px] font-bold text-white">Enlaces rápidos</h4>
               <div className="space-y-2.5">
                 <Link to={base} className="block text-[13px] text-white/60 transition-colors hover:text-white">Inicio</Link>
                 <Link to={`${base}#catalogo`} className="block text-[13px] text-white/60 transition-colors hover:text-white">Tienda</Link>
@@ -249,7 +253,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             <div>
-              <h4 className="mb-4 text-sm font-black text-white">Atención al cliente</h4>
+              <h4 className="mb-4 text-[14px] font-bold text-white">Atención al cliente</h4>
               <div className="space-y-2.5">
                 <a href={waHref || "#"} target="_blank" rel="noopener noreferrer"
                   className="block text-[13px] text-white/60 transition-colors hover:text-white">Soporte por WhatsApp</a>
@@ -264,7 +268,7 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
 
             <div>
-              <h4 className="mb-4 text-sm font-black text-white">Contacto</h4>
+              <h4 className="mb-4 text-[14px] font-bold text-white">Contacto</h4>
               <div className="space-y-2.5">
                 {config.whatsappPhone ? (
                   <a href={waHref || '#'} target="_blank" rel="noopener noreferrer"
@@ -279,8 +283,11 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
             </div>
           </div>
         </div>
-        <div className="border-t border-white/10 py-4 text-center text-xs text-white/50">
-          &copy; {new Date().getFullYear()} {config.storeName || 'Tienda'} &mdash; Todos los derechos reservados
+        <div className="border-t border-white/10">
+          <div className="mx-auto flex max-w-[1280px] flex-col items-center justify-between gap-2 px-4 py-5 text-xs text-white/50 sm:flex-row sm:px-6 lg:px-8">
+            <span>&copy; {new Date().getFullYear()} {config.storeName || 'Tienda'}. Todos los derechos reservados.</span>
+            <span>Compra segura con atención por WhatsApp</span>
+          </div>
         </div>
       </footer>
     </div>

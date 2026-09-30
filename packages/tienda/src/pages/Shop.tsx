@@ -3,14 +3,16 @@ import { useStore, Product } from '../store/useStore';
 import { Search, Store } from 'lucide-react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import ProductCard from '../components/ProductCard';
-import Portada, { TituloDeSeccion } from '../components/market/Portada';
+import Portada from '../components/market/Portada';
 import {
-  HeroTech, BarraConfianza, CirculosCategorias, GrillaProductos,
-  PromosDobles, CarruselProductos,
+  HeroTech, BarraConfianza, CirculosCategorias, OfertasSemana, PromosDobles,
+  DestacadosTech, BandaConfianza, CategoriasDestacadas, OfertaEspecial,
+  VistosRecientes, MarcasTop, NovedadesWhatsApp, TituloTech, Pestanas,
+  marcasDelCatalogo, esCategoriaGenerica,
 } from '../components/tech/SeccionesTech';
 import {
-  CatsTop, OfertaEspecial, VistosRecientes, MarcasTop, marcasDelCatalogo,
-} from '../components/tech/RielTech';
+  DEPARTAMENTOS, ORDEN_DEPARTAMENTOS, departamentoDe, esDepartamento, type Departamento,
+} from '../lib/departamentos';
 
 interface ApiProduct {
   id: number;
@@ -21,6 +23,8 @@ interface ApiProduct {
   category: string;
   kind: string;
   highlight: string | null;
+  /** digital | dropshipping | fisico | servicio (ver lib/taxonomia.ts del servidor). */
+  linea?: string;
 }
 
 // El precio se muestra en la moneda del visitante: lo resuelve formatear() de
@@ -46,6 +50,8 @@ interface ApiProduct {
 // que las dos pantallas no se fueran desincronizando.
 export { ProductCard };
 
+const sinTildes = (t: string) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
 const Shop = () => {
   const { config, updateConfig, products: localProducts } = useStore();
   const { slug: paramSlug } = useParams();
@@ -55,6 +61,7 @@ const Shop = () => {
   const slug = paramSlug || DEFAULT_SLUG;
   const searchQuery = searchParams.get('q') || '';
   const categoriaDeLaUrl = searchParams.get('cat') || '';
+  const depDeLaUrl = searchParams.get('dep');
 
   const [apiProducts, setApiProducts] = useState<ApiProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -100,13 +107,10 @@ const Shop = () => {
   const hayFisicos = products.some(p => p.type === 'physical');
   const hayDigitales = products.some(p => p.type !== 'physical');
 
-  // ¿Esta tienda mezcla las dos cosas?
-  //
-  // No todas las tiendas del sistema venden de los dos tipos: unas son 100%
-  // cursos digitales, otras 100% producto físico. Distinguir "Digital" vs
-  // "Físico" solo informa cuando conviven; si no, es una etiqueta repetida en
-  // cada tarjeta y cada categoría que no ayuda a decidir y tapa la foto.
-  const catalogoMixto = hayFisicos && hayDigitales;
+  // Ya no hace falta la etiqueta "Digital"/"Físico" en cada tarjeta: cada
+  // departamento tiene su propia vitrina y nunca se mezclan (ver
+  // lib/departamentos.ts), así que la tarjeta ya está en su lugar.
+  const mostrarTipo = false;
 
   const [filter, setFilter] = useState(categoriaDeLaUrl || 'all');
 
@@ -169,12 +173,6 @@ const Shop = () => {
   const categoryKey = (p: { category?: string; type?: string }) =>
     `${p.category || 'General'}__${p.type || 'digital'}`;
 
-  const filteredProducts = products.filter(p => {
-    const matchesFilter = filter === 'all' || categoryKey(p) === filter;
-    const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.category && p.category.toLowerCase().includes(searchTerm.toLowerCase()));
-    return matchesFilter && matchesSearch;
-  });
 
   const categories = useMemo(() => {
     // Cada categoría se queda con la FOTO del primer producto suyo que tenga
@@ -204,6 +202,34 @@ const Shop = () => {
     return lista.sort((a, b) => b.count - a.count);
   }, [products]);
 
+  // ── Departamentos: físicos, digitales y servicios nunca se mezclan ────────
+  const deptosPresentes = ORDEN_DEPARTAMENTOS.filter(d => products.some(p => departamentoDe(p.type) === d));
+  const conteoPorDep: Partial<Record<Departamento, number>> = Object.fromEntries(
+    deptosPresentes.map(d => [d, products.filter(p => departamentoDe(p.type) === d).length]),
+  );
+  const [departamento, setDepartamento] = useState<Departamento | null>(esDepartamento(depDeLaUrl) ? depDeLaUrl : null);
+  useEffect(() => {
+    if (!esDepartamento(depDeLaUrl)) return;
+    setDepartamento(depDeLaUrl);
+    requestAnimationFrame(() => document.getElementById('catalogo')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+  }, [depDeLaUrl]);
+  // El que manda en el catálogo: el de la categoría elegida; si no, el de la
+  // pestaña; si no, el primero. Buscando no hay uno solo: los resultados se
+  // muestran agrupados por departamento (null).
+  const depDelFiltro = filter !== 'all' ? departamentoDe(categories.find(c => c.key === filter)?.type) : null;
+  const depActivo: Departamento | null = depDelFiltro
+    || (searchTerm ? null : (departamento && deptosPresentes.includes(departamento) ? departamento : deptosPresentes[0] || null));
+
+  const filteredProducts = products.filter(p => {
+    const matchesFilter = filter === 'all' || categoryKey(p) === filter;
+    const matchesDep = !depActivo || departamentoDe(p.type) === depActivo;
+    // Sin tildes: "camara" tiene que encontrar "Cámara" (antes encontraba 1
+    // de las 3 cámaras del catálogo).
+    const matchesSearch = sinTildes(p.name).includes(sinTildes(searchTerm)) ||
+      (!!p.category && sinTildes(p.category).includes(sinTildes(searchTerm)));
+    return matchesFilter && matchesDep && matchesSearch;
+  });
+
 
   // Portada: la que cargó el dueño y, si no, la foto del primer producto que
   // tenga una. Nunca una imagen de stock: se muestra algo que está a la venta.
@@ -217,84 +243,105 @@ const Shop = () => {
     .find((u): u is string => !!u && !esRelleno(u)) || '';
 
 
-  const [visibleCount, setVisibleCount] = useState(12);
+  // 20: llena filas completas con 2, 4 y 5 columnas (con 12 quedaban dos
+  // tarjetas sueltas en la última fila de escritorio).
+  const [visibleCount, setVisibleCount] = useState(20);
 
-  useEffect(() => { setVisibleCount(12); }, [filter, searchTerm]);
+  useEffect(() => { setVisibleCount(20); }, [filter, searchTerm, depActivo]);
 
   const displayedProducts = filteredProducts.slice(0, visibleCount);
 
   // ── Portada tech: secciones armadas con datos reales ────────────────────
   type ConResaltado = (typeof products[number]) & { resaltado?: string };
   const todos = products as ConResaltado[];
-  const conResaltado = todos.filter(p => (p.resaltado || '').trim());
-  const ofertas = (conResaltado.length ? conResaltado : todos).slice(0, 4);
-  const idsOfertas = new Set(ofertas.map(p => p.id));
-  const destacados = todos.filter(p => !idsOfertas.has(p.id)).slice(0, 8);
   const conFoto = (p: ConResaltado) => !!p.image;
-  const productoHero = todos.find(p => p.type === 'physical' && conFoto(p)) || todos.find(conFoto);
-  const ofertaEspecial = conResaltado.find(conFoto) || todos.find(conFoto);
-  // "General"/"Otros" son el cajón de lo sin clasificar: reales como filtro,
-  // pero horribles como banners ("Todo en General" no vende nada). Los promos
-  // salen de las dos categorías con más identidad que tengan foto.
-  const esGenerica = (n: string) => /^(general|otros|varios|sin categor[ií]a|default)$/i.test(String(n || '').trim());
-  const catsConFoto = categories.filter(c => c.image && !esGenerica(c.name));
-  const promos = (catsConFoto.length >= 2 ? catsConFoto : categories.filter(c => c.image)).slice(0, 2).map((c, i) => ({
+  // Primero lo que tiene foto: una tarjeta vacía en la vidriera se lee como
+  // tienda sin terminar.
+  const vitrina = [...todos.filter(conFoto), ...todos.filter(p => !conFoto(p))];
+  const delDep = (d: Departamento) => vitrina.filter(p => departamentoDe(p.type) === d);
+  // El departamento principal arma el hero, las ofertas y los destacados; los
+  // demás tienen cada uno su carrusel propio más abajo. Nunca se mezclan.
+  const [primario, ...secundarios] = deptosPresentes;
+  const vitrinaPrincipal = primario ? delDep(primario) : vitrina;
+  const conResaltado = vitrinaPrincipal.filter(p => (p.resaltado || '').trim());
+  const ofertas = (conResaltado.length ? conResaltado : vitrinaPrincipal).slice(0, 8);
+  const idsOfertas = new Set(ofertas.map(p => p.id));
+  const destacados = vitrinaPrincipal.filter(p => !idsOfertas.has(p.id)).slice(0, 10);
+  const principalConFoto = vitrinaPrincipal.filter(conFoto);
+  const productoHero = principalConFoto[0] || todos.find(conFoto);
+  // La oferta especial es OTRO producto del mismo departamento.
+  const ofertaEspecial = conResaltado.find(conFoto) || principalConFoto.find(p => p.id !== productoHero?.id);
+  const categoriasPrincipales = primario ? categories.filter(c => departamentoDe(c.type) === primario) : categories;
+  // Los dos banners: con dos departamentos, uno de cada uno (la mejor
+  // categoría con foto de cada lado); con uno solo, sus dos mejores. Nunca
+  // "Todo en General", que no vende nada.
+  const mejorCategoria = (d: Departamento) => {
+    const suyas = categories.filter(c => departamentoDe(c.type) === d && c.image);
+    return suyas.find(c => !esCategoriaGenerica(c.name)) || suyas[0];
+  };
+  const catsPromo = deptosPresentes.length >= 2
+    ? deptosPresentes.slice(0, 2).map(mejorCategoria).filter((c): c is NonNullable<typeof c> => !!c)
+    : (() => { const conFotoCat = categoriasPrincipales.filter(c => c.image && !esCategoriaGenerica(c.name)); return (conFotoCat.length >= 2 ? conFotoCat : categoriasPrincipales.filter(c => c.image)).slice(0, 2); })();
+  const promos = catsPromo.map(c => ({
     key: c.key,
     titulo: `Todo en ${c.name}`,
-    bajada: `${c.count} ${c.count === 1 ? 'producto' : 'productos'}`,
+    bajada: deptosPresentes.length >= 2
+      ? `${DEPARTAMENTOS[departamentoDe(c.type)].nombre} · ${c.count}`
+      : `${c.count} ${c.count === 1 ? 'producto' : 'productos'}`,
     imagen: c.image,
-    oscuro: i === 0,
   }));
   const marcas = marcasDelCatalogo(todos);
   // Sello del hero: propuesta de valor real (sin % inventados: el catálogo
   // no trae precio anterior, así que no hay "40% OFF" que mostrar).
   const sello = hayFisicos && !hayDigitales ? 'Pago contra entrega' : 'Nuevos ingresos';
+  const esPortada = !loading && !apiError && products.length > 0 && filter === 'all' && !searchTerm;
 
   return (
-    <div className="mx-auto max-w-6xl bg-[var(--tech-fondo)] px-3 py-4 pb-24 sm:px-6 sm:py-6 md:pb-8 lg:px-8">
+    <div className="mx-auto max-w-[1280px] bg-white px-4 py-4 pb-24 sm:px-6 sm:py-6 md:pb-10 lg:px-8">
       {/* ── PORTADA TECH ───────────────────────────────────────────────
-          Estructura de tienda de tecnología (hero + confianza + categorías
-          + ofertas + promos + destacados + riel lateral), armada SOLO con
-          datos reales del catálogo: sin reseñas, descuentos, marcas de
-          mentira ni blog inventados. Lo que no tiene dato, no se dibuja. */}
-      {!loading && !apiError && products.length > 0 && filter === 'all' && !searchTerm && (
-        <div className="grid gap-8 xl:grid-cols-[1fr_290px]">
-          <div className="min-w-0">
-            <HeroTech
-              storeName={config.storeName || 'Tienda'}
-              categorias={categories}
-              productoHero={productoHero}
-              sello={sello}
-              onCategoria={elegirFiltro}
-              onVerCatalogo={irAlCatalogo}
-            />
-            <BarraConfianza hayFisicos={hayFisicos} />
-            <CirculosCategorias categorias={categories} onCategoria={elegirFiltro} />
-            <GrillaProductos
-              eyebrow={conResaltado.length ? 'Elegidos' : 'Destacados'}
-              titulo={conResaltado.length ? 'Las ofertas de la semana' : 'Destacados de la semana'}
-              bajada="Selección de la tienda, con stock real."
-              productos={ofertas}
+          Una sola columna a lo ancho, en el orden de la maqueta (ver
+          components/tech/SeccionesTech.tsx). Solo datos reales del
+          catálogo: lo que no tiene dato, no se dibuja. */}
+      {esPortada && (
+        <>
+          <HeroTech
+            storeName={config.storeName || 'Tienda'}
+            categorias={categories}
+            productoHero={productoHero}
+            sello={sello}
+            onCategoria={elegirFiltro}
+            onVerCatalogo={irAlCatalogo}
+          />
+          <BarraConfianza hayFisicos={hayFisicos} />
+          <CirculosCategorias categorias={categoriasPrincipales} onCategoria={elegirFiltro} />
+          <OfertasSemana
+            productos={ofertas}
+            slug={slug}
+            mostrarTipo={mostrarTipo}
+            onVerTodo={() => { if (primario) setDepartamento(primario); requestAnimationFrame(irAlCatalogo); }}
+            eyebrow={primario && deptosPresentes.length > 1 ? DEPARTAMENTOS[primario].nombre : 'Lo más nuevo'}
+          />
+          <PromosDobles promos={promos} onCategoria={elegirFiltro} />
+          <DestacadosTech productos={destacados} slug={slug} mostrarTipo={mostrarTipo} />
+          {/* Cada departamento secundario, en su propio carrusel. */}
+          {secundarios.map(d => (
+            <DestacadosTech
+              key={d}
+              id={`dep-${d}`}
+              productos={delDep(d).slice(0, 10)}
               slug={slug}
-              mostrarTipo={catalogoMixto}
-              verTodoHref="#catalogo"
+              mostrarTipo={mostrarTipo}
+              eyebrow={d === 'digital' ? 'Aprende desde casa' : 'Agenda'}
+              titulo={DEPARTAMENTOS[d].nombre}
+              bajada={DEPARTAMENTOS[d].bajada}
             />
-            <PromosDobles promos={promos} onCategoria={elegirFiltro} />
-            <CarruselProductos
-              eyebrow="Tendencia"
-              titulo="Productos destacados"
-              productos={destacados}
-              slug={slug}
-              mostrarTipo={catalogoMixto}
-            />
-          </div>
-          <aside className="flex min-w-0 flex-col gap-8">
-            <CatsTop categorias={categories} onCategoria={elegirFiltro} />
-            <OfertaEspecial producto={ofertaEspecial} slug={slug} />
-            <VistosRecientes productos={todos} slug={slug} />
-            <MarcasTop marcas={marcas} />
-          </aside>
-        </div>
+          ))}
+          <BandaConfianza hayFisicos={hayFisicos} />
+          <CategoriasDestacadas categorias={categories} onCategoria={elegirFiltro} />
+          <OfertaEspecial producto={ofertaEspecial} slug={slug} />
+          <VistosRecientes productos={todos} slug={slug} />
+          <MarcasTop marcas={marcas} />
+        </>
       )}
 
       {/* ── PORTADA CLÁSICA (respaldo) ─────────────────────────────────
@@ -315,10 +362,23 @@ const Shop = () => {
 
       {/* ── CATÁLOGO ──────────────────────────────────────────────────────
           El ancla que usa el botón "Ver productos" del héroe. */}
-      <div id="catalogo" className="scroll-mt-28">
-        <TituloDeSeccion
-          titulo={filter === 'all' ? 'Todos los productos' : categories.find(c => c.key === filter)?.name || 'Productos'}
-          derecha={
+      <div id="catalogo" className={`scroll-mt-32 ${esPortada ? 'mt-14' : ''}`}>
+        <TituloTech
+          eyebrow={depActivo && deptosPresentes.length > 1 ? DEPARTAMENTOS[depActivo].nombre : 'Catálogo'}
+          titulo={
+            filter !== 'all' ? categories.find(c => c.key === filter)?.name || 'Productos'
+              : searchTerm ? `Resultados para “${searchTerm}”`
+                : depActivo && deptosPresentes.length > 1 ? DEPARTAMENTOS[depActivo].nombre
+                  : 'Todos los productos'
+          }
+          accion={filter === 'all' && !searchTerm && depActivo && deptosPresentes.length > 1 ? (
+            <Pestanas
+              grupos={deptosPresentes}
+              activo={depActivo}
+              onCambiar={setDepartamento}
+              conteos={conteoPorDep}
+            />
+          ) : (
             <span className="text-[12px] text-[var(--mk-muted)]">
               Mostrando <strong className="text-[var(--mk-ink)]">{displayedProducts.length}</strong> de{' '}
               <strong className="text-[var(--mk-ink)]">{filteredProducts.length}</strong>
@@ -331,7 +391,7 @@ const Shop = () => {
                 </button>
               )}
             </span>
-          }
+          )}
         />
       </div>
 
@@ -371,17 +431,38 @@ const Shop = () => {
             Ir al panel de control
           </button>
         </div>
+      ) : filteredProducts.length > 0 && !depActivo ? (
+        // Buscando: un bloque por departamento, nunca una grilla mezclada.
+        <div className="space-y-10">
+          {ORDEN_DEPARTAMENTOS.map(d => {
+            const suyos = filteredProducts.filter(p => departamentoDe(p.type) === d);
+            if (!suyos.length) return null;
+            return (
+              <section key={d}>
+                <h3 className="mb-4 flex items-baseline gap-2 text-[17px] font-extrabold text-[var(--tech-tinta)]">
+                  {DEPARTAMENTOS[d].nombre}
+                  <span className="text-[12px] font-semibold text-[var(--tech-gris)]">{suyos.length}</span>
+                </h3>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-5 lg:grid-cols-4 xl:grid-cols-5">
+                  {suyos.map((product) => (
+                    <ProductCard key={product.id} product={product} slug={slug} mostrarTipo={mostrarTipo} />
+                  ))}
+                </div>
+              </section>
+            );
+          })}
+        </div>
       ) : filteredProducts.length > 0 ? (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-5 lg:grid-cols-4 xl:grid-cols-5">
             {displayedProducts.map((product) => (
-              <ProductCard key={product.id} product={product} slug={slug} mostrarTipo={catalogoMixto} />
+              <ProductCard key={product.id} product={product} slug={slug} mostrarTipo={mostrarTipo} />
             ))}
           </div>
           {filteredProducts.length > visibleCount && (
             <div className="flex justify-center mt-10">
               <button
-                onClick={() => setVisibleCount(prev => prev + 12)}
+                onClick={() => setVisibleCount(prev => prev + 20)}
                 className="inline-flex items-center gap-2 h-12 px-8 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-[var(--store-primary)]/50 hover:text-[var(--store-primary)] transition-all"
               >
                 Cargar más productos ({filteredProducts.length - visibleCount} restantes)
@@ -398,6 +479,8 @@ const Shop = () => {
           <p className="text-sm text-gray-500">Prueba con otros filtros o términos de búsqueda.</p>
         </div>
       )}
+
+      {esPortada && <NovedadesWhatsApp storeName={config.storeName || 'Tienda'} whatsappPhone={config.whatsappPhone} />}
     </div>
   );
 };

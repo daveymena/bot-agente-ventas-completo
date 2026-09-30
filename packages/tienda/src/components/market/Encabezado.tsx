@@ -1,38 +1,31 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
+import { DEPARTAMENTOS, ORDEN_DEPARTAMENTOS, departamentoDe } from '../../lib/departamentos';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ChevronDown, Heart, LayoutDashboard, Menu, MessageCircle, Pencil,
-  Search, ShoppingCart, Store, X,
+  Search, ShoppingBag, ShoppingCart, Truck, User, X, Zap,
 } from 'lucide-react';
 
 /**
  * ============================================================
- * EL ENCABEZADO DE MARKET — TRES PISOS
+ * EL ENCABEZADO — DOS PISOS, COMO LA MAQUETA TECH
  * ============================================================
  *
- * La plantilla que pidió el dueño no tiene "un header": tiene tres franjas
- * apiladas, y es lo que la hace leer como una tienda grande en vez de como una
- * landing.
+ *   1. Blanco: logo · buscador píldora ancho · ayuda, deseados y carrito.
+ *   2. Navegación: botón violeta "Todas las categorías" (mismo ancho que la
+ *      tarjeta de categorías del hero), enlaces, y a la derecha lo que la
+ *      tienda de verdad ofrece en la entrega.
  *
- *   1. Barra superior gris, letra chica: contacto y accesos de servicio.
- *   2. Encabezado blanco: logo · BUSCADOR ANCHO · resumen del carrito.
- *   3. Navegación oscura: bloque de color "Todas las categorías" a la
- *      izquierda, enlaces al centro, teléfono a la derecha.
+ * La barra gris de arriba del estilo Market se quitó: la maqueta no la
+ * tiene y su contenido (WhatsApp, deseados, carrito) ya está en el piso 1.
  *
- * ── El buscador es la diferencia real, no un detalle ─────────────────────
+ * El buscador vive acá, o sea en TODAS las páginas: quien entra por el
+ * enlace de un producto (el que manda el bot) tiene que poder buscar otra
+ * cosa sin volver atrás.
  *
- * En el encabezado anterior el buscador NO estaba: vivía dentro del catálogo,
- * más abajo. Quien entraba por el enlace de un producto (que es el caso normal
- * en este sistema: es el enlace que manda el bot por WhatsApp) no tenía forma
- * de buscar otra cosa sin volver atrás. En Market el buscador es la pieza
- * central del encabezado y está en TODAS las páginas, y así queda acá.
- *
- * ── Lo que no se copia del template ──────────────────────────────────────
- *
- * Market muestra "Mi cuenta", "Comparar" y un selector de moneda/idioma. Acá
- * no hay login de cliente, no hay comparador y la moneda ya se resuelve sola
- * por el país del visitante (ver lib/moneda.ts). Poner los tres como adorno
- * daría tres enlaces que no hacen nada, que es peor que no tenerlos.
+ * Lo que no se copia: "Login / Register" (no hay cuentas de cliente) y
+ * "Envío gratis sobre $50" (no existe esa regla). Poner adornos que no
+ * hacen nada es peor que no tenerlos.
  */
 
 export interface CategoriaDelMenu {
@@ -40,6 +33,8 @@ export interface CategoriaDelMenu {
   key: string;
   name: string;
   count: number;
+  /** physical | digital | servicio: decide en qué departamento se lista. */
+  tipo?: string;
 }
 
 interface Props {
@@ -51,11 +46,13 @@ interface Props {
   wishlistCount: number;
   isOwner: boolean;
   categorias: CategoriaDelMenu[];
+  /** Si vende algo físico: decide si se promete envío o entrega inmediata. */
+  hayFisicos?: boolean;
 }
 
 export default function Encabezado({
   base, storeName, logoUrl, whatsappPhone,
-  cartCount, wishlistCount, isOwner, categorias,
+  cartCount, wishlistCount, isOwner, categorias, hayFisicos = false,
 }: Props) {
   const navigate = useNavigate();
   const [termino, setTermino] = useState('');
@@ -103,207 +100,183 @@ export default function Encabezado({
     navigate(`${base}?cat=${encodeURIComponent(key)}#catalogo`);
   };
 
+  // Las categorías agrupadas por departamento: en el menú un curso y un
+  // producto físico no quedan en la misma lista (ver lib/departamentos.ts).
+  const grupos = ORDEN_DEPARTAMENTOS
+    .map((dep) => ({ dep, cats: categorias.filter((c) => departamentoDe(c.tipo) === dep) }))
+    .filter((g) => g.cats.length > 0);
+  const envio = hayFisicos
+    ? { Icono: Truck, titulo: 'Envío a todo el país', bajada: 'Pago contra entrega' }
+    : { Icono: Zap, titulo: 'Entrega inmediata', bajada: 'Productos digitales' };
+  const contenedor = 'mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8';
+  const enlaceNav = 'flex h-full items-center px-4 text-[13px] font-semibold text-[var(--tech-tinta)] transition-colors hover:text-[var(--tech-violeta)]';
+
   return (
-    <header className="sticky top-0 z-50 bg-white shadow-[0_1px_12px_rgba(76,29,149,0.06)]">
-      {/* ── 1. BARRA SUPERIOR ─────────────────────────────────────────── */}
-      <div className="hidden md:block bg-[var(--mk-topbar)] border-b border-[var(--mk-border)]">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-9 flex items-center justify-between text-[12px] text-[var(--mk-muted)]">
-          <div className="flex items-center gap-5">
-            {/* Solo se muestra el contacto que EXISTE. Una dirección o un
-                horario inventados para "verse profesional" es justo lo que
-                hace que una tienda se lea como plantilla sin terminar. */}
-            {waHref ? (
-              <a href={waHref} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 hover:text-[var(--store-primary)] transition-colors">
-                <MessageCircle className="w-3.5 h-3.5" /> +{wa}
-              </a>
+    <header className="sticky top-0 z-50 bg-white shadow-[0_1px_0_rgba(15,23,42,0.06)]">
+      {/* ── 1. LOGO · BUSCADOR · AYUDA / DESEADOS / CARRITO ───────────── */}
+      <div className={`${contenedor} py-3 md:py-5`}>
+        <div className="flex items-center gap-4 md:gap-8">
+          <Link to={base} className="flex shrink-0 items-center gap-2.5">
+            {logoUrl ? (
+              <img src={logoUrl} alt={storeName} className="h-9 w-auto max-w-[160px] object-contain md:h-11" />
             ) : (
-              <span>Bienvenido a {storeName}</span>
-            )}
-          </div>
-          <div className="flex items-center gap-5">
-            <Link to={`${base}/wishlist`} className="hover:text-[var(--store-primary)] transition-colors">Mi lista de deseos</Link>
-            <Link to={`${base}/carrito`} className="hover:text-[var(--store-primary)] transition-colors">Carrito</Link>
-            {isOwner && (
-              <>
-                <Link to="/editor" className="flex items-center gap-1 font-semibold text-[var(--store-primary)]">
-                  <Pencil className="w-3 h-3" /> Editar
-                </Link>
-                <Link to="/admin" className="flex items-center gap-1 font-semibold text-[var(--store-primary)]">
-                  <LayoutDashboard className="w-3 h-3" /> Panel
-                </Link>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ── 2. ENCABEZADO: LOGO · BUSCADOR · CARRITO ──────────────────── */}
-      <div className="border-b border-[var(--mk-border)]">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-3 md:py-5">
-          <div className="flex items-center gap-4 md:gap-8">
-            <Link to={base} className="flex items-center gap-2.5 shrink-0">
-              {logoUrl ? (
-                <img src={logoUrl} alt={storeName} className="h-9 md:h-11 w-auto max-w-[160px] object-contain" />
-              ) : (
-                <span className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--store-primary)]">
-                  <Store className="w-5 h-5 text-[var(--store-on-primary)]" />
-                </span>
-              )}
-              <span className="text-lg md:text-2xl font-black tracking-tight text-[var(--mk-ink)] leading-none max-w-[9ch] md:max-w-none truncate md:whitespace-normal">
-                {storeName}
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--tech-violeta)] md:h-11 md:w-11">
+                <ShoppingBag className="h-5 w-5 text-white" />
               </span>
-            </Link>
+            )}
+            <span className="max-w-[10ch] truncate text-lg font-extrabold leading-none tracking-tight text-[var(--tech-tinta)] md:max-w-[16ch] md:text-[22px]">
+              {storeName}
+            </span>
+          </Link>
 
-            {/* El buscador: píldora redondeada con botón circular violeta.
-                El selector de categoría se conserva (filtra de verdad); en el
-                diseño de referencia no existe, pero quitarlo sería perder
-                función por estética. */}
-            <form onSubmit={buscar} className="hidden h-11 max-w-2xl flex-1 items-center gap-1 rounded-full border border-violet-200 bg-violet-50/60 py-1 pl-1 pr-1 md:flex">
-              {categorias.length > 0 && (
-                <select
-                  value={categoria}
-                  onChange={(e) => setCategoria(e.target.value)}
-                  aria-label="Categoría"
-                  className="h-full max-w-[150px] rounded-full bg-transparent px-3 text-[13px] font-semibold text-[var(--tech-tinta)] outline-none"
-                >
-                  <option value="all">Todas</option>
-                  {categorias.map((c) => (
-                    <option key={c.key} value={c.key}>{c.name}</option>
-                  ))}
-                </select>
-              )}
-              <input
-                value={termino}
-                onChange={(e) => setTermino(e.target.value)}
-                placeholder="Buscá productos..."
-                className="h-full min-w-0 flex-1 bg-transparent px-3 text-sm text-[var(--tech-tinta)] outline-none placeholder:text-[var(--tech-gris)]"
-              />
-              <button
-                type="submit"
-                aria-label="Buscar"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--tech-violeta)] text-white transition-colors hover:bg-[var(--tech-violeta-hover)]"
+          {/* Buscador: píldora con botón circular violeta. El selector de
+              categoría se conserva (filtra de verdad) aunque la maqueta no
+              lo tenga: quitarlo sería perder función por estética. */}
+          <form onSubmit={buscar} className="mx-auto hidden h-11 max-w-[560px] flex-1 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 py-1 pl-1 pr-1 transition-colors focus-within:border-violet-300 focus-within:bg-white md:flex">
+            {categorias.length > 0 && (
+              <select
+                value={categoria}
+                onChange={(e) => setCategoria(e.target.value)}
+                aria-label="Categoría"
+                className="h-full max-w-[140px] rounded-full bg-transparent px-3 text-[12px] font-semibold text-[var(--tech-tinta)] outline-none"
               >
-                <Search className="h-[18px] w-[18px]" />
-              </button>
-            </form>
-
-            <div className="ml-auto flex items-center gap-2 md:gap-3">
-              <Link
-                to={`${base}/wishlist`}
-                aria-label="Lista de deseos"
-                className="relative hidden h-10 w-10 items-center justify-center rounded-full border border-violet-200 text-[var(--tech-tinta)] transition-colors hover:border-[var(--tech-violeta)] hover:text-[var(--tech-violeta)] md:flex"
-              >
-                <Heart className="h-[18px] w-[18px]" />
-                {wishlistCount > 0 && (
-                  <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[var(--tech-violeta)] px-1 text-[10px] font-bold text-white">
-                    {wishlistCount}
-                  </span>
-                )}
-              </Link>
-
-              <Link to={`${base}/carrito`} className="group flex items-center gap-2.5">
-                <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-[var(--tech-violeta)] text-white">
-                  <ShoppingCart className="h-[18px] w-[18px]" />
-                  {cartCount > 0 && (
-                    <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[var(--tech-marino)] px-1 text-[10px] font-bold text-white">
-                      {cartCount}
-                    </span>
-                  )}
-                </span>
-                <span className="hidden leading-tight lg:block">
-                  <span className="block text-[11px] text-[var(--tech-gris)]">Mi carrito</span>
-                  <span className="block text-[13px] font-bold text-[var(--tech-tinta)] transition-colors group-hover:text-[var(--tech-violeta)]">
-                    {cartCount} {cartCount === 1 ? 'artículo' : 'artículos'}
-                  </span>
-                </span>
-              </Link>
-
-              <button
-                onClick={() => setMenuMovil((v) => !v)}
-                aria-label="Menú"
-                className="md:hidden p-2 text-[var(--mk-ink)]"
-              >
-                {menuMovil ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-              </button>
-            </div>
-          </div>
-
-              {/* Buscador en móvil: fila propia, siempre visible. */}
-          <form onSubmit={buscar} className="mt-3 flex h-11 items-center gap-1 rounded-full border border-violet-200 bg-violet-50/60 py-1 pl-4 pr-1 md:hidden">
+                <option value="all">Todas</option>
+                {categorias.map((c) => (
+                  <option key={c.key} value={c.key}>{c.name}</option>
+                ))}
+              </select>
+            )}
             <input
               value={termino}
               onChange={(e) => setTermino(e.target.value)}
-              placeholder="Buscá un producto..."
-              className="h-full min-w-0 flex-1 bg-transparent text-sm text-[var(--tech-tinta)] outline-none placeholder:text-[var(--tech-gris)]"
+              placeholder="Busca productos, marcas y más..."
+              className="h-full min-w-0 flex-1 bg-transparent px-3 text-[13px] text-[var(--tech-tinta)] outline-none placeholder:text-slate-400"
             />
-            <button type="submit" aria-label="Buscar" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--tech-violeta)] text-white">
-              <Search className="h-[18px] w-[18px]" />
+            <button type="submit" aria-label="Buscar"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--tech-violeta)] text-white transition-colors hover:bg-[var(--tech-violeta-hover)]">
+              <Search className="h-[17px] w-[17px]" />
             </button>
           </form>
+
+          <div className="ml-auto flex items-center gap-1 md:ml-0 md:gap-2">
+            {/* "Login / Register" de la maqueta: acá no hay cuentas de
+                cliente, así que ese lugar lo ocupa lo que sí existe. */}
+            {isOwner ? (
+              <Link to="/admin" className="mr-2 hidden items-center gap-2 text-[13px] font-semibold text-[var(--tech-tinta)] hover:text-[var(--tech-violeta)] lg:flex">
+                <LayoutDashboard className="h-[18px] w-[18px]" /> Panel
+              </Link>
+            ) : waHref ? (
+              <a href={waHref} target="_blank" rel="noopener noreferrer" className="mr-2 hidden items-center gap-2 text-[13px] font-semibold text-[var(--tech-tinta)] hover:text-[var(--tech-violeta)] lg:flex">
+                <User className="h-[18px] w-[18px]" /> Ayuda
+              </a>
+            ) : null}
+            {isOwner && (
+              <Link to="/editor" aria-label="Editar tienda" className="hidden h-10 w-10 items-center justify-center rounded-full text-[var(--tech-tinta)] hover:text-[var(--tech-violeta)] md:flex">
+                <Pencil className="h-[18px] w-[18px]" />
+              </Link>
+            )}
+            <Link to={`${base}/wishlist`} aria-label="Lista de deseos"
+              className="relative hidden h-10 w-10 items-center justify-center rounded-full text-[var(--tech-tinta)] transition-colors hover:text-[var(--tech-violeta)] md:flex">
+              <Heart className="h-5 w-5" />
+              {wishlistCount > 0 && (
+                <span className="absolute right-0.5 top-0.5 flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-[var(--tech-violeta)] px-1 text-[10px] font-bold text-white">
+                  {wishlistCount}
+                </span>
+              )}
+            </Link>
+            <Link to={`${base}/carrito`} aria-label="Carrito"
+              className="relative flex h-10 w-10 items-center justify-center rounded-full text-[var(--tech-tinta)] transition-colors hover:text-[var(--tech-violeta)]">
+              <ShoppingCart className="h-5 w-5" />
+              {cartCount > 0 && (
+                <span className="absolute right-0.5 top-0.5 flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-[var(--tech-violeta)] px-1 text-[10px] font-bold text-white">
+                  {cartCount}
+                </span>
+              )}
+            </Link>
+            <button onClick={() => setMenuMovil((v) => !v)} aria-label="Menú" className="p-2 text-[var(--tech-tinta)] md:hidden">
+              {menuMovil ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+            </button>
+          </div>
         </div>
+
+        {/* Buscador en móvil: fila propia, siempre visible. */}
+        <form onSubmit={buscar} className="mt-3 flex h-11 items-center gap-1 rounded-full border border-slate-200 bg-slate-50 py-1 pl-4 pr-1 md:hidden">
+          <input
+            value={termino}
+            onChange={(e) => setTermino(e.target.value)}
+            placeholder="Busca un producto..."
+            className="h-full min-w-0 flex-1 bg-transparent text-sm text-[var(--tech-tinta)] outline-none placeholder:text-slate-400"
+          />
+          <button type="submit" aria-label="Buscar" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--tech-violeta)] text-white">
+            <Search className="h-[18px] w-[18px]" />
+          </button>
+        </form>
       </div>
 
-      {/* ── 3. NAVEGACIÓN CLARA ─────────────────────────────────────────
-          En el diseño tech esta fila es blanca: píldora violeta de
-          categorías a la izquierda, enlaces al centro, contacto a la
-          derecha. Se conserva la misma lógica (dropdown real, mismas
-          rutas). */}
-      <div className="hidden border-t border-violet-100 md:block">
-        <div className="mx-auto flex h-[58px] max-w-6xl items-center gap-2 px-4 sm:px-6 lg:px-8">
-          {/* El bloque de categorías: la firma de Market. Si la tienda
-              todavía no tiene categorías cargadas no se dibuja, porque un
-              menú que se abre vacío se lee como una tienda rota. */}
+      {/* ── 2. NAVEGACIÓN: botón de categorías · enlaces · envío ────────
+          El botón mide lo mismo que la tarjeta de categorías del hero
+          (264px) para que queden alineados, como en la maqueta. */}
+      <div className="hidden border-t border-slate-100 md:block">
+        <div className={`${contenedor} flex h-[60px] items-center gap-6`}>
           {categorias.length > 0 && (
-            <div ref={contenedorLista} className="relative h-full shrink-0">
+            <div ref={contenedorLista} className="relative shrink-0">
               <button
                 onClick={() => setListaAbierta((v) => !v)}
                 aria-expanded={listaAbierta}
-                className="flex h-10 items-center gap-2.5 self-center rounded-full bg-[var(--tech-violeta)] px-5 text-[13px] font-bold text-white transition-colors hover:bg-[var(--tech-violeta-hover)]"
+                className="flex h-11 w-[264px] items-center gap-3 rounded-xl bg-[var(--tech-violeta)] px-4 text-[13px] font-bold text-white transition-colors hover:bg-[var(--tech-violeta-hover)]"
               >
-                <Menu className="h-4 w-4" />
-                Todas las categorías
+                <Menu className="h-[18px] w-[18px]" />
+                <span className="flex-1 text-left">Todas las categorías</span>
                 <ChevronDown className={`h-4 w-4 transition-transform ${listaAbierta ? 'rotate-180' : ''}`} />
               </button>
               {listaAbierta && (
-                <div className="absolute left-0 top-full z-50 mt-1 w-[260px] overflow-y-auto rounded-2xl border border-violet-100 bg-white py-2 shadow-xl shadow-violet-900/10 max-h-[70vh]">
-                  {categorias.map((c) => (
-                    <button
-                      key={c.key}
-                      onClick={() => irACategoria(c.key)}
-                      className="flex w-full items-center justify-between px-5 py-2.5 text-left text-[13px] font-medium text-[var(--tech-tinta)] transition-colors hover:bg-violet-50 hover:text-[var(--tech-violeta)]"
-                    >
-                      <span className="truncate">{c.name}</span>
-                      <span className="ml-2 shrink-0 text-[11px] text-[var(--tech-gris)]">{c.count}</span>
-                    </button>
+                <div className="absolute left-0 top-full z-50 mt-2 max-h-[70vh] w-[264px] overflow-y-auto rounded-2xl border border-slate-200 bg-white py-2 shadow-xl shadow-slate-900/10">
+                  {grupos.map((g, gi) => (
+                    <Fragment key={g.dep}>
+                      {grupos.length > 1 && (
+                        <p className={`px-5 pb-1 text-[10px] font-bold uppercase tracking-[0.14em] text-[var(--tech-violeta)] ${gi > 0 ? 'mt-1 border-t border-slate-100 pt-3' : 'pt-2'}`}>
+                          {DEPARTAMENTOS[g.dep].nombre}
+                        </p>
+                      )}
+                      {g.cats.map((c) => (
+                        <button
+                          key={c.key}
+                          onClick={() => irACategoria(c.key)}
+                          className="flex w-full items-center justify-between px-5 py-2.5 text-left text-[13px] font-medium text-[var(--tech-tinta)] transition-colors hover:bg-violet-50 hover:text-[var(--tech-violeta)]"
+                        >
+                          <span className="truncate">{c.name}</span>
+                          <span className="ml-2 shrink-0 text-[11px] text-[var(--tech-gris)]">{c.count}</span>
+                        </button>
+                      ))}
+                    </Fragment>
                   ))}
                 </div>
               )}
             </div>
           )}
 
-          <nav className="flex items-center gap-1">
-            <Link to={base} className="flex h-full items-center px-4 text-[13px] font-bold text-[var(--tech-tinta)] transition-colors hover:text-[var(--tech-violeta)]">
-              Inicio
-            </Link>
-            <Link to={`${base}?cat=all#catalogo`} className="flex h-full items-center px-4 text-[13px] font-bold text-[var(--tech-tinta)] transition-colors hover:text-[var(--tech-violeta)]">
-              Tienda
-            </Link>
-            <Link to={`${base}/wishlist`} className="flex h-full items-center px-4 text-[13px] font-bold text-[var(--tech-tinta)] transition-colors hover:text-[var(--tech-violeta)]">
-              Deseados
-            </Link>
+          <nav className="flex h-full items-center">
+            <Link to={base} className={`${enlaceNav} text-[var(--tech-violeta)]`}>Inicio</Link>
+            {grupos.length > 1 ? (
+              grupos.map((g) => (
+                <Link key={g.dep} to={`${base}?dep=${g.dep}#catalogo`} className={enlaceNav}>{DEPARTAMENTOS[g.dep].corto}</Link>
+              ))
+            ) : (
+              <Link to={`${base}?cat=all#catalogo`} className={enlaceNav}>Tienda</Link>
+            )}
+            <Link to={`${base}/wishlist`} className={enlaceNav}>Deseados</Link>
+            {waHref && (
+              <a href={waHref} target="_blank" rel="noopener noreferrer" className={enlaceNav}>Contacto</a>
+            )}
           </nav>
 
-          {waHref && (
-            <a
-              href={waHref}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="ml-auto flex items-center gap-2 text-[var(--tech-tinta)] transition-colors hover:text-[var(--tech-violeta)]"
-            >
-              <MessageCircle className="h-4 w-4 text-[#25D366]" />
-              <span className="text-[13px] font-bold">+{wa}</span>
-            </a>
-          )}
+          <div className="ml-auto hidden items-center gap-2.5 lg:flex">
+            <envio.Icono className="h-6 w-6 text-[var(--tech-tinta)]" />
+            <span className="leading-tight">
+              <span className="block text-[12px] font-bold text-[var(--tech-tinta)]">{envio.titulo}</span>
+              <span className="block text-[11px] text-[var(--tech-gris)]">{envio.bajada}</span>
+            </span>
+          </div>
         </div>
       </div>
 
@@ -316,21 +289,23 @@ export default function Encabezado({
           {waHref && (
             <a href={waHref} target="_blank" rel="noopener noreferrer" onClick={() => setMenuMovil(false)}
               className="flex items-center gap-2 px-5 py-3 text-sm font-semibold text-[var(--mk-ink)] border-b border-[var(--mk-border)]">
-              <MessageCircle className="w-4 h-4 text-[#25D366]" /> Escribinos por WhatsApp
+              <MessageCircle className="w-4 h-4 text-[#25D366]" /> Escríbenos por WhatsApp
             </a>
           )}
-          {categorias.length > 0 && (
-            <>
-              <p className="px-5 pt-4 pb-2 text-[11px] font-bold uppercase tracking-wider text-[var(--mk-muted)]">Categorías</p>
-              {categorias.map((c) => (
+          {grupos.map((g) => (
+            <Fragment key={g.dep}>
+              <p className="px-5 pt-4 pb-2 text-[11px] font-bold uppercase tracking-wider text-[var(--mk-muted)]">
+                {grupos.length > 1 ? DEPARTAMENTOS[g.dep].nombre : 'Categorías'}
+              </p>
+              {g.cats.map((c) => (
                 <button key={c.key} onClick={() => irACategoria(c.key)}
                   className="w-full flex items-center justify-between px-5 py-3 text-sm text-[var(--mk-ink)] border-b border-[var(--mk-border)] text-left">
                   <span className="truncate">{c.name}</span>
                   <span className="text-[11px] text-[var(--mk-muted)] ml-2 shrink-0">{c.count}</span>
                 </button>
               ))}
-            </>
-          )}
+            </Fragment>
+          ))}
           {isOwner && (
             <>
               <Link to="/editor" onClick={() => setMenuMovil(false)} className="flex items-center gap-2 px-5 py-3 text-sm font-semibold text-[var(--store-primary)] border-b border-[var(--mk-border)]">
