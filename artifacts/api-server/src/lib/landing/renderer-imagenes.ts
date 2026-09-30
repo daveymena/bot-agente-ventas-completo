@@ -116,9 +116,19 @@ export function renderizarLandingImagenes(opts: OpcionesDeRender & { ofertas?: O
 
   // Fotos reales del producto: cada panel compuesto usa una distinta mientras
   // alcancen; la que eligió el dueño para el panel manda.
-  const fotos = [...new Set([producto?.imageUrl, ...(producto?.images || [])].map(urlSegura).filter(Boolean))];
-  let siguiente = 0;
-  const fotoPara = (p: PanelImagen) => urlSegura(p.foto) || (["portada", "solucion", "beneficios", "para-quien", "cierre"].includes(p.clave) && fotos.length ? fotos[siguiente++ % fotos.length] : "");
+  // Sin repetir: si el producto ya tiene sus fotos filtradas por contenido
+  // (metadata.fotosUnicas, huella visual) se usan esas; cada una sale UNA vez
+  // y, cuando se acaban, el panel va sin foto (antes volvía a empezar con
+  // `% fotos.length` y la misma foto salía dos o tres veces).
+  let meta: any = (producto as any)?.metadata;
+  try { if (typeof meta === "string") meta = JSON.parse(meta); } catch { meta = null; }
+  const filtradas: string[] = Array.isArray(meta?.fotosUnicas?.urls) ? meta.fotosUnicas.urls : [];
+  const equivalentes: Record<string, string> = meta?.fotosUnicas?.equivalentes || {};
+  const canonica = (u: string) => equivalentes[u] || u;
+  const fotos = [...new Set((filtradas.length ? filtradas : [producto?.imageUrl, ...(producto?.images || [])]).map((u) => urlSegura(canonica(String(u || "")))).filter(Boolean))];
+  const usadas = new Set(paneles.map((p) => urlSegura(canonica(String(p.foto || "")))).filter(Boolean));
+  const libres = fotos.filter((f) => !usadas.has(f));
+  const fotoPara = (p: PanelImagen) => urlSegura(p.foto) || (["portada", "solucion", "beneficios", "para-quien", "cierre"].includes(p.clave) ? libres.shift() || "" : "");
 
   const cuerpo = paneles.map((p) => {
     const subida = urlSegura(p.imagen);
