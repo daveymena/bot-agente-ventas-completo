@@ -3,6 +3,7 @@ import crypto from "crypto";
 import {
   diagnosticarValorTokenDropi,
   mensajeTokenDropi,
+  explicarRechazo,
 } from "../dropi-directo";
 
 /**
@@ -60,5 +61,26 @@ describe("diagnóstico del token de Dropi guardado", () => {
     const ileg = mensajeTokenDropi({ estado: "ilegible" });
     expect(ileg).toContain("Mis Integraciones");
     expect(ileg).not.toContain("primero dropi_conectar");
+  });
+});
+
+describe("token rechazado por Dropi: la guía dice lo correcto", () => {
+  // JWT falso con integration_url (tipo WooCommerce) e ip vacía: el caso del
+  // token que "debería" abrir y no abre. Verificado en vivo (29-09-2026): un
+  // WooCommerce válido SÍ abre directo, así que el diagnóstico es REVOCADO,
+  // no "el directo es imposible".
+  const payload = { integration_url: "https://tienda.test/", ip_url: [], exp: 4929000868 };
+  const falso = "aaa." + Buffer.from(JSON.stringify(payload)).toString("base64") + ".bbb";
+
+  it("Access denied sin IP restringida → revocado, con pasos", async () => {
+    const texto = await explicarRechazo(falso, "Access denied", "161.97.182.95");
+    expect(texto).toContain("REVOCADO");
+    expect(texto).toContain("Mis Integraciones");
+  });
+
+  it("token de sesión del panel → lo dice directo", async () => {
+    const sesion = "aaa." + Buffer.from(JSON.stringify({})).toString("base64") + ".bbb";
+    const texto = await explicarRechazo(sesion, "not issued to this api", "161.97.182.95");
+    expect(texto).toContain("SESIÓN");
   });
 });

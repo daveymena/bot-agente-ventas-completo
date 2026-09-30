@@ -223,7 +223,7 @@ export async function ipDeSalida(): Promise<string | null> {
  * todo lo que sale de nuestro servidor es "Access denied". El token que sí
  * funciona (19-09) tiene la IP vacía.
  */
-async function explicarRechazo(token: string, error: string, ipQueVioDropi?: string | null): Promise<string> {
+export async function explicarRechazo(token: string, error: string, ipQueVioDropi?: string | null): Promise<string> {
   let payload: any = null;
   try { payload = JSON.parse(Buffer.from(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf8")); } catch { /* no es JWT */ }
   if (!payload) return `Dropi rechazó el token (${error}). Eso no parece un token de integración: copialo de Dropi → Mis Integraciones.`;
@@ -243,7 +243,9 @@ async function explicarRechazo(token: string, error: string, ipQueVioDropi?: str
       `Esa lista la maneja Dropi, no aparece en el formulario: probá crear la integración de tipo "Chatbot Agents" en vez de WooCommerce, o pedile a soporte de Dropi que autorice la IP ${nuestra || "del servidor"} para esa integración.`;
   }
   return `Dropi rechazó el token (${error}). Integración ${tipo}, IP autorizadas: ${ips.join(", ") || "ninguna"}, Dropi nos vio desde ${nuestra || "?"}. ` +
-    `Si es de tipo WooCommerce, probá crear una de tipo "Chatbot Agents".`;
+    `Verificado (29-09-2026): un token WooCommerce VÁLIDO sí abre el catálogo directo desde este servidor; si este no abre, lo más probable es que esté REVOCADO ` +
+    `(al regenerar en el panel, el anterior muere). Generá uno NUEVO en Dropi → Mis Integraciones, copialo EXACTO (sin cortarlo) y probá de nuevo. ` +
+    `Si el nuevo tampoco abre, creá la integración de tipo "Chatbot Agents" en vez de WooCommerce.`;
 }
 
 /** ¿El token sirve? Pide un producto del catálogo. */
