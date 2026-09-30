@@ -873,7 +873,9 @@ router.post("/strategist/draft-all", async (req, res, next) => {
 
 router.get("/strategist/strategy/:productId", async (req, res, next) => {
   try {
-    const [product] = await db.select().from(products).where(eq(products.id, parseInt(req.params.productId))).limit(1);
+    // Solo productos del negocio que pregunta (antes: cualquiera, por id).
+    const tenantId = Number((req as any).tenant?.id) || 0;
+    const [product] = await db.select().from(products).where(and(eq(products.id, parseInt(req.params.productId)), eq(products.tenantId, tenantId))).limit(1);
     if (!product) return res.status(404).json({ error: "Producto no encontrado" });
     const strategy = adStrategist.getStrategyForProduct(product);
     const copy = await adStrategist.generateAdCopy(strategy, product);

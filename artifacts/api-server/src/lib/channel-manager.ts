@@ -29,7 +29,13 @@ export class ChannelManager {
   private pollingIntervals: Map<string, NodeJS.Timeout> = new Map();
 
   async processMessage(msg: IncomingMessage): Promise<string | null> {
-    const tenantId = msg.tenantId || 1;
+    // Sin negocio no se responde por ningún canal: antes caía al negocio 1 y
+    // un mensaje sin dueño salía por el WhatsApp del dueño de la plataforma.
+    const tenantId = Number(msg.tenantId) || 0;
+    if (!tenantId) {
+      logger.warn({ channel: msg.channel }, "[ChannelManager] mensaje sin negocio: no se responde");
+      return null;
+    }
 
     switch (msg.channel) {
       case "whatsapp": {

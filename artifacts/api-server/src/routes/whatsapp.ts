@@ -12,9 +12,17 @@ import path from "node:path";
 
 const router: IRouter = Router();
 
-// Helper: extrae tenantId del request o usa el default (1)
+// Sin negocio en la sesión no se opera ningún WhatsApp (29-09-2026). Antes el
+// helper caía al negocio 1 -- el WhatsApp del dueño de la plataforma --; hoy
+// resolveTenant ya lo impide, pero este router controla sesiones de WhatsApp
+// (resetear, desconectar, pairing) y no debe depender de eso: fail-closed.
+router.use((req: any, res, next) => {
+  if (!req.tenant?.id && !req.user?.tenantId) return res.status(401).json({ message: "No session found. Please login." });
+  return next();
+});
+
 function tenantIdFromReq(req: any): number {
-  return req.tenant?.id ?? req.user?.tenantId ?? 1;
+  return Number(req.tenant?.id ?? req.user?.tenantId);
 }
 
 router.get("/status", (req, res) => {

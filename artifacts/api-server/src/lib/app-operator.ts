@@ -8384,8 +8384,13 @@ ${r.texto}`, data: r.grupos };
       const arquetiposComparacion = ["NORMAL", "DESCONFIADO", "PRECIO_SENSIBLE"].map(k => obtenerPerfil(k));
 
       // Correr simulaciones con AMBAS versiones
-      const [producto] = await db.select().from(products).where(eq(products.id, args.productoId || 1));
-      const productoId = producto?.id || 1;
+      // Solo productos de ESTE negocio (antes: el id pedido de cualquiera, o el
+      // producto 1 -- del dueño de la plataforma -- si no se pasaba ninguno).
+      const [producto] = args.productoId
+        ? await db.select().from(products).where(and(eq(products.id, Number(args.productoId)), eq(products.tenantId, ctx.tenantId))).limit(1)
+        : await db.select().from(products).where(eq(products.tenantId, ctx.tenantId)).limit(1);
+      if (!producto) return { ok: false, summary: "No hay un producto de este negocio para simular." };
+      const productoId = producto.id;
 
       // Simulaciones con versión ACTUAL
       const resultadosActual = await correrMultiplesSimulaciones({

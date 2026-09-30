@@ -227,7 +227,8 @@ export class ArchitectTools {
       features: data.features || [],
       highlight: data.highlight || "",
       isActive: data.isActive !== false,
-      tenantId: data.tenantId || 1,
+      // Sin negocio explícito no se crea (antes: al negocio 1, el del dueño).
+      tenantId: (() => { const t = Number(data.tenantId); if (!t) throw new Error("createProduct: falta tenantId"); return t; })(),
     } as any).returning();
 
     return { id: newProduct.id, name: newProduct.name, kind: newProduct.kind };

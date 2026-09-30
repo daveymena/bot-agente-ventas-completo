@@ -645,23 +645,28 @@ export function resolveTenant() {
         }
       }
 
-      // Method 2: Check for tenant in subdomain (e.g., tenant1.app.com)
-      if (!tenant) {
-        const host = req.headers.host;
-        if (host && host.includes('.')) {
-          const subdomain = host.split('.')[0];
-          if (subdomain && subdomain !== 'www' && subdomain !== 'api') {
-            tenant = await tenantManager.getTenantBySlug(subdomain);
-          }
+      // Method 2/3: subdominio o dominio propio -- tampoco autentican.
+      //
+      // Agujero encontrado el 29-09-2026: estos métodos corrían ANTES de la
+      // sesión y sin pedirla. El host `ventasproia.com` da el "subdominio"
+      // `ventasproia`: si un cliente se registraba con ese slug (sale del
+      // nombre del negocio), toda petición a la API -- anónima o de OTRO
+      // usuario logueado -- pasaba a ser de ese negocio (productos,
+      // conversaciones con teléfonos, pagos). Lo mismo con un dominio propio.
+      // Igual que el header de arriba: el host solo ELIGE entre los negocios
+      // a los que la sesión ya tiene derecho. Las tiendas públicas no pasan
+      // por acá (isPublicRoute) y resuelven su negocio por slug.
+      if (!tenant && sesion) {
+        const host = String(req.headers.host || "");
+        let porHost: TenantContext | null = null;
+        if (host.includes(".")) {
+          const subdomain = host.split(".")[0];
+          if (subdomain && subdomain !== "www" && subdomain !== "api") porHost = await tenantManager.getTenantBySlug(subdomain);
         }
-      }
-
-      // Method 3: Check for custom domain
-      if (!tenant) {
-        const host = req.headers.host;
-        if (host) {
-          tenant = await tenantManager.getTenantByDomain(host);
-        }
+        if (!porHost && host) porHost = await tenantManager.getTenantByDomain(host);
+        // Solo si es el MISMO negocio de la sesión: el host no cambia a nadie
+        // de negocio sin que lo pida (ni al admin; él usa x-tenant-slug).
+        if (porHost && porHost.id === sesion.id) tenant = porHost;
       }
 
       // Method 4: Check for session cookie

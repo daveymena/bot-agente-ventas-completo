@@ -602,7 +602,10 @@ const publicRoutes = [
   // arriba. Sin esto, resolveTenant() exigiría una cookie de sesión que
   // OpenCode nunca va a tener.
   "/internal/mcp",
-  "/landing-studio",
+  // "/landing-studio" ya NO es pública (29-09-2026): sin sesión, cualquiera
+  // podía reescribir la landing de cualquier negocio (/design, /chat con otro
+  // landingId) y gastar los proveedores de IA del negocio 1. El panel la
+  // llama desde el mismo dominio, con la cookie de sesión.
 ];
 
 const isPublicRoute = (path: string) => {

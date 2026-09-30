@@ -18,7 +18,7 @@
 import { Router } from "express";
 import { logger } from "../lib/logger";
 import { db, landingPages, products } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { fotosDelProducto, videosDelProducto } from "../lib/fotos-de-producto";
 import { contextoLanding, recordarLanding } from "../lib/landing/memoria";
 import { tokensDe } from "../lib/landing/design-system";
@@ -885,9 +885,17 @@ export async function generarLandingConOpenCode(opts: {
 // ENDPOINTS
 // ═══════════════════════════════════════════════════════════════════════════
 
+// El negocio SIEMPRE sale de la sesión (29-09-2026). Antes el router era
+// público, buscaba productos y landings solo por id y, sin producto, usaba el
+// negocio 1: cualquiera reescribía landings ajenas con los proveedores de IA
+// del dueño. Productos y landings se filtran por este negocio.
+const negocioDe = (req: any): number => Number(req.tenant?.id) || 0;
+
 // ── POST /api/landing-studio/test ──────────────────────────────────────────
 router.post("/test", async (req, res) => {
   try {
+    const tenantId = negocioDe(req);
+    if (!tenantId) return res.status(401).json({ message: "Iniciá sesión" });
     const { message, productId } = req.body as { message?: string; productId?: number };
     if (!message?.trim()) return res.status(400).json({ message: "Falta el mensaje" });
 
@@ -896,14 +904,14 @@ router.post("/test", async (req, res) => {
 
     let product: any = null;
     if (productId) {
-      const rows = await db.select().from(products).where(eq(products.id, productId));
+      const rows = await db.select().from(products).where(and(eq(products.id, productId), eq(products.tenantId, tenantId)));
       product = rows[0] || null;
     }
 
     const tipo = product ? detectarTipo(product) : "digital";
     const paleta = product ? await paletaDelProducto(product) : undefined;
     const pago = product ? await datosDePagoDelProducto(product) : undefined;
-    const memoria = await contextoLanding(product?.tenantId || 1, { productId: product?.id, tipo });
+    const memoria = await contextoLanding(tenantId, { productId: product?.id, tipo });
     let userPrompt = product
       ? buildUserPrompt(product, tipo, null, message, paleta, pago)
       : `INSTRUCCION: ${message}`;
@@ -941,10 +949,12 @@ router.post("/test", async (req, res) => {
 // que la landing publicada refleje el cambio sin regenerar con IA.
 router.post("/design", async (req, res) => {
   try {
+    const tenantId = negocioDe(req);
+    if (!tenantId) return res.status(401).json({ message: "Iniciá sesión" });
     const { landingId, diseno } = req.body as { landingId?: number; diseno?: Diseno };
     if (!landingId) return res.status(400).json({ message: "Falta landingId" });
 
-    const rows = await db.select().from(landingPages).where(eq(landingPages.id, landingId));
+    const rows = await db.select().from(landingPages).where(and(eq(landingPages.id, landingId), eq(landingPages.tenantId, tenantId)));
     const landing = rows[0];
     if (!landing) return res.status(404).json({ message: "Landing no encontrada" });
 
@@ -956,7 +966,7 @@ router.post("/design", async (req, res) => {
     const htmlBase = landing.html || "";
     const htmlFinal = inyectarDisenoEnHtml(htmlBase, nuevo);
 
-    await db.update(landingPages).set({ design: nuevo, html: htmlFinal, updatedAt: new Date() }).where(eq(landingPages.id, landingId));
+    await db.update(landingPages).set({ design: nuevo, html: htmlFinal, updatedAt: new Date() }).where(and(eq(landingPages.id, landingId), eq(landingPages.tenantId, tenantId)));
     return res.json({ ok: true, design: nuevo, html: htmlFinal });
   } catch (e: any) {
     logger.error({ err: e?.message }, "[LandingStudio/design] error");
@@ -967,6 +977,8 @@ router.post("/design", async (req, res) => {
 // ── POST /api/landing-studio/chat ──────────────────────────────────────────
 router.post("/chat", async (req, res) => {
   try {
+    const tenantId = negocioDe(req);
+    if (!tenantId) return res.status(401).json({ message: "Iniciá sesión" });
     const { message, landingId, productId, diseno, familia } = req.body as {
       message?: string; landingId?: number; productId?: number; diseno?: Diseno; familia?: string | null;
     };
@@ -983,7 +995,7 @@ router.post("/chat", async (req, res) => {
     let product: any = null;
     if (productId) {
       try {
-        const rows = await db.select().from(products).where(eq(products.id, productId));
+        const rows = await db.select().from(products).where(and(eq(products.id, productId), eq(products.tenantId, tenantId)));
         product = rows[0] || null;
       } catch (dbErr: any) {
         logger.error({ err: dbErr?.message }, "[LandingStudio] Error consultando producto");
@@ -994,8 +1006,9 @@ router.post("/chat", async (req, res) => {
     let existingLanding: any = null;
     if (landingId) {
       try {
-        const rows = await db.select().from(landingPages).where(eq(landingPages.id, landingId));
+        const rows = await db.select().from(landingPages).where(and(eq(landingPages.id, landingId), eq(landingPages.tenantId, tenantId)));
         existingLanding = rows[0] || null;
+        if (!existingLanding) return res.status(404).json({ message: "Landing no encontrada" });
         existingHtml = existingLanding?.html || null;
       } catch (dbErr: any) {
         logger.error({ err: dbErr?.message }, "[LandingStudio] Error consultando landing");
@@ -1004,7 +1017,7 @@ router.post("/chat", async (req, res) => {
     // Editando una landing sin elegir producto: el producto es el de la landing.
     if (!product && existingLanding?.productId) {
       try {
-        const rows = await db.select().from(products).where(eq(products.id, Number(existingLanding.productId)));
+        const rows = await db.select().from(products).where(and(eq(products.id, Number(existingLanding.productId)), eq(products.tenantId, tenantId)));
         product = rows[0] || null;
       } catch { /* sigue sin producto */ }
     }
@@ -1051,7 +1064,7 @@ router.post("/chat", async (req, res) => {
         .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
         .slice(0, 60) + "-" + Date.now().toString(36);
       const inserted = await db.insert(landingPages).values({
-        tenantId: existingLanding?.tenantId || product?.tenantId || 1,
+        tenantId: tenantId,
         productId: productId || null,
         name: `Landing · ${product?.name || "Sin nombre"}`,
         slug,
@@ -1078,7 +1091,7 @@ router.post("/chat", async (req, res) => {
 
     // Guardar en memoria para que la próxima generación no arranque de cero.
     await recordarLanding({
-      tenantId: existingLanding?.tenantId || product?.tenantId || 1,
+      tenantId: tenantId,
       productId: product?.id ?? productId ?? null,
       productName: product?.name || null,
       tipo,
