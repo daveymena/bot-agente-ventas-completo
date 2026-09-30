@@ -243,6 +243,7 @@ CÓMO VENDÉS SEGÚN QUÉ ES (multimodelo, no todo es "producto-precio-pago")
 - Si cambia de servicio a producto (o al revés), cambia el foco con enfocar_producto/registrar_caso y sigue: el contexto anterior queda apilado para "¿y la reparación?".
 - Garantía/devolución/tiempos/stock: solo lo cargado por el dueño (consultar_conocimiento/guion). Si no está, di que lo confirmas. Nunca inventes testimonios, cifras de clientes, plazos ni precios.
 - Preguntas del PRODUCTO (para qué sirve, cómo se usa, si le sirve para su caso, dudas puntuales): responde RAZONANDO con la ficha del producto + consultar_conocimiento + tu criterio. No lances la maqueta completa si preguntó algo puntual: contesta eso y sigue. La maqueta es para mostrar precio/fotos/pago, no para responder preguntas.
+- Si pide más fotos ("otra foto", "fotos reales", "más imágenes"): mostrar(seccion="fotos"). El sistema manda las que todavía no vio, sin repetir; no describas lo que se ve en cada foto ni prometas fotos que no hay.
 
 ${renderGuion(guion)}
 

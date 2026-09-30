@@ -29,6 +29,9 @@ import {
   precioDado,
   productoPresentado,
   yaSeEnvio,
+  fotosPendientes,
+  fotosYaEnviadas,
+  registrarFotosEnviadas,
   registrarHechoEntregado,
   registrarHechoPedido,
   registrarIntencion,
@@ -55,6 +58,12 @@ export interface Producto {
   disponible?: boolean;
   /** Stock REAL (`products.stock`, puede ser null = no configurado). */
   stock?: number | null;
+  /** Todas las fotos reales (la principal primero). Para "más fotos". */
+  fotos?: string[] | null;
+  /** Características (`products.features`), para razonar dudas sin maqueta. */
+  caracteristicas?: string[] | null;
+  /** Preguntas frecuentes curadas, para razonar dudas sin maqueta. */
+  preguntas?: Array<{ p: string; r: string }> | null;
 }
 
 /** Lo que el dueño cargó en `product_knowledge`. */
@@ -87,6 +96,11 @@ export type Parte =
       productId: number;
       /** `SeccionFicha` de ficha-parcial.ts: qué pedazo de la ficha va. */
       seccion: Seccion;
+      /**
+       * Con seccion "fotos": las URLs concretas a enviar (las que faltan,
+       * calculadas por `mostrar`). El render las manda como imágenes.
+       */
+      fotos?: string[];
       yaVioContenido?: boolean;
       sesionNueva?: boolean;
       videoYaEnviado?: boolean;
@@ -113,6 +127,7 @@ export type Seccion =
   | "entrega"
   | "video"
   | "completa"
+  | "fotos"
   | "ninguna";
 
 /** Efectos que el adaptador aplica DESPUÉS del turno. Mantienen las herramientas puras. */
@@ -323,21 +338,25 @@ export const definicionesDeHerramientas = [
     function: {
       name: "mostrar",
       description:
-        "Pega una MAQUETA visual (ficha, precio, medios de pago, entrega) debajo de tu texto. " +
+        "Pega una MAQUETA visual (ficha, precio, medios de pago, entrega, fotos) debajo de tu texto. " +
         "Tú redactá una frase natural para introducirla (ej. 'Este es el valor:') y el SISTEMA " +
-        "escribe los datos duros reales. NUNCA escribas los precios ni repitas los datos en tu texto.",
+        "escribe los datos duros reales. NUNCA escribas los precios ni repitas los datos en tu texto. " +
+        "Para PREGUNTAS y dudas NO uses esta herramienta: se responden con tus palabras razonando " +
+        "(tenés la ficha y los datos en el contexto); la maqueta es para mostrar, no para responder.",
       parameters: {
         type: "object",
         properties: {
           productoId: { type: "number" },
           seccion: {
             type: "string",
-            enum: ["completa", "info", "precio", "pago", "pago_transferencia", "pago_link", "entrega", "video", "tienda"],
+            enum: ["completa", "info", "precio", "pago", "pago_transferencia", "pago_link", "entrega", "video", "tienda", "fotos"],
             description:
               "completa = ficha entera (solo si nunca la vio); info = qué es y qué incluye; " +
               "precio = el valor; pago = todos los medios; pago_transferencia = solo cuentas; " +
               "pago_link = solo tarjeta/enlace; entrega = cómo y cuándo llega; video = video de muestra; " +
-              "tienda = enlace para verlo en la tienda.",
+              "tienda = enlace para verlo en la tienda; " +
+              "fotos = MÁS FOTOS del producto (cuando pide 'más fotos', 'otra foto', 'fotos reales'): " +
+              "el SISTEMA manda las que todavía no vio, sin repetir, hasta 3 por vez.",
           },
           reenviar: {
             type: "boolean",
@@ -845,6 +864,40 @@ export const ejecutores: Record<string, Ejecutor> = {
       return { ok: false, mensaje: `${p.name} no tiene video cargado. Sigue sin ofrecerle video.` };
     }
 
+    // ── Más fotos: las que faltan, nunca repetidas ───────────────────────
+    // "Mándame más fotos / otra foto / fotos reales": no es la ficha de
+    // nuevo (esa ya la vio con su foto principal), son las vistas que
+    // todavía no le llegaron. Se calcula contra lo registrado, no contra
+    // lo que el modelo cree que mandó.
+    if (sec === "fotos") {
+      const todas = Array.isArray(p.fotos) ? p.fotos : [];
+      const pendientes = fotosPendientes(todas, fotosYaEnviadas(ctx.estado, p.id));
+      if (!pendientes.length) {
+        return {
+          ok: false,
+          mensaje:
+            todas.length === 0
+              ? `${p.name} no tiene más fotos cargadas (solo la de la ficha). Dilo con tus palabras y no prometas fotos que no hay.`
+              : `Ya vio todas las fotos de ${p.name} (${todas.length}). Dilo con tus palabras y no mandes nada de nuevo.`,
+        };
+      }
+      const lote = pendientes.slice(0, 3);
+      ctx.partes.push({ kind: "card", productId: p.id, seccion: "fotos", fotos: lote, mensajeDelCliente: ctx.mensajeDelCliente });
+      registrarFotosEnviadas(ctx.estado, p.id, lote);
+      registrarHechoEntregado(ctx.estado, `fotos de ${p.name}`);
+      marcarPaso(ctx.estado, `mostrar_fotos_${p.id}`);
+      if (ctx.estado.productoEnFoco !== p.id) ctx.estado.productoEnFoco = p.id;
+      return {
+        ok: true,
+        mensaje:
+          `Salen ${lote.length} foto(s) nuevas de ${p.name}, las que todavía no había visto. ` +
+          `Tu texto: UNA frase corta presentándolas (ej. "Te mando otras vistas:"). No describas lo que se ve en cada foto (no la ves vos) ni repitas la ficha. ` +
+          (pendientes.length > lote.length
+            ? `Todavía quedan ${pendientes.length - lote.length} por mostrar: si pide más, volvé a llamar a mostrar(seccion="fotos").`
+            : `Eran las últimas: si pide más, dile con tus palabras que ya vio todas.`),
+      };
+    }
+
     const yaVioElContenido = productoPresentado(ctx.estado, p.id);
     ctx.partes.push({
       kind: "card",
@@ -862,6 +915,14 @@ export const ejecutores: Record<string, Ejecutor> = {
 
     registrarEnvio(ctx.estado, p.id, sec);
     registrarVideoSiLaFichaLoLleva(ctx.estado, p, sec, yaVioElContenido);
+    // La foto principal viaja con la presentación (completa/info/entrega) la
+    // primera vez: se registra para que "más fotos" no la repita. La
+    // condición espeja la del render (`conFoto: !yaVioContenido ||
+    // sesionNueva` en whatsapp.ts): si la foto no sale, no se registra.
+    if ((sec === "completa" || sec === "info" || sec === "entrega") && (!yaVioElContenido || ctx.estado.turnos === 0)) {
+      const principal = Array.isArray(p.fotos) && p.fotos.length ? p.fotos[0] : null;
+      if (principal) registrarFotosEnviadas(ctx.estado, p.id, [principal]);
+    }
     registrarHechoEntregado(ctx.estado, `${sec} de ${p.name}`);
     marcarPaso(ctx.estado, `mostrar_${sec}_${p.id}`);
     if (ctx.estado.productoEnFoco !== p.id) {
@@ -889,6 +950,7 @@ export const ejecutores: Record<string, Ejecutor> = {
       entrega: `cómo se entrega ${p.name}`,
       video: `el video de ${p.name}`,
       tienda: `el enlace de la tienda de ${p.name}`,
+      fotos: `más fotos de ${p.name}`,
     };
     registrarOferta(ctx.estado, {
       tipo: tipoDeOferta(sec),
@@ -966,6 +1028,11 @@ export const ejecutores: Record<string, Ejecutor> = {
         sinCierre: prods.length > 1,
       });
       registrarEnvio(ctx.estado, p.id, "info");
+      // Cada opción sale con su foto principal: también cuenta como vista.
+      if (!yaVio || ctx.estado.turnos === 0) {
+        const principal = Array.isArray(p.fotos) && p.fotos.length ? p.fotos[0] : null;
+        if (principal) registrarFotosEnviadas(ctx.estado, p.id, [principal]);
+      }
       registrarVideoSiLaFichaLoLleva(ctx.estado, p, "info", yaVio);
     }
 

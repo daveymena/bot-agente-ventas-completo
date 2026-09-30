@@ -61,6 +61,16 @@ export function datosParaRazonar(p: Producto, seccion: string, hechosDelNegocio:
   const precio = precioParaLeer(p);
   if (precio) lineas.push(`Precio: ${precio}`);
   if (p.description) lineas.push(`Descripción: ${String(p.description).replace(/\s+/g, " ").slice(0, 700)}`);
+  // Las características y las preguntas frecuentes curadas son LO que permite
+  // responder dudas ("¿qué incluye?", "¿sirve para…?") razonando, sin tener
+  // que lanzar la maqueta entera. Sin esto el modelo no tenía de dónde sacar
+  // la respuesta y mostraba la ficha aunque le hubieran hecho una pregunta.
+  if (p.caracteristicas?.length) lineas.push(`Características: ${p.caracteristicas.slice(0, 8).join(" · ")}`);
+  if (p.preguntas?.length) {
+    for (const f of p.preguntas.slice(0, 3)) {
+      if (f?.p && f?.r) lineas.push(`Pregunta frecuente — ${String(f.p).slice(0, 140)}: ${String(f.r).slice(0, 280)}`);
+    }
+  }
   if (p.opciones?.length) lineas.push(`Opciones: ${p.opciones.join(", ")}`);
   if (p.stock != null) lineas.push(`Stock: ${p.stock}`);
   const relevantes = hechosDelNegocio.filter((h) =>
@@ -115,6 +125,8 @@ export function fraseHablada(p: Producto, seccion: string): string {
       return `Te mandé un video para que lo veas en acción.`;
     case "tienda":
       return `Te dejé el enlace para verlo en la tienda.`;
+    case "fotos":
+      return `Te mandé más fotos para que lo veas mejor.`;
     default:
       return "";
   }

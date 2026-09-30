@@ -284,6 +284,13 @@ export interface EstadoConversacion {
    * mensaje que se lo muestra.
    */
   pedidoPorConfirmarEnTurno: number | null;
+
+  /**
+   * URLs de fotos ya enviadas por producto. "Más fotos" manda las que
+   * faltan, nunca repetidas; la principal (la que sale con la ficha) se
+   * registra cuando sale con la presentación.
+   */
+  fotosEnviadas: Record<number, string[]>;
 }
 
 export function estadoInicial(conversationId: number): EstadoConversacion {
@@ -328,6 +335,7 @@ export function estadoInicial(conversationId: number): EstadoConversacion {
     pagoMetodo: null,
     entregaMetodo: null,
     pedidoPorConfirmarEnTurno: null,
+    fotosEnviadas: {},
   };
 }
 
@@ -378,6 +386,16 @@ export function normalizarEstado(crudo: unknown, conversationId: number): Estado
     pagoMetodo: typeof c.pagoMetodo === "string" ? c.pagoMetodo : null,
     entregaMetodo: typeof c.entregaMetodo === "string" ? c.entregaMetodo : null,
     pedidoPorConfirmarEnTurno: typeof c.pedidoPorConfirmarEnTurno === "number" ? c.pedidoPorConfirmarEnTurno : null,
+    fotosEnviadas: (() => {
+      const f = (c as any).fotosEnviadas;
+      if (!f || typeof f !== "object") return {};
+      const out: Record<number, string[]> = {};
+      for (const [k, v] of Object.entries(f)) {
+        const id = Number(k);
+        if (Number.isFinite(id) && Array.isArray(v)) out[id] = (v as any[]).map(String).filter(Boolean);
+      }
+      return out;
+    })(),
     preguntoSiCompra:
       c.preguntoSiCompra && typeof c.preguntoSiCompra === "object" && typeof (c.preguntoSiCompra as any).productoId === "number"
         ? (c.preguntoSiCompra as EstadoConversacion["preguntoSiCompra"])
@@ -405,6 +423,47 @@ export function productoPresentado(estado: EstadoConversacion, productoId: numbe
 export function registrarEnvio(estado: EstadoConversacion, productoId: number, seccion: string): void {
   if (!estado.seccionesEnviadas[productoId]) estado.seccionesEnviadas[productoId] = {};
   estado.seccionesEnviadas[productoId][seccion] = ahora();
+}
+
+/**
+ * Misma foto con distinto host o mayúsculas no se manda dos veces: se
+ * compara por los últimos dos segmentos de la ruta, sin query.
+ */
+function claveFoto(url: string): string {
+  const partes = String(url || "").trim().toLowerCase().split("?")[0].split("/").filter(Boolean);
+  return partes.slice(-2).join("/");
+}
+
+/** Las fotos del producto que el cliente todavía no vio. Pura. */
+export function fotosPendientes(
+  todas: Array<string | null | undefined> | null | undefined,
+  enviadas: Array<string | null | undefined> | null | undefined,
+): string[] {
+  const vistas = new Set((enviadas || []).map(claveFoto).filter(Boolean));
+  const out: string[] = [];
+  for (const u of todas || []) {
+    const url = String(u || "").trim();
+    if (!url || vistas.has(claveFoto(url))) continue;
+    vistas.add(claveFoto(url));
+    out.push(url);
+  }
+  return out;
+}
+
+export function fotosYaEnviadas(estado: EstadoConversacion, productoId: number): string[] {
+  return estado.fotosEnviadas[productoId] || [];
+}
+
+export function registrarFotosEnviadas(estado: EstadoConversacion, productoId: number, urls: string[]): void {
+  const ya = new Set((estado.fotosEnviadas[productoId] || []).map(claveFoto));
+  const lista = estado.fotosEnviadas[productoId] || (estado.fotosEnviadas[productoId] = []);
+  for (const u of urls || []) {
+    const url = String(u || "").trim();
+    if (url && !ya.has(claveFoto(url))) {
+      ya.add(claveFoto(url));
+      lista.push(url);
+    }
+  }
 }
 
 export function registrarOferta(estado: EstadoConversacion, oferta: Omit<Oferta, "at">): void {

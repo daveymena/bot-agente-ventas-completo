@@ -55,12 +55,18 @@ const MAX_RESUMEN = 700;
  * Primero la frase de presentación y después cada línea con su emoji propio,
  * sin el emoji (acá son datos, no maqueta).
  */
-export function puntosDeLaFicha(p: Pick<Producto, "name" | "description">): string[] {
+export function puntosDeLaFicha(p: Pick<Producto, "name" | "description" | "caracteristicas">): string[] {
   const ficha = leerFicha(p.description, String(p.name || ""));
   const puntos: string[] = [];
   if (ficha.intro) puntos.push(ficha.intro.trim());
   for (const punto of ficha.puntos) {
     const texto = String(punto.texto || "").trim();
+    if (texto) puntos.push(texto);
+  }
+  // Las características cargadas aparte (features del catálogo): son datos
+  // reales para razonar dudas ("¿qué incluye?") sin lanzar la maqueta.
+  for (const c of p.caracteristicas || []) {
+    const texto = String(c || "").trim();
     if (texto) puntos.push(texto);
   }
   // Una descripción de un solo párrafo largo entra como intro y ya: no se
@@ -76,7 +82,7 @@ export function puntosDeLaFicha(p: Pick<Producto, "name" | "description">): stri
  * el dueño lo ve en el panel (antes veía "Acá te dejo el valor" sin ningún
  * número y creía que el bot había fallado).
  */
-export function resumenDeLaFicha(p: Pick<Producto, "name" | "description">): string {
+export function resumenDeLaFicha(p: Pick<Producto, "name" | "description" | "caracteristicas">): string {
   const puntos = puntosDeLaFicha(p);
   if (!puntos.length) return "";
   let texto = puntos.join(" · ").replace(/\s+/g, " ").trim();
@@ -112,7 +118,7 @@ export function laSeccionMuestraContenido(seccion: string): boolean {
  *   · lo que NO esté acá sigue sin poder afirmarse (para que el dato nuevo
  *     no se convierta en permiso para inventar el resto).
  */
-export function bloqueDeLaFichaEnFoco(p: Pick<Producto, "name" | "description"> | null | undefined): string {
+export function bloqueDeLaFichaEnFoco(p: Pick<Producto, "name" | "description" | "caracteristicas"> | null | undefined): string {
   if (!p) return "";
   const puntos = puntosDeLaFicha(p);
   if (!puntos.length) return "";

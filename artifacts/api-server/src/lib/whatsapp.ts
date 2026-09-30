@@ -882,6 +882,17 @@ export async function mensajesDeLaFicha(
   const seccion: SeccionFicha | null = part?.seccion ?? null;
 
   if (seccion) {
+    // "Más fotos": cada URL sale como imagen con pie corto. No pasa por
+    // construirSeccion: no hay maqueta que armar, son las fotos que el
+    // cliente todavía no vio (la herramienta ya filtró las repetidas).
+    if (seccion === "fotos") {
+      const lote = (Array.isArray(part?.fotos) ? part.fotos : []).map((u: any) => String(u || "").trim()).filter(Boolean);
+      if (!lote.length) return [{ texto: `De ${product.name} ya te mostré todas las fotos que tengo 📸` }];
+      return lote.map((url: string, i: number) => ({
+        imagen: url,
+        texto: i === 0 ? `Te mando otras vistas de ${product.name} 📸` : `${product.name} (${i + 1})`,
+      }));
+    }
     const { conFoto, mensajes } = await construirSeccion(
       product, seccion, dynamicLinks, semilla,
       // Lo decide el agente, que es el que tiene el historial.

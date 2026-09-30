@@ -69,6 +69,53 @@ export async function cargarCatalogoDelNegocio(tenantId: number): Promise<Produc
       videoUrl = null;
     }
 
+    let meta: any = null;
+    try {
+      meta = typeof p.metadata === "string" ? JSON.parse(p.metadata) : p.metadata;
+    } catch {
+      meta = null;
+    }
+
+    // Todas las fotos reales (la principal primero): "más fotos" manda las
+    // que faltan sin repetir. Salen de la metadata que deja la importación
+    // (Dropi trae hasta 20); sin esto el vendedor solo conoce la principal.
+    let fotos: string[] | null = null;
+    try {
+      const crudas = meta?.imageUrls || meta?.imagenes || [];
+      const lista = [p.imageUrl, ...(Array.isArray(crudas) ? crudas : [])]
+        .map((u: any) => String(u || "").trim())
+        .filter(Boolean);
+      fotos = [...new Set(lista)];
+      if (!fotos.length) fotos = null;
+    } catch {
+      fotos = p.imageUrl ? [String(p.imageUrl)] : null;
+    }
+
+    // Características y preguntas frecuentes: con esto las dudas se
+    // responden RAZONANDO (datosParaRazonar), sin lanzar la maqueta.
+    let caracteristicas: string[] | null = null;
+    try {
+      const f = Array.isArray(p.features) ? p.features : p.features ? JSON.parse(String(p.features)) : null;
+      if (Array.isArray(f)) {
+        const l = f.map((x: any) => String(x || "").trim()).filter(Boolean);
+        caracteristicas = l.length ? l : null;
+      }
+    } catch {
+      caracteristicas = null;
+    }
+    let preguntas: Array<{ p: string; r: string }> | null = null;
+    try {
+      const faq = meta?.curado?.preguntasFrecuentes;
+      if (Array.isArray(faq)) {
+        const l = faq
+          .filter((x: any) => x?.p && x?.r)
+          .map((x: any) => ({ p: String(x.p).slice(0, 160), r: String(x.r).slice(0, 300) }));
+        preguntas = l.length ? l : null;
+      }
+    } catch {
+      preguntas = null;
+    }
+
     let opciones: string[] | null = null;
     try {
       const crudas = Array.isArray(p.opciones) ? p.opciones : p.opciones ? JSON.parse(String(p.opciones)) : null;
@@ -102,6 +149,9 @@ export async function cargarCatalogoDelNegocio(tenantId: number): Promise<Produc
       videoUrl,
       disponible: true,
       stock,
+      fotos,
+      caracteristicas,
+      preguntas,
     };
   });
 }
