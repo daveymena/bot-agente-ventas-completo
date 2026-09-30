@@ -55,6 +55,13 @@ export interface PedidoDropshipping extends DatosDeEnvio {
   dropiEstado?: string | null;
   dropiOrderId?: string | null;
   dropiError?: string | null;
+  /** Talla/color/modelo que eligió el cliente, tal como la dijo. */
+  variante?: string | null;
+  /** La variación EXACTA de Dropi que corresponde a `variante` (si se pudo resolver). */
+  dropiVariationId?: number | null;
+  /** Transportadora elegida por el cliente (solo si Dropi la lista para su ciudad). */
+  transportadora?: string | null;
+  transportadoraId?: number | null;
 }
 
 /**
@@ -472,6 +479,10 @@ function aPedido(r: any): PedidoDropshipping {
     unitPrice: r.unit_price, total: r.total, metodoPago: r.metodo_pago,
     estado: r.estado, wooOrderId: r.woo_order_id, wooError: r.woo_error,
     dropiEstado: r.dropi_estado ?? null, dropiOrderId: r.dropi_order_id ?? null, dropiError: r.dropi_error ?? null,
+    variante: r.variante ?? null,
+    dropiVariationId: r.dropi_variation_id != null ? Number(r.dropi_variation_id) : null,
+    transportadora: r.transportadora ?? null,
+    transportadoraId: r.transportadora_id != null ? Number(r.transportadora_id) : null,
     nombre: r.nombre, telefono: r.telefono, documento: r.documento,
     departamento: r.departamento, ciudad: r.ciudad, direccion: r.direccion,
     barrio: r.barrio, notas: r.notas,
@@ -570,8 +581,38 @@ export async function guardarDatos(
   return pedido;
 }
 
-// ─── Despacho a WooCommerce ──────────────────────────────────────────────────
+/**
+ * La variante elegida (talla/color/modelo).
+ *
+ * Va por SU propia función y no por `guardarDatos`: esa escribe las claves de
+ * `DatosDeEnvio` como nombres de columna, y `variante` no es un dato de envío.
+ * Meterla ahí obligaría a tocar `ETIQUETA_DEL_DATO` (que es exhaustivo) y la
+ * lista de datos que se le pide al cliente empezaría a pedir la talla como si
+ * fuera la dirección.
+ */
+export async function guardarVarianteDelPedido(pedidoId: number, variante?: string | null, dropiVariationId?: number | null): Promise<void> {
+  const texto = String(variante ?? "").trim().slice(0, 120);
+  await pool.query(
+    `UPDATE dropshipping_orders SET variante = $2, dropi_variation_id = COALESCE($3, dropi_variation_id), updated_at = now() WHERE id = $1`,
+    [pedidoId, texto || null, dropiVariationId ?? null],
+  );
+  if (texto) logger.info({ pedidoId, variante: texto, dropiVariationId: dropiVariationId ?? null }, "[Dropshipping] Variante del pedido guardada");
+}
 
+/** La transportadora que eligió el cliente (nombre + id de Dropi, si lo tiene). */
+export async function guardarTransportadoraDelPedido(
+  pedidoId: number,
+  t?: { id?: number | null; nombre?: string | null } | null,
+): Promise<void> {
+  const nombre = String(t?.nombre ?? "").trim().slice(0, 120);
+  await pool.query(
+    `UPDATE dropshipping_orders SET transportadora = $2, transportadora_id = $3, updated_at = now() WHERE id = $1`,
+    [pedidoId, nombre || null, t?.id != null ? Number(t.id) : null],
+  );
+  if (nombre) logger.info({ pedidoId, transportadora: nombre, transportadoraId: t?.id ?? null }, "[Dropshipping] Transportadora elegida");
+}
+
+// ─── Despacho a WooCommerce ──────────────────────────────────────────────────
 /**
  * Crea el pedido real en WooCommerce, que es quien lo empuja a Dropi.
  *
@@ -996,7 +1037,7 @@ export async function cancelarPedido(tenantId: number, pedidoId: number, motivo 
  * que el veredicto que llega por Woo, con aviso al admin y baja del producto.
  */
 async function despacharDirectoEnDropi(pedido: PedidoDropshipping): Promise<ResultadoDespacho | null> {
-  const { tokenDropiDelTenant, crearPedidoDropi } = await import("./dropi-directo");
+  const { tokenDropiDelTenant, crearPedidoDropi, varianteParaDespacho } = await import("./dropi-directo");
   const token = await tokenDropiDelTenant(pedido.tenantId);
   if (!token || !pedido.productId) return null;
   const [prod] = await db.select().from(products).where(eq(products.id, pedido.productId)).limit(1);
@@ -1022,18 +1063,44 @@ async function despacharDirectoEnDropi(pedido: PedidoDropshipping): Promise<Resu
     };
   }
 
+  // ── La variante EXACTA que le pide el proveedor ─────────────────────────
+  // El cliente eligió "M"; Dropi no entiende texto, entiende `variation_id`.
+  // Se resuelve primero contra la metadata del producto (sin salir a la red)
+  // y solo si hace falta contra el detalle en vivo. Si el texto no identifica
+  // UNA variación, se manda sin id y la variante sigue en las notas: era
+  // exactamente lo que pasaba antes, así que este caso no empeora nada.
+  const variante = pedido.variante || null;
+  let variationId = pedido.dropiVariationId ?? null;
+  let stockItem = meta?.dropiStock ?? null;
+  if (!variationId && variante) {
+    const v = await varianteParaDespacho({ meta, variante, token, dropiProductId });
+    variationId = v.variationId;
+    if (v.stock != null) stockItem = v.stock;
+    logger.info({ pedidoId: pedido.id, variante, variationId, detalle: v.detalle }, "[Dropshipping] Variante resuelta para Dropi");
+    if (variationId) {
+      await pool.query(`UPDATE dropshipping_orders SET dropi_variation_id = $2, updated_at = now() WHERE id = $1`, [pedido.id, variationId]).catch(() => null);
+      pedido.dropiVariationId = variationId;
+    }
+  }
+
   const r = await crearPedidoDropi(token, {
     dropiProductId,
     nombre: String((prod as any).name),
     supplierId: meta?.dropiSupplierId ?? null,
-    stock: meta?.dropiStock ?? null,
-    variationId: meta?.dropiVariationId ?? null,
+    stock: stockItem,
+    variationId,
   }, {
     nombre: String(pedido.nombre), telefono: String(pedido.telefono), documento: pedido.documento,
     direccion: String(pedido.direccion), barrio: pedido.barrio, ciudad: ciudadCli, departamento: String(pedido.departamento),
     notas: [pedido.notas, "Pedido tomado por VentasPro"].filter(Boolean).join(" | "),
     cantidad: pedido.quantity, precioUnitario: Number(pedido.unitPrice) || 0,
     contraentrega, referencia: `vp-${pedido.id}`,
+    // Solo si el cliente la eligió y tiene id de Dropi: sin id no se le puede
+    // pedir a Dropi una transportadora concreta, y mandar un nombre a secas
+    // sería inventar una elección que no existe.
+    transportadora: pedido.transportadora && pedido.transportadoraId != null
+      ? { id: pedido.transportadoraId, nombre: String(pedido.transportadora) }
+      : null,
   });
 
   if (r.ok) {

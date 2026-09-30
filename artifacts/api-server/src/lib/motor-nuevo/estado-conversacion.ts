@@ -102,6 +102,7 @@ export type CampoDeDato =
   | "ciudad"
   | "direccion"
   | "variante"
+  | "transportadora"
   | "cantidad"
   | "necesidad"
   | "alcance"

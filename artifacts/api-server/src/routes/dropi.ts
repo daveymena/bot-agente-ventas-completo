@@ -156,6 +156,28 @@ router.get("/producto/:id", async (req: any, res: any) => {
   }
 });
 
+/** Transportadoras que llegan a una ciudad (`?ciudad=CALI&departamento=VALLE`). Lo mismo que ve el bot. `?raw=1` agrega la respuesta cruda para diagnosticar la forma de Dropi. */
+router.get("/transportadoras", async (req: any, res: any) => {
+  try {
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ ok: false, error: "No autenticado" });
+    const ciudad = String(req.query.ciudad || "").trim();
+    if (!ciudad) return res.status(400).json({ ok: false, error: "Falta ?ciudad=" });
+    const { tokenDropiDelTenant, transportadorasQueLlegan } = await import("../lib/dropi-directo");
+    const token = await tokenDropiDelTenant(tenantId);
+    if (!token) return res.status(400).json({ ok: false, error: "Sin token de Dropi" });
+    const r = await transportadorasQueLlegan(token, { ciudad, departamento: String(req.query.departamento || "") });
+    if (!r.ok) return res.status(200).json({ ok: false, error: r.error });
+    res.json({
+      ok: true, fuente: r.data?.fuente, nota: r.data?.nota,
+      transportadoras: (r.data?.transportadoras || []).map((t) => ({ id: t.id, nombre: t.nombre })),
+      ...(String(req.query.raw || "") === "1" ? { crudo: r.data?.transportadoras } : {}),
+    });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error.message });
+  }
+});
+
 /** Video de anuncio con el motor propio (ver lib/video-anuncio.ts). */
 router.post("/video/:productId", async (req: any, res: any) => {
   try {

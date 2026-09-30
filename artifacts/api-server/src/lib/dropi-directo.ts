@@ -456,6 +456,136 @@ export function disponible(p: ProductoDropi | null | undefined): { ok: boolean; 
   return { ok: true, stock };
 }
 
+// ─── Variantes (color/talla) de Dropi ───────────────────────────────────────
+
+/**
+ * Una variación de Dropi, reducida a lo que el bot necesita: `id` (para
+ * despachar la variante EXACTA y no una cualquiera), `stock` y `valores`
+ * ("NEGRO", "M") tal como los escribiría el cliente.
+ *
+ * Dropi trae las variantes en varias formas según el producto: `attribute_values`
+ * con el nombre del atributo, `attributes`, o solo `name` ("M / NEGRO"). Acá se
+ * normalizan todas; `variantesDeDropi` además acepta la forma ya guardada en
+ * `metadata.dropiVariantes` ({ id, stock, valores }), así que volver a llamarla
+ * sobre lo que ya se persistió no cambia nada.
+ */
+export interface VarianteDropi {
+  id: number;
+  stock: number | null;
+  valores: string[];
+  atributos: Array<{ nombre: string | null; valor: string }>;
+}
+
+const CLAVE = (t: unknown) =>
+  String(t ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+export function variantesDeDropi(p: any): VarianteDropi[] {
+  const fuente = Array.isArray(p?.variations) ? p.variations : Array.isArray(p) ? p : [];
+  const out: VarianteDropi[] = [];
+  for (const v of fuente) {
+    if (!v || typeof v !== "object") continue;
+    // Ya guardada en metadata: { id, stock, valores, atributos }.
+    if (Array.isArray((v as any).valores)) {
+      const valores: string[] = (v as any).valores.map((x: any) => String(x ?? "").trim()).filter(Boolean);
+      if (!valores.length) continue;
+      const guardados = Array.isArray((v as any).atributos) ? (v as any).atributos : [];
+      const atributos: Array<{ nombre: string | null; valor: string }> = guardados.length
+        ? guardados
+          .map((a: any) => (a && typeof a === "object"
+            ? { nombre: a.nombre != null ? String(a.nombre) : null, valor: String(a.valor ?? "").trim() }
+            : { nombre: null as string | null, valor: String(a ?? "").trim() }))
+          .filter((a: { valor: string }) => a.valor)
+        : valores.map((valor) => ({ nombre: null as string | null, valor }));
+      out.push({ id: Number(v.id) || 0, stock: v.stock != null ? Number(v.stock) : null, valores, atributos });
+      continue;
+    }
+    const bruto: any[] = [];
+    if (Array.isArray(v.attribute_values)) bruto.push(...v.attribute_values);
+    if (Array.isArray(v.attributes)) bruto.push(...v.attributes);
+    if (v.attribute_value != null || v.value != null || v.valor != null) bruto.push(v.attribute_value ?? v.value ?? v.valor);
+    const atributos: Array<{ nombre: string | null; valor: string }> = [];
+    for (const b of bruto) {
+      if (b == null) continue;
+      if (typeof b !== "object") {
+        const valor = String(b).trim();
+        if (valor) atributos.push({ nombre: null, valor });
+        continue;
+      }
+      const valor = String(b.value ?? b.val ?? b.valor ?? b.label ?? b.attribute_value ?? b.name ?? "").trim();
+      if (!valor) continue;
+      const crudo = b.attribute?.name ?? b.attribute?.nombre ?? b.attribute_name ?? b.attributeName ?? b.attribute ?? b.tipo ?? null;
+      const nombre = crudo == null ? null : String(crudo).trim();
+      atributos.push({ nombre: nombre && CLAVE(nombre) !== CLAVE(valor) ? nombre : null, valor });
+    }
+    if (!atributos.length && v.name) {
+      // "M / NEGRO", "Rojo, M", "M - Negro": un solo string con todo adentro.
+      for (const parte of String(v.name).split(/\s*[\/|,]\s*|\s+-\s+/)) {
+        const valor = parte.trim();
+        if (valor) atributos.push({ nombre: null, valor });
+      }
+    }
+    if (!atributos.length) continue;
+    out.push({
+      id: Number(v.id ?? v.variation_id ?? v.variacion_id) || 0,
+      stock: v.stock != null ? Number(v.stock) : v.total_stock != null ? Number(v.total_stock) : null,
+      atributos,
+      valores: atributos.map((a) => a.valor),
+    });
+  }
+  return out;
+}
+
+/**
+ * Las variantes como `products.opciones` (lo que valida el bot, la landing y el
+ * checkout). Un grupo por atributo real: { nombre: "Color", valores: [...] }.
+ *
+ * Sin variantes devuelve la lista vacía y no cambia nada para quien no las usa.
+ */
+export function opcionesDesdeVariantes(vs: VarianteDropi[]): Array<{ nombre: string; valores: string[]; obligatoria: boolean }> {
+  const grupos = new Map<string, Set<string>>();
+  for (const v of vs) {
+    for (const a of v.atributos) {
+      const g = (a.nombre || "").trim() || "Variante";
+      if (!grupos.has(g)) grupos.set(g, new Set());
+      grupos.get(g)!.add(a.valor);
+    }
+  }
+  return [...grupos.entries()]
+    .map(([nombre, valores]) => ({ nombre, valores: [...valores], obligatoria: true }))
+    .filter((g) => g.valores.length > 0);
+}
+
+/**
+ * Qué variación compró el cliente, según lo que dijo.
+ *
+ * Se busca por valor exacto ("M", "NEGRO") y después por contención
+ * ("Rojo talla M" → la variación Rojo-M). Dos claves, y solo dos, devuelven
+ * null: el valor ambiguo (talla "M" repitida en varios colores) y el que no
+ * matchea a nadie. Adivinar acá es despachar el color equivocado y pagar la
+ * devolución, así que quien llama prefiere mandar la variante solo como texto
+ * en las notas antes que mandar un `variation_id` al azar.
+ */
+export function varianteElegida(vs: VarianteDropi[], elegida?: string | null): VarianteDropi | null {
+  const texto = CLAVE(elegida);
+  if (!texto) return null;
+  const exactos = vs.filter((v) => v.valores.some((val) => CLAVE(val) === texto));
+  if (exactos.length === 1) return exactos[0];
+  if (exactos.length > 1) return null;
+  const contiene = vs.filter((v) =>
+    v.valores.some((val) => {
+      const n = CLAVE(val);
+      return n.length >= 3 && (texto.includes(n) || n.includes(texto));
+    }),
+  );
+  return contiene.length === 1 ? contiene[0] : null;
+}
+
 // ─── Importar al catálogo del bot ───────────────────────────────────────────
 
 export interface ResultadoImportacion { ok: boolean; productId?: number; yaExistia?: boolean; error?: string; nombre?: string; curadoPor?: string; complementadoDesde?: string[] }
@@ -515,6 +645,14 @@ export async function importarProductoDropi(tenantId: number, token: string, dro
     }
   }
 
+  // ── Variantes (color/talla) → productos.opciones ────────────────────────
+  // Sin esto el bot cierra la venta preguntando "¿cuál color?" sin tener
+  // contra qué validar, y el pedido sale a Dropi como texto en las notas:
+  // el proveedor recibe "TALLA: M" pero en el sistema se despacha una
+  // variación cualquiera (ver despatch de `variation_id` en dropshipping.ts).
+  const variantes = variantesDeDropi(p);
+  const opciones = opcionesDesdeVariantes(variantes);
+
   const dropi = {
     source: "dropi",
     dropiProductId: Number(p.id),
@@ -524,6 +662,7 @@ export async function importarProductoDropi(tenantId: number, token: string, dro
     dropiCost: Number(p.sale_price) || null,
     dropiType: p.type || null,
     dropiVariations: Array.isArray(p.variations) ? p.variations.map((v: any) => ({ id: v.id, stock: v.stock, attributes: v.attribute_values || v.attributes || v.name })) : [],
+    dropiVariantes: variantes.map((v) => ({ id: v.id, stock: v.stock, valores: v.valores, atributos: v.atributos })),
     dropiBodega: bodegaDe(p),
     imageUrls,
     imagenes: imageUrls,
@@ -544,9 +683,16 @@ export async function importarProductoDropi(tenantId: number, token: string, dro
   });
   if (previo) {
     const m = (() => { try { return typeof previo.metadata === "string" ? JSON.parse(previo.metadata) : (previo.metadata || {}); } catch { return {}; } })();
+    const previas = (() => {
+      try { const o = typeof previo.opciones === "string" ? JSON.parse(previo.opciones) : previo.opciones; return Array.isArray(o) && o.length ? o : []; }
+      catch { return []; }
+    })();
     await db.update(products).set({
       metadata: JSON.stringify({ ...m, ...dropi }),
       imageUrl: imageUrls[0] || previo.imageUrl || null,
+      // Las opciones se rellenan solo si están vacías: si el dueño ajustó
+      // los valores a mano, una re-sincronización no las pisa.
+      ...(opciones.length && !previas.length ? { opciones } : {}),
       // Si se curó, la ficha nueva reemplaza a la vieja (era el crudo del proveedor).
       ...(ficha ? { name: nombreFinal, description: descripcionFinal, features: featuresFinal, category: categoriaFinal } : {}),
       isActive: disponible(p).ok ? previo.isActive : false,
@@ -566,6 +712,7 @@ export async function importarProductoDropi(tenantId: number, token: string, dro
     kind: "physical",
     isActive: disponible(p).ok,
     imageUrl: imageUrls[0] || null,
+    ...(opciones.length ? { opciones } : {}),
     metadata: JSON.stringify(dropi),
   } as any).returning();
   logger.info({ tenantId, productId: (creado as any).id, dropiId: p.id, curadoPor: ficha?.curadoPor || null }, "[DropiDirecto] Producto importado");
@@ -580,6 +727,49 @@ export interface PedidoParaDropi {
   notas?: string | null; cantidad: number; precioUnitario: number;
   contraentrega: boolean; referencia: string | number;
   email?: string | null;
+  /**
+   * La transportadora que ELIGIÓ el cliente. Sin `id` no se manda nada: Dropi
+   * identifica la transportadora por `distributionCompany: { id, name }`, y un
+   * nombre solo no le dice nada.
+   */
+  transportadora?: { id?: number | null; nombre: string } | null;
+}
+
+/**
+ * La variación EXACTA que se le manda a Dropi.
+ *
+ * Primero se resuelve contra lo que ya está en `metadata.dropiVariantes` (sin
+ * salir a la red); si no, contra el detalle en vivo del producto; y solo como
+ * último recurso queda `metadata.dropiVariationId`. Si el texto del cliente no
+ * identifica UNA variación (talla "M" repetida en tres colores), devuelve
+ * `variationId: null` y la variante sigue viajando como texto en las notas:
+ * mandar un id al azar es enviar la prenda equivocada.
+ */
+export async function varianteParaDespacho(p: {
+  meta: any;
+  variante?: string | null;
+  token?: string | null;
+  dropiProductId: number;
+}): Promise<{ variationId: number | null; stock: number | null; detalle: string }> {
+  const texto = String(p.variante || "").trim();
+  const local = variantesDeDropi(p.meta?.dropiVariantes);
+  if (texto && local.length) {
+    const v = varianteElegida(local, texto);
+    if (v?.id) return { variationId: v.id, stock: v.stock, detalle: `variación ${v.id} resuelta en la metadata (${v.valores.join("/")})` };
+  }
+  if (texto && p.token) {
+    const det = await detalleProductoDropi(p.token, p.dropiProductId);
+    if (det.ok && det.data) {
+      const vs = variantesDeDropi(det.data);
+      const v = varianteElegida(vs, texto);
+      if (v?.id) return { variationId: v.id, stock: v.stock, detalle: `variación ${v.id} resuelta contra Dropi en vivo (${v.valores.join("/")})` };
+      return { variationId: null, stock: null, detalle: vs.length ? `Dropi no tiene UNA variación única para "${texto}" (hay ${vs.length}): viaja solo en las notas` : `Dropi no trae variaciones para "${texto}"` };
+    }
+  }
+  if (p.meta?.dropiVariationId) {
+    return { variationId: Number(p.meta.dropiVariationId), stock: p.meta?.dropiStock ?? null, detalle: "variación fijada en la metadata del producto" };
+  }
+  return { variationId: null, stock: null, detalle: texto ? `sin variación para "${texto}": viaja solo en las notas` : "sin variante elegida" };
 }
 
 /**
@@ -634,7 +824,7 @@ export async function crearPedidoDropi(token: string, producto: { dropiProductId
     user_id: producto.supplierId ?? undefined,
   };
   if (producto.variationId) item.variation_id = producto.variationId;
-  const body = {
+  const body: Record<string, any> = {
     total_order: total,
     notes: notasParaElProveedor(pedido.notas, pedido.documento),
     name, surname,
@@ -654,7 +844,20 @@ export async function crearPedidoDropi(token: string, producto: { dropiProductId
     shop_order_id: pedido.referencia,
     create_product_if_not_exist: false,
   };
-  const r = await dropiIntegracion<any>(token, "orders/myorders", body, "POST", 60000);
+  if (pedido.transportadora?.id) {
+    body.distributionCompany = { id: Number(pedido.transportadora.id), name: String(pedido.transportadora.nombre || "") };
+  }
+  let r = await dropiIntegracion<any>(token, "orders/myorders", body, "POST", 60000);
+  if (!r.ok && body.distributionCompany) {
+    // Dropi puede rechazar la transportadora elegida para esa ciudad o ese
+    // pedido. Se reintenta UNA sola vez sin elegir ninguna, que es como se
+    // creaba siempre (`calculate_costs_and_shiping: true`): un pedido parado
+    // por la transportadora es peor que uno con la que Dropi asigna sola.
+    const { distributionCompany: _omitida, ...sinTransportadora } = body;
+    logger.warn({ shop_order_id: pedido.referencia, transportadora: body.distributionCompany, error: r.error || r.data }, "[DropiDirecto] Rechazó la transportadora elegida; se reintenta sin elegir");
+    r = await dropiIntegracion<any>(token, "orders/myorders", sinTransportadora, "POST", 60000);
+    if (r.ok) logger.warn({ shop_order_id: pedido.referencia }, "[DropiDirecto] Pedido creado sin la transportadora elegida (Dropi asigna la suya)");
+  }
   if (!r.ok) return r as any;
   const obj = r.data?.objects ?? r.data;
   const id = obj?.id ?? obj?.order?.id ?? null;
@@ -812,6 +1015,125 @@ export async function margenDeProductoDropi(tenantId: number, token: string, ref
     "_No incluye devoluciones ni el costo del anuncio: con eso se calcula cuánto podés pagar por venta._",
   ].filter(Boolean).join("\n");
   return { ok: true, data: { producto: { id: productId, nombre, dropiId }, precioVenta: precio, costoProveedor: costo, precioSugerido: sugerido, stock: stockDe(d), flete: { estimado: flete, base: baseTxt, minimo: fletes.length ? Math.min(...fletes) : null, maximo: fletes.length ? Math.max(...fletes) : null, pedidos: fletes.length }, ganancia, margenPct, texto } };
+}
+
+// ─── Transportadoras: cuáles llegan a la ciudad ────────────────────────────
+
+export interface TransportadoraDropi { id: number | null; nombre: string; precio?: number | null }
+export interface TransportadorasCiudad {
+  transportadoras: TransportadoraDropi[];
+  /**
+   * "cobertura" = filtradas por las que llegan a esa ciudad; "general" = las
+   * que lista Dropi sin poder filtrar (el despacho igual confirma: si Dropi
+   * rechaza, el pedido se crea sin elegir transportadora).
+   */
+  fuente: "cobertura" | "general";
+  nota: string;
+}
+
+/** El array venga donde venga: plano, `objects`, `data`, etc. */
+function listaDeObjetos(data: any): any[] {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === "object") {
+    for (const k of ["objects", "data", "transportadoras", "distribution_companies", "companies", "results", "list"]) {
+      if (Array.isArray(data[k])) return data[k];
+    }
+  }
+  return [];
+}
+
+function caminarJson(v: any, prof: number, cb: (o: Record<string, any>) => void): void {
+  if (!v || prof > 8) return;
+  if (Array.isArray(v)) { for (const x of v) caminarJson(x, prof + 1, cb); return; }
+  if (typeof v !== "object") return;
+  cb(v);
+  for (const x of Object.values(v)) caminarJson(x, prof + 1, cb);
+}
+
+const NUM = (v: unknown): number | null => {
+  if (v == null || v === "") return null;
+  const n = Number(String(v).replace(/[^\d.,-]/g, "").replace(/\.(?=\d{3}\b)/g, "").replace(",", "."));
+  return Number.isFinite(n) ? n : null;
+};
+
+/**
+ * Qué transportadoras llegan a la ciudad, en el orden de Dropi y, si la
+ * respuesta trae precios por empresa, de la más económica a la más cara.
+ *
+ * Camino: `GET distribution_companies` (la lista real que manda el pedido)
+ * cruzada con `POST trajectory/bycity` para la ciudad. El flete NUNCA sale de
+ * acá hacia el cliente: `precio` es solo para ORDENAR, y se queda en el
+ * sistema (dueño, 25-09-2026).
+ */
+export async function transportadorasQueLlegan(
+  token: string,
+  destino: { ciudad: string; departamento?: string },
+): Promise<RespuestaDropi<TransportadorasCiudad>> {
+  const ciudad = normalizarCiudadParaDropi(destino.ciudad);
+  const departamento = normalizarCiudadParaDropi(destino.departamento || "");
+  const gen = await dropiIntegracion<any>(token, "distribution_companies", undefined, "GET", 20000);
+  if (!gen.ok) return gen as any;
+  const base: TransportadoraDropi[] = [];
+  for (const c of listaDeObjetos(gen.data)) {
+    const nombre = String(c?.name ?? c?.nombre ?? c?.company_name ?? c?.company ?? c?.distribution_company ?? "").trim();
+    if (!nombre) continue;
+    const id = NUM(c?.id ?? c?.company_id ?? c?.distribution_company_id);
+    if (!base.some((b) => b.nombre.toUpperCase() === nombre.toUpperCase())) base.push({ id, nombre });
+  }
+  if (!base.length) {
+    return { ok: false, error: "Dropi no listó transportadoras (distribution_companies vacío o con forma nueva)." };
+  }
+  const cov = await dropiIntegracion<any>(
+    token,
+    "trajectory/bycity",
+    { city: ciudad, department: departamento, rate_type: "CON RECAUDO" },
+    "POST",
+    20000,
+  );
+  if (!cov.ok) {
+    return {
+      ok: true,
+      data: {
+        transportadoras: base, fuente: "general",
+        nota: `Dropi no filtró por ciudad (${String(cov.error || "").slice(0, 120)}): se muestran las ${base.length} que lista en general. Al despachar se confirma que la elegida llega.`,
+      },
+    };
+  }
+  const precios = new Map<string, number>();
+  caminarJson(cov.data, 0, (o) => {
+    const precio = NUM(o.price ?? o.precio ?? o.valor ?? o.value ?? o.cost ?? o.costo ?? o.flete ?? o.shipping ?? o.shipping_cost);
+    if (precio == null) return;
+    const id = NUM(o.id ?? o.company_id ?? o.distribution_company_id ?? o.transportadora_id);
+    const nombre = String(o.name ?? o.nombre ?? o.company_name ?? o.company ?? "").trim();
+    if (id != null) precios.set(`id:${id}`, precio);
+    if (nombre) precios.set(`n:${CLAVE(nombre)}`, precio);
+  });
+  const texto = CLAVE(JSON.stringify(cov.data ?? ""));
+  const llegan = base
+    .map((t) => {
+      const p = (t.id != null ? precios.get(`id:${t.id}`) : undefined) ?? precios.get(`n:${CLAVE(t.nombre)}`);
+      return { ...t, precio: p ?? null };
+    })
+    .filter((t) => t.precio != null || (t.id != null && texto.includes(String(t.id))) || texto.includes(CLAVE(t.nombre)));
+  if (llegan.length) {
+    llegan.sort((a, b) => (a.precio ?? Number.MAX_SAFE_INTEGER) - (b.precio ?? Number.MAX_SAFE_INTEGER));
+    return {
+      ok: true,
+      data: {
+        transportadoras: llegan, fuente: "cobertura",
+        nota: llegan.some((t) => t.precio != null)
+          ? `Ordenadas de la más económica a la más cara para ${ciudad}.`
+          : `Las que llegan a ${ciudad} según Dropi (sin precios en la respuesta: se mantiene su orden).`,
+      },
+    };
+  }
+  return {
+    ok: true,
+    data: {
+      transportadoras: base, fuente: "general",
+      nota: `${ciudad}: ninguna coincidió en la respuesta de cobertura (forma nueva), así que se muestran las ${base.length} de la lista general. Al despachar se confirma que la elegida llega.`,
+    },
+  };
 }
 
 // ─── Transportadoras: sondeo de rutas (solo lectura) ────────────────────────

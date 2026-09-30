@@ -401,7 +401,7 @@ export function servicioDePedidos(p: {
   };
   const cond = p.condiciones;
   return {
-    async tomar({ producto, cantidad, datos }) {
+    async tomar({ producto, cantidad, datos, variante, transportadora }) {
       try {
         const ds = await import("../dropshipping");
         let pedido = await ds.pedidoEnCurso(p.conversationId);
@@ -429,6 +429,34 @@ export function servicioDePedidos(p: {
         // Un dato corregido después del resumen vuelve a pedir confirmación.
         if (pedido.estado === "por_confirmar" && Object.keys(datos).length) await ds.marcarEstado(pedido.id, "completo");
         pedido = (await ds.guardarDatos(pedido.id, nuevos)) || pedido;
+        // La variante y la transportadora van aparte: no son datos de envío
+        // (ver guardarVarianteDelPedido en dropshipping.ts).
+        if (variante) {
+          await ds.guardarVarianteDelPedido(pedido.id, variante);
+          pedido.variante = String(variante);
+        }
+        if (transportadora?.nombre) {
+          let id: number | null = transportadora.id ?? null;
+          if (id == null && pedido.ciudad) {
+            // El modelo pasa el NOMBRE que eligió el cliente; el id de Dropi
+            // se resuelve acá, contra las que llegan a su ciudad. Si no se
+            // resuelve, el nombre igual queda: se manda sin id solo si Dropi
+            // la acepta al despachar (y si la rechaza, el pedido sigue).
+            try {
+              const { tokenDropiDelTenant, transportadorasQueLlegan, normalizarCiudadParaDropi } = await import("../dropi-directo");
+              const token = await tokenDropiDelTenant(p.tenantId);
+              if (token) {
+                const r = await transportadorasQueLlegan(token, { ciudad: String(pedido.ciudad), departamento: String(pedido.departamento || "") });
+                const lista = r.ok ? r.data?.transportadoras || [] : [];
+                const busco = normalizarCiudadParaDropi(transportadora.nombre);
+                id = lista.find((t) => normalizarCiudadParaDropi(t.nombre) === busco)?.id ?? null;
+              }
+            } catch { /* el nombre igual queda guardado */ }
+          }
+          await ds.guardarTransportadoraDelPedido(pedido.id, { id, nombre: transportadora.nombre });
+          pedido.transportadora = String(transportadora.nombre);
+          pedido.transportadoraId = id;
+        }
 
         const faltan = ds.datosQueFaltan(pedido);
         if (faltan.length) {
@@ -472,6 +500,31 @@ export function servicioDePedidos(p: {
         };
       } catch (e: any) {
         return { hay: false, texto: `No se pudo consultar: ${e?.message || e}` };
+      }
+    },
+
+    async transportadoras(ciudad: string) {
+      try {
+        const { tokenDropiDelTenant, transportadorasQueLlegan } = await import("../dropi-directo");
+        const destino = String(ciudad || "").trim();
+        if (!destino) return { ok: false, mensaje: "Falta la ciudad." };
+        const token = await tokenDropiDelTenant(p.tenantId);
+        if (!token) {
+          return { ok: false, mensaje: "Este negocio no tiene el token de Dropi cargado: no puedo listar transportadoras reales. Dile que el envío lo coordina el equipo y no inventes empresas." };
+        }
+        const r = await transportadorasQueLlegan(token, { ciudad: destino });
+        const lista = r.ok ? r.data?.transportadoras || [] : [];
+        if (!r.ok || !lista.length) {
+          return { ok: false, mensaje: `Dropi no devolvió transportadoras para ${destino}. Dile que el envío lo coordina el equipo y no inventes empresas.` };
+        }
+        const nombres = lista.map((t, i) => `${i + 1}) ${t.nombre}`).join("\n");
+        const titulo = r.data?.fuente === "cobertura"
+          ? `A ${destino} llegan estas:`
+          : `Para ${destino} muestro las que Dropi lista en general (no pudo filtrar por ciudad):`;
+        return { ok: true, mensaje: `${titulo}\n${nombres}\n${r.data?.nota || ""}`.trim() };
+      } catch (e: any) {
+        logger.error({ err: e?.message, tenantId: p.tenantId }, "[MotorV2] no se pudieron listar transportadoras");
+        return { ok: false, mensaje: "No se pudo consultar las transportadoras ahora. Dile que el envío lo coordina el equipo y no inventes empresas." };
       }
     },
 
@@ -547,7 +600,7 @@ export function servicioDePedidosDePrueba(p: {
   return {
     pedido: () => pedido,
     servicio: {
-      async tomar({ producto, cantidad, datos }) {
+      async tomar({ producto, cantidad, datos, variante, transportadora }) {
         const ds = await import("../dropshipping");
         let heredados: Partial<import("../dropshipping").DatosDeEnvio> = {};
         if (pedido && pedido.productId !== producto.id) {
@@ -571,6 +624,11 @@ export function servicioDePedidosDePrueba(p: {
         }
         if (pedido.estado === "por_confirmar" && Object.keys(datos).length) pedido.estado = "completo";
         for (const [k, v] of Object.entries(nuevos)) if (v) (pedido as any)[k] = v;
+        if (variante) pedido.variante = String(variante);
+        if (transportadora?.nombre) {
+          pedido.transportadora = String(transportadora.nombre);
+          pedido.transportadoraId = transportadora.id ?? null;
+        }
 
         const faltan = ds.datosQueFaltan(pedido);
         if (faltan.length) {
@@ -581,6 +639,16 @@ export function servicioDePedidosDePrueba(p: {
         if (!zona.ok) return { estado: "zona", motivo: zona.motivo || "la zona no verifica" };
         pedido.estado = "por_confirmar";
         return { estado: "listo", resumen: ds.resumenDelPedido(pedido, cond) };
+      },
+
+      async transportadoras(ciudad: string) {
+        const destino = String(ciudad || "").trim() || "esa ciudad";
+        return {
+          ok: true,
+          mensaje:
+            `A ${destino} llegan estas:\n1) SERVIENTREGA\n2) ENVIA\n3) INTERRAPIDISIMO\n` +
+            `(prueba: lista fija, en producción sale de Dropi para la ciudad del cliente)`,
+        };
       },
 
       async confirmar() {

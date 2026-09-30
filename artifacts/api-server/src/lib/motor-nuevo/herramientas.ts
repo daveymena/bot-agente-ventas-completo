@@ -191,12 +191,23 @@ export type ResultadoConfirmarPedido =
   | { estado: "error"; motivo: string };
 
 export interface ServicioDePedidos {
-  /** Abre (o retoma) el pedido de esta conversación y guarda los datos que llegaron. */
-  tomar(p: { producto: Producto; cantidad: number; datos: DatosDelPedido }): Promise<ResultadoTomarPedido>;
+  /**
+   * Abre (o retoma) el pedido de esta conversación y guarda los datos que llegaron.
+   * `variante` es lo que el cliente eligió (talla/color/modelo): se guarda
+   * aparte de `datos.notas` para que al despachar se pueda resolver la
+   * variación EXACTA de Dropi y no una cualquiera.
+   */
+  tomar(p: { producto: Producto; cantidad: number; datos: DatosDelPedido; variante?: string | null; transportadora?: { id?: number | null; nombre: string } | null }): Promise<ResultadoTomarPedido>;
   /** El cliente confirmó el resumen: se registra y se despacha. */
   confirmar(): Promise<ResultadoConfirmarPedido>;
   /** Seguimiento: el último pedido de esta conversación y lo que dice Dropi de él. */
   estado?(): Promise<{ hay: boolean; texto: string }>;
+  /**
+   * Transportadoras que llegan a la ciudad del cliente (si la tiene) o a la
+   * que se le pase. Nombres reales del proveedor: el bot ofrece la lista y el
+   * cliente elige; nunca se inventa una ni se muestra el flete.
+   */
+  transportadoras?(ciudad: string): Promise<{ ok: boolean; mensaje: string }>;
 }
 
 export interface ResultadoHerramienta {
@@ -452,6 +463,27 @@ export const definicionesDeHerramientas = [
           departamento: { type: "string", description: "Departamento (o estado/provincia). Si solo dijo la ciudad, déjalo vacío." },
           notas: { type: "string", description: "Punto de referencia u otra indicación de entrega." },
           variante: { type: "string", description: "Talla/color/modelo que eligió el cliente (ej. \"M\"). Pásala SIEMPRE que la haya dicho." },
+          transportadora: { type: "string", description: "Transportadora que eligió el cliente (ej. \"SERVIENTREGA\"), SOLO si la eligió él después de ver la lista de consultar_transportadoras. Si no eligió, déjala vacía: nunca inventes una." },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "consultar_transportadoras",
+      description:
+        "Lista las transportadoras REALES que entregan en la ciudad del cliente (la que ya dijo, o pásasela). " +
+        "Úsala cuando el cliente pregunte qué empresa lleva el envío o quiera elegir una. La respuesta NOMBRA las " +
+        "transportadoras que llegan a esa ciudad, sin precios de flete: el flete NUNCA se le muestra al cliente. " +
+        "Ordenalas de la más económica a la más cara en tu texto y ofrecé las 2 o 3 primeras. Cuando el cliente elija " +
+        "una, pasa su nombre en tomar_pedido(transportadora=…). Si no hay ninguna para esa ciudad, dilo con tus " +
+        "palabras y sigue con el envío normal.",
+      parameters: {
+        type: "object",
+        properties: {
+          ciudad: { type: "string", description: "Ciudad de entrega. Si no la pasás se usa la que ya dio el cliente." },
         },
         required: [],
       },
@@ -1155,7 +1187,18 @@ export const ejecutores: Record<string, Ejecutor> = {
       datos.notas = [`Talla/variante: ${ctx.estado.datos.variante}`, datos.notas].filter(Boolean).join(" · ");
     }
     const cantidad = Math.max(1, Math.min(20, Number(args?.cantidad) || 1));
-    const r = await ctx.pedidos.tomar({ producto: p, cantidad, datos });
+    // La transportadora solo cuenta si la ELIGIÓ el cliente (nunca se inventa:
+    // dueño, 25-09-2026). Con el nombre alcanza: quien despacha resuelve el id
+    // contra las que Dropi lista para esa ciudad.
+    const transportadoraElegida = String(args?.transportadora ?? "").trim().slice(0, 120);
+    if (transportadoraElegida) ctx.estado.datos.transportadora = transportadoraElegida;
+    const r = await ctx.pedidos.tomar({
+      producto: p,
+      cantidad,
+      datos,
+      variante: varianteDicha || null,
+      transportadora: transportadoraElegida ? { nombre: transportadoraElegida } : null,
+    });
 
     ctx.estado.productoEnFoco = p.id;
     if (ctx.estado.compra === "ninguno" || ctx.estado.compra === "interes" || ctx.estado.compra === "producto_definido" || ctx.estado.compra === "precio_dado") {
@@ -1379,6 +1422,26 @@ export const ejecutores: Record<string, Ejecutor> = {
     det.stockEstado = "disponible";
     marcarPaso(ctx.estado, `stock_${p.id}`);
     return { ok: true, mensaje: `${p.name}: ${p.stock} unidad(es) en inventario. Puedes ofrecerlo.` };
+  },
+
+  async consultar_transportadoras(ctx, { ciudad }) {
+    if (!ctx.pedidos?.transportadoras) {
+      return { ok: false, mensaje: "Este negocio no tiene pedidos automáticos, así que no puedo listar transportadoras reales. No inventes ninguna empresa: dile que el envío lo coordina el equipo y, si el cliente insiste, usa escalar_a_humano." };
+    }
+    const destino = String(ciudad ?? "").trim() || String((ctx.estado.datos as any)?.ciudad ?? "").trim();
+    if (!destino) {
+      return { ok: false, mensaje: "Falta la ciudad de entrega: sin ciudad no sé qué transportadoras llegan. Pídesela al cliente en UNA pregunta corta y volvé a llamar." };
+    }
+    const r = await ctx.pedidos.transportadoras(destino);
+    if (!r.ok) return r;
+    return {
+      ok: true,
+      mensaje:
+        `${r.mensaje} ` +
+        `Mostrá SOLO los nombres, ordenados de la más económica a la más cara, y ofrecé 2 o 3. ` +
+        `NUNCA muestres el flete ni ningún precio de envío (dueño: el flete no se muestra). ` +
+        `Si el cliente elige una, pasá su nombre exacto en tomar_pedido(transportadora=…); si no elige, no insistas.`,
+    };
   },
 
   registrar_caso(ctx, { tipo, necesidad, alcance, cuando, problema, objetivo }) {
