@@ -26,6 +26,7 @@ import { videoDeProducto, leerMetadata, normalizarEnlaceDeVideo } from "./video-
 import { recordControlPlaneAudit } from "./control-plane-audit";
 import { codeOperator } from "./code-operator";
 import { SUPER_ADMIN_EMAIL } from "../middleware/requireSuperAdmin";
+import { respaldoEnvFacebook } from "./tenant-facebook-credentials";
 
 export interface OperatorContext {
   tenantId: number;
@@ -3490,7 +3491,7 @@ ${explicarObjetivos()}` };
       // Es el mismo patrón que venimos cerrando todo el día: reportar hecho
       // algo que no pasó. Verificado en producción (2026-08-19): el tenant
       // tiene catalogId vacío.
-      const catalogId = (tenant as any)?.facebook?.catalogId || process.env.FB_CATALOG_ID || "";
+      const catalogId = (tenant as any)?.facebook?.catalogId || respaldoEnvFacebook(ctx.tenantId)(process.env.FB_CATALOG_ID);
       if (!catalogId) {
         return {
           ok: false,
@@ -3725,8 +3726,9 @@ ${explicarObjetivos()}` };
         const wa = typeof args.whatsapp === "string" ? args.whatsapp.trim() : "";
         const presupuestoPedido = num(args.dailyBudget) || 0;
         const draft = await new AdStrategist(tenant || undefined).createDraftAd(
-          tenant?.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "",
-          tenant?.facebook?.userAccessToken || tenant?.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "",
+          // .env = cuenta publicitaria del dueño del servidor: solo para él.
+          tenant?.facebook?.adAccountId || respaldoEnvFacebook(ctx.tenantId)(process.env.FB_AD_ACCOUNT_ID),
+          tenant?.facebook?.userAccessToken || tenant?.facebook?.accessToken || respaldoEnvFacebook(ctx.tenantId)(process.env.FB_ACCESS_TOKEN),
           id,
           grounded,
           undefined,
@@ -5290,7 +5292,7 @@ ${explicarObjetivos()}` };
   },
   {
     name: "dropi_importar_lote_estado",
-    description: "Progreso de la importación en lote de Dropi de este negocio (cuántos van, cuáles fallaron). Solo lee.",
+    description: "Progreso de la importación en lote de Dropi.",
     args: "{}",
     run: async (_args, ctx) => {
       const { loteDelNegocio, resumenDelLote } = await import("./dropi-importacion-lote");
@@ -5594,7 +5596,7 @@ ${explicarObjetivos()}` };
   },
   {
     name: "dropi_status",
-    description: "Estado de la conexión con Dropi de este negocio: prueba el token de integración (catálogo y pedidos DIRECTOS, sin WooCommerce) y dice si responde. Úsala antes de afirmar que Dropi 'no deja' o 'rechaza' algo.",
+    description: "Prueba el token de Dropi del negocio (catálogo y pedidos directos). Usala antes de afirmar que Dropi rechaza algo.",
     args: "{}",
     run: async (_args, ctx) => {
       // Primero el token de integración del negocio: es la puerta que opera
@@ -5625,9 +5627,8 @@ ${explicarObjetivos()}` };
   },
   {
     name: "dropi_con_ordenes",
-    description:
-      "Productos de Dropi que YA TIENEN ÓRDENES (el filtro 'Con órdenes' del panel de Dropi): lo más cercano a 'los más vendidos'. Dropi NO publica un ranking por cantidad vendida, así que no inventes posiciones ni unidades. Filtro opcional por texto. Solo lee.",
-    args: '{ "query"?: string (nicho o producto), "limit"?: number (máx 50, por defecto 20) }',
+    description: "Productos de Dropi CON órdenes (lo más cercano a 'más vendidos'; Dropi no da ranking ni unidades: no las inventes).",
+    args: '{ "query"?: string, "limit"?: number }',
     run: async (args, ctx) => {
       // Lee con la sesión GLOBAL (la del dueño de la plataforma): solo para el
       // admin o un negocio que ya opera Dropi con su propio token.

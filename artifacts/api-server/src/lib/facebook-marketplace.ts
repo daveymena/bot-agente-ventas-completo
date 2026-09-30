@@ -3,6 +3,7 @@ import { getAppUrl } from "./app-url";
 import { db, products } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
+import { respaldoEnvFacebook } from "./tenant-facebook-credentials";
 
 import { FB_GRAPH_BASE } from "./meta-api-version";
 const FB_GRAPH_URL = FB_GRAPH_BASE;
@@ -44,9 +45,10 @@ export class FacebookMarketplaceService {
 
   private getConfig(): { pageId: string; pageAccessToken: string } {
     const fb = this.tenant.facebook || {};
+    const env = respaldoEnvFacebook(this.tenant.id); // .env = cuenta del dueño: solo para él
     return {
-      pageId: fb.pageId || process.env.FB_PAGE_ID || "",
-      pageAccessToken: fb.accessToken || process.env.FB_ACCESS_TOKEN || "",
+      pageId: fb.pageId || env(process.env.FB_PAGE_ID),
+      pageAccessToken: fb.accessToken || env(process.env.FB_ACCESS_TOKEN),
     };
   }
 

@@ -12,6 +12,7 @@ import { whatsapp } from "../lib/whatsapp-singleton";
 import { logger } from "../lib/logger";
 import { encryptSecret, decryptSecret } from "../lib/credentials-vault";
 import { FB_GRAPH_BASE } from "../lib/meta-api-version";
+import { respaldoEnvFacebook } from "../lib/tenant-facebook-credentials";
 
 const router: IRouter = Router();
 
@@ -420,7 +421,7 @@ router.get("/page/can-post", async (req, res, next) => {
     const problema = await checkPostingPermission(tenant);
     return res.json({
       canPost: problema === null,
-      pageId: tenant?.facebook?.pageId || process.env.FB_PAGE_ID || null,
+      pageId: tenant?.facebook?.pageId || respaldoEnvFacebook(tenant?.id)(process.env.FB_PAGE_ID) || null,
       reason: problema,
     });
   } catch (e) { return next(e); }
@@ -814,8 +815,10 @@ router.post("/strategist/draft/:productId", async (req, res, next) => {
   try {
     const productId = parseInt(req.params.productId);
     const tenant = (req as any).tenant;
-    const adAccountId = tenant?.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
-    const accessToken = tenant?.facebook?.userAccessToken || tenant?.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "";
+    // .env = cuenta publicitaria del dueño del servidor: solo para él.
+    const env = respaldoEnvFacebook(tenant?.id);
+    const adAccountId = tenant?.facebook?.adAccountId || env(process.env.FB_AD_ACCOUNT_ID);
+    const accessToken = tenant?.facebook?.userAccessToken || tenant?.facebook?.accessToken || env(process.env.FB_ACCESS_TOKEN);
     const { AdStrategist } = await import("../lib/ad-strategist");
     // Copy grounded en investigación real, opcional -- mismos campos que usa
     // el Arquitecto vía fb_ad_draft (ver ResearchGroundedCopy). Sin esto la

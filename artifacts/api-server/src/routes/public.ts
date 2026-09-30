@@ -13,6 +13,7 @@ import { encryptSecret } from "../lib/credentials-vault";
 import { credencialesDe } from "../lib/tenant-payment-credentials";
 import { rateLimitPublico } from "../middleware/rateLimitPublico";
 import { FB_GRAPH_BASE } from "../lib/meta-api-version";
+import { respaldoEnvFacebook } from "../lib/tenant-facebook-credentials";
 
 /**
  * Resuelve el número de WhatsApp asociado a la app (vía QR conectado).
@@ -22,13 +23,16 @@ import { FB_GRAPH_BASE } from "../lib/meta-api-version";
  * Píxel de Meta del tenant. Sale de su metadata (cada tienda mide en SU píxel);
  * el .env queda como respaldo para la instalación propia.
  */
-function resolvePixelId(tenant?: { metadata?: unknown }): string | null {
+function resolvePixelId(tenant?: { id?: number; metadata?: unknown }): string | null {
+  // El píxel del .env es el del DUEÑO del servidor: medir la landing de otro
+  // negocio en él le mezcla las conversiones (29-09-2026).
+  const env = respaldoEnvFacebook(tenant?.id);
   try {
     const raw = tenant?.metadata;
     const meta: any = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
-    return meta?.facebook?.pixelId || process.env.FB_PIXEL_ID || null;
+    return meta?.facebook?.pixelId || env(process.env.FB_PIXEL_ID) || null;
   } catch {
-    return process.env.FB_PIXEL_ID || null;
+    return env(process.env.FB_PIXEL_ID) || null;
   }
 }
 

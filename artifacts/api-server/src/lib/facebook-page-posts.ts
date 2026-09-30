@@ -14,6 +14,7 @@ import { getAppUrl } from "./app-url";
 import { db, products } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
+import { respaldoEnvFacebook } from "./tenant-facebook-credentials";
 
 import { FB_GRAPH_BASE } from "./meta-api-version";
 const FB_GRAPH = FB_GRAPH_BASE;
@@ -45,14 +46,10 @@ export interface PublishResult {
 function pageCreds(tenant?: TenantContext): { token: string; pageId: string } {
   const t = tenant || tenantManager.getDefaultTenant();
   const fb = t?.facebook || {};
+  const env = respaldoEnvFacebook(t?.id); // .env = cuenta del dueño: solo para él
   return {
-    token:
-      fb.accessToken ||
-      fb.messengerPageToken ||
-      process.env.FB_ACCESS_TOKEN ||
-      process.env.FB_MESSENGER_PAGE_TOKEN ||
-      "",
-    pageId: fb.pageId || process.env.FB_PAGE_ID || "",
+    token: fb.accessToken || fb.messengerPageToken || env(process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN),
+    pageId: fb.pageId || env(process.env.FB_PAGE_ID),
   };
 }
 

@@ -1,6 +1,23 @@
 import { logger } from "./logger";
-import type { TenantContext } from "./tenantManager";
+import { tenantManager, type TenantContext } from "./tenantManager";
 import { FB_GRAPH_BASE } from "./meta-api-version";
+
+/**
+ * El respaldo del .env (FB_ACCESS_TOKEN, FB_AD_ACCOUNT_ID, FB_PAGE_ID…) es la
+ * cuenta de Meta del DUEÑO del servidor: vale solo para ese negocio. Es la
+ * regla que ya aplicaban facebook.ts, ad-strategist.ts y /facebook/config;
+ * encontrado el 29-09-2026 que esta función central y ~10 lecturas sueltas
+ * (comentarios, Marketplace, Messenger, publicaciones, píxel de la landing,
+ * métricas) no la aplicaban: un negocio sin Facebook propio publicaba en la
+ * página del dueño, medía en su píxel y leía su cuenta publicitaria.
+ * Sin negocio (null) se trata como el dueño, igual que FacebookService.
+ * Lo que es de la APP de Meta (appId, appSecret, verify tokens) no es de una
+ * cuenta y sigue siendo global.
+ */
+export function respaldoEnvFacebook(tenantId: number | null | undefined): (valor: string | undefined) => string {
+  const esDuenoDelServidor = tenantId == null || tenantId === tenantManager.getDefaultTenant().id;
+  return (valor) => (esDuenoDelServidor ? valor || "" : "");
+}
 
 /**
  * Credenciales de Facebook POR NEGOCIO.
@@ -55,10 +72,11 @@ export function enmascarar(valor: string): string {
  */
 export function credencialesFacebookDe(tenant: TenantContext | null | undefined): CredencialesFacebook {
   const fb: any = tenant?.facebook || {};
+  const env = respaldoEnvFacebook(tenant?.id);
 
-  const accessToken = fb.accessToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "";
+  const accessToken = fb.accessToken || env(process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN);
   const appSecret = fb.appSecret || process.env.FB_APP_SECRET || "";
-  const messengerPageToken = fb.messengerPageToken || process.env.FB_MESSENGER_PAGE_TOKEN || "";
+  const messengerPageToken = fb.messengerPageToken || env(process.env.FB_MESSENGER_PAGE_TOKEN);
   const messengerVerifyToken = fb.messengerVerifyToken || process.env.FB_MESSENGER_VERIFY_TOKEN || "";
 
   const tienePropias = !!(
@@ -67,11 +85,11 @@ export function credencialesFacebookDe(tenant: TenantContext | null | undefined)
 
   return {
     accessToken,
-    userAccessToken: fb.userAccessToken || process.env.FB_USER_ACCESS_TOKEN || process.env.FB_ACCESS_TOKEN || "",
-    pageId: fb.pageId || process.env.FB_PAGE_ID || "",
-    adAccountId: fb.adAccountId || process.env.FB_AD_ACCOUNT_ID || "",
-    pixelId: fb.pixelId || process.env.FB_PIXEL_ID || "",
-    catalogId: fb.catalogId || process.env.FB_CATALOG_ID || "",
+    userAccessToken: fb.userAccessToken || env(process.env.FB_USER_ACCESS_TOKEN || process.env.FB_ACCESS_TOKEN),
+    pageId: fb.pageId || env(process.env.FB_PAGE_ID),
+    adAccountId: fb.adAccountId || env(process.env.FB_AD_ACCOUNT_ID),
+    pixelId: fb.pixelId || env(process.env.FB_PIXEL_ID),
+    catalogId: fb.catalogId || env(process.env.FB_CATALOG_ID),
     appId: fb.appId || process.env.FB_APP_ID || "",
     appSecret,
     messengerPageToken,
