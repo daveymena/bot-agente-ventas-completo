@@ -5,6 +5,7 @@
  * El diseño cambia composición y jerarquía, no solo colores.
  */
 import { tokensDe, type FamiliaVisual } from "./design-system";
+import { renderizarLandingImagenes } from "./renderer-imagenes";
 
 export interface SeccionParaRenderizar {
   id: string;
@@ -58,6 +59,12 @@ export interface CierreDeLanding {
 export interface OpcionesDeRender {
   nombre: string;
   secciones: SeccionParaRenderizar[];
+  /** "imagenes" = landing de paneles verticales (ver renderer-imagenes.ts). */
+  modo?: string | null;
+  /** Ofertas del dueño (solo modo imágenes): el pedido cobra estas. */
+  ofertas?: Array<{ nombre: string; cantidad: number; precio: number }> | null;
+  /** Sellos de las condiciones reales del negocio (solo modo imágenes). */
+  sellos?: string[] | null;
   familia: FamiliaVisual | string | null;
   producto?: ProductoParaRenderizar | null;
   negocio?: NegocioParaRenderizar | null;
@@ -155,7 +162,7 @@ function btn(texto: unknown, href: unknown, variant = "primary"): string {
   return text && url ? `<a class="btn btn--${variant}" href="${esc(url)}">${esc(text)}</a>` : "";
 }
 
-function cssBase(familia: string): string {
+export function cssBase(familia: string): string {
   const t = tokensDe(familia);
   const color = t.color;
   const tipo = t.tipografia;
@@ -503,7 +510,7 @@ function renderGallery(section: SeccionParaRenderizar, producto: ProductoParaRen
   return `<div class="head"><p class="eyebrow">Galería</p><h2>${esc(section.title || "Míralo de cerca")}</h2>${section.subtitle ? `<p class="lead">${esc(section.subtitle)}</p>` : ""}</div><div class="gallery">${urls.map((url, i) => `<img src="${esc(url)}" alt="${esc(producto?.name || "Producto")} · vista ${i + 1}" loading="lazy" decoding="async">`).join("")}</div>`;
 }
 
-function renderCheckout(cierre: CierreDeLanding, producto: ProductoParaRenderizar | null | undefined, negocio: NegocioParaRenderizar | null | undefined): string {
+export function renderCheckout(cierre: CierreDeLanding, producto: ProductoParaRenderizar | null | undefined, negocio: NegocioParaRenderizar | null | undefined): string {
   const wa = whatsapp(producto, negocio);
   const price = precio(producto);
   if (cierre.tipo === "contraentrega" && cierre.accion) {
@@ -537,6 +544,7 @@ export function tituloLegible(t: string): string {
 }
 
 export function renderizarLanding(opts: OpcionesDeRender): string {
+  if (opts.modo === "imagenes") return renderizarLandingImagenes(opts);
   const familia = String(opts.familia || "ecommerce");
   const tokens = tokensDe(familia);
   const producto = opts.producto || null;

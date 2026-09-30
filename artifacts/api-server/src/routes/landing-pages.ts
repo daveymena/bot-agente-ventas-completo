@@ -147,6 +147,11 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
       },
       negocio,
       cierre,
+      // Landing de imágenes (lib/landing/plan-imagenes.ts): paneles, ofertas
+      // del dueño y sellos de las condiciones reales del negocio.
+      modo: (row.design as any)?.modo ?? null,
+      ofertas: (row.design as any)?.ofertas ?? null,
+      sellos: (await import("../lib/landing/plan-imagenes")).sellosDelNegocio(c),
     });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.send(html);
@@ -210,6 +215,11 @@ router.post("/preview", async (req: TenantRequest, res, next) => {
       },
       negocio,
       cierre,
+      // Landing de imágenes (lib/landing/plan-imagenes.ts): paneles, ofertas
+      // del dueño y sellos de las condiciones reales del negocio.
+      modo: (req.body?.design as any)?.modo ?? null,
+      ofertas: (req.body?.design as any)?.ofertas ?? null,
+      sellos: (await import("../lib/landing/plan-imagenes")).sellosDelNegocio(c),
     });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.send(html);

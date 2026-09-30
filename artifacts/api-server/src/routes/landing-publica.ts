@@ -114,6 +114,11 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
       },
       negocio,
       cierre,
+      // Landing de imágenes (lib/landing/plan-imagenes.ts): paneles, ofertas
+      // del dueño y sellos de las condiciones reales del negocio.
+      modo: (row.design as any)?.modo ?? null,
+      ofertas: (row.design as any)?.ofertas ?? null,
+      sellos: (await import("../lib/landing/plan-imagenes")).sellosDelNegocio(c),
     });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "public, max-age=60");
@@ -202,13 +207,26 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
     const zona = ds.verificarZona(datos, c.pais);
     if (!zona.ok) return res.status(400).json({ ok: false, error: `Revisá la ciudad y el departamento: ${zona.motivo}` });
 
-    const cantidad = Math.max(1, Math.min(10, Number(b.cantidad) || 1));
-    const detalleOpciones = Object.entries(opciones).map(([k, v]) => `${k}: ${v}`).join(" · ");
+    let cantidad = Math.max(1, Math.min(10, Number(b.cantidad) || 1));
+    let detalleOpciones = Object.entries(opciones).map(([k, v]) => `${k}: ${v}`).join(" · ");
 
     // Cupón: dato real del negocio. Si viene un código, se valida, se descuenta
     // del precio y se consume un uso. Si no aplica, el pedido sigue al precio
     // normal y el motivo queda en las notas.
     let unitPrice = Number(producto.price) || 0;
+
+    // Ofertas de la landing de imágenes ("2 unidades por $49.900"): las define
+    // el DUEÑO y viven en la landing; el cliente solo manda cuál eligió. Sin
+    // esto la página mostraba un precio y el pedido cobraba precio × cantidad.
+    const ofertasLanding = Array.isArray((row.design as any)?.ofertas) ? ((row.design as any).ofertas as Array<{ nombre: string; cantidad: number; precio: number }>) : [];
+    if (ofertasLanding.length) {
+      const o = ofertasLanding[Math.max(0, Math.min(ofertasLanding.length - 1, Number(b.oferta) || 0))];
+      if (o && Number(o.precio) > 0 && Number(o.cantidad) > 0) {
+        cantidad = Math.max(1, Math.min(10, Math.round(Number(o.cantidad))));
+        unitPrice = Number(o.precio) / cantidad;
+        detalleOpciones = [detalleOpciones, `Oferta: ${o.nombre}`].filter(Boolean).join(" · ");
+      }
+    }
     let cuponNota = "";
     const codigoCupon = String(b.cupon || "").trim().toUpperCase().replace(/\s+/g, "");
     if (codigoCupon) {
@@ -271,7 +289,7 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
       {
         const texto = [
           `🛒 *Pedido nuevo desde la landing* (${row.name})`,
-          `📦 ${producto.name} × ${cantidad} · $${Number(producto.price || 0).toLocaleString("es-CO")}`,
+          `📦 ${producto.name} × ${cantidad} · total $${Math.round(unitPrice * cantidad).toLocaleString("es-CO")}`,
           detalleOpciones ? `🎨 ${detalleOpciones}` : "",
           `👤 ${datos.nombre} · 📱 ${datos.telefono}${datos.documento ? ` · 🪪 ${datos.documento}` : ""}`,
           `🏠 ${datos.direccion}${datos.barrio ? `, ${datos.barrio}` : ""} — ${datos.ciudad}, ${datos.departamento}`,

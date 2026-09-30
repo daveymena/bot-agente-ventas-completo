@@ -4829,9 +4829,26 @@ ${explicarObjetivos()}` };
     },
   },
   {
+    name: "landing_imagenes_crear",
+    description: "Landing de imágenes. 11 paneles; preguntá antes ofertas, ángulo y público.",
+    args: '{ "productId": number, "ofertas"?: [{nombre,cantidad,precio}], "angulo"?, "publico"? }',
+    run: async (args, ctx) => {
+      const id = num(args?.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'." };
+      const { crearLandingImagenes } = await import("./landing/crear-landing-imagenes");
+      const r = await crearLandingImagenes(ctx.tenantId, { productId: id, ofertas: args?.ofertas, angulo: args?.angulo, publico: args?.publico });
+      if (!r.ok) return { ok: false, summary: r.error };
+      const ofertas = ((r.row.design as any)?.ofertas || []).map((o: any) => `${o.nombre} $${Number(o.precio).toLocaleString("es-CO")}`).join(" · ");
+      return {
+        ok: true,
+        summary: `🖼️ Landing de imágenes #${r.row.id} creada en borrador (plan por ${r.autor}). Ofertas: ${ofertas || "—"}. Para cada panel hay un prompt listo para generar la imagen gratis en Gemini y subirla; mientras tanto se ve con las fotos reales del producto. Editar: /landing-imagenes?id=${r.row.id} · publicar: landing_publicar.`,
+      };
+    },
+  },
+  {
     name: "landing_crear",
     description:
-      "Genera y guarda una landing profesional para un producto (agente premium + respaldo por secciones). Corre EN SEGUNDO PLANO: devuelve al instante el id NUEVO en estado generando; hasta que landing_estado diga lista no muestres ni describas ninguna landing (menos una vieja). Queda en borrador; publicar: landing_publicar. ⚠️ Va por propose_action.",
+      "Genera una landing HTML del producto. Corre en segundo plano: devuelve el id NUEVO en estado generando; hasta que landing_estado diga lista no describas ninguna landing (menos una vieja). Borrador; publicar: landing_publicar. Va por propose_action.",
     args: '{ "productId": number (req), "instruccion"?: string, "familia"?: string (estilo: premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch, electronica, suplemento, gourmet) }',
     run: async (args, ctx) => {
       const id = num(args?.productId);
@@ -5272,7 +5289,7 @@ ${explicarObjetivos()}` };
   },
   {
     name: "dropi_importar_lote",
-    description: "Importa VARIOS productos de Dropi en segundo plano (ids o búsqueda, máx 200). Precio: sugerido o costo × factorSobreCosto. Avisa al terminar.",
+    description: "Importa varios productos de Dropi. En segundo plano (ids o búsqueda, máx 200); precio sugerido o costo × factorSobreCosto; avisa al terminar.",
     args: '{ "dropiProductIds"?: number[], "query"?: string, "max"?: number, "factorSobreCosto"?: number, "curar"?: boolean }',
     run: async (args, ctx) => {
       const { tokenDropiDelTenant, estadoTokenDropi, mensajeTokenDropi } = await import("./dropi-directo");
