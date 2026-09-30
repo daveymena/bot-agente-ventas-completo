@@ -613,6 +613,26 @@ function extraerNichoParaAnuncios(instruccion: string): string {
  * en segundo plano, sin estado que se pueda perder, sin promesas que
  * cumplir después.
  */
+/**
+ * ¿Este negocio puede usar el PUENTE de Dropi (lib/dropi.ts)?
+ *
+ * El puente usa DROPI_TOKEN: el token de sesión GLOBAL del servidor, que es
+ * la cuenta de Dropi del dueño de la plataforma. Encontrado el 29-09-2026:
+ * `dropi_create_order` lo usaba para CUALQUIER negocio, así que el Atlas de
+ * un cliente podía crear un pedido real contra la cuenta del dueño, y los
+ * respaldos de búsqueda/importación leían con su sesión. Cada negocio opera
+ * con SU token de integración (tenants.apiKeys.dropi); el puente queda solo
+ * para el admin de la plataforma.
+ */
+async function puedeUsarPuenteDropi(tenantId: number): Promise<boolean> {
+  try {
+    const t = await tenantManager.getTenantById(tenantId);
+    return !!t && (!!t.isAdmin || t.email === SUPER_ADMIN_EMAIL);
+  } catch {
+    return false;
+  }
+}
+
 export async function investigacionRapida(
   ctx: OperatorContext,
   instruccion: string,
@@ -5595,7 +5615,8 @@ ${explicarObjetivos()}` };
       }
       const estado = await estadoTokenDropi(ctx.tenantId);
       if (estado.estado === "ilegible") return { ok: false, summary: mensajeTokenDropi(estado) };
-      // Sin token de integración: queda el puente (token de sesión global).
+      if (!(await puedeUsarPuenteDropi(ctx.tenantId))) return { ok: false, summary: mensajeTokenDropi(estado) };
+      // Sin token de integración: queda el puente (token de sesión global, solo admin).
       const { dropiStatus } = await import("./dropi");
       const r = await dropiStatus();
       if (r.ok) return { ok: true, summary: "📦 Dropi responde por el puente (token de sesión del servidor). Para pedidos directos falta el token de integración: dropi_conectar." };
@@ -5607,7 +5628,15 @@ ${explicarObjetivos()}` };
     description:
       "Productos de Dropi que YA TIENEN ÓRDENES (el filtro 'Con órdenes' del panel de Dropi): lo más cercano a 'los más vendidos'. Dropi NO publica un ranking por cantidad vendida, así que no inventes posiciones ni unidades. Filtro opcional por texto. Solo lee.",
     args: '{ "query"?: string (nicho o producto), "limit"?: number (máx 50, por defecto 20) }',
-    run: async (args) => {
+    run: async (args, ctx) => {
+      // Lee con la sesión GLOBAL (la del dueño de la plataforma): solo para el
+      // admin o un negocio que ya opera Dropi con su propio token.
+      {
+        const { tokenDropiDelTenant, estadoTokenDropi, mensajeTokenDropi } = await import("./dropi-directo");
+        if (!(await tokenDropiDelTenant(ctx.tenantId)) && !(await puedeUsarPuenteDropi(ctx.tenantId))) {
+          return { ok: false, summary: mensajeTokenDropi(await estadoTokenDropi(ctx.tenantId)) };
+        }
+      }
       const { dropiProductosConOrdenes } = await import("./dropi");
       const r = await dropiProductosConOrdenes({ q: String(args?.query || "").trim() || undefined, limite: num(args?.limit) || 20 });
       if (!r.ok) return { ok: false, summary: `No pude leer los productos con órdenes de Dropi: ${r.error}. El catálogo por token (dropi_buscar) sigue funcionando, pero no trae señal de ventas.` };
@@ -5630,6 +5659,7 @@ ${explicarObjetivos()}` };
       {
         const { tokenDropiDelTenant } = await import("./dropi-directo");
         if (await tokenDropiDelTenant(ctx.tenantId)) return executeAction("dropi_buscar", { query: args?.query, limit: args?.limit }, ctx);
+        if (!(await puedeUsarPuenteDropi(ctx.tenantId))) return executeAction("dropi_buscar", { query: args?.query, limit: args?.limit }, ctx);
       }
       const { dropiSearchProducts, dropiProductImage } = await import("./dropi");
       const q = String(args.query || "").trim();
@@ -5662,6 +5692,8 @@ ${explicarObjetivos()}` };
       {
         const { tokenDropiDelTenant } = await import("./dropi-directo");
         if (await tokenDropiDelTenant(ctx.tenantId)) return executeAction("dropi_importar", { dropiProductId: dropiId, price: args?.price }, ctx);
+        // Sin token propio y sin ser admin: dropi_importar devuelve el mensaje de conectar.
+        if (!(await puedeUsarPuenteDropi(ctx.tenantId))) return executeAction("dropi_importar", { dropiProductId: dropiId, price: args?.price }, ctx);
       }
       const { customerProductCopy, dropiGetProduct, dropiProductImages } = await import("./dropi");
 
@@ -7363,6 +7395,25 @@ ${r.texto}`, data: r.grupos };
         if (!String(args[campo] || "").trim()) return { ok: false, summary: `Falta '${campo}' (obligatorio para el envío)` };
       }
 
+      // Primero el token de integración DEL NEGOCIO (el pedido queda en su
+      // cuenta de Dropi). El puente global es la cuenta del dueño de la
+      // plataforma: solo para el admin (ver puedeUsarPuenteDropi).
+      const { tokenDropiDelTenant, crearPedidoDropi, estadoTokenDropi, mensajeTokenDropi } = await import("./dropi-directo");
+      const tokenPropio = await tokenDropiDelTenant(ctx.tenantId);
+      if (tokenPropio) {
+        const d = await crearPedidoDropi(tokenPropio, {
+          dropiProductId: Number(dropiProductId), nombre: String(prod.name),
+          supplierId: meta?.dropiSupplierId ?? null, stock: meta?.dropiStock ?? null, variationId: meta?.dropiVariationId ?? null,
+        }, {
+          nombre: String(args.clientName), telefono: String(args.clientPhone), direccion: String(args.clientAddress),
+          ciudad: String(args.clientCity || ""), departamento: String(args.clientDepartment || ""),
+          notas: args.notes ? String(args.notes) : null, cantidad: num(args.quantity) || 1,
+          precioUnitario: Number(prod.price) || 0, contraentrega: true, referencia: `atlas-${Date.now()}`,
+        });
+        if (!d.ok) return { ok: false, summary: `Dropi rechazó la orden: ${d.error}` };
+        return { ok: true, summary: `📦 Orden creada en Dropi${d.data?.id ? ` #${d.data.id}` : ""} para "${prod.name}" → ${args.clientName} (${args.clientPhone})` };
+      }
+      if (!(await puedeUsarPuenteDropi(ctx.tenantId))) return { ok: false, summary: mensajeTokenDropi(await estadoTokenDropi(ctx.tenantId)) };
       const r = await dropiCreateOrder({
         dropiProductId,
         quantity: num(args.quantity) || 1,
