@@ -372,6 +372,7 @@ router.post("/fb-connect", rateLimitPublico(10, 10 * 60 * 1000, "fb-connect"), a
       connectedAt: new Date().toISOString(),
     };
 
+    let cuentasVistas: Array<{ id: string; nombre: string; moneda: string; activa: boolean }> = [];
     // ── Cuenta publicitaria: se detecta sola ────────────────────────────
     // Sin esto el "conectá con Facebook" quedaba a mitad de camino: el
     // negocio terminaba con su página y sus tokens, pero SIN cuenta
@@ -382,14 +383,14 @@ router.post("/fb-connect", rateLimitPublico(10, 10 * 60 * 1000, "fb-connect"), a
     // ya funcione todo. El token de usuario que acabamos de obtener trae el
     // scope ads_management, así que la cuenta se puede preguntar acá mismo.
     try {
-      const cuentasRes = await fetch(
-        `${graph}/me/adaccounts?fields=id,account_id,name,account_status,currency&limit=25&access_token=${encodeURIComponent(longLivedUserToken)}`,
-        { signal: AbortSignal.timeout(15000) },
-      );
-      const cuentas: any = await cuentasRes.json();
-      const lista: any[] = cuentas?.data || [];
-      // account_status 1 = activa. Si hay varias se toma la primera activa;
-      // el admin puede cambiarla después desde la pantalla de Facebook.
+      // Antes: solo `me/adaccounts` (limit 25) y "la primera activa", sin
+      // mirar moneda ni el Business Manager. Caso real 30-09-2026: quedó una
+      // cuenta USD y la COP del dueño ni aparecía. Ver meta-cuentas-publicitarias.ts.
+      const { listarCuentasAccesibles, elegirCuentaAlConectar } = await import("../lib/meta-cuentas-publicitarias");
+      const listado = await listarCuentasAccesibles(longLivedUserToken);
+      if (listado.avisos.length) logger.warn({ tenantId, avisos: listado.avisos }, "[FB-Connect] Lectura parcial de cuentas publicitarias");
+      const lista = listado.cuentas;
+      cuentasVistas = lista.map((c) => ({ id: c.id, nombre: c.nombre, moneda: c.moneda, activa: c.activa }));
       // ── LA CUENTA QUE YA ESTABA EN USO MANDA ────────────────────────
       //
       // Esto elegia "la primera activa" SIEMPRE, incluso al reconectar. Con
@@ -404,22 +405,19 @@ router.post("/fb-connect", rateLimitPublico(10, 10 * 60 * 1000, "fb-connect"), a
       //
       // Reconectar sirve para renovar el TOKEN; no es una orden de cambiar de
       // cuenta. Si ya habia una elegida y sigue estando disponible, se
-      // respeta: la eleccion del dueño vale mas que un orden de lista que
-      // decide Meta.
+      // respeta. Si no, gana la ACTIVA EN COP (la app razona en pesos).
       const yaElegida = String((meta.facebook as any)?.adAccountId || "");
-      const seguiaDisponible = yaElegida && lista.some((c) => String(c.account_id) === yaElegida);
-      const elegida = seguiaDisponible
-        ? lista.find((c) => String(c.account_id) === yaElegida)
-        : lista.find((c) => c.account_status === 1) || lista[0];
+      const seguiaDisponible = !!yaElegida && lista.some((c) => c.id === yaElegida);
+      const elegida = elegirCuentaAlConectar(lista, yaElegida, "COP");
       if (seguiaDisponible) {
         logger.info({ tenantId, adAccountId: yaElegida },
           "[FB-Connect] Se conserva la cuenta publicitaria que ya estaba en uso");
       }
-      if (elegida?.account_id) {
-        (meta.facebook as any).adAccountId = String(elegida.account_id);
-        (meta.facebook as any).adAccountName = elegida.name || "";
-        (meta.facebook as any).adAccountCurrency = elegida.currency || "";
-        logger.info({ tenantId, adAccountId: elegida.account_id, moneda: elegida.currency },
+      if (elegida?.id) {
+        (meta.facebook as any).adAccountId = elegida.id;
+        (meta.facebook as any).adAccountName = elegida.nombre || "";
+        (meta.facebook as any).adAccountCurrency = elegida.moneda || "";
+        logger.info({ tenantId, adAccountId: elegida.id, moneda: elegida.moneda },
           "[FB-Connect] Cuenta publicitaria detectada automáticamente");
       } else {
         logger.warn({ tenantId }, "[FB-Connect] El usuario no tiene ninguna cuenta publicitaria: va a poder publicar en la página, pero no crear anuncios pagos");
@@ -465,6 +463,8 @@ router.post("/fb-connect", rateLimitPublico(10, 10 * 60 * 1000, "fb-connect"), a
           }
         : null,
       puedeCrearAnuncios: !!(meta.facebook as any)?.adAccountId,
+      // Todas las que ve la conexión, para poder elegir otra sin ir a Meta.
+      cuentasPublicitarias: cuentasVistas,
     });
   } catch (err) {
     return next(err);

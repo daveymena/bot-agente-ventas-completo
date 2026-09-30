@@ -42,10 +42,12 @@ describe("al reconectar se conserva la cuenta que ya estaba en uso", () => {
     expect(PUBLIC).toMatch(/lista\.some\(/);
   });
 
-  it("solo elige la primera activa cuando NO habia ninguna", () => {
+  it("solo elige otra cuando NO habia ninguna (y ahi gana la activa en COP)", () => {
     // La eleccion automatica sigue existiendo: es lo que hace que conectar por
-    // primera vez funcione sin pedirle el id a nadie.
-    expect(PUBLIC).toMatch(/seguiaDisponible[\s\S]{0,200}account_status === 1/);
+    // primera vez funcione sin pedirle el id a nadie. Desde el 30-09-2026 vive
+    // en elegirCuentaAlConectar (probada en lib/__tests__/cuenta-publicitaria-cop.test.ts):
+    // respeta la previa, y si no, prefiere la activa en COP.
+    expect(PUBLIC).toMatch(/elegirCuentaAlConectar\(lista, yaElegida/);
   });
 
   it("la version vieja --elegir siempre la primera-- ya no existe", () => {

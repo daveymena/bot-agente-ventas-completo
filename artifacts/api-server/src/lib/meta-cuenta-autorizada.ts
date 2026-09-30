@@ -79,7 +79,7 @@ export function veredictoDeCuenta(cuenta: CuentaMeta | null, autorizada: CuentaA
   if (moneda !== "COP") {
     return {
       ok: false,
-      motivo: `La cuenta ${id} está en ${moneda || "moneda desconocida"}: solo se publica en la cuenta COP autorizada del negocio. Elegí la cuenta en COP en la configuración de Facebook del panel.`,
+      motivo: `La cuenta ${id} está en ${moneda || "moneda desconocida"}: solo se publica en la cuenta COP autorizada del negocio. Elegí la cuenta en COP en el panel (Facebook → Cuenta publicitaria) o pedíselo a Atlas.`,
     };
   }
   if (cuenta.estado != null && Number(cuenta.estado) !== CUENTA_META_ACTIVA) {
@@ -118,6 +118,42 @@ export async function fijarCuentaAutorizada(tenantId: number, c: { id: string; m
   metaAds.cuentaAutorizada = { id: String(c.id).trim(), moneda: String(c.moneda || "COP").toUpperCase(), fijadaEn: new Date().toISOString(), fijadaPor: por };
   await db.update(tenants).set({ settings: { ...settings, metaAds } } as any).where(eq(tenants.id, tenantId));
   logger.info({ tenantId, cuenta: c.id, por }, "[MetaAds] Cuenta publicitaria autorizada fijada");
+}
+
+/**
+ * Cambio EXPLÍCITO de cuenta (panel o Atlas con confirmación). Quien llama ya
+ * validó que la cuenta está entre las que ve el token del negocio
+ * (validarCambioDeCuenta). Guarda la cuenta activa en metadata.facebook y, si
+ * es COP, la deja como autorizada: si no, el candado seguía clavado a la
+ * anterior y el cambio no servía para publicar.
+ */
+export async function cambiarCuentaActiva(
+  tenantId: number,
+  c: { id: string; nombre?: string; moneda?: string },
+  por: string,
+): Promise<void> {
+  const [t] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+  const meta: any = t?.metadata ? (typeof t.metadata === "string" ? JSON.parse(t.metadata) : t.metadata) : {};
+  const anterior = String(meta?.facebook?.adAccountId || "");
+  meta.facebook = {
+    ...(meta.facebook || {}),
+    adAccountId: String(c.id),
+    adAccountName: c.nombre || "",
+    adAccountCurrency: String(c.moneda || "").toUpperCase(),
+  };
+  await db.update(tenants).set({ metadata: meta }).where(eq(tenants.id, tenantId));
+  if (String(c.moneda || "").toUpperCase() === "COP") {
+    await fijarCuentaAutorizada(tenantId, { id: c.id, moneda: "COP" }, por);
+  }
+  try {
+    const { tenantManager } = await import("./tenantManager");
+    tenantManager.clearCache();
+  } catch { /* sin caché que limpiar */ }
+  try {
+    const { writeAuditLog } = await import("./marketing-team/audit");
+    await writeAuditLog({ tenantId, agent: "CuentaAutorizada", action: "cuenta_cambiada", resource: String(c.id), result: "SUCCESS", reason: `${por}: ${anterior || "(ninguna)"} -> ${c.id} (${c.moneda || "?"})` });
+  } catch { /* el cambio no depende de la auditoría */ }
+  logger.info({ tenantId, anterior, nueva: c.id, moneda: c.moneda, por }, "[MetaAds] Cuenta publicitaria activa cambiada");
 }
 
 /**
@@ -164,7 +200,19 @@ export async function validarCuentaPublicitaria(opts: {
   };
   const autorizada = await leerCuentaAutorizada(tenantId);
   const v = veredictoDeCuenta(cuenta, autorizada);
-  if (!v.ok) return bloquea(v.motivo);
+  if (!v.ok) {
+    // Moneda equivocada: decir A QUÉ cuenta pasarse, no solo que esta no
+    // sirve (caso real 30-09-2026: el dueño tenía su cuenta COP y nadie se la
+    // ofrecía). La lista sale del MISMO token del negocio.
+    if (String(cuenta.moneda || "").toUpperCase() !== "COP") {
+      try {
+        const { listarCuentasAccesibles, sugerenciaDeCuentaCop } = await import("./meta-cuentas-publicitarias");
+        const l = await listarCuentasAccesibles(token);
+        if (!l.error) return bloquea(`La cuenta ${cuenta.id} está en ${cuenta.moneda || "moneda desconocida"}: solo se publica en la cuenta COP autorizada del negocio. ${sugerenciaDeCuentaCop(l.cuentas, cuenta.id)}`);
+      } catch { /* sin sugerencia, el bloqueo sigue igual */ }
+    }
+    return bloquea(v.motivo);
+  }
 
   // Primera vez válida: se clava y se audita. Lo que ya estaba bien no se rompe.
   // Sin tenant real no se fija nada (pero igual se valida lo que devolvió Meta).

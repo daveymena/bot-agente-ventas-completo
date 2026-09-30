@@ -1074,6 +1074,24 @@ router.get("/adaccounts", async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+/**
+ * POST /api/facebook/adaccounts/activa  { adAccountId }
+ *
+ * Elegir la cuenta publicitaria desde el desplegable del panel. Solo acepta
+ * una cuenta que vea el token DE ESTE negocio (nunca el .env de la
+ * plataforma para otro negocio: FacebookService aplica respaldo-del-dueno).
+ * No crea ni gasta nada en Meta.
+ */
+router.post("/adaccounts/activa", async (req, res, next) => {
+  try {
+    const tenant = (req as any).tenant;
+    if (!Number(tenant?.id)) return res.status(401).json({ ok: false, message: "Tenant no autenticado" });
+    const { FacebookService } = await import("../lib/facebook");
+    const r = await new FacebookService(tenant).cambiarCuentaPublicitaria(req.body?.adAccountId, "panel");
+    return res.status(r.ok ? 200 : 422).json(r);
+  } catch (e) { return next(e); }
+});
+
 router.get("/validate", async (req, res, next) => {
   try {
     const tenant = (req as any).tenant;

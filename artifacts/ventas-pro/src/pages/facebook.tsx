@@ -313,6 +313,9 @@ export default function FacebookAdsPage() {
     const scope = [
       "pages_show_list", "pages_read_engagement", "pages_manage_posts",
       "pages_manage_metadata", "pages_messaging", "ads_management", "catalog_management",
+      // Sin esto /me/businesses falla y las cuentas del Business Manager no
+      // se pueden listar (caso real 30-09-2026: la cuenta COP no aparecía).
+      "business_management",
       // Campañas de formulario (25-09-2026): crear el formulario y leer los
       // leads. Con config_id (arriba) estos permisos van en la configuración
       // de "Inicio de sesión para empresas" de la app en Meta, no acá.
@@ -772,6 +775,12 @@ export default function FacebookAdsPage() {
                     )}
                   </CardContent>
                 </Card>
+
+                {connected && (
+                  <CuentaPublicitariaSelector
+                    onCambio={(id) => setConfig((c) => ({ ...c, adAccountId: id }))}
+                  />
+                )}
 
                 <Card>
                   <CardHeader>
@@ -1511,5 +1520,116 @@ export default function FacebookAdsPage() {
         </Dialog>
       </div>
     </Layout>
+  );
+}
+
+interface CuentaPub {
+  id: string;
+  nombre: string;
+  moneda: string;
+  activa: boolean;
+  enUso: boolean;
+  empresa?: { id: string; nombre: string } | null;
+}
+
+/**
+ * Elegir la cuenta publicitaria de ESTE negocio entre las que ve su conexión
+ * de Meta (propias + Business Manager), con moneda y estado.
+ *
+ * Caso real 30-09-2026: la app quedó en una cuenta USD, el candado de
+ * cuenta bloqueó la subida (solo se publica en COP), y el panel
+ * solo tenía un campo de texto escondido en "manual / avanzado" que además no
+ * actualizaba la cuenta autorizada. Esto lista y guarda de verdad.
+ */
+function CuentaPublicitariaSelector({ onCambio }: { onCambio: (id: string) => void }) {
+  const { toast } = useToast();
+  const [cuentas, setCuentas] = useState<CuentaPub[]>([]);
+  const [avisos, setAvisos] = useState<string[]>([]);
+  const [error, setError] = useState("");
+  const [cargando, setCargando] = useState(true);
+  const [elegida, setElegida] = useState("");
+  const [guardando, setGuardando] = useState(false);
+
+  const cargar = async () => {
+    setCargando(true);
+    try {
+      const j = await apiRequest("/facebook/adaccounts");
+      const lista: CuentaPub[] = j.cuentas || [];
+      setCuentas(lista);
+      setAvisos(j.avisos || []);
+      setError(j.error || "");
+      setElegida(lista.find((c) => c.enUso)?.id || "");
+    } catch (e: any) {
+      setError(e?.message || "No se pudieron leer las cuentas");
+    } finally {
+      setCargando(false);
+    }
+  };
+  useEffect(() => { cargar(); }, []);
+
+  const enUso = cuentas.find((c) => c.enUso);
+  const guardar = async () => {
+    if (!elegida || elegida === enUso?.id) return;
+    setGuardando(true);
+    try {
+      const r = await apiRequest("/facebook/adaccounts/activa", { method: "POST", body: JSON.stringify({ adAccountId: elegida }) });
+      toast({ title: "Cuenta publicitaria cambiada", description: r.message });
+      onCambio(elegida);
+      await cargar();
+    } catch (e: any) {
+      toast({ title: "No se pudo cambiar la cuenta", description: describeError(e, "No se pudo cambiar la cuenta publicitaria."), variant: "destructive" });
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5" /> Cuenta publicitaria</CardTitle>
+        <CardDescription>
+          Dónde se crean tus anuncios. Solo se publica en una cuenta en pesos colombianos (COP).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {cargando ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Consultando a Meta…</div>
+        ) : error ? (
+          <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertDescription className="break-words">No se pudieron leer tus cuentas: {error}</AlertDescription></Alert>
+        ) : cuentas.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Tu conexión de Facebook no ve ninguna cuenta publicitaria. Reconectá y, en la pantalla de Meta, tildá la cuenta que querés usar.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Select value={elegida} onValueChange={setElegida}>
+              <SelectTrigger className="w-full sm:w-[420px]"><SelectValue placeholder="Elegí una cuenta" /></SelectTrigger>
+              <SelectContent>
+                {cuentas.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.nombre} · {c.moneda || "?"} · {c.id}{c.activa ? "" : " · no activa"}{c.enUso ? " · en uso" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button onClick={guardar} disabled={guardando || !elegida || elegida === enUso?.id} className="w-full sm:w-auto">
+              {guardando && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Usar esta cuenta
+            </Button>
+          </div>
+        )}
+        {enUso && enUso.moneda !== "COP" && (
+          <Alert variant="destructive">
+            <XCircle className="h-4 w-4" />
+            <AlertDescription>
+              La cuenta en uso está en {enUso.moneda || "otra moneda"}: los anuncios no se van a subir.
+              {cuentas.some((c) => c.moneda === "COP") ? " Elegí una cuenta en COP de la lista." : " No hay ninguna cuenta en COP visible: reconectá Facebook y tildá tu cuenta en COP."}
+            </AlertDescription>
+          </Alert>
+        )}
+        {avisos.length > 0 && (
+          <p className="text-xs text-muted-foreground break-words">{avisos.join(" ")}</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

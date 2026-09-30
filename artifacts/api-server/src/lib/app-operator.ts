@@ -7396,6 +7396,44 @@ ${r.texto}`, data: r.grupos };
     },
   },
   {
+    // Caso real 30-09-2026: Atlas contestaba "solo veo la 1545022093928422, no
+    // puedo listar las cuentas ni su moneda" y el dueño no tenía cómo pasar a
+    // su cuenta COP. Lista usuario + Business Manager con el token del negocio.
+    name: "fb_ad_accounts",
+    description: "Lista las cuentas publicitarias de Meta de este negocio (propias y del Business Manager) con id, moneda y estado, y cuál está en uso. Lectura.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado en este negocio." };
+      const r = await fb.listarCuentasPublicitarias();
+      if (r.error) return { ok: false, summary: `No se pudieron leer las cuentas de Meta: ${r.error}` };
+      const { describirCuentas, sugerenciaDeCuentaCop } = await import("./meta-cuentas-publicitarias");
+      const enUso = r.cuentas.find((c) => c.enUso);
+      const lineas = [
+        r.cuentas.length ? describirCuentas(r.cuentas as any, enUso?.id) : "La conexión no ve ninguna cuenta publicitaria.",
+        enUso ? `En uso: ${enUso.id} (${enUso.moneda || "?"}).` : "Ninguna de estas está en uso.",
+      ];
+      if (!enUso || enUso.moneda !== "COP") lineas.push(sugerenciaDeCuentaCop(r.cuentas as any, enUso?.id, "Para cambiarla, proponé fb_set_ad_account con ese id."));
+      if (r.avisos.length) lineas.push(`Avisos: ${r.avisos.join(" ")}`);
+      return { ok: true, summary: lineas.join("\n"), data: r };
+    },
+  },
+  {
+    name: "fb_set_ad_account",
+    description: "Cambia la cuenta publicitaria activa del negocio por otra que ya ve su conexión de Meta (ver fb_ad_accounts). No gasta.",
+    args: '{ "adAccountId": string (req, id numérico de la cuenta, con o sin act_) }',
+    run: async (_args, ctx) => {
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado en este negocio." };
+      const r = await fb.cambiarCuentaPublicitaria(_args?.adAccountId, "atlas");
+      return { ok: r.ok, summary: r.ok ? `✅ ${r.message}` : r.message };
+    },
+  },
+  {
     name: "fb_list_adsets",
     description: "Listar los conjuntos de anuncios de una campaña, con su presupuesto diario y estado. LECTURA, no cambia nada. Se usa para saber a qué conjunto cambiarle el presupuesto.",
     args: '{ "campaignId": string (req, id de la campaña) }',
@@ -8931,6 +8969,8 @@ export const READ_ONLY_TOOLS = new Set([
   // Facebook de solo lectura + generación de imagen (solo devuelve preview, no asigna)
   "fb_status", "fb_suggest_audience", "generate_image", "fb_list_campaigns", "system_diagnose", "fb_why_not_delivering", "test_ai_models",
   "fb_page_can_post", "fb_page_preview", "fb_list_drafts",
+  // Solo lee las cuentas publicitarias y su moneda (30-09-2026).
+  "fb_ad_accounts",
   // Lee métricas y devuelve una recomendación. No toca nada: decide el admin.
   "que_hago_con_la_campana",
   // El plan de contenido organico: solo LEE el catalogo y arma el calendario.

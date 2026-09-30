@@ -371,34 +371,59 @@ export class FacebookService {
    * conexion dice que eso "rompe la promesa del producto".
    */
   async listarCuentasPublicitarias(): Promise<{
-    cuentas: Array<{ id: string; nombre: string; moneda: string; activa: boolean; enUso: boolean }>;
+    cuentas: Array<{ id: string; nombre: string; moneda: string; activa: boolean; enUso: boolean; estado: number | null; empresa: { id: string; nombre: string } | null; origen: string }>;
+    avisos: string[];
     error: string | null;
   }> {
+    // Antes: solo `me/adaccounts` con limit 25 y sin paginar. Las cuentas del
+    // Business Manager no aparecian nunca (caso real 30-09-2026: el dueño veia
+    // solo la USD y no su cuenta COP). Ver meta-cuentas-publicitarias.ts.
     const token = this.config.userAccessToken || this.config.accessToken;
-    if (!token) return { cuentas: [], error: "Sin token de Facebook" };
-    try {
-      const res = await this.fbGet("me/adaccounts", {
-        fields: "account_id,name,account_status,currency",
-        limit: "25",
-      }, token);
-      const enUso = String(this.config.adAccountId || "");
-      return {
-        cuentas: (res.data || []).map((c: any) => ({
-          id: String(c.account_id),
-          nombre: c.name || `Cuenta ${c.account_id}`,
-          moneda: c.currency || "",
-          // 1 = activa. Las demas (deshabilitada, en revision, con deuda) no
-          // pueden entregar anuncios, y eso explica un cero mejor que nada.
-          activa: c.account_status === 1,
-          enUso: String(c.account_id) === enUso,
-        })),
-        error: null,
-      };
-    } catch (e: any) {
+    const { listarCuentasAccesibles } = await import("./meta-cuentas-publicitarias");
+    const r = await listarCuentasAccesibles(token);
+    const enUso = String(this.config.adAccountId || "");
+    return {
+      cuentas: r.cuentas.map((c) => ({
+        id: c.id,
+        nombre: c.nombre,
+        moneda: c.moneda,
+        activa: c.activa,
+        estado: c.estado,
+        empresa: c.empresa || null,
+        origen: c.origen,
+        enUso: c.id === enUso,
+      })),
+      avisos: r.avisos,
       // Devolver [] a secas haria que "no tenes cuentas" y "no pude preguntar"
       // fueran lo mismo. Ese error ya costo caro dos veces en este archivo.
-      return { cuentas: [], error: e?.message || "error consultando las cuentas" };
-    }
+      error: r.error,
+    };
+  }
+
+  /**
+   * Cambia la cuenta publicitaria activa del negocio, SOLO a una que ve su
+   * propio token. Si es COP pasa a ser tambien la autorizada (es una orden
+   * explicita del dueño). No crea ni gasta nada en Meta.
+   */
+  async cambiarCuentaPublicitaria(idPedido: unknown, por: string): Promise<{ ok: boolean; message: string; cuenta?: { id: string; nombre: string; moneda: string } }> {
+    const tenantId = Number((this.tenant as any)?.id) || 0;
+    if (!tenantId) return { ok: false, message: "No se sabe de qué negocio es la cuenta." };
+    const token = this.config.userAccessToken || this.config.accessToken;
+    if (!token) return { ok: false, message: "Facebook no está conectado en este negocio." };
+    const { listarCuentasAccesibles, validarCambioDeCuenta } = await import("./meta-cuentas-publicitarias");
+    const listado = await listarCuentasAccesibles(token);
+    if (listado.error) return { ok: false, message: `No se pudieron leer las cuentas de Meta: ${listado.error}` };
+    const v = validarCambioDeCuenta(listado.cuentas, idPedido);
+    if (!v.ok) return { ok: false, message: v.motivo };
+    const { cambiarCuentaActiva } = await import("./meta-cuenta-autorizada");
+    await cambiarCuentaActiva(tenantId, v.cuenta, por);
+    this.config.adAccountId = v.cuenta.id;
+    this.monedaCuenta = v.cuenta.moneda || null;
+    return {
+      ok: true,
+      message: `Cuenta publicitaria activa: ${v.cuenta.nombre} (${v.cuenta.id}, ${v.cuenta.moneda || "?"}).${v.aviso ? " " + v.aviso : ""}`,
+      cuenta: { id: v.cuenta.id, nombre: v.cuenta.nombre, moneda: v.cuenta.moneda },
+    };
   }
 
   /**

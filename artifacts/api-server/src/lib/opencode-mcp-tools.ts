@@ -234,6 +234,7 @@ const TOOL_SCHEMAS: Record<string, object> = {
   get_store: { type: "object", properties: {}, additionalProperties: false },
   payment_status: { type: "object", properties: {}, additionalProperties: false },
   fb_status: { type: "object", properties: {}, additionalProperties: false },
+  fb_ad_accounts: { type: "object", properties: {}, additionalProperties: false },
   fb_suggest_audience: {
     type: "object",
     properties: { productId: { type: "number" } },
@@ -679,6 +680,8 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
    NO gasta: queda pausado hasta que lo actives`;
     case "fb_delete_campaign":
       return `🗑️ BORRAR de Facebook la campaña ${g.campaignId ?? "?"} — se van también sus conjuntos y anuncios. IRREVERSIBLE, no hay papelera${g.borrarAunqueTengaGasto === true ? ", y se pierde su historial de resultados" : ""}`;
+    case "fb_set_ad_account":
+      return `🔁 Cambiar la cuenta publicitaria activa a ${g.adAccountId ?? "?"} — los anuncios nuevos se crean ahí. No gasta`;
     case "fb_pause_campaign":
       return `⏸️ Pausar la campaña ${g.campaignId ?? "?"} de Facebook — deja de gastar`;
     case "programar_accion":
@@ -840,6 +843,7 @@ async function proposeAction(
     // (ver ENCADENADO abajo: draftId puede ser "auto" si en el MISMO plan ya
     // se propuso el fb_ad_draft que lo va a crear)
     fb_pause_campaign: ["campaignId"],
+    fb_set_ad_account: ["adAccountId"],
     fb_resume_campaign: ["campaignId"],
     fb_delete_campaign: ["campaignId"],
     // Faltaba, y es la que más importa de las tres: REDIRIGIR manda acá todo
@@ -1286,6 +1290,12 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     herramientas: ["propuesta_campana", "fb_estimar", "list_products", "anuncio_datos_expertos"],
   },
   {
+    // Cuenta publicitaria y su moneda (30-09-2026): "no detecta mi cuenta COP".
+    // Grupo propio y chico para no encarecer el pedido de crear anuncio.
+    patron: /cuentas? (publicitaria|de anuncios)|ad ?account|\bact_?\d|moneda|\bcop\b|\busd\b|d[oó]lares/i,
+    herramientas: ["fb_ad_accounts", "fb_status"],
+  },
+  {
     // Dónde se caen los clientes: sin esto Atlas proponía más anuncios con
     // 0 ventas cerradas (25-09-2026).
     patron: /embudo|d[oó]nde se (caen|pierden|quedan)|por qu[eé] no (vend|compr|cierr)|no (vendo|compran|cierra)|ventas|clientes/i,
@@ -1633,7 +1643,7 @@ const FAMILIAS_DE_CONSULTA: Array<{ tema: string; herramientas: string[] }> = [
   { tema: "Catalogo y tienda", herramientas: ["list_products", "list_categories", "get_store", "search_product_images", "optimize_price", "optimize_copy"] },
   { tema: "Ventas y clientes", herramientas: ["embudo_de_ventas", "dashboard_summary", "list_recent_conversations", "list_pending_transfers", "list_duplicate_contacts", "predict_customer", "analyze_channel_performance"] },
   { tema: "WhatsApp y agente", herramientas: ["whatsapp_status", "get_agent", "configurar_mi_agente", "get_settings", "agente_inspectar", "agente_configurar", "agente_perfil_negocio", "agente_conocimiento", "agente_mensaje", "agente_probar_chat", "agente_disenar", "agente_probar_borrador", "vendedor_diagnosticar", "vendedor_motor_ver", "vendedor_probar"] },
-  { tema: "Facebook Ads", herramientas: ["objetivos_de_campana", "fb_permisos_formularios", "fb_status", "fb_list_campaigns", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics", "fb_why_not_delivering", "fb_page_can_post", "fb_page_preview", "fb_suggest_audience", "fb_pixel_status", "fb_ad_library", "fb_agent_logs", "que_hago_con_la_campana", "ad_brief"] },
+  { tema: "Facebook Ads", herramientas: ["objetivos_de_campana", "fb_permisos_formularios", "fb_status", "fb_ad_accounts", "fb_list_campaigns", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics", "fb_why_not_delivering", "fb_page_can_post", "fb_page_preview", "fb_suggest_audience", "fb_pixel_status", "fb_ad_library", "fb_agent_logs", "que_hago_con_la_campana", "ad_brief"] },
   { tema: "Marketing y contenido", herramientas: ["marketing_diagnostico", "marketing_aprendizajes", "marketing_attribution", "plan_de_contenido", "generate_image", "web_scrape_images"] },
   { tema: "Investigacion", herramientas: ["web_search", "web_fetch", "deep_research", "research_start", "research_check"] },
   // Dropi: las DIRECTAS (token del negocio), no las del puente viejo. El resto
