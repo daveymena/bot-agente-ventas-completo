@@ -776,6 +776,76 @@ ${checkout}${instruccionDeFamilia(familia, Number(product?.id) || 0)}`;
 }
 
 /**
+ * Landing PRO: textos del modelo (JSON) + plantilla fija (renderer-pro.ts).
+ * Si el modelo falla, la plantilla se llena con los datos del producto.
+ */
+async function generarLandingPro(a: {
+  product: any;
+  tipo: ProductType;
+  tenantId: number;
+  usaAgentePropio: boolean;
+  config: ReturnType<typeof opencodeConfig> | null;
+  whatsapp: string | null;
+  timeoutMs?: number;
+}): Promise<{ html: string; tipo: ProductType; familia?: string; familiaPorque?: string; quitado?: string[]; proveedor?: string }> {
+  const { product, tipo, tenantId } = a;
+  const { sistemaContenidoPro, pedidoContenidoPro, contenidoDesdeRespuesta } = await import("../lib/landing/contenido-pro");
+  const { renderizarLandingPro } = await import("../lib/landing/renderer-pro");
+  const { garantiaDelProducto, testimoniosDelProducto } = await import("../lib/landing/plantillas");
+  const { redactarConProveedores, htmlDesdeRespuesta } = await import("../lib/landing/agente-landing");
+
+  let ctx: any = null;
+  try { const { getBusinessContext } = await import("../lib/business-context"); ctx = await getBusinessContext(tenantId); } catch { /* sin contexto */ }
+  const garantia = garantiaDelProducto(product) || ctx?.garantia?.descripcion || null;
+  const plazoEntrega = ctx?.entrega?.plazo || null;
+  const datos = {
+    name: String(product?.name || "Producto"),
+    description: product?.description ?? null,
+    features: Array.isArray(product?.features) ? product.features.map(String) : [],
+    price: product?.price ?? null,
+    category: product?.category ?? null,
+  };
+
+  let crudo = "";
+  let proveedor: string | undefined;
+  try {
+    const system = sistemaContenidoPro();
+    const user = pedidoContenidoPro(datos, { garantia, plazoEntrega });
+    const r: { text: string; error?: string; proveedor?: string } = a.usaAgentePropio
+      ? await redactarConProveedores({ tenantId, system, user, timeoutMs: a.timeoutMs ?? 90_000 })
+      : a.config
+        ? await conCandado(async () => {
+            const sessionId = await createSession(a.config!.host, a.config!.authHeader);
+            return await sendMessage(a.config!.host, a.config!.authHeader, sessionId, { system, text: user, timeoutMs: a.timeoutMs ?? 45_000 });
+          })
+        : { text: "", error: "sin proveedor" };
+    crudo = r.error ? "" : String(r.text || "");
+    proveedor = r.proveedor;
+  } catch { /* se arma con los datos del producto */ }
+
+  let opciones: any[] = [];
+  try { const o = typeof product?.opciones === "string" ? JSON.parse(product.opciones) : product?.opciones; opciones = Array.isArray(o) ? o : []; } catch { /* sin opciones */ }
+  const unicas = (product as any)?.__fotosUnicas;
+  const fotos: string[] = (Array.isArray(unicas) && unicas.length ? unicas : [product?.imageUrl, ...(Array.isArray(product?.images) ? product.images : [])]).filter(Boolean).map(String);
+  let nombreNegocio = "";
+  try { const { tenantManager } = await import("../lib/tenantManager"); const t: any = await tenantManager.getTenantById(tenantId); nombreNegocio = String(t?.brandName || t?.name || ""); } catch { /* sin nombre */ }
+
+  const html = renderizarLandingPro({
+    contenido: contenidoDesdeRespuesta(crudo, datos),
+    producto: { id: product?.id, name: datos.name, price: Number(product?.price) || 0, categoria: datos.category, opciones },
+    fotos,
+    negocio: { nombre: nombreNegocio, whatsapp: a.whatsapp },
+    accion: "__FORM_ACTION__",
+    pagoAlRecibir: true,
+    plazoEntrega,
+    garantia,
+    testimonios: testimoniosDelProducto(product),
+  });
+  const r = htmlDesdeRespuesta(html);
+  return { html: r.html, tipo, familiaPorque: "plantilla PRO de producto (móvil primero)", quitado: r.quitado, proveedor: crudo ? proveedor : "plantilla (sin modelo)" };
+}
+
+/**
  * Genera una landing PROFESIONAL con OpenCode (agentes especializados por tipo).
  *
  * Es el camino "premium": a diferencia del generador por plantillas (que arma
@@ -794,6 +864,8 @@ export async function generarLandingConOpenCode(opts: {
   timeoutMs?: number;
   /** Bitácora de la landing en edición: lo que ya se le pidió antes (ver agente-landing.ts). */
   bitacora?: string;
+  /** true = HTML libre del modelo aunque sea dropshipping (sin la plantilla PRO). */
+  htmlLibre?: boolean;
 }): Promise<{ html: string; tipo: ProductType; error?: string; familia?: string; familiaPorque?: string; quitado?: string[]; proveedor?: string }> {
   const { product, instruction } = opts;
   const tenantIdDelProducto = Number(product?.tenantId) || 1;
@@ -859,6 +931,13 @@ export async function generarLandingConOpenCode(opts: {
       "\n- Duraciones, cantidades de uso ('20-30 min al día') y cifras: solo si vienen en los datos del producto.";
   } catch { /* sin contexto: el saneador igual actúa */ }
   const system = `${getSystemPrompt(tipo)}\n\n${REGLAS_DEL_AGENTE_DE_LANDINGS}${hechosDelNegocio}`;
+
+  // ── Landing PRO (plantilla elegida por el dueño, 30-09-2026) ────────────
+  // Dropshipping NUEVA: el modelo escribe solo los textos (JSON) y la
+  // plantilla pone el diseño móvil. Las ediciones siguen por HTML libre.
+  if (tipo === "dropshipping" && !existingHtml && !opts.htmlLibre) {
+    return await generarLandingPro({ product, tipo, tenantId: tenantIdDelProducto, usaAgentePropio, config, whatsapp: pago?.whatsapp || null, timeoutMs: opts.timeoutMs });
+  }
 
   let result: { text: string; error?: string; proveedor?: string };
   if (usaAgentePropio) {
