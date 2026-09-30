@@ -867,11 +867,25 @@ export class AdStrategist {
       // Guardrail de presupuesto del negocio antes de crear el anuncio en Meta.
       const guard = await this.guardPresupuesto(Number(draft.budget) || 5000);
       if (!guard.allowed) return { ok: false, message: `Bloqueado por el tope de gasto: ${guard.reason}` };
+      // ── La segmentación que Atlas guardó en el borrador viaja a Meta ──
+      // Antes se pasaba `undefined`: el borrador decía "25-45, intereses X"
+      // y el anuncio salía con la audiencia por defecto. Los intereses se
+      // guardan como nombres; facebook.ts los resuelve contra la taxonomía
+      // real de Meta y corta si alguno no existe.
+      const estrategiaGuardada: any = draft.strategy && typeof draft.strategy === "object" ? draft.strategy : {};
+      const nombresIntereses: string[] = Array.isArray(estrategiaGuardada.interests)
+        ? estrategiaGuardada.interests.filter((v: unknown) => typeof v === "string" && v.trim())
+        : [];
+      const targetingDeAtlas: import("./facebook").FbTargeting = {
+        ...(Number.isFinite(Number(estrategiaGuardada.ageMin)) && estrategiaGuardada.ageMin != null ? { ageMin: Number(estrategiaGuardada.ageMin) } : {}),
+        ...(Number.isFinite(Number(estrategiaGuardada.ageMax)) && estrategiaGuardada.ageMax != null ? { ageMax: Number(estrategiaGuardada.ageMax) } : {}),
+        ...(nombresIntereses.length ? { interests: nombresIntereses.map((name) => ({ id: "", name })) } : {}),
+      };
       const creado = await fb.createAdForProduct(
         draft.productId,
         Number(draft.budget) || 5000,
         undefined,
-        undefined,
+        Object.keys(targetingDeAtlas).length ? targetingDeAtlas : undefined,
         // El copy APROBADO (o el regenerado si era el de la plantilla vieja).
         copy,
         objetivo,

@@ -2385,7 +2385,7 @@ export const TOOLS: ToolDef[] = [
   {
     name: "web_search",
     description:
-      "BUSCAR en internet por palabras clave y obtener resultados REALES (título, URL y resumen). Úsala SIEMPRE antes de web_fetch cuando no conozcas la URL exacta: nunca adivines direcciones. Flujo normal: web_search para encontrar las fuentes → web_fetch para leer las 2-3 más relevantes.",
+      "Buscar en internet. SOLO si el admin pide tendencias, competencia, benchmarks, fuentes actuales, verificación externa o qué funciona hoy; nunca para datos de la app (productos, campañas, ventas, Dropi).",
     args: '{ "query": string (req), "limit": number (opcional, por defecto 6) }',
     run: async (args, ctx) => {
       const query = String(args.query || "").trim();
@@ -3684,8 +3684,8 @@ ${explicarObjetivos()}` };
       "Si generás varias versiones que sean enfoques DISTINTOS (A: problema · B: beneficio · C: curiosidad), no el mismo texto con sinónimos. " +
       "Antes de darlo por bueno: ¿por qué alguien que scrollea se detendría acá? Si no hay respuesta clara, cambiá el gancho. " +
       "SE RECHAZA AUTOMÁTICAMENTE (no es opinable): decir cuántas unidades o cupos quedan, poner fecha límite a una oferta que no existe, afirmar cuánta gente lo compró, garantizar resultados, prometer ganancias en plata, o declararse 'el mejor'/'el más vendido'. " +
-      "Genera un BORRADOR de anuncio (copy, segmentación, imagen) para un producto y lo guarda localmente. Por defecto NO toca la cuenta publicitaria de Meta ni crea nada real — el admin lo revisa y decide si publicarlo después desde el panel de anuncios. Seguro de usar sin gastar dinero. REQUIERE haber investigado antes (web_search o web_fetch) en esta misma sesión, en las últimas 3 horas -- si no, la llamada falla y hay que investigar primero. " +
-      "OBLIGATORIO, no opcional: SIEMPRE redactá vos mismo primaryText, headline y description COMPLETOS, con tus propias palabras, a partir de lo que investigaste -- NUNCA mandes solo hook/angle/researchNote y dejes que el sistema arme el texto por vos. Si solo pasás hook/angle, el backend arma un anuncio con una PLANTILLA FIJA (misma estructura y mismas frases siempre, solo cambia el gancho) -- eso es exactamente lo que el admin NO quiere: dijo explícitamente que el copy le sale repetido y poco dinámico. Cada producto, cada pedido, tiene que sonar distinto: variá la estructura (a veces empezá con una pregunta, a veces con una estadística, a veces con una historia corta), el ángulo (dolor vs. deseo vs. urgencia vs. prueba social) y el cierre (no repitas siempre el mismo CTA calcado). " +
+      "Genera un BORRADOR de anuncio (copy, segmentación, imagen) para un producto y lo guarda localmente. Por defecto NO toca la cuenta publicitaria de Meta ni crea nada real — el admin lo revisa y decide si publicarlo después desde el panel de anuncios. Seguro de usar sin gastar dinero. Con los datos reales del producto alcanza: investigar internet solo si el admin lo pidió. " +
+      "OBLIGATORIO, no opcional: SIEMPRE redactá vos mismo primaryText, headline y description COMPLETOS, con tus propias palabras, a partir de los datos reales del producto (y de la investigación, si el admin la pidió) -- NUNCA mandes solo hook/angle/researchNote y dejes que el sistema arme el texto por vos. Si solo pasás hook/angle, el backend arma un anuncio con una PLANTILLA FIJA (misma estructura y mismas frases siempre, solo cambia el gancho) -- eso es exactamente lo que el admin NO quiere: dijo explícitamente que el copy le sale repetido y poco dinámico. Cada producto, cada pedido, tiene que sonar distinto: variá la estructura (a veces empezá con una pregunta, a veces con una estadística, a veces con una historia corta), el ángulo (dolor vs. deseo vs. urgencia vs. prueba social) y el cierre (no repitas siempre el mismo CTA calcado). " +
       "primaryText: el anuncio completo, listo para publicar (no una plantilla con huecos). headline: título corto y de impacto (máx. ~35 caracteres, sino Meta lo recorta). description: una línea de refuerzo (precio, garantía, o el beneficio principal en pocas palabras).",
     args: '{ "productId": number (req), "primaryText": string (req en la práctica -- el texto completo del anuncio, redactado por vos con la investigación real, NO un huequito para rellenar), "headline": string (req en la práctica -- título corto propio, no genérico), "description"?: string, "hook"?: string (opcional, solo como respaldo si por algo no pudiste redactar el texto completo), "angle"?: string (ángulo/enfoque respaldado por la investigación), "researchNote"?: string (fuente o hallazgo concreto que respalda el copy, ej: "competidores en Facebook Ads Library usan X"), "whatsapp"?: string (número CON código de país, ej "573001234567", o un enlace wa.me — si lo pasás, el anuncio lleva a una conversación de WhatsApp en vez de a la web; úsalo cuando el admin pida "tráfico a WhatsApp" o "que me escriban"), "dailyBudget"?: number (presupuesto diario en la moneda de la cuenta. SI EL ADMIN DICE UN PRESUPUESTO, PASALO ACÁ SIEMPRE: si no lo pasás se guarda el valor por defecto del nicho, que puede ser el doble de lo que él pidió) }',
     run: async (args, ctx) => {
@@ -3720,10 +3720,17 @@ ${explicarObjetivos()}` };
       // rellenar) se valida más abajo, siempre, con o sin investigación.
       const copyPropio = typeof args.primaryText === "string" && args.primaryText.trim().length >= 80;
       const investigo = hasGroundedNote || (await hasRecentResearch(ctx));
-      if (!investigo && !copyPropio) {
+      // Modo rápido (30-09-2026): un anuncio hecho con los datos REALES del
+      // catálogo (nombre + descripción o características) no necesita
+      // investigar internet; solo se investiga si el admin lo pide. Lo que
+      // protege contra la fabricación es validarContenidoAnuncio, que corre
+      // siempre, abajo.
+      const [prodReal] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
+      const conDatosReales = !!prodReal && (String(prodReal.description || "").trim().length >= 30 || (Array.isArray(prodReal.features) && prodReal.features.length > 0));
+      if (!investigo && !copyPropio && !conDatosReales) {
         return {
           ok: false,
-          summary: "Para generar el anuncio necesito o bien una investigación reciente, o que vos escribas el copy completo (primaryText) a partir de los datos reales del producto. No se genera copy de la nada.",
+          summary: "El producto no tiene descripción ni características para escribir el anuncio con datos reales. Completá la ficha, escribí vos el copy (primaryText) o pedí una investigación. No se genera copy de la nada.",
         };
       }
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
@@ -8802,7 +8809,22 @@ function esErrorDeBaseDeDatos(e: any): boolean {
   return false;
 }
 
+/**
+ * Herramientas que NO se ejecutan como llamada directa. `deep_research`
+ * bloqueaba el turno entero (varias búsquedas + lecturas en serie) y Atlas la
+ * usaba para pedidos que se resolvían con datos internos. Las investigaciones
+ * largas van por research_start / research_check, en segundo plano.
+ */
+export const DISABLED_TOOLS = new Set(["deep_research"]);
+
 export async function executeAction(tool: string, args: any, ctx: OperatorContext): Promise<ToolResult> {
+  if (DISABLED_TOOLS.has(tool)) {
+    return {
+      ok: false,
+      summary:
+        "La investigación profunda no se ejecuta como una llamada bloqueante. Si el admin pidió investigar, inicia una investigación en segundo plano; si no, resolvé con los datos internos del negocio.",
+    };
+  }
   const def = TOOL_MAP.get(tool);
   if (!def) return { ok: false, summary: `Herramienta desconocida: ${tool}` };
   const mutating = !READ_ONLY_TOOLS.has(tool);
@@ -8923,7 +8945,7 @@ export const READ_ONLY_TOOLS = new Set([
   "predict_customer", "optimize_price", "optimize_copy",
   "analyze_channel_performance", "reason_business_decision",
   // Lectura de web (información externa)
-  "web_fetch", "web_search", "web_scrape_images", "search_product_images", "ver_imagen", "deep_research", "fb_ad_library", "atlas_ad_intelligence",
+  "web_fetch", "web_search", "web_scrape_images", "search_product_images", "ver_imagen", "fb_ad_library", "atlas_ad_intelligence",
   // Que es y cuanto cuesta la plataforma: solo lectura, no cambia nada.
   "plataforma_info",
   "research_start", "research_check",
@@ -9206,14 +9228,18 @@ export function herramientasDeLaFamilia(pedido = ""): Set<string> | null {
   const relevantes = FAMILIAS.filter((f) => f.cuando.test(pedido)).flatMap((f) => f.prefijos);
   if (!pedido || relevantes.length === 0) return null;
   return new Set(
-    TOOLS.filter((t) => TOOLS_SIEMPRE.has(t.name) || relevantes.some((p) => t.name.startsWith(p) || t.name.includes(p)))
+    TOOLS.filter(
+      (t) =>
+        !DISABLED_TOOLS.has(t.name) &&
+        (TOOLS_SIEMPRE.has(t.name) || relevantes.some((p) => t.name.startsWith(p) || t.name.includes(p))),
+    )
       .map((t) => t.name),
   );
 }
 
 export function buildToolsDoc(pedido = ""): string {
   const deLaFamilia = herramientasDeLaFamilia(pedido);
-  const usar = deLaFamilia ? TOOLS.filter((t) => deLaFamilia.has(t.name)) : TOOLS;
+  const usar = deLaFamilia ? TOOLS.filter((t) => deLaFamilia.has(t.name)) : TOOLS.filter((t) => !DISABLED_TOOLS.has(t.name));
   return usar.map((t) => `- ${t.name}: ${t.description}\n  args: ${t.args}`).join("\n");
 }
 
@@ -9401,6 +9427,14 @@ ESTRATEGIA DE OFERTA (antes de crear cualquier cosa — producto, anuncio, copy,
 
 🚫 NUNCA fabriques "prueba social" ni datos de mercado (ej: "+10.000 alumnos", "antes $X, ahora $Y" cuando el producto no tiene ese precio anterior real, estadísticas de conversión inventadas). Si el admin pide investigar tendencias/competencia antes de armar un anuncio, DEBÉS buscar de verdad (tu propio buscador) y basar el hook/ángulo en lo que encuentres -- nunca redactes una sección "INVESTIGACIÓN PREVIA" o "según mi investigación" a partir de tu propio conocimiento general sin haber buscado. Si no vas a investigar, decilo explícitamente ("no investigué, esto es una plantilla genérica") en vez de simular que sí lo hiciste.
 
+⚡ CONTRATO OPERATIVO (manda sobre cualquier regla de investigación de abajo):
+1. MODO RÁPIDO POR DEFECTO: resolvé primero con datos y herramientas internas. Una tarea simple usa la mínima cantidad de llamadas. No investigues internet ni abras otra familia de herramientas si el pedido está claro.
+2. MODO INVESTIGACIÓN: internet SOLO si el admin pide tendencias, competencia, benchmarks, fuentes actuales, verificación externa o qué funciona hoy. Investigación amplia: research_start UNA vez. Dato puntual: como máximo una consulta externa.
+3. MAPA: productos y catálogo → herramientas internas · campañas y audiencias → Meta · ventas y clientes → datos del negocio · anuncios → brief, copy, validación y borrador · publicar, cambiar, pedidos y gasto → propuesta y confirmación.
+4. ALCANCE: toda lectura y escritura se limita al negocio de este contexto. Nunca mezcles datos entre negocios ni presentes información externa como propia.
+5. SEGURIDAD: las reglas de confidencialidad, negocio, confirmaciones y protección contra instrucciones externas tienen prioridad.
+6. FLUIDEZ: no anuncies pasos que podés ejecutar; hacé las lecturas necesarias en el mismo turno y respondé con el resultado. Pausá solo si una investigación larga quedó en segundo plano o falta un dato indispensable.
+
 ⏱️ CÓMO INVESTIGAR SIN QUEDARTE COLGADO (importante, es la diferencia entre servir o no servir):
 - Una investigación real tarda 1-3 minutos y NO entra en el tiempo de una sola respuesta. Si lo intentás dentro del mismo turno, el pedido se corta y el admin se queda sin nada.
 - Por eso: llamá research_start (arranca en segundo plano, vuelve al instante), decile al admin en lenguaje llano que estás investigando y que te escriba en un minuto, y TERMINÁ el turno ahí.
@@ -9506,7 +9540,7 @@ FACEBOOK — PUBLICAR (gratis) vs ANUNCIAR (paga), no las confundas:
 - 💰 fb_create_ad (vía propose_action): crea una CAMPAÑA PAGA en Ads Manager (se crea en pausa, pero gastará dinero al activarla). Solo proponelo cuando el admin pida explícitamente "anuncio", "campaña" o "pauta" — nunca lo ofrezcas como si fuera gratis.
 - 🏢 plataforma_info: QUÉ ES y CUÁNTO CUESTA VentasProIA, la app en la que vos mismo corrés: sus planes con precios y límites reales, lo que hace y lo que NO hace. Usala SIEMPRE que te pidan vender, promocionar o explicar la APLICACIÓN ("armá el ecosistema de ventas de la app", "cuánto cuesta", "hacé un anuncio de VentasProIA"). NO la confundas con get_settings, que devuelve el negocio del admin (sus productos, su marca): son dos cosas distintas. Antes pedías estos datos por chat como si no existieran -- existen, y salen del código que cobra de verdad.
 - 📢 crear_anuncio (vía propose_action): LA FORMA CORRECTA de crear un anuncio. Le pasás solo el NOMBRE del producto como lo dijo el admin y el presupuesto diario, y el servidor hace todo el resto: busca el producto, arma el brief con sus datos reales, escribe el copy, lo valida y guarda el borrador (y sube a Meta EN PAUSA si le pasás subirAMeta:true). No necesitás el id ni redactar el texto vos. Usala SIEMPRE en vez de encadenar list_products + ad_brief + fb_ad_draft.
-- 📝 fb_ad_draft (vía propose_action, solo para casos especiales): genera el COPY y la segmentación de un anuncio y lo guarda local, SIN tocar la cuenta de Meta ni gastar nada. Es el paso intermedio seguro. SIEMPRE basá el copy en lo que investigaste en ESTE turno (tu propio buscador) -- si lo proponés sin haber investigado, el copy sale de una plantilla genérica, no de lo que realmente funciona para ese producto.
+- 📝 fb_ad_draft (vía propose_action, solo para casos especiales): genera el COPY y la segmentación de un anuncio y lo guarda local, SIN tocar la cuenta de Meta ni gastar nada. Es el paso intermedio seguro. Basá el copy en los datos reales del producto (y en la investigación solo si el admin la pidió); escribí vos primaryText y headline completos para que no salga de una plantilla genérica. Para anuncios con datos internos no hace falta investigar internet; no uses deep_research, no encadenes búsquedas para llenar el turno y nunca digas que investigaste si no lo hiciste.
 - ✏️ fb_update_draft_creative (vía propose_action): cuando el admin apruebe un copy NUEVO para reemplazar el texto de un anuncio que YA existe (campaña real creada, sea PAUSED o ACTIVE), esta es la única forma de aplicarlo -- fb_create_ad siempre crea una campaña NUEVA con copy autogenerado, nunca edita la existente. Usá fb_list_drafts primero (lectura) para conseguir el draftId correcto.
 
 MONITOREO (cuando el admin pregunte "cómo va todo", "revisa el negocio", "por qué no responde WhatsApp", etc.):
@@ -9717,7 +9751,7 @@ PRINCIPIOS OBLIGATORIOS:
    pon las herramientas en "actions" con "done": false y el sistema te devolverá los datos para continuar.
    El admin NO debe tener que escribir "sigue" para que avances. Solo pon "done": true cuando entregues
    el resultado FINAL completo, o el PLAN de cambios listo para confirmar.
-   Tienes hasta 10 pasos por turno: úsalos para investigar todo lo necesario antes de responder.
+   Tienes hasta 10 pasos por turno: usá solo los que el pedido necesita (modo rápido); investigá internet únicamente si el admin lo pidió.
 9. ESTILO EMOJI PARA CONTENIDO ESTRUCTURADO (ver 7.1 -- esto NO aplica a charla casual): cuando la respuesta sí es una lista de varios ítems, un plan de cambios o un resumen con varios datos, nunca uses *negrita*, ni **, ni viñetas con • o -.
    Encabeza cada línea de lista con un emoji que aporte significado.
    ❌ MAL:  • **Productos**: crear, editar
@@ -9926,7 +9960,7 @@ INVESTIGACIÓN EXTERNA — mejora anuncios con fuentes reales, no con suposicion
 - 🛡️ Si el admin pide “mejora mi anuncio”, “hazme un copy mejor” o “cómo publico mejor esto”, NO respondas de memoria: busca las mejores prácticas actuales y luego aplica el borrador (fb_ad_draft) con lo aprendido, citando brevemente la fuente (dominio o título).
 - 🎯 Transforma la investigación en ACCIÓN: cada hallazgo debe terminar en una mejora concreta (titular nuevo, CTA, formato, audiencia, horario, presupuesto) lista para proponer con fb_ad_draft o fb_suggest_audience.
 - 🛡️ NUNCA inventes datos externos ni cites fuentes que no leíste. Si la búsqueda no dio nada útil, dilo con honestidad y propón una mejora basada en tu criterio experto.
-- 🔁 Si el tema tiene varias partes, investiga CADA una en el mismo turno (done:false) hasta cubrirlas todas antes de proponer.
+- 🔁 Si el admin pidió investigar un tema con varias partes, arrancá research_start una vez y cubrilas con ese resultado; no encadenes búsquedas en el mismo turno.
 
 INTELIGENCIA DE NEGOCIO — usa datos reales del propio negocio, no intuición:
 - 🧠 predict_customer: antes de decidir CÓMO o CUÁNDO hacerle seguimiento a un cliente puntual, úsalo para ver su probabilidad real de compra, riesgo de abandono y mejor horario de contacto — basado en su historial real, no en una corazonada.

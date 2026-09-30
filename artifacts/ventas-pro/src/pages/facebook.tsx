@@ -144,6 +144,18 @@ export default function FacebookAdsPage() {
   const [audience, setAudience] = useState<FbAudience | null>(null);
   const [budget, setBudget] = useState(5000);
   const [city, setCity] = useState("");
+  // Segmentación detallada (se resuelve contra Meta en el servidor; el anuncio queda PAUSED).
+  const [ageMin, setAgeMin] = useState(18);
+  const [ageMax, setAgeMax] = useState(65);
+  const [genero, setGenero] = useState<"todos" | "hombres" | "mujeres">("todos");
+  const [intereses, setIntereses] = useState("");
+  const [audienciasPropias, setAudienciasPropias] = useState("");
+  const [audienciasExcluidas, setAudienciasExcluidas] = useState("");
+  const [advantagePlus, setAdvantagePlus] = useState(true);
+  const [ubicacionesManuales, setUbicacionesManuales] = useState(false);
+  const [enFacebook, setEnFacebook] = useState(true);
+  const [enInstagram, setEnInstagram] = useState(true);
+  const [enMessenger, setEnMessenger] = useState(false);
   const [creating, setCreating] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -376,6 +388,12 @@ export default function FacebookAdsPage() {
       setResult(null);
       const res = await apiRequest(`/facebook/suggest-audience/${product.id}`);
       setAudience(res);
+      // La sugerencia llena los campos: el admin la ve y la ajusta antes de crear.
+      if (res?.targeting) {
+        if (res.targeting.ageMin) setAgeMin(res.targeting.ageMin);
+        if (res.targeting.ageMax) setAgeMax(res.targeting.ageMax);
+        if (Array.isArray(res.targeting.interests) && res.targeting.interests.length) setIntereses(res.targeting.interests.map((i: any) => i.name).join(", "));
+      }
     } catch (e: any) {
       toast({ title: "Error", description: describeError(e, "No se pudo sugerir una audiencia para este producto."), variant: "destructive" });
     }
@@ -386,9 +404,31 @@ export default function FacebookAdsPage() {
     try {
       setCreating(true);
       setResult(null);
+      const lista = (t: string) => t.split(",").map((x) => x.trim()).filter(Boolean);
+      const edad = (n: number) => Math.min(65, Math.max(18, Math.round(Number(n) || 18)));
+      const min = edad(ageMin);
+      const max = Math.max(min, edad(ageMax));
       const targeting: any = {};
-      if (city) targeting.geoLocations = { cities: [city.trim()], countries: ["CO"] };
-      if (audience) { targeting.ageMin = audience.targeting.ageMin; targeting.ageMax = audience.targeting.ageMax; }
+      const ciudades = lista(city);
+      if (ciudades.length) targeting.geoLocations = { cities: ciudades, countries: ["CO"] };
+      if (min !== 18) targeting.ageMin = min;
+      if (max !== 65) targeting.ageMax = max;
+      if (genero !== "todos") targeting.genders = genero === "hombres" ? [1] : [2];
+      // Los intereses viajan como nombre; el servidor los resuelve contra la taxonomía de Meta.
+      const nombresIntereses = lista(intereses);
+      if (nombresIntereses.length) targeting.interests = nombresIntereses.map((name) => ({ id: "", name }));
+      const propias = lista(audienciasPropias);
+      if (propias.length) targeting.customAudiences = propias;
+      const excluidas = lista(audienciasExcluidas);
+      if (excluidas.length) targeting.excludedCustomAudiences = excluidas;
+      targeting.advantagePlus = advantagePlus;
+      if (ubicacionesManuales) {
+        const placements: Record<string, string[]> = {};
+        if (enFacebook) placements.facebook = ["feed", "story", "marketplace"];
+        if (enInstagram) placements.instagram = ["stream", "story", "reels"];
+        if (enMessenger) placements.messenger = ["messenger_home"];
+        if (Object.keys(placements).length) targeting.placements = placements;
+      }
       const res = await apiRequest(`/facebook/create-ad/${selectedProduct.id}`, {
         method: "POST",
         body: JSON.stringify({ budget, targeting }),
@@ -864,8 +904,32 @@ export default function FacebookAdsPage() {
                       <CardContent className="space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div><Label>Presupuesto diario (COP)</Label><Input type="number" value={budget} onChange={e => setBudget(Number(e.target.value))} min={1000} /></div>
-                          <div><Label>Ciudad objetivo</Label><Input value={city} onChange={e => setCity(e.target.value)} placeholder="Ej: Bogotá, Medellín" /></div>
+                          <div><Label>Ciudades (separadas por coma)</Label><Input value={city} onChange={e => setCity(e.target.value)} placeholder="Ej: Bogotá, Medellín" /></div>
+                          <div className="grid grid-cols-3 gap-2">
+                            <div><Label>Edad mín.</Label><Input type="number" min={18} max={65} value={ageMin} onChange={e => setAgeMin(Number(e.target.value))} /></div>
+                            <div><Label>Edad máx.</Label><Input type="number" min={18} max={65} value={ageMax} onChange={e => setAgeMax(Number(e.target.value))} /></div>
+                            <div><Label>Género</Label>
+                              <select className="h-10 w-full rounded-md border bg-background px-2 text-sm" value={genero} onChange={e => setGenero(e.target.value as any)}>
+                                <option value="todos">Todos</option><option value="hombres">Hombres</option><option value="mujeres">Mujeres</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div><Label>Intereses (separados por coma)</Label><Input value={intereses} onChange={e => setIntereses(e.target.value)} placeholder="Ej: Fitness, Salud y bienestar" /></div>
+                          <div><Label>Audiencias propias (IDs, coma)</Label><Input value={audienciasPropias} onChange={e => setAudienciasPropias(e.target.value)} placeholder="Ej: 238475612345" /></div>
+                          <div className="md:col-span-2"><Label>Audiencias excluidas (IDs, coma)</Label><Input value={audienciasExcluidas} onChange={e => setAudienciasExcluidas(e.target.value)} placeholder="Ej: compradores de los últimos 30 días" /></div>
                         </div>
+                        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+                          <label className="flex items-center gap-2"><input type="checkbox" checked={advantagePlus} onChange={e => setAdvantagePlus(e.target.checked)} /> Advantage+ Audience (Meta amplía el público)</label>
+                          <label className="flex items-center gap-2"><input type="checkbox" checked={ubicacionesManuales} onChange={e => setUbicacionesManuales(e.target.checked)} /> Elegir ubicaciones a mano</label>
+                          {ubicacionesManuales ? (
+                            <>
+                              <label className="flex items-center gap-1"><input type="checkbox" checked={enFacebook} onChange={e => setEnFacebook(e.target.checked)} /> Facebook</label>
+                              <label className="flex items-center gap-1"><input type="checkbox" checked={enInstagram} onChange={e => setEnInstagram(e.target.checked)} /> Instagram</label>
+                              <label className="flex items-center gap-1"><input type="checkbox" checked={enMessenger} onChange={e => setEnMessenger(e.target.checked)} /> Messenger</label>
+                            </>
+                          ) : <span className="text-muted-foreground">Sin elegir, Meta reparte en todas (Advantage+ Placements).</span>}
+                        </div>
+                        <p className="text-xs text-muted-foreground">El anuncio se crea <b>PAUSADO</b>: esta pantalla prepara la campaña y no inicia ningún gasto. Los intereses se validan contra Meta; si alguno no existe, se avisa y no se crea nada.</p>
                         <Button onClick={createAd} disabled={creating} className="w-full">
                           {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Megaphone className="mr-2 h-4 w-4" />}
                           {creating ? "Creando..." : `Crear anuncio para ${selectedProduct.name}`}
