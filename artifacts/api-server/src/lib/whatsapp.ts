@@ -9,7 +9,7 @@ import { videoDeProducto } from "./video-de-producto";
 import { leerFicha, repartirPuntos, PRESUPUESTO_PIE_DE_FOTO } from "./ficha-del-producto";
 import { hablarColombiano } from "./hablar-colombiano";
 import { etiquetaDeTransferencia } from "./conversation-engine";
-import { mediosDePago, loQuePidio, renderMediosDePago, noManejamosEse } from "./hechos-de-pago";
+import { mediosDePago, loQuePidio, renderMediosDePago, respuestaMedioNoDisponible } from "./hechos-de-pago";
 import { getOrCreateLanding, type MagicLandingResult } from "./landingforge-client";
 
 import path from "node:path";
@@ -1127,7 +1127,7 @@ export async function construirSeccion(
     // traer Daviplata, no la primera cuenta que haya.
     const pedido = loQuePidio(String(mensajeDelCliente || ""), medios);
     if (pedido.noConfigurado) {
-      return { conFoto: false, mensajes: [noManejamosEse(pedido.noConfigurado, medios)] };
+      return { conFoto: false, mensajes: [respuestaMedioNoDisponible(pedido.noConfigurado, medios, mon.precioTexto, cierre)] };
     }
 
     let elegidos = pedido.pedidos;

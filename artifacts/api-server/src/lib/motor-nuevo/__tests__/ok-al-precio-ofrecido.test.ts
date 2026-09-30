@@ -67,3 +67,87 @@ describe("aceptar el precio ofrecido", () => {
     expect(texto).not.toMatch(/\$105\.900/);
   });
 });
+
+/**
+ * Chat de prueba ya desplegado (30-09-2026): la ficha COMPLETA de la rueda
+ * (con precio) cierra con "¿Te lo enviamos?"; el cliente contesta "ok" y el
+ * vendedor preguntaba "¿Te gustaría llevarla?". La última pregunta que se
+ * guardaba era la del texto del modelo, no la de la ficha, que sale DESPUÉS
+ * y es lo último que el cliente ve.
+ */
+describe("la pregunta con la que cierra la ficha queda pendiente", () => {
+  test("ficha completa de un físico → el próximo 'ok' contesta '¿te lo enviamos?'", async () => {
+    const estado = { ...estadoInicial(1), productoEnFoco: RUEDA.id };
+    const r = await responder({
+      llm: clienteFalso([
+        { toolCalls: [{ id: "a", name: "mostrar", arguments: JSON.stringify({ productoId: RUEDA.id, seccion: "completa" }) }] },
+        { content: "Mira, acá tienes todo sobre la rueda." },
+      ]),
+      estado,
+      historial: [{ role: "customer" as const, content: "la rueda", createdAt: new Date() }],
+      catalogo: [RUEDA],
+      conocimiento: [],
+      guion: guionDelNegocio({ catalogo: [RUEDA as any], negocio: {} }),
+      voz: { nombreAgente: "Sofía", rolAgente: "asesora", nombreNegocio: "Tienda" },
+    });
+    const fin = r.estado ?? estado;
+    expect(fin.ultimaPreguntaAgente || "").toMatch(/env/i);
+  });
+});
+
+/**
+ * Chat de prueba desplegado (30-09-2026), curso de Excel ($20.000):
+ *   bot:     [ficha de info] "… ¿Quieres saber cuánto está?"
+ *   cliente: me sirve si no sé nada? lo necesito para un trabajo de oficina
+ *   bot:     "Te sirve perfectamente… ¿Te cuento cuánto vale?"
+ * Dos ofertas seguidas del precio y ninguna cifra. Si ya se ofreció una vez,
+ * la segunda oferta se cambia por el precio.
+ */
+describe("el precio no se ofrece dos veces: la segunda vez se da", () => {
+  const EXCEL: Producto = { id: 118, name: "EXCEL", description: "Excel: desde lo básico hasta macros", price: 20000, currency: "COP", kind: "digital", disponible: true } as any;
+  test("tras la ficha de info, '¿Te cuento cuánto vale?' se reemplaza por la cifra", async () => {
+    const estado = { ...estadoInicial(1), productoEnFoco: EXCEL.id };
+    registrarEnvio(estado, EXCEL.id, "info");
+    const r = await responder({
+      llm: clienteFalso([{ content: "Te sirve perfectamente porque empieza desde lo básico.\n\n¿Te cuento cuánto vale?" }]),
+      estado,
+      historial: [{ role: "customer" as const, content: "me sirve si no sé nada de excel?", createdAt: new Date() }],
+      catalogo: [EXCEL],
+      conocimiento: [],
+      guion: guionDelNegocio({ catalogo: [EXCEL as any], negocio: {} }),
+      voz: { nombreAgente: "Sofía", rolAgente: "asesora", nombreNegocio: "Tienda" },
+    });
+    const texto = r.partes.filter((p: any) => p.kind === "text").map((p: any) => p.content).join("\n");
+    expect(texto).toMatch(/desde lo básico/);
+    expect(texto).toMatch(/\$20\.000/);
+    expect(texto).not.toMatch(/te cuento cu[aá]nto vale/i);
+  });
+
+  // Primer turno del mismo chat: el texto decía "¿Te cuento cuánto vale?" y
+  // la ficha de info, que sale en ESE turno, cerraba con "¿Quieres saber
+  // cuánto está?". Dos ofertas en un mensaje. Si la ficha va en el turno, el
+  // texto no repite la oferta — y tampoco suelta la cifra, que contradiría la
+  // pregunta de la ficha.
+  test("con la ficha de info en el mismo turno, el texto no repite la oferta ni da la cifra", async () => {
+    const estado = { ...estadoInicial(1) };
+    const r = await responder({
+      llm: clienteFalso([
+        { toolCalls: [{ id: "a", name: "enfocar_producto", arguments: JSON.stringify({ productoId: EXCEL.id }) }] },
+        { toolCalls: [{ id: "b", name: "mostrar", arguments: JSON.stringify({ productoId: EXCEL.id, seccion: "info" }) }] },
+        { content: "Hola, sí tenemos. Mira lo que incluye el curso.\n\n¿Te cuento cuánto vale?" },
+      ]),
+      estado,
+      historial: [{ role: "customer" as const, content: "hola, tienen curso de excel?", createdAt: new Date() }],
+      catalogo: [EXCEL],
+      conocimiento: [],
+      guion: guionDelNegocio({ catalogo: [EXCEL as any], negocio: {} }),
+      voz: { nombreAgente: "Sofía", rolAgente: "asesora", nombreNegocio: "Tienda" },
+    });
+    const texto = r.partes.filter((p: any) => p.kind === "text").map((p: any) => p.content).join("\n");
+    expect(r.partes.some((p: any) => p.kind === "card" && p.seccion === "info")).toBe(true);
+    expect(texto).toMatch(/Hola, sí tenemos/);
+    expect(texto).not.toMatch(/te cuento cu[aá]nto vale/i);
+    expect(texto).not.toMatch(/\$20\.000/);
+  });
+});
+

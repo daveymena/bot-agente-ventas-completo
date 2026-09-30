@@ -237,7 +237,7 @@ Nunca digas que un pago está confirmado, verificado ni recibido. Eso lo
 determina una persona del equipo, y el sistema te avisa cuando pasó.
 
 CÓMO VENDÉS SEGÚN QUÉ ES (multimodelo, no todo es "producto-precio-pago")
-- Físico/dropshipping: producto → variante (consultar_disponibilidad, nunca inventes stock) → precio → cuando quiere comprarlo, tomar_pedido con los datos de envío que te dé (el sistema te dice qué falta y le manda el resumen) → cuando confirma el resumen, confirmar_pedido. El pedido existe SOLO cuando confirmar_pedido dice que se creó: antes de eso nunca digas "quedó anotado" ni "quedó registrado". La contraentrega solo si está configurada; si no, explica lo que sí hay. No sueltes "tenemos contraentrega" al saludar.
+- Físico/dropshipping: producto → variante (consultar_disponibilidad, nunca inventes stock) → precio → cuando quiere comprarlo, tomar_pedido con los datos de envío que te dé (el sistema te dice qué falta y le manda el resumen) → cuando confirma el resumen, confirmar_pedido. El pedido existe SOLO cuando confirmar_pedido dice que se creó: antes de eso nunca digas "quedó anotado" ni "quedó registrado". La contraentrega solo si está configurada; si no, explica lo que sí hay. No sueltes "tenemos contraentrega" al saludar. Si pregunta qué empresa lleva el envío o quiere elegirla: consultar_transportadoras (nombres reales para su ciudad, nunca inventes una ni muestres el flete); cuando elija, tomar_pedido(transportadora=…).
 - Servicio: necesidad → diagnóstico/alcance (registrar_caso tipo servicio) → disponibilidad → precio real o cotización (solicitar_cotizacion) → agenda (cuándo). No des precio cerrado si depende del modelo/visita.
 - Consultoría: problema → objetivo → contexto del negocio → alcance (registrar_caso tipo consultoria) → propuesta/cotización (solicitar_cotizacion). El valor depende del alcance: dilo y registra el caso, no inventes precio fijo.
 - Si cambia de servicio a producto (o al revés), cambia el foco con enfocar_producto/registrar_caso y sigue: el contexto anterior queda apilado para "¿y la reparación?".
@@ -895,14 +895,31 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
     const aceptaPrecioOfrecido = !!prod && esConfirmacionBreve(mensajeDelCliente) &&
       yaSeEnvio(estado, prod.id, "info") && !yaSeEnvio(estado, prod.id, "precio") && !yaSeEnvio(estado, prod.id, "completa");
     const yaLoDice = /\$\s?\d/.test(textoFinal) || ctx.partes.some((p: any) => p.kind === "card" && /precio|completa/.test(String(p.seccion)));
-    if (prod && (preguntaPrecio || aceptaPrecioOfrecido) && !yaLoDice && Number(prod.price) > 0) {
+    const OFRECE_PRECIO = /¿[^?¿]*(cu[aá]nto (vale|est[aá]|cuesta|sale)|el precio|el valor)[^?¿]*\?\s*(\p{Extended_Pictographic}️?)?/giu;
+    // Y la segunda oferta (curso de Excel, 30-09-2026): tras la ficha de info
+    // que ya ofreció el precio, el modelo cerraba otra vez con "¿Te cuento
+    // cuánto vale?". Una oferta ya hecha no se repite: se cumple.
+    // Si la ficha de info sale en ESTE turno, ella misma cierra ofreciendo el
+    // precio: el texto no la repite, y tampoco suelta la cifra (contradiría
+    // la pregunta de la ficha que viene justo debajo).
+    const infoEnEsteTurno = !!prod && ctx.partes.some((p: any) => p.kind === "card" && p.seccion === "info" && Number(p.productId) === prod.id);
+    if (infoEnEsteTurno && !preguntaPrecio) {
+      textoFinal = textoFinal.replace(OFRECE_PRECIO, "").trim();
+    }
+    const ofreceOtraVez = !!prod && !infoEnEsteTurno && !aceptaPrecioOfrecido && !preguntaPrecio &&
+      yaSeEnvio(estado, prod.id, "info") && !yaSeEnvio(estado, prod.id, "precio") && !yaSeEnvio(estado, prod.id, "completa") &&
+      new RegExp(OFRECE_PRECIO.source, "iu").test(textoFinal);
+    if (prod && (preguntaPrecio || aceptaPrecioOfrecido || ofreceOtraVez) && !yaLoDice && Number(prod.price) > 0) {
       const monto = `$${Number(prod.price).toLocaleString("es-CO")}`;
       const extra = String(prod.kind || "") === "physical" ? ", con envío incluido y pagas al recibir" : "";
-      // La pregunta que ofrecía el precio sobra: ya se está dando.
-      if (aceptaPrecioOfrecido) {
-        textoFinal = textoFinal.replace(/¿[^?¿]*(cu[aá]nto (vale|est[aá]|cuesta|sale)|el precio|el valor)[^?¿]*\?\s*(\p{Extended_Pictographic}️?)?/giu, "").trim();
+      if (ofreceOtraVez) {
+        // La respuesta a su duda va primero; el precio, donde estaba la oferta.
+        textoFinal = `${textoFinal.replace(OFRECE_PRECIO, "").trim()}\n\nEstá en ${monto}${extra}.`.trim();
+      } else {
+        // La pregunta que ofrecía el precio sobra: ya se está dando.
+        if (aceptaPrecioOfrecido) textoFinal = textoFinal.replace(OFRECE_PRECIO, "").trim();
+        textoFinal = `Está en ${monto}${extra}.${textoFinal ? `\n\n${textoFinal}` : ""}`;
       }
-      textoFinal = `Está en ${monto}${extra}.${textoFinal ? `\n\n${textoFinal}` : ""}`;
       registrarEnvio(estado, prod.id, "precio");
     }
   }
@@ -1085,6 +1102,19 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
   }
 
   estado.turnos += 1;
+  // La ficha completa (o de precio) de algo que se despacha sale DESPUÉS del
+  // texto y cierra con "¿Te lo enviamos?" / "¿Te tomo el pedido?" (whatsapp.ts):
+  // es lo último que el cliente ve. Chat de prueba desplegado (30-09-2026):
+  // "ok" a esa pregunta → "¿Te gustaría llevarla?", porque acá solo se guardaba
+  // la pregunta del texto del modelo.
+  const ultimaParte = partes[partes.length - 1];
+  const cierraConFichaDeEnvio = ultimaParte?.kind === "card" &&
+    /^(completa|precio)$/.test(String((ultimaParte as any).seccion || "")) &&
+    String(catalogo.find((p) => p.id === Number((ultimaParte as any).productId))?.kind || "") === "physical";
+  if (cierraConFichaDeEnvio) {
+    estado.ultimaPreguntaAgente = "¿Te lo enviamos? (así cierra la ficha que acaba de ver: un sí es tomar el pedido)";
+    estado.preguntaPendiente = estado.ultimaPreguntaAgente;
+  } else
   // FASE 2: la última pregunta del agente resuelve el próximo "sí/ese/dale".
   if (textoFinal && /\?\s*$/.test(textoFinal)) {
     estado.ultimaPreguntaAgente = textoFinal.slice(-300);
