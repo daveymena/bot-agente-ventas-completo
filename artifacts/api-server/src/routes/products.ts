@@ -277,8 +277,12 @@ router.post("/:id/video-desde-terabox", async (req: TenantRequest, res, next) =>
 
     // 1. El enlace directo, que dura horas.
     const { default: TeraBoxApp } = await import("terabox-api");
-    const ndus = (process.env.TERABOX_NDUS || "").trim();
-    if (!ndus) return res.status(400).json({ message: "TERABOX_NDUS no configurado" });
+    // TERABOX_NDUS es la sesión de la cuenta de Terabox del DUEÑO del
+    // servidor: con una ruta cualquiera, otro negocio podía sacar enlaces de
+    // descarga de SUS archivos (29-09-2026). Solo el negocio dueño la usa.
+    const { envSoloDelDueno } = await import("../lib/respaldo-del-dueno");
+    const ndus = envSoloDelDueno(tenantId, process.env.TERABOX_NDUS).trim();
+    if (!ndus) return res.status(400).json({ message: "Terabox no está configurado para este negocio" });
     const tb = new TeraBoxApp(ndus);
     const meta: any = await (tb as any).getFileMeta([ruta]);
     const dlink = meta?.info?.[0]?.dlink;

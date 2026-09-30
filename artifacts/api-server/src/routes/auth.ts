@@ -399,7 +399,7 @@ router.post("/request-password-reset", passwordResetRateLimit, async (req, res, 
         .where(eq(tenants.id, tenant.id));
 
       try {
-        await sendPasswordResetEmail(tenant.email, code, tenant.name, credencialesEmailDe(tenant));
+        await sendPasswordResetEmail(tenant.email, code, tenant.name, credencialesEmailDe(tenant, { sistema: true }));
       } catch (err) {
         logger.error({ err, tenantId: tenant.id }, "[Auth] Fallo enviando email de recuperación");
       }
@@ -435,7 +435,7 @@ router.post("/reset-password", authRateLimit, async (req, res, next) => {
       .where(eq(tenants.id, tenant.id));
 
     try {
-      await sendPasswordChangeConfirmationEmail(tenant.email, tenant.name, credencialesEmailDe(tenant));
+      await sendPasswordChangeConfirmationEmail(tenant.email, tenant.name, credencialesEmailDe(tenant, { sistema: true }));
     } catch (err) {
       logger.error({ err, tenantId: tenant.id }, "[Auth] Fallo enviando confirmación de cambio de contraseña");
     }

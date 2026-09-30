@@ -520,7 +520,10 @@ export async function telefonoDelAdmin(tenantId: number): Promise<string | null>
   } catch (e: any) {
     logger.warn({ err: e?.message, tenantId }, "[Pago] no se pudo leer el teléfono del negocio");
   }
-  const env = String(process.env.ADMIN_PHONE || "").replace(/[^0-9]/g, "");
+  // Respaldo SOLO para el dueño del servidor: a otro negocio sin teléfono sus
+  // comprobantes (nombres y montos de SUS clientes) le llegaban al dueño.
+  const { envSoloDelDueno } = await import("./respaldo-del-dueno");
+  const env = envSoloDelDueno(tenantId, process.env.ADMIN_PHONE).replace(/[^0-9]/g, "");
   return env.length >= 8 ? env : null;
 }
 
@@ -612,10 +615,13 @@ export async function tenantsQueAdministra(phone: string): Promise<number[]> {
       .map((t: any) => Number(t.id));
     if (propios.length > 0) return propios;
 
+    // El ADMIN_PHONE del .env administra SOLO al negocio dueño del servidor.
+    // Antes aprobaba pagos de TODOS los negocios sin teléfono propio.
     const delEntorno = String(process.env.ADMIN_PHONE || "").replace(/[^0-9]/g, "");
     if (delEntorno && mismoTelefono(delEntorno, quien)) {
+      const { esDuenoDelServidor } = await import("./respaldo-del-dueno");
       return filas
-        .filter((t: any) => String(t.contactPhone || "").replace(/[^0-9]/g, "").length < 8)
+        .filter((t: any) => esDuenoDelServidor(Number(t.id)) && String(t.contactPhone || "").replace(/[^0-9]/g, "").length < 8)
         .map((t: any) => Number(t.id));
     }
     return [];

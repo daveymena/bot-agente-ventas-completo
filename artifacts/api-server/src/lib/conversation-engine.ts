@@ -636,8 +636,12 @@ export function isPaymentInstructionIntent(text: string): boolean {
 // TRANSFER_NAME, con defaults distintos ("Deiner Mena" vs "Duvier Mena") →
 // el titular podía mostrarse incorrecto/inconsistente. Se unifica en
 // TRANSFER_NAME (con fallback a TRANSFER_OWNER por compatibilidad).
-const DEFAULT_TRANSFER_NUMBER = process.env.TRANSFER_NUMBER || "";
-const DEFAULT_TRANSFER_OWNER = process.env.TRANSFER_NAME || process.env.TRANSFER_OWNER || "";
+// Sin respaldo del .env (29-09-2026): TRANSFER_NUMBER es el Nequi del dueño
+// del servidor y esta función no sabe de qué negocio es la conversación.
+// El número sale SIEMPRE de `transferInfo` (la configuración de cobros del
+// negocio); si no hay, no se inventa uno.
+const DEFAULT_TRANSFER_NUMBER = "";
+const DEFAULT_TRANSFER_OWNER = "";
 
 /**
  * Genera una respuesta conversacional cuando el cliente:

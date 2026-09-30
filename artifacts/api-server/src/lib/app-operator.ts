@@ -4282,8 +4282,11 @@ ${explicarObjetivos()}` };
     name: "terabox_list_folder",
     description: "Lista el contenido de una carpeta de Terabox (el almacenamiento en la nube donde están los cursos). 'dir' es la ruta (ej. '/' para la raíz, o '/INGLES_TOTAL_DE_PRINCIPIANTE_A_AVANZADO_115HORAS' para ver sus módulos). Devuelve nombre, si es carpeta y la ruta de cada elemento. Útil para saber qué cursos/módulos hay antes de generar un link de entrega.",
     args: '{ "dir"?: string (ruta; def "/" = raíz) }',
-    run: async (args, _ctx) => {
+    run: async (args, ctx) => {
       try {
+        // La sesión de Terabox del .env es la cuenta del DUEÑO del servidor.
+        const { esDuenoDelServidor } = await import("./respaldo-del-dueno");
+        if (!esDuenoDelServidor(ctx.tenantId)) return { ok: false, summary: "Terabox no está configurado para este negocio." };
         const { listarCarpetaTerabox } = await import("./terabox");
         const items = await listarCarpetaTerabox(String(args.dir || "/"));
         if (items.length === 0) return { ok: true, summary: "La carpeta está vacía o no existe." };

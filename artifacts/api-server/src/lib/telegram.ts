@@ -19,8 +19,12 @@ export async function configTelegramDelTenant(tenantId: number): Promise<ConfigT
     const c = (await clavesDelTenant(tenantId))?.telegram;
     if (c?.apiKey && c?.model) return { botToken: String(c.apiKey).trim(), chatId: String(c.model).trim() };
   } catch { /* sin claves */ }
-  const botToken = String(process.env.TELEGRAM_BOT_TOKEN || "").trim();
-  const chatId = String(process.env.TELEGRAM_CHAT_ID || "").trim();
+  // Respaldo del .env SOLO para el dueño del servidor (29-09-2026): los
+  // pedidos y reportes de otro negocio sin Telegram propio le llegaban al
+  // Telegram del dueño. Ver respaldo-del-dueno.ts.
+  const { envSoloDelDueno } = await import("./respaldo-del-dueno");
+  const botToken = envSoloDelDueno(tenantId, process.env.TELEGRAM_BOT_TOKEN).trim();
+  const chatId = envSoloDelDueno(tenantId, process.env.TELEGRAM_CHAT_ID).trim();
   return botToken && chatId ? { botToken, chatId } : null;
 }
 

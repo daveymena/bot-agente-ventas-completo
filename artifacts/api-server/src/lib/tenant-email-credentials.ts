@@ -1,6 +1,6 @@
 import * as nodemailer from "nodemailer";
 import { logger } from "./logger";
-import type { TenantContext } from "./tenantManager";
+import { tenantManager, type TenantContext } from "./tenantManager";
 
 /**
  * Credenciales SMTP POR NEGOCIO.
@@ -55,15 +55,25 @@ export function enmascararEmailPass(valor: string): string {
 }
 
 /**
- * Credenciales SMTP efectivas de un negocio. Cae al .env solo si el negocio
- * no configuró las suyas.
+ * Credenciales SMTP efectivas de un negocio.
+ *
+ * El SMTP del .env es la casilla del DUEÑO del servidor (29-09-2026). Antes
+ * caía a ella para CUALQUIER negocio sin correo propio: el acceso de un
+ * producto digital le llegaba a su cliente desde la casilla del dueño, y la
+ * lectura de avisos del banco (IMAP, whatsapp.ts) revisaba la bandeja del
+ * dueño para confirmar pagos de OTRO negocio. Ahora el .env solo vale para
+ * el negocio dueño, salvo `sistema: true`: los correos de la PLATAFORMA a
+ * sus usuarios (recuperar/cambiar contraseña), que sí salen de su casilla.
  */
-export function credencialesEmailDe(tenant: TenantContext | null | undefined): CredencialesEmail {
+export function credencialesEmailDe(tenant: TenantContext | null | undefined, opts: { sistema?: boolean } = {}): CredencialesEmail {
   const em: any = tenant?.emailCredentials || {};
+  const usaEnv = !!opts.sistema || !tenant?.id || tenant.id === tenantManager.getDefaultTenant().id;
+  const envUser = usaEnv ? process.env.SMTP_USER : "";
+  const envPass = usaEnv ? process.env.SMTP_PASS : "";
   const host = em.host || process.env.SMTP_HOST || "smtp.gmail.com";
   const port = Number(em.port || process.env.SMTP_PORT || "587");
   const secure = em.secure ?? process.env.SMTP_SECURE === "true";
-  const user = (em.user || process.env.SMTP_USER || "").trim();
+  const user = (em.user || envUser || "").trim();
   // Los espacios se van SIEMPRE, y no es cosmética.
   //
   // Google muestra la clave de aplicación agrupada de a cuatro
@@ -74,7 +84,7 @@ export function credencialesEmailDe(tenant: TenantContext | null | undefined): C
   //
   // Medido el 2026-08-25: SMTP_PASS llegó con 19 caracteres, o sea los 16 más
   // los 3 espacios de la agrupación.
-  const pass = (leerSecreto(em.pass) || process.env.SMTP_PASS || "").replace(/\s+/g, "");
+  const pass = (leerSecreto(em.pass) || envPass || "").replace(/\s+/g, "");
   const from = em.from || `"${tenant?.brandName || "VentasPro"}" <${user}>`;
 
   const tienePropias = !!em.host || !!em.user || !!em.pass;
@@ -86,7 +96,7 @@ export function credencialesEmailDe(tenant: TenantContext | null | undefined): C
     user,
     pass,
     from,
-    enabled: tienePropias ? em.enabled !== false : !!(process.env.SMTP_USER && process.env.SMTP_PASS),
+    enabled: tienePropias ? em.enabled !== false : !!(envUser && envPass),
     propias: tienePropias,
   };
 }

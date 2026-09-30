@@ -9,13 +9,13 @@ export interface AgentTemplate {
 }
 
 const BRAND = "TecnoVariedades";
-const OWNER = "Duvier Mena";
-// Sin número inventado por defecto. Antes acá había uno real hardcodeado,
-// así que una instalación sin TRANSFER_NUMBER le daba a sus clientes el
-// número de un tercero -- plata a la cuenta equivocada, sin ningún error
-// visible. Estas plantillas son el punto de partida de un agente; el número
-// real de cada negocio sale de su configuración de cobros.
-const NEQUI = process.env.TRANSFER_NUMBER || "(configura tu número en Ajustes → Cobros)";
+// Ni nombre ni número REALES en las plantillas (29-09-2026). Son el punto de
+// partida del agente de CUALQUIER negocio: tenían el nombre del dueño de la
+// plataforma fijo y su Nequi del .env (TRANSFER_NUMBER), así que el vendedor
+// de un negocio nuevo les daba a SUS clientes la cuenta del dueño. El número
+// y el titular reales de cada negocio salen de su configuración de cobros.
+const OWNER = "(titular de la cuenta — Ajustes → Cobros)";
+const NEQUI = "(tu número — Ajustes → Cobros)";
 
 export const AGENT_TEMPLATES: AgentTemplate[] = [
   // ============================================================

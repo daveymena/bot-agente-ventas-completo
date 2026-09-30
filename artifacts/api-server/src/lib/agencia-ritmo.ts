@@ -65,7 +65,9 @@ async function telefonoDelNegocio(tenantId: number): Promise<string | null> {
   } catch (err) {
     logger.warn({ err, tenantId }, "[Agencia] no se pudo leer el teléfono del negocio");
   }
-  return process.env.ADMIN_PHONE || null;
+  // Respaldo del .env SOLO para el dueño del servidor (ver respaldo-del-dueno.ts).
+  const { envSoloDelDueno } = await import("./respaldo-del-dueno");
+  return envSoloDelDueno(tenantId, process.env.ADMIN_PHONE) || null;
 }
 
 async function avisar(tenantId: number, texto: string): Promise<boolean> {

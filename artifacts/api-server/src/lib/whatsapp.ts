@@ -3167,10 +3167,12 @@ export class WhatsAppManager {
       const { credencialesEmailDe } = await import("./tenant-email-credentials");
       const { enviarCorreoSimple } = await import("./email");
       const [t] = await db.select().from(tenants).where(eq(tenants.id, this.currentTenant.id)).limit(1);
+      // EMAIL_TO/EMAIL_FROM son del dueño del servidor: solo su respaldo.
+      const { envSoloDelDueno } = await import("./respaldo-del-dueno");
       const destinatario =
         String((t as any)?.email || "").trim() ||
-        String(process.env.EMAIL_TO || "").trim() ||
-        String(process.env.EMAIL_FROM || "").trim();
+        envSoloDelDueno(this.currentTenant.id, process.env.EMAIL_TO).trim() ||
+        envSoloDelDueno(this.currentTenant.id, process.env.EMAIL_FROM).trim();
       if (destinatario) {
         await enviarCorreoSimple(
           destinatario,

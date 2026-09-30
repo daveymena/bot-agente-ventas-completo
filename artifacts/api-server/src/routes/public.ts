@@ -47,7 +47,10 @@ function resolveWhatsAppPhone(tenant?: { id?: number; contactPhone?: string | nu
     if (wa?.phone && /^\d+$/.test(wa.phone)) return wa.phone;
   }
   if (tenant?.contactPhone) return tenant.contactPhone.replace(/\D/g, "");
-  const admin = process.env.ADMIN_PHONE;
+  // ADMIN_PHONE es el WhatsApp del DUEÑO del servidor: la tienda de otro
+  // negocio sin número mandaba a SUS clientes a ese teléfono (29-09-2026).
+  const esDuenoDelServidor = !tenant?.id || tenant.id === tenantManager.getDefaultTenant().id;
+  const admin = esDuenoDelServidor ? process.env.ADMIN_PHONE : "";
   if (admin) return admin.replace(/\D/g, "");
   return null;
 }

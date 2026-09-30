@@ -781,7 +781,10 @@ Responde SOLO con este JSON exacto:
         const { getWhatsAppForTenant } = await import("./whatsapp-factory");
         conectado = String(getWhatsAppForTenant(Number((this.tenant as any)?.id)).getStatus().phoneNumber || "");
       } catch { conectado = ""; }
-      const waDelNegocio = String(conectado || process.env.WHATSAPP_NUMBER || "").replace(/[^0-9]/g, "");
+      // WHATSAPP_NUMBER del .env es el del dueño del servidor: el anuncio de
+      // otro negocio con WhatsApp desconectado mandaba los clics a ese número.
+      const esDelDueno = Number((this.tenant as any)?.id) === tenantManager.getDefaultTenant().id;
+      const waDelNegocio = String(conectado || (esDelDueno ? process.env.WHATSAPP_NUMBER : "") || "").replace(/[^0-9]/g, "");
       const OBJ = OBJETIVOS[objetivo] || OBJETIVOS.ventas;
       // El destino web se resuelve ANTES de crear nada en Meta: si pidió la
       // landing y no está publicada, falla acá con el motivo, sin dejar una

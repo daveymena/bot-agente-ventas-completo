@@ -194,11 +194,13 @@ router.post("/admin/fix-physical-images", async (req: Request, res: Response, ne
         if (meta.imageUrls && Array.isArray(meta.imageUrls) && meta.imageUrls.length > 0) {
           originalUrl = meta.imageUrls[0];
         } else if (meta.source === "dropi" && meta.dropiProductId) {
-          // Si no tiene imageUrls en metadata, intentar traer de Dropi
-          const { dropiGetProduct, dropiProductImages } = await import("../lib/dropi");
-          const dropiResult = await dropiGetProduct(meta.dropiProductId);
-          if (dropiResult.ok && dropiResult.data) {
-            const urls = dropiProductImages(dropiResult.data);
+          // Si no tiene imageUrls en metadata, se trae de Dropi con el token
+          // DEL NEGOCIO (antes: la sesión global del dueño del servidor).
+          const { tokenDropiDelTenant, detalleProductoDropi, fotosDe } = await import("../lib/dropi-directo");
+          const tokenDropi = await tokenDropiDelTenant(tenant.id);
+          const dropiResult = tokenDropi ? await detalleProductoDropi(tokenDropi, Number(meta.dropiProductId)) : null;
+          if (dropiResult?.ok && dropiResult.data) {
+            const urls = fotosDe(dropiResult.data);
             if (urls.length > 0) originalUrl = urls[0];
           }
         }
