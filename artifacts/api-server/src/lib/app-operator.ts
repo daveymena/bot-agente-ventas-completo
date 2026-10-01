@@ -5452,6 +5452,84 @@ ${explicarObjetivos()}` };
     },
   },
   {
+    name: "fabricante_buscar",
+    description: "Busca en AliExpress el MISMO producto (ordenado por ventas) y trae en segundo plano las fotos y el video del FABRICANTE: cada foto y el video se comprueban con visión contra la foto del proveedor (se descarta otro modelo o lo que tenga logo/marca de agua de otra tienda), y del video corta 3-4 clips de 3 s (los 'GIF' de beneficio de la landing). Tarda 2-6 min y avisa por WhatsApp/Telegram. NO toma anuncios ni videos de otros vendedores. Nada se usa en la landing hasta fabricante_aprobar. Requiere confirmación.",
+    args: '{ "productId": number (req), "consulta"?: string (cómo buscarlo en AliExpress; por defecto el nombre del producto; mejor en inglés si el nombre es muy local) }',
+    run: async (args, ctx) => {
+      const id = num(args?.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'." };
+      const { buscarActivosEnSegundoPlano } = await import("./activos-fabricante");
+      const { hayFfmpeg } = await import("./video-anuncio");
+      if (!(await hayFfmpeg())) return { ok: false, summary: "El servidor no tiene ffmpeg: no puedo cortar los clips." };
+      const estado = buscarActivosEnSegundoPlano(ctx.tenantId, id, async (r) => {
+        try {
+          const { avisarAlDueno } = await import("./avisos");
+          const a = r.activos;
+          await avisarAlDueno(ctx.tenantId, r.ok && a
+            ? (a.fotos.length || a.clips.length
+              ? `🏭 *Activos del fabricante* para el producto ${id}: ${a.fotos.length} foto(s) y ${a.clips.length} clip(s), revisadas ${a.revisados} fichas de AliExpress.\n${[...a.clips, ...a.fotos].slice(0, 6).join("\n")}\n¿Los uso en la landing? Decime y los apruebo (fabricante_aprobar).`
+              : `🏭 Revisé ${a.revisados} fichas de AliExpress del producto ${id} y ninguna mostraba EXACTAMENTE el mismo producto con fotos o video usables. No traje nada para no poner otro modelo.`)
+            : `⚠️ No pude buscar los activos del producto ${id}: ${r.error}`);
+        } catch { /* sin aviso */ }
+      }, { consulta: typeof args?.consulta === "string" ? args.consulta : undefined });
+      return { ok: true, summary: estado === "ya_en_curso" ? `🏭 Ya estoy buscando los activos del producto ${id}.` : `🏭 Buscando en AliExpress fotos y video del fabricante del producto ${id} (comparo cada uno con tu foto). Tarda unos minutos; te aviso con lo que encuentre.` };
+    },
+  },
+  {
+    name: "fabricante_ver",
+    description: "Muestra las fotos y clips del fabricante encontrados para un producto, de qué fichas salieron y por qué se descartaron las demás (solo lee).",
+    args: '{ "productId": number (req) }',
+    run: async (args, ctx) => {
+      const id = num(args?.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'." };
+      const { activosEnCurso } = await import("./activos-fabricante");
+      if (activosEnCurso(id)) return { ok: true, summary: `⏳ Todavía estoy buscando los activos del producto ${id}.` };
+      const m = await (await import("./activos-fabricante")).metadataDelProducto(ctx.tenantId, id);
+      if (!m) return { ok: false, summary: `No encontré el producto ${id}.` };
+      const a = m.activosFabricante;
+      if (!a) return { ok: true, summary: `El producto ${id} no tiene activos del fabricante todavía. Pedímelo con fabricante_buscar.` };
+      return { ok: true, data: a, summary: `🏭 Producto ${id} (${a.aprobado ? "✅ aprobados, la landing los usa" : "⏸️ sin aprobar"}): ${a.fotos.length} foto(s), ${a.clips.length} clip(s), ${a.revisados} fichas revisadas.\nClips:\n${a.clips.join("\n") || "—"}\nFotos:\n${a.fotos.join("\n") || "—"}\nFuentes: ${a.fuentes.map((f: any) => `${f.url} (${f.vendidos})`).join(", ") || "—"}\nDescartadas: ${a.descartados.length}` };
+    },
+  },
+  {
+    name: "fabricante_aprobar",
+    description: "Aprueba (o quita) las fotos y clips del fabricante de un producto para que la landing los use. Solo con el OK del dueño después de verlos. La próxima landing que se genere los incluye. Requiere confirmación.",
+    args: '{ "productId": number (req), "aprobar": boolean (req) }',
+    run: async (args, ctx) => {
+      const id = num(args?.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'." };
+      const m = await (await import("./activos-fabricante")).metadataDelProducto(ctx.tenantId, id);
+      if (!m) return { ok: false, summary: `No encontré el producto ${id}.` };
+      if (!m.activosFabricante) return { ok: false, summary: `El producto ${id} no tiene activos del fabricante; primero fabricante_buscar.` };
+      m.activosFabricante.aprobado = args?.aprobar !== false;
+      await (await import("./activos-fabricante")).guardarMetadata(ctx.tenantId, id, m);
+      return { ok: true, summary: m.activosFabricante.aprobado ? `✅ Aprobados: la próxima landing del producto ${id} usa ${m.activosFabricante.clips.length} clip(s) y ${m.activosFabricante.fotos.length} foto(s) del fabricante.` : `Quitados: la landing del producto ${id} ya no usa los activos del fabricante.` };
+    },
+  },
+  {
+    name: "gif_crear",
+    description: "Hace un GIF o un video corto (mp4 cuadrado, sin audio) de un producto. de='video': corta clips de 3 s del video del producto (el que cargó el dueño, el del fabricante, o 'videoUrl'). de='fotos': arma un video/GIF con zoom suave a partir de las fotos del producto. Sirve para la landing, WhatsApp o un post. Crea archivos → requiere confirmación.",
+    args: '{ "productId": number (req), "de": "video"|"fotos" (def "video" si hay video, si no "fotos"), "formato": "gif"|"mp4" (def "gif"), "cantidad"?: number (clips, def 3), "videoUrl"?: string }',
+    run: async (args, ctx) => {
+      const id = num(args?.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'." };
+      const { hayFfmpeg } = await import("./video-anuncio");
+      if (!(await hayFfmpeg())) return { ok: false, summary: "El servidor no tiene ffmpeg." };
+      const m = await (await import("./activos-fabricante")).metadataDelProducto(ctx.tenantId, id);
+      if (!m) return { ok: false, summary: `No encontré el producto ${id}.` };
+      const { videoDeProducto } = await import("./video-de-producto");
+      const af = await import("./activos-fabricante");
+      const video = String(args?.videoUrl || videoDeProducto(m) || m.activosFabricante?.videoOriginal || "");
+      const de = args?.de === "fotos" || !/^https?:.*\.(mp4|webm|mov)(\?|$)/i.test(video) ? "fotos" : "video";
+      const formato = args?.formato === "mp4" ? "mp4" : "gif";
+      const r = de === "video"
+        ? await af.gifDeVideo(id, video, { formato, cantidad: Math.min(6, num(args?.cantidad) || 3) })
+        : await af.gifDeFotos(id, af.fotosDeReferencia(m, m.__imageUrl).concat((m.fotosUnicas?.urls || m.imagenes || []).slice(3)), { formato });
+      if (!r.length) return { ok: false, summary: de === "video" ? "No pude cortar el video (muy corto o no se pudo bajar)." : "No pude armarlo con las fotos del producto." };
+      return { ok: true, summary: `🎞️ ${r.length} ${formato.toUpperCase()} ${de === "video" ? "del video" : "con las fotos"} del producto ${id}:\n${r.join("\n")}` };
+    },
+  },
+  {
     name: "dropi_margen",
     description: "Ganancia REAL de un producto de Dropi: precio de venta − costo del proveedor (leído de Dropi) − flete con recaudo (promedio de los pedidos reales del negocio). Úsala cuando el admin pregunte cuánto le sale, cuánto gana, el margen o cuánto puede pagar por venta. Solo lee.",
     args: '{ "productId": number (id del catálogo, opcional), "dropiProductId": number (opcional), "precio": number (opcional, para simular otro precio de venta) }',
@@ -9020,7 +9098,7 @@ export const READ_ONLY_TOOLS = new Set([
   // propósito: mueven dinero real y tienen que pasar por confirmación.
   "fb_list_adsets", "fb_radiografia_campana", "anuncio_datos_expertos",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
-  "dropi_status", "dropi_margen", "dropi_pedidos", "dropi_buscar", "video_anuncio_estado", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
+  "dropi_status", "dropi_margen", "dropi_pedidos", "dropi_buscar", "video_anuncio_estado", "fabricante_ver", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
   "dropi_verificar_producto", "dropi_con_ordenes", "dropi_importar_lote_estado", "dropi_cotizar_envio",
   // Radar de ganadores + calculadora de rentabilidad + espía de tiendas +
   // estimación previa: las cuatro son lectura pura (cruzan datos y calculan,
@@ -9636,6 +9714,7 @@ DROPSHIPPING CON DROPI (vender productos de proveedores sin tener stock):
   si Dropi lo rechaza por "Access denied" es un producto de WooCommerce sin token → dropify_reparar_tokens.
 - 🎬 video_anuncio_crear genera el VIDEO del anuncio (vertical, voz, precio, CTA) con el motor propio; el
   enlace llega por WhatsApp/Telegram. video_anuncio_estado lo consulta. No digas que "no podés hacer videos".
+- 🏭 fabricante_buscar trae de AliExpress fotos y video del FABRICANTE del mismo producto (comprobados con visión; nunca anuncios ni videos de otros vendedores) y corta clips de 3 s para la landing; fabricante_ver los muestra y fabricante_aprobar los activa SOLO con el OK del dueño. 🎞️ gif_crear hace un GIF o mp4 corto del video del producto o de sus fotos.
 - ⚠️ Los productos de Dropi son FÍSICOS: se envían a una dirección, no llevan enlace de Drive
   como los cursos digitales. No mezcles los dos flujos.
 `;
@@ -9981,6 +10060,7 @@ DROPSHIPPING CON DROPI (vender productos de proveedores sin tener stock):
 - ✅ dropi_verificar_disponibilidad desactiva lo que el proveedor archivó o dejó sin stock.
 - 🎬 video_anuncio_crear genera el VIDEO del anuncio (vertical, voz, precio, CTA) con el motor propio; el
   enlace llega por WhatsApp/Telegram. video_anuncio_estado lo consulta. No digas que "no podés hacer videos".
+- 🏭 fabricante_buscar trae de AliExpress fotos y video del FABRICANTE del mismo producto (comprobados con visión; nunca anuncios ni videos de otros vendedores) y corta clips de 3 s para la landing; fabricante_ver los muestra y fabricante_aprobar los activa SOLO con el OK del dueño. 🎞️ gif_crear hace un GIF o mp4 corto del video del producto o de sus fotos.
 - ⚠️ Los productos de Dropi son FÍSICOS: se envían a una dirección, no llevan enlace de Drive
   como los cursos digitales. No mezcles los dos flujos.
 

@@ -485,6 +485,16 @@ app.get("/videos/anuncios/:filename", (req, res) => {
   return res.sendFile(filePath);
 });
 
+// Fotos y clips del fabricante (lib/activos-fabricante.ts) y GIFs que arma Atlas.
+app.get("/media/fabricante/:filename", async (req, res) => {
+  const { ARCHIVO_FABRICANTE } = await import("./lib/activos-fabricante");
+  const filename = req.params.filename;
+  if (path.basename(filename) !== filename || !ARCHIVO_FABRICANTE.test(filename)) return res.status(404).end();
+  const filePath = path.resolve(IMAGES_DIR, "fabricante", filename);
+  if (!existsSync(filePath)) return res.status(404).json({ message: "Archivo no disponible" });
+  return res.sendFile(filePath);
+});
+
 // Servir imágenes de productos desde el volumen persistente primero
 app.get("/images/products/:filename", (req, res, next) => {
   const filename = req.params.filename;

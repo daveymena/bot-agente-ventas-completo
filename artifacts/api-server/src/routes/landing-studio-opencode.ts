@@ -840,6 +840,10 @@ async function generarLandingPro(a: {
   try { const o = typeof product?.opciones === "string" ? JSON.parse(product.opciones) : product?.opciones; opciones = Array.isArray(o) ? o : []; } catch { /* sin opciones */ }
   const unicas = (product as any)?.__fotosUnicas;
   const fotos: string[] = (Array.isArray(unicas) && unicas.length ? unicas : [product?.imageUrl, ...(Array.isArray(product?.images) ? product.images : [])]).filter(Boolean).map(String);
+  // Fotos y clips del fabricante (AliExpress, comprobados por visión) que el dueño APROBÓ.
+  const { activosAprobados } = await import("../lib/activos-fabricante");
+  const fabricante = activosAprobados(product?.metadata);
+  for (const f of fabricante.fotos) if (!fotos.includes(f)) fotos.push(f);
   let nombreNegocio = "";
   try { const { tenantManager } = await import("../lib/tenantManager"); const t: any = await tenantManager.getTenantById(tenantId); nombreNegocio = String(t?.brandName || t?.name || ""); } catch { /* sin nombre */ }
 
@@ -854,7 +858,7 @@ async function generarLandingPro(a: {
   const renderizar = a.estilo === "clinico"
     ? renderizarLandingPro
     : modo === "contraentrega"
-      ? (o: any) => renderizarLandingCod({ ...o, caracteristicas: datos.features, videos: /.(mp4|webm)(?|$)/i.test(video) ? [video] : [] })
+      ? (o: any) => renderizarLandingCod({ ...o, caracteristicas: datos.features, videos: fabricante.clips.length ? fabricante.clips : /.(mp4|webm)(?|$)/i.test(video) ? [video] : [] })
       : renderizarLandingModerna;
   const html = renderizar({
     contenido: contenidoDesdeRespuesta(crudo, datos, tipoPro),
