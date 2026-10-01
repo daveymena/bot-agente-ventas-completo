@@ -42,7 +42,7 @@ Devuelve SOLO un objeto JSON válido, sin texto antes ni después, con esta form
 REGLAS:
 - 4 beneficios, 3 pasos, 3 a 4 preguntas.
 - Los pasos son CÓMO SE USA el producto; si los datos no lo dicen, son cómo se compra: ${tipo === "fisico" ? "pedir → recibir en casa → pagar al recibir" : tipo === "digital" ? "pagar en línea → recibir el acceso → empezar" : "escribir por WhatsApp → agendar → recibir el servicio"}.
-- Solo hechos que estén en los datos. PROHIBIDO inventar: medidas, materiales, tiempos de resultado ("en 14 días"), porcentajes, estrellas, reseñas, testimonios, descuentos, stock, garantías o plazos de envío.
+- Solo hechos que estén en los datos. PROHIBIDO inventar: medidas, materiales, tiempos de resultado ("en 14 días"), porcentajes, estrellas, reseñas, testimonios, descuentos, stock, garantías, plazos de envío ni COBERTURA ('a todo el país', 'a cualquier ciudad', 'envío gratis').
 - "eyebrow" nunca es el nombre de la técnica (Problema, Solución, Atención, Interés, Deseo, Acción).
 - Las preguntas frecuentes son sobre el PRODUCTO (uso, medidas, materiales, para quién sirve) y sobre lo que está en hechos_del_negocio. NO inventes políticas: nada de "puedes probarlo", "abrirlo/inspeccionarlo antes de pagar", cambios, devoluciones o reembolsos, salvo que estén en los hechos. Si la única respuesta posible es una política que no está, no hagas esa pregunta.
 - La garantía cubre EXACTAMENTE lo que dice el texto de la garantía (ej. "defectos de fábrica"): no la estires a "si no te gusta" o "si no le queda cómodo".
@@ -61,6 +61,7 @@ export function pedidoContenidoPro(p: ProductoParaContenido, extra: { garantia?:
     hechos_del_negocio: {
       pago: extra.tipo === "digital" ? "en línea (MercadoPago/PayPal/transferencia)" : extra.tipo === "servicio" ? "se coordina por WhatsApp" : "contra entrega",
       plazo_de_entrega: extra.plazoEntrega || "NO definido: no lo menciones",
+      cobertura_de_envio: "NO definida: no digas a qué ciudades o regiones llega",
       garantia: extra.garantia || "NO definida: no la menciones",
     },
   });

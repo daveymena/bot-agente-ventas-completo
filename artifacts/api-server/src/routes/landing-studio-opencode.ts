@@ -843,7 +843,11 @@ async function generarLandingPro(a: {
   let nombreNegocio = "";
   try { const { tenantManager } = await import("../lib/tenantManager"); const t: any = await tenantManager.getTenantById(tenantId); nombreNegocio = String(t?.brandName || t?.name || ""); } catch { /* sin nombre */ }
 
-  const html = renderizarLandingPro({
+  // La MODERNA es el estándar (01-10-2026, el dueño: 'la idea es que generen landings profesionales');
+  // el estilo 'clínico' (azul y blanco) sigue saliendo de la plantilla PRO.
+  const { renderizarLandingModerna } = await import("../lib/landing/renderer-moderno");
+  const renderizar = a.estilo === "clinico" ? renderizarLandingPro : renderizarLandingModerna;
+  const html = renderizar({
     contenido: contenidoDesdeRespuesta(crudo, datos, tipoPro),
     producto: { id: product?.id, name: datos.name, price: Number(product?.price) || 0, categoria: datos.category, opciones },
     fotos,

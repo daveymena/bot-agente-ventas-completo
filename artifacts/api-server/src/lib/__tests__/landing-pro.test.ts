@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { renderizarLandingPro, paletaPorCategoria } from "../landing/renderer-pro";
 import { contenidoDesdeRespuesta, contenidoDeRespaldo, sistemaContenidoPro } from "../landing/contenido-pro";
 import { htmlDesdeRespuesta } from "../landing/agente-landing";
+import { renderizarLandingModerna } from "../landing/renderer-moderno";
 
 /**
  * Landing PRO (modelo elegido por el dueño, 30-09-2026): plantilla fija +
@@ -122,5 +123,39 @@ describe("landing PRO: titular y tuteo (01-10-2026)", () => {
       expect(s).toMatch(/TUTEAS/);
       expect(s).not.toMatch(/\b(Sos|Escribís|Devolvé)\b/);
     }
+  });
+});
+
+describe("landing MODERNA (estándar desde 01-10-2026)", () => {
+  const base = (tipo: "fisico" | "digital" | "servicio") => ({
+    contenido: contenidoDeRespaldo(producto, tipo),
+    producto: { name: "Producto X", price: 60000, categoria: "Cursos" },
+    fotos: ["https://cdn.test/p.jpg", "https://cdn.test/q.jpg"],
+    negocio: { nombre: "Negocio", whatsapp: "573001112233" },
+    accion: "/api/landing-publica/x/pedido",
+  });
+  it("físico: formulario de pedido a /pedido con contra entrega", () => {
+    const h = renderizarLandingModerna({ ...base("fisico"), tipo: "fisico", modo: "contraentrega" });
+    expect(h).toContain('action="/api/landing-publica/x/pedido"');
+    expect(h).toMatch(/name="direccion"/);
+    expect(h).toMatch(/contra entrega/i);
+  });
+  it("digital: botones de pago, sin dirección ni contra entrega", () => {
+    const h = renderizarLandingModerna({ ...base("digital"), tipo: "digital", modo: "pago", enlaces: { mercadopago: "https://mpago.la/abc" } });
+    expect(h).toContain("https://mpago.la/abc");
+    expect(h).not.toMatch(/name="direccion"|contra entrega/i);
+  });
+  it("servicio: agenda por WhatsApp, sin formulario", () => {
+    const h = renderizarLandingModerna({ ...base("servicio"), tipo: "servicio", modo: "whatsapp" });
+    expect(h).toContain("https://wa.me/573001112233");
+    expect(h).not.toMatch(/<form/);
+  });
+  it("sin JavaScript nada queda oculto: la animación solo aplica con html.js", () => {
+    const h = renderizarLandingModerna({ ...base("fisico"), tipo: "fisico", modo: "contraentrega" });
+    expect(h).not.toMatch(/(^|[};\n])\.rv\{opacity:0/);
+    expect(h).toContain(".js .rv{opacity:0");
+  });
+  it("el modelo no puede prometer cobertura de envío", () => {
+    expect(sistemaContenidoPro("fisico")).toMatch(/COBERTURA/);
   });
 });
