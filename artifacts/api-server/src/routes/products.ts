@@ -110,7 +110,10 @@ router.get("/", async (req: TenantRequest, res, next) => {
       .where(eq(products.tenantId, tenantId))
       .orderBy(desc(products.createdAt));
     
-    return res.json(ListProductsResponse.parse(rows.map(serialize)));
+    // El esquema generado no trae `opciones` (talla/color) y zod lo descartaba:
+    // el editor del panel nunca veía las opciones cargadas (30-09-2026).
+    const lista = ListProductsResponse.parse(rows.map(serialize)) as any[];
+    return res.json(lista.map((p, i) => ({ ...p, opciones: (rows[i] as any).opciones ?? null })));
   } catch (e) {
     return next(e);
   }

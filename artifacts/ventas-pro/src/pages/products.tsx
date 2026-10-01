@@ -653,6 +653,13 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
   // garantía y los testimonios solo si están cargados acá; nunca se inventan.
   const [garantia, setGarantia] = useState("");
   const [testimonios, setTestimonios] = useState<Array<{ nombre: string; ciudad: string; texto: string }>>([]);
+  // Talla, color, modelo…: lo que el cliente elige en la landing, la tienda y
+  // WhatsApp. El servidor ya las aceptaba (PATCH opciones) pero el editor no
+  // tenía dónde cargarlas (30-09-2026).
+  const [opciones, setOpciones] = useState<Array<{ nombre: string; valores: string; obligatoria: boolean }>>([]);
+  const opcionesParaGuardar = () => opciones
+    .map(o => ({ nombre: o.nombre.trim(), valores: o.valores.split(",").map(v => v.trim()).filter(Boolean), obligatoria: o.obligatoria }))
+    .filter(o => o.nombre && o.valores.length);
   const leerMeta = (p: any): any => { const m = p?.metadata; if (!m) return {}; if (typeof m === "string") { try { return JSON.parse(m) || {}; } catch { return {}; } } return m; };
 
   const subirArchivos = async (files: FileList | null) => {
@@ -765,9 +772,14 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
       setVideoPrincipal(String(m.videoIntro || m.videoUrl || ""));
       setVideos(Array.isArray(m.videos) ? m.videos.map(String) : []);
       setGarantia(String(m.garantia || ""));
+      try {
+        const crudas: any = (product as any).opciones;
+        const lista = typeof crudas === "string" ? JSON.parse(crudas) : crudas;
+        setOpciones(Array.isArray(lista) ? lista.map((o: any) => ({ nombre: String(o?.nombre || ""), valores: (Array.isArray(o?.valores) ? o.valores : []).join(", "), obligatoria: o?.obligatoria !== false })) : []);
+      } catch { setOpciones([]); }
       setTestimonios(Array.isArray(m.testimonios) ? m.testimonios.map((t: any) => ({ nombre: String(t?.nombre || ""), ciudad: String(t?.ciudad || ""), texto: String(t?.texto || "") })) : []);
     } else if (mode === 'create') {
-      setGaleria([]); setVideoPrincipal(""); setVideos([]); setGarantia(""); setTestimonios([]);
+      setGaleria([]); setVideoPrincipal(""); setVideos([]); setGarantia(""); setTestimonios([]); setOpciones([]);
       setFormData({
         name: initialData?.name || "",
         description: initialData?.description || "",
@@ -820,7 +832,12 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
 
     if (mode === 'create') {
       createProduct.mutate({ data: payload }, {
-        onSuccess: () => {
+        onSuccess: async (creado: any) => {
+          // La creación no recibe opciones: se guardan justo después.
+          const ops = opcionesParaGuardar();
+          if (ops.length && creado?.id) {
+            await fetch(`/api/products/${creado.id}`, { method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ opciones: ops }) }).catch(() => {});
+          }
           toast.success("Producto creado");
           queryClient.invalidateQueries({ queryKey: getListProductsQueryKey() });
           setIsOpen(false);
@@ -828,7 +845,7 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
         onError: () => toast.error("Error al crear producto")
       });
     } else {
-      updateProduct.mutate({ id: product!.id, data: payload }, {
+      updateProduct.mutate({ id: product!.id, data: { ...payload, opciones: opcionesParaGuardar() } as any }, {
         onSuccess: () => {
           toast.success("Producto actualizado");
           queryClient.invalidateQueries({ queryKey: getListProductsQueryKey() });
@@ -942,6 +959,21 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
                   <ToggleGroupItem value="physical" className="w-full flex-1 border data-[state=on]:bg-primary/10 data-[state=on]:text-primary data-[state=on]:border-primary/30">📦 Físico</ToggleGroupItem>
                 </ToggleGroup>
               </div>
+            </div>
+
+            {/* Opciones que elige el cliente: talla, color, modelo… */}
+            <div className="space-y-2 rounded-lg border p-3">
+              <Label>Opciones del producto (talla, color, modelo…)</Label>
+              {opciones.map((o, i) => (
+                <div key={i} className="grid gap-2 rounded-md border bg-muted/20 p-2 sm:grid-cols-[140px_1fr_auto_auto] sm:items-center">
+                  <Input value={o.nombre} placeholder="Ej. Talla" onChange={e => setOpciones(xs => xs.map((x, j) => j === i ? { ...x, nombre: e.target.value } : x))} />
+                  <Input value={o.valores} placeholder="S, M, L, XL" onChange={e => setOpciones(xs => xs.map((x, j) => j === i ? { ...x, valores: e.target.value } : x))} />
+                  <label className="flex items-center gap-1.5 text-xs whitespace-nowrap"><input type="checkbox" checked={o.obligatoria} onChange={e => setOpciones(xs => xs.map((x, j) => j === i ? { ...x, obligatoria: e.target.checked } : x))} /> Obligatoria</label>
+                  <button type="button" className="text-muted-foreground hover:text-destructive p-1" onClick={() => setOpciones(xs => xs.filter((_, j) => j !== i))} title="Quitar"><X className="h-4 w-4" /></button>
+                </div>
+              ))}
+              {opciones.length < 4 ? <Button type="button" variant="outline" size="sm" onClick={() => setOpciones(xs => [...xs, { nombre: xs.length ? "Color" : "Talla", valores: "", obligatoria: true }])}>Agregar opción</Button> : null}
+              <p className="text-xs text-muted-foreground">Valores separados por coma. El cliente los elige en la landing, la tienda y por WhatsApp, y viajan al pedido de Dropi. Los productos variables de Dropi las traen solas al importarlos.</p>
             </div>
 
             {/* Garantía y testimonios reales: la landing los usa tal cual */}

@@ -1085,8 +1085,8 @@ router.post("/chat", async (req, res) => {
   try {
     const tenantId = negocioDe(req);
     if (!tenantId) return res.status(401).json({ message: "Iniciá sesión" });
-    const { message, landingId, productId, diseno, familia } = req.body as {
-      message?: string; landingId?: number; productId?: number; diseno?: Diseno; familia?: string | null;
+    const { message, landingId, productId, diseno, familia, estilo } = req.body as {
+      message?: string; landingId?: number; productId?: number; diseno?: Diseno; familia?: string | null; estilo?: string | null;
     };
     if (!message?.trim()) return res.status(400).json({ message: "Falta el mensaje" });
 
@@ -1148,6 +1148,7 @@ router.post("/chat", async (req, res) => {
       existingHtml,
       diseno: disenoFinal,
       familia: familiaElegida,
+      estilo: estilo === "clinico" ? "clinico" : "pro",
       timeoutMs: 120_000,
       bitacora: existingLanding ? textoDeBitacora(bitacoraDe(existingLanding)) : "",
     });

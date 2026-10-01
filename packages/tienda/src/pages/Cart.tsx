@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { Trash2, Plus, Minus, ChevronLeft, Lock } from 'lucide-react';

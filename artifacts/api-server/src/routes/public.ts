@@ -771,11 +771,14 @@ router.post("/checkout-cart/:slug", async (req, res, next) => {
     if (!tenant) return res.status(404).json({ message: "Tienda no encontrada" });
 
     // Cargar cada producto desde la BD y quedarnos con SU precio real
-    const lines: { product: typeof products.$inferSelect; quantity: number }[] = [];
+    const lines: { product: typeof products.$inferSelect; quantity: number; variante: string | null }[] = [];
     for (const raw of rawItems) {
       const productId = Number(raw?.productId);
       const quantity = Math.max(1, Math.min(99, Number(raw?.quantity) || 1));
       if (!Number.isFinite(productId)) continue;
+      // Talla/color que eligió en la tienda (ProductDetail). Antes llegaba y se
+      // ignoraba: el pedido salía a Dropi sin variante (30-09-2026).
+      const variante = String(raw?.variante ?? "").replace(/\s+/g, " ").trim().slice(0, 120) || null;
 
       const [product] = await db
         .select()
@@ -783,7 +786,7 @@ router.post("/checkout-cart/:slug", async (req, res, next) => {
         .where(and(eq(products.tenantId, tenant.id), eq(products.id, productId)))
         .limit(1);
 
-      if (product) lines.push({ product, quantity });
+      if (product) lines.push({ product, quantity, variante });
     }
 
     if (lines.length === 0) {
@@ -845,7 +848,8 @@ router.post("/checkout-cart/:slug", async (req, res, next) => {
       // una ficha, un pedido). Un carrito con varios físicos genera una fila
       // por línea, todas con los mismos datos de envío.
       const pedidos: { id: number; producto: string; wooOrderId?: number; error?: string }[] = [];
-      for (const { product, quantity } of lines) {
+      const { guardarVarianteDelPedido } = await import("../lib/dropshipping");
+      for (const { product, quantity, variante } of lines) {
         const pedido = await abrirPedido({
           tenantId: tenant.id,
           conversationId: null,
@@ -855,8 +859,12 @@ router.post("/checkout-cart/:slug", async (req, res, next) => {
           quantity,
           telefono: envio.telefono,
         });
-        const conDatos = await guardarDatos(pedido.id, envio);
-        const despacho = await despacharPedido(conDatos ?? pedido);
+        const conDatos = await guardarDatos(pedido.id, { ...envio, notas: [variante ? `Variante: ${variante}` : "", envio.notas || ""].filter(Boolean).join(" · ") || null });
+        if (variante) {
+          await guardarVarianteDelPedido(pedido.id, variante);
+          if (conDatos) conDatos.variante = variante;
+        }
+        const despacho = await despacharPedido(conDatos ?? { ...pedido, variante });
         if (!despacho.ok) {
           // El pedido YA quedó guardado con todos los datos del cliente: que
           // falle el envío a WooCommerce no puede perder la venta. Queda en la
@@ -1039,6 +1047,28 @@ router.post("/checkout-cart/:slug", async (req, res, next) => {
  * GET /api/public/whatsapp-info/:slug
  * Devuelve el número de WhatsApp conectado a la app (vía QR) o el fallback del tenant/ADMIN_PHONE.
  */
+/**
+ * GET /api/public/geo/:slug — departamentos y TODAS sus ciudades según Dropi
+ * (las mismas que valida el despacho), para los selectores del checkout de la
+ * tienda. Sin Dropi: { ok: false } y la tienda usa su lista de respaldo.
+ */
+const cacheGeoTienda = new Map<number, { t: number; body: any }>();
+router.get("/geo/:slug", async (req, res) => {
+  try {
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.slug, String(req.params.slug || ""))).limit(1);
+    if (!tenant) return res.status(404).json({ ok: false });
+    const hit = cacheGeoTienda.get(tenant.id);
+    if (hit && Date.now() - hit.t < 12 * 3600_000) return res.json(hit.body);
+    const { geografiaDeDropi } = await import("../lib/dropi-cotizador");
+    const departamentos = await geografiaDeDropi(tenant.id);
+    const body = departamentos ? { ok: true, departamentos } : { ok: false };
+    cacheGeoTienda.set(tenant.id, { t: departamentos ? Date.now() : Date.now() - 12 * 3600_000 + 10 * 60_000, body });
+    return res.json(body);
+  } catch {
+    return res.json({ ok: false });
+  }
+});
+
 router.get("/whatsapp-info/:slug", async (req, res, next) => {
   try {
     const { slug } = req.params;

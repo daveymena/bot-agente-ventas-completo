@@ -364,3 +364,25 @@ export async function transportadoraConId(tenantId: number, nombre: string): Pro
   const hit = (await transportadorasGenerales(token)).find((g) => norm(g.nombre) === norm(nombre));
   return hit ? { id: hit.id, nombre: hit.nombre } : null;
 }
+
+/**
+ * Departamentos con TODAS sus ciudades, como las conoce Dropi (1.475 en
+ * Colombia). Para los selectores del formulario: el cliente elige de la lista
+ * y el nombre coincide exacto con el que Dropi valida al despachar.
+ * null si el negocio no tiene token de Dropi o Dropi no respondió.
+ */
+export async function geografiaDeDropi(tenantId: number): Promise<Array<{ nombre: string; ciudades: string[] }> | null> {
+  const { tokenDropiDelTenant } = await import("./dropi-directo");
+  const token = await tokenDropiDelTenant(tenantId).catch(() => null);
+  if (!token) return null;
+  const [ciudades, deptos] = await Promise.all([ciudadesPorIntegracion(token, "MEDELLIN", "ANTIOQUIA"), departamentosPorIntegracion(token)]);
+  // Si un día Dropi respeta el filtro y devuelve pocas, no sirve como lista completa.
+  if (ciudades.length < 100 || !deptos.length) return null;
+  return deptos
+    .map((d) => ({
+      nombre: d.nombre,
+      ciudades: [...new Set(ciudades.filter((c) => c.depto === d.id).map((c) => c.nombre))].sort((a, b) => a.localeCompare(b, "es")),
+    }))
+    .filter((d) => d.ciudades.length)
+    .sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+}

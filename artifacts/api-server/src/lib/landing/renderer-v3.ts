@@ -7,55 +7,7 @@
 import { tokensDe, type FamiliaVisual } from "./design-system";
 import { renderizarLandingImagenes } from "./renderer-imagenes";
 
-/**
- * Departamentos y ciudades principales de Colombia para los selectores del
- * checkout de la landing. Espejo de packages/tienda/src/lib/envio.ts (los
- * mismos datos, porque el contrato de campos es idéntico al del bot).
- */
-const DEPARTAMENTOS_CO = [
-  'Amazonas', 'Antioquia', 'Arauca', 'Atlántico', 'Bogotá D.C.', 'Bolívar',
-  'Boyacá', 'Caldas', 'Caquetá', 'Casanare', 'Cauca', 'Cesar', 'Chocó',
-  'Córdoba', 'Cundinamarca', 'Guainía', 'Guaviare', 'Huila', 'La Guajira',
-  'Magdalena', 'Meta', 'Nariño', 'Norte de Santander', 'Putumayo', 'Quindío',
-  'Risaralda', 'San Andrés y Providencia', 'Santander', 'Sucre', 'Tolima',
-  'Valle del Cauca', 'Vaupés', 'Vichada',
-];
-
-const CIUDADES_POR_DEPARTAMENTO: Record<string, string[]> = {
-  'Amazonas': ['Leticia', 'Puerto Nariño'],
-  'Antioquia': ['Medellín', 'Bello', 'Itagüí', 'Envigado', 'Apartadó', 'Turbo'],
-  'Arauca': ['Arauca', 'Tame'],
-  'Atlántico': ['Barranquilla', 'Soledad', 'Sabanalarga', 'Puerto Colombia'],
-  'Bogotá D.C.': ['Bogotá D.C.'],
-  'Bolívar': ['Cartagena', 'Magangué', 'Turbaco'],
-  'Boyacá': ['Tunja', 'Duitama', 'Sogamoso'],
-  'Caldas': ['Manizales', 'Villamaría', 'La Dorada'],
-  'Caquetá': ['Florencia'],
-  'Casanare': ['Yopal', 'Aguazul'],
-  'Cauca': ['Popayán', 'Santander de Quilichao'],
-  'Cesar': ['Valledupar'],
-  'Chocó': ['Quibdó', 'Istmina'],
-  'Córdoba': ['Montería', 'Cereté'],
-  'Cundinamarca': ['Soacha', 'Zipaquirá', 'Facatativá', 'Fusagasugá', 'Chía'],
-  'Guainía': ['Inírida'],
-  'Guaviare': ['San José del Guaviare'],
-  'Huila': ['Neiva', 'Pitalito'],
-  'La Guajira': ['Riohacha', 'Maicao'],
-  'Magdalena': ['Santa Marta', 'Ciénaga'],
-  'Meta': ['Villavicencio', 'Acacías'],
-  'Nariño': ['Pasto', 'Tumaco', 'Ipiales'],
-  'Norte de Santander': ['Cúcuta', 'Ocaña'],
-  'Putumayo': ['Mocoa'],
-  'Quindío': ['Armenia', 'Calarcá'],
-  'Risaralda': ['Pereira', 'Dosquebradas'],
-  'San Andrés y Providencia': ['San Andrés'],
-  'Santander': ['Bucaramanga', 'Floridablanca', 'Barrancabermeja'],
-  'Sucre': ['Sincelejo'],
-  'Tolima': ['Ibagué', 'Melgar'],
-  'Valle del Cauca': ['Cali', 'Palmira', 'Tuluá', 'Buenaventura'],
-  'Vaupés': ['Mitú'],
-  'Vichada': ['Puerto Carreño'],
-};
+import { DEPARTAMENTOS_CO, SCRIPT_GEO } from "../geo-colombia";
 
 export interface SeccionParaRenderizar {
   id: string;
@@ -569,12 +521,8 @@ function renderGallery(section: SeccionParaRenderizar, producto: ProductoParaRen
  */
 export const SCRIPT_TRANSPORTADORA = "(function(){var f=document.querySelector('.checkout-form');if(!f||!/\\/pedido$/.test(f.getAttribute('action')||''))return;var box=f.querySelector('.envio-transportadora');if(!box)return;var c=f.querySelector('[name=ciudad]'),d=f.querySelector('[name=departamento]'),ult='';function q(){var ci=(c.value||'').trim(),de=(d.value||'').trim();if(ci.length<3||de.length<3)return;var k=ci+'|'+de;if(k===ult)return;ult=k;fetch(f.getAttribute('action').replace(/\\/pedido$/,'/envio')+'?ciudad='+encodeURIComponent(ci)+'&departamento='+encodeURIComponent(de)).then(function(r){return r.json()}).then(function(j){if(k!==ult)return;if(!j||!j.ok){box.hidden=true;box.innerHTML='';return;}var t=j.transportadoras||[];var h='';if(t.length){h='<label>Transportadora</label><select name=\"transportadora\"><option value=\"\">La más económica (recomendada)</option>'+t.map(function(n){var e=String(n).replace(/[&<>\"]/g,'');return '<option value=\"'+e+'\">'+e+'</option>'}).join('')+'</select>';}if(j.aceptaContraentrega===false)h+='<p class=\"tiny\">A esta ciudad no hay pago contraentrega: te contactamos para el pago.</p>';if(!t.length&&j.mensaje)h+='<p class=\"tiny\">'+String(j.mensaje).replace(/[&<>]/g,'')+'</p>';box.innerHTML=h;box.hidden=!h;}).catch(function(){});}c.addEventListener('change',q);d.addEventListener('change',q);})();";
 
-/**
- * Selector de ciudad: al elegir un departamento, el datalist de la ciudad
- * se rellena con las ciudades principales de ese departamento. Si el
- * municipio no está en la lista, el input sigue aceptando texto libre.
- */
-export const SCRIPT_CIUDADES = `(function(){var d=document.querySelector('[name=departamento]'),l=document.getElementById('ciudades-datalist');if(!d||!l)return;var M=${JSON.stringify(CIUDADES_POR_DEPARTAMENTO)};function q(){var a=M[d.value]||[];l.innerHTML=a.map(function(c){return '<option value="'+c+'">'}).join('');}d.addEventListener('change',q);q();})();`;
+/** Departamento + ciudad (lista completa de Dropi si el negocio la tiene). Ver geo-colombia.ts. */
+export const SCRIPT_CIUDADES = SCRIPT_GEO;
 
 export function renderCheckout(cierre: CierreDeLanding, producto: ProductoParaRenderizar | null | undefined, negocio: NegocioParaRenderizar | null | undefined): string {
   const wa = whatsapp(producto, negocio);

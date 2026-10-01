@@ -158,6 +158,33 @@ landingPublicaRouter.post("/api/landing-publica/:slug/evento", async (req: Reque
  * muestra al cliente (regla del dueño). Caché de 10 min por ciudad para que un
  * formulario público no martille la API de Dropi.
  */
+/**
+ * GET /api/landing-publica/:slug/geo — departamentos y TODAS sus ciudades
+ * según Dropi, para que el cliente elija de una lista (sin errores de
+ * escritura) y el nombre coincida con el que Dropi valida. Sin Dropi:
+ * { ok: false } y el formulario se queda con la lista de respaldo.
+ */
+const cacheGeo = new Map<number, { t: number; body: any }>();
+landingPublicaRouter.get("/api/landing-publica/:slug/geo", async (req: Request, res: Response) => {
+  try {
+    const encontrada = await landingPorSlug(String(req.params.slug || ""));
+    if (!encontrada) return res.status(404).json({ ok: false });
+    const tenantId = encontrada.row.tenantId;
+    const hit = cacheGeo.get(tenantId);
+    if (hit && Date.now() - hit.t < 12 * 3600_000) return res.json(hit.body);
+    const { geografiaDeDropi } = await import("../lib/dropi-cotizador");
+    const departamentos = await geografiaDeDropi(tenantId);
+    const body = departamentos ? { ok: true, departamentos } : { ok: false };
+    // Un fallo de Dropi se reintenta en 10 minutos, no en 12 horas.
+    cacheGeo.set(tenantId, { t: departamentos ? Date.now() : Date.now() - 12 * 3600_000 + 10 * 60_000, body });
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    return res.json(body);
+  } catch (e: any) {
+    logger.warn({ err: e?.message }, "[LandingPublica] no se pudo armar la geografía");
+    return res.json({ ok: false });
+  }
+});
+
 const cacheEnvio = new Map<string, { t: number; body: any }>();
 landingPublicaRouter.get("/api/landing-publica/:slug/envio", async (req: Request, res: Response) => {
   try {
@@ -318,6 +345,14 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
     });
     const notas = [detalleOpciones, cuponNota, datos.notas, `Pedido desde la landing ${row.slug}`].filter(Boolean).join(" · ");
     pedido = (await ds.guardarDatos(pedido.id, { ...datos, notas })) || pedido;
+    // Talla/color elegidos: antes iban SOLO en las notas y el despacho a Dropi
+    // mandaba la variación por defecto. Guardados como variante, el despacho
+    // los resuelve a la variación exacta (varianteParaDespacho).
+    const varianteElegida = Object.values(opciones).join(" ").trim();
+    if (varianteElegida) {
+      await ds.guardarVarianteDelPedido(pedido.id, varianteElegida);
+      pedido.variante = varianteElegida;
+    }
     // Transportadora elegida en el formulario: solo si Dropi la conoce (id
     // real); si no, el despacho elige la disponible más económica.
     const transportadoraElegida = limpio(b.transportadora, 80);

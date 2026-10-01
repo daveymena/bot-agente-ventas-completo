@@ -44,6 +44,20 @@ export default function Checkout() {
     }
   }, [cart, navigate, slug, confirmado]);
 
+  // Departamentos y TODAS las ciudades de Dropi (las que valida el despacho):
+  // el cliente elige de una lista y no hay errores de escritura. Sin Dropi,
+  // queda la lista de respaldo con sugerencias.
+  const [geo, setGeo] = useState<Array<{ nombre: string; ciudades: string[] }> | null>(null);
+  useEffect(() => {
+    fetch(`/api/public/geo/${slug}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d?.ok && Array.isArray(d.departamentos) && d.departamentos.length) setGeo(d.departamentos); })
+      .catch(() => {});
+  }, [slug]);
+  const titulo = (t: string) => t.toLowerCase().replace(/(^|\s|\()\S/g, m => m.toUpperCase());
+  const ciudadesDe = (depto: string): string[] =>
+    geo ? (geo.find(x => x.nombre === depto)?.ciudades || []) : (CIUDADES_POR_DEPARTAMENTO[depto] || []);
+
   useEffect(() => {
     fetch(`/api/public/whatsapp-info/${slug}`)
       .then(r => (r.ok ? r.json() : null))
@@ -65,7 +79,7 @@ export default function Checkout() {
       // Si cambian de departamento y la ciudad actual no pertenece al nuevo,
       // se limpia: así no queda "Medellín" con "Valle del Cauca".
       if (campo === 'departamento' && prev.ciudad) {
-        const ciudadesDelNuevo = CIUDADES_POR_DEPARTAMENTO[valor] || [];
+        const ciudadesDelNuevo = ciudadesDe(valor);
         if (ciudadesDelNuevo.length && !ciudadesDelNuevo.includes(prev.ciudad)) {
           siguiente.ciudad = '';
         }
@@ -270,7 +284,9 @@ export default function Checkout() {
                     <select className={inputCls} value={envio.departamento}
                       onChange={e => setCampo('departamento', e.target.value)}>
                       <option value="">Selecciona…</option>
-                      {DEPARTAMENTOS.map(d => <option key={d} value={d}>{d}</option>)}
+                      {geo
+                        ? geo.map(d => <option key={d.nombre} value={d.nombre}>{titulo(d.nombre)}</option>)
+                        : DEPARTAMENTOS.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                   </div>
                   <div>
@@ -279,6 +295,13 @@ export default function Checkout() {
                         Si el municipio no está en la lista (pueblos pequeños),
                         se puede escribir libremente: el input acepta texto
                         además de las sugerencias del datalist. */}
+                    {geo ? (
+                      <select className={inputCls} value={envio.ciudad} disabled={!envio.departamento}
+                        onChange={e => setCampo('ciudad', e.target.value)} autoComplete="address-level2">
+                        <option value="">{envio.departamento ? 'Selecciona tu ciudad…' : 'Elige primero el departamento'}</option>
+                        {ciudadesDe(envio.departamento).map(c => <option key={c} value={c}>{titulo(c)}</option>)}
+                      </select>
+                    ) : (<>
                     <input className={inputCls} list="ciudades-datalist"
                       placeholder={envio.departamento ? 'Ej. ' + (CIUDADES_POR_DEPARTAMENTO[envio.departamento]?.[0] || 'Medellín') : 'Elige departamento primero'}
                       value={envio.ciudad}
@@ -287,6 +310,7 @@ export default function Checkout() {
                       {(envio.departamento ? CIUDADES_POR_DEPARTAMENTO[envio.departamento] || [] : [])
                         .map(c => <option key={c} value={c} />)}
                     </datalist>
+                    </>)}
                   </div>
                 </div>
 

@@ -19,6 +19,7 @@
  *   - Cada foto una sola vez: la del bloque "problema" no está en la galería.
  */
 import { SCRIPT_TRANSPORTADORA } from "./renderer-v3";
+import { SCRIPT_GEO, opcionesDeDepartamento } from "../geo-colombia";
 
 export interface ContenidoPro {
   chip: string;
@@ -340,7 +341,7 @@ export function renderizarLandingPro(o: OpcionesPro): string {
     <div class="field"><input name="nombre" placeholder="Nombre completo" autocomplete="name" required></div>
     <div class="field"><input name="telefono" placeholder="WhatsApp / Celular" inputmode="tel" autocomplete="tel" required></div>
     <div class="paso-form"><i>2</i>Dirección de envío</div>
-    <div class="row2"><div class="field"><input name="ciudad" placeholder="Ciudad o municipio" autocomplete="address-level2" required></div><div class="field"><input name="departamento" placeholder="Departamento" autocomplete="address-level1" required></div></div>
+    <div class="row2"><div class="field"><select name="departamento" autocomplete="address-level1" required aria-label="Departamento">${opcionesDeDepartamento(esc)}</select></div><div class="field"><input name="ciudad" list="ciudades-datalist" placeholder="Ciudad o municipio" autocomplete="address-level2" required><datalist id="ciudades-datalist"></datalist></div></div>
     <div class="field"><input name="direccion" placeholder="Dirección (calle, carrera, número)" autocomplete="street-address" required></div>
     <div class="row2"><div class="field"><input name="barrio" placeholder="Barrio"></div><div class="field"><input name="referencia" placeholder="Referencia (opcional)"></div></div>
     <div class="envio-transportadora" hidden></div>
@@ -420,6 +421,6 @@ ${o.garantia ? `<section class="sec" style="padding-top:0"><div class="wrap"><di
 <footer class="foot"><div class="wrap">© ${new Date().getFullYear()} ${esc(o.negocio.nombre || o.producto.name)}</div></footer>
 <div class="sticky" id="sticky"><div class="sticky-in"><div class="sticky-price">${totalInicial > 0 ? `<b>${cop(totalInicial)}</b>` : ""}</div><a class="btn btn-cta" href="#pedido">${esc(textoSticky)}</a></div></div>
 ${wa ? `<a class="wa" href="https://wa.me/${wa}?text=${encodeURIComponent(`Hola, quiero información de ${o.producto.name}`)}" target="_blank" rel="noopener" aria-label="Escribir por WhatsApp">${svg("wa")}</a>` : ""}
-<script>${SCRIPT}</script><script>${SCRIPT_TRANSPORTADORA}</script>
+<script>${SCRIPT}</script><script>${SCRIPT_GEO}</script><script>${SCRIPT_TRANSPORTADORA}</script>
 </body></html>`;
 }
