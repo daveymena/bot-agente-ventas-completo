@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { renderizarLandingPro, paletaPorCategoria } from "../landing/renderer-pro";
-import { contenidoDesdeRespuesta, contenidoDeRespaldo } from "../landing/contenido-pro";
+import { contenidoDesdeRespuesta, contenidoDeRespaldo, sistemaContenidoPro } from "../landing/contenido-pro";
 import { htmlDesdeRespuesta } from "../landing/agente-landing";
 
 /**
@@ -103,5 +103,24 @@ describe("landing PRO por tipo y estilo", () => {
     expect(h).toContain("--p:#1D4ED8");
     expect(h).toMatch(/<i>1<\/i>Datos de contacto[\s\S]*<i>2<\/i>Dirección de envío[\s\S]*<i>3<\/i>Forma de pago/);
     expect(h).toContain("Resumen de tu compra");
+  });
+});
+
+describe("landing PRO: titular y tuteo (01-10-2026)", () => {
+  const datos = { name: "CURSO DE PIANO COMPLETO", description: "x", features: [], price: 60000, category: null };
+  it("el resaltado no se repite al final del titular", () => {
+    const c = contenidoDesdeRespuesta(JSON.stringify({ titulo: "Aprende piano desde cero", tituloResaltado: "desde cero" }), datos, "digital");
+    expect(`${c.titulo} ${c.tituloResaltado}`).toBe("Aprende piano desde cero");
+  });
+  it("un titular que no repite queda igual", () => {
+    const c = contenidoDesdeRespuesta(JSON.stringify({ titulo: "Aprende piano", tituloResaltado: "a tu ritmo" }), datos, "digital");
+    expect(`${c.titulo} ${c.tituloResaltado}`).toBe("Aprende piano a tu ritmo");
+  });
+  it("las instrucciones al modelo están en tuteo, no en voseo", () => {
+    for (const t of ["fisico", "digital", "servicio"] as const) {
+      const s = sistemaContenidoPro(t);
+      expect(s).toMatch(/TUTEAS/);
+      expect(s).not.toMatch(/\b(Sos|Escribís|Devolvé)\b/);
+    }
   });
 });

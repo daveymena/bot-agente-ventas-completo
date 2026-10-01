@@ -27,11 +27,11 @@ const CIERRE: Record<TipoPro, string> = {
 };
 
 export function sistemaContenidoPro(tipo: TipoPro = "fisico"): string {
-  return `Sos redactor de landings que se venden por anuncios en Colombia. Esto es un ${CIERRE[tipo]}. Escribís en español neutro de Colombia, frases cortas, sin adjetivos vacíos ("increíble", "premium", "único").
-Devolvé SOLO un objeto JSON válido, sin texto antes ni después, con esta forma exacta:
+  return `Eres redactor de landings que se venden por anuncios en Colombia. Esto es un ${CIERRE[tipo]}. Escribes en español de Colombia y TUTEAS al cliente (tú: "lleva", "pide", "recibes"; nunca vos: "llevá", "pedí", "recibís"), frases cortas, sin adjetivos vacíos ("increíble", "premium", "único").
+Devuelve SOLO un objeto JSON válido, sin texto antes ni después, con esta forma exacta:
 {"chip":"3-5 palabras con el dato más útil (ej. 'Talla única ajustable')",
  "titulo":"titular de beneficio, 3-6 palabras, sin el nombre del producto",
- "tituloResaltado":"1-3 palabras que completan el titular y se resaltan",
+ "tituloResaltado":"1-3 palabras que van DESPUÉS del titular y lo completan (no repitas palabras del titular)",
  "lead":"1-2 frases: qué es (con el NOMBRE EXACTO del producto) y qué resuelve",
  "bullets":["3 beneficios concretos, 3-8 palabras cada uno"],
  "cta":"botón en primera persona, 2-4 palabras (ej. 'Lo quiero')",
@@ -67,6 +67,22 @@ export function pedidoContenidoPro(p: ProductoParaContenido, extra: { garantia?:
 const texto = (v: unknown, max: number) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 const ROTULO_METODO = /^(el |la )?(problema|soluci[oó]n|atenci[oó]n|inter[eé]s|deseo|acci[oó]n)\s*[:.]?$/i;
 
+/**
+ * El h1 es `titulo + tituloResaltado`. El modelo a veces pone el resaltado
+ * también al final del titulo y salía "Aprende piano desde cero desde cero"
+ * (curso de piano, 01-10-2026): se quita del titulo.
+ */
+export function tituloSinRepetir(titulo: string, resaltado: string): { titulo: string; tituloResaltado: string } {
+  const norm = (x: string) => x.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9ñ ]/g, " ").replace(/\s+/g, " ").trim();
+  const t = norm(titulo), r = norm(resaltado);
+  if (r && t !== r && t.endsWith(" " + r)) {
+    const palabras = titulo.trim().split(/\s+/);
+    const recortado = palabras.slice(0, palabras.length - r.split(" ").length).join(" ");
+    if (recortado) return { titulo: recortado, tituloResaltado: resaltado };
+  }
+  return { titulo, tituloResaltado: resaltado };
+}
+
 /** Del texto del modelo al contenido; lo que falte se completa con el producto. */
 export function contenidoDesdeRespuesta(raw: string, p: ProductoParaContenido, tipo: TipoPro = "fisico"): ContenidoPro {
   let j: any = null;
@@ -85,8 +101,7 @@ export function contenidoDesdeRespuesta(raw: string, p: ProductoParaContenido, t
   const eyebrow = texto(j.problema?.eyebrow, 40);
   return {
     chip: texto(j.chip, 40) || base.chip,
-    titulo: texto(j.titulo, 60) || base.titulo,
-    tituloResaltado: texto(j.tituloResaltado, 40) || base.tituloResaltado,
+    ...tituloSinRepetir(texto(j.titulo, 60) || base.titulo, texto(j.tituloResaltado, 40) || base.tituloResaltado),
     lead: texto(j.lead, 260) || base.lead,
     bullets: lista(j.bullets, (x) => texto(x, 70) || null, 2, 3, base.bullets),
     cta: texto(j.cta, 28) || base.cta,
