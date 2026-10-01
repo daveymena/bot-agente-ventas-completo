@@ -162,7 +162,8 @@ h1,h2,h3{margin:0;font-weight:600;letter-spacing:-.045em;line-height:1.02;text-w
 .sticky .btn-ink{flex:1;padding:14px 18px;font-size:15px;box-shadow:none}
 .wa{position:fixed;right:22px;bottom:22px;z-index:45;width:56px;height:56px;border-radius:50%;background:#25D366;color:#fff;display:grid;place-items:center;box-shadow:0 14px 30px -10px rgba(37,211,102,.7)}.wa .ic{width:28px;height:28px}
 /* aparición suave */
-.rv{opacity:0;transform:translateY(18px);transition:opacity .7s ease,transform .7s cubic-bezier(.2,.8,.2,1)}.rv.in{opacity:1;transform:none}
+/* solo se oculta si el script corre (html.js): sin JS, vista previa de Facebook o un bloqueador, la página se ve entera */
+.js .rv{opacity:0;transform:translateY(18px);transition:opacity .7s ease,transform .7s cubic-bezier(.2,.8,.2,1)}.js .rv.in{opacity:1;transform:none}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}.rv{opacity:1;transform:none}html{scroll-behavior:auto}}
 /* móvil: no es el escritorio achicado */
 @media (max-width:820px){
@@ -197,7 +198,7 @@ var t=document.getElementById('gtrack');if(t){var d=[].slice.call(document.query
 var s=function(i){d.forEach(function(x,k){x.classList.toggle('on',k===i)});th.forEach(function(x,k){x.setAttribute('aria-current',k===i)})};
 t.addEventListener('scroll',function(){s(Math.round(t.scrollLeft/t.clientWidth))},{passive:true});th.forEach(function(b){b.onclick=function(){t.scrollTo({left:t.clientWidth*+b.dataset.i,behavior:'smooth'})}});}
 var tot=document.getElementById('total');[].slice.call(document.querySelectorAll('input[name="oferta"]')).forEach(function(r){r.onchange=function(){if(tot)tot.textContent=r.dataset.total;var sp=document.getElementById('stickyPrice');if(sp)sp.textContent=r.dataset.total}});
-if('IntersectionObserver' in window){var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{rootMargin:'0px 0px -8% 0px'});[].slice.call(document.querySelectorAll('.rv')).forEach(function(el){io.observe(el)});
+if('IntersectionObserver' in window){document.documentElement.classList.add('js');var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{rootMargin:'0px 0px -8% 0px'});[].slice.call(document.querySelectorAll('.rv')).forEach(function(el){io.observe(el)});
 var st=document.getElementById('sticky'),hc=document.getElementById('heroCta'),ob=document.getElementById('pedido');if(st&&hc&&ob){var past=false,on=false,u=function(){st.classList.toggle('show',past&&!on)};
 new IntersectionObserver(function(e){past=!e[0].isIntersecting&&e[0].boundingClientRect.top<0;u()}).observe(hc);new IntersectionObserver(function(e){on=e[0].isIntersecting;u()},{threshold:.12}).observe(ob);}}
 else{[].slice.call(document.querySelectorAll('.rv')).forEach(function(el){el.classList.add('in')})}
