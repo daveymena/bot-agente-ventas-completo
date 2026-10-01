@@ -44,6 +44,8 @@ REGLAS:
 - Los pasos son CÓMO SE USA el producto; si los datos no lo dicen, son cómo se compra: ${tipo === "fisico" ? "pedir → recibir en casa → pagar al recibir" : tipo === "digital" ? "pagar en línea → recibir el acceso → empezar" : "escribir por WhatsApp → agendar → recibir el servicio"}.
 - Solo hechos que estén en los datos. PROHIBIDO inventar: medidas, materiales, tiempos de resultado ("en 14 días"), porcentajes, estrellas, reseñas, testimonios, descuentos, stock, garantías o plazos de envío.
 - "eyebrow" nunca es el nombre de la técnica (Problema, Solución, Atención, Interés, Deseo, Acción).
+- Las preguntas frecuentes son sobre el PRODUCTO (uso, medidas, materiales, para quién sirve) y sobre lo que está en hechos_del_negocio. NO inventes políticas: nada de "puedes probarlo", "abrirlo/inspeccionarlo antes de pagar", cambios, devoluciones o reembolsos, salvo que estén en los hechos. Si la única respuesta posible es una política que no está, no hagas esa pregunta.
+- La garantía cubre EXACTAMENTE lo que dice el texto de la garantía (ej. "defectos de fábrica"): no la estires a "si no te gusta" o "si no le queda cómodo".
 - ${tipo === "fisico" ? "Una pregunta del FAQ es sobre el pago contra entrega: \"Pagas en efectivo cuando lo recibes en tu casa.\"" : tipo === "digital" ? "Una pregunta del FAQ es cómo se recibe el acceso: \"Después del pago te lo enviamos.\" No menciones envío ni contra entrega." : "Una pregunta del FAQ es cómo se agenda: \"Escríbenos por WhatsApp y coordinamos el horario.\" No menciones envío ni contra entrega."}`;
 }
 

@@ -81,7 +81,7 @@ export function paletaPorCategoria(categoria?: string | null): keyof typeof PALE
   return "salvia";
 }
 
-const ICONOS: Record<string, string> = {
+export const ICONOS: Record<string, string> = {
   truck: '<path d="M3 7h11v9H3zM14 10h4l3 3v3h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="17.5" cy="18" r="2"/>',
   cash: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9v.01M18 15v.01"/>',
   lock: '<rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"/>',
