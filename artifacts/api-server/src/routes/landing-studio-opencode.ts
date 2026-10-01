@@ -795,7 +795,7 @@ async function generarLandingPro(a: {
   const tipoPro: "fisico" | "digital" | "servicio" = tipo === "dropshipping" || tipo === "fisico" ? "fisico" : tipo === "servicio" ? "servicio" : "digital";
   const hayEnlaces = !!(a.pago.mercadopago || a.pago.paypal);
   const modo: "contraentrega" | "pago" | "whatsapp" = tipo === "dropshipping" ? "contraentrega" : tipo === "servicio" ? "whatsapp" : hayEnlaces || tipo === "fisico" ? "pago" : "whatsapp";
-  const { sistemaContenidoPro, pedidoContenidoPro, contenidoDesdeRespuesta } = await import("../lib/landing/contenido-pro");
+  const { sistemaContenidoPro, pedidoContenidoPro, contenidoDesdeRespuesta, respuestaProValida } = await import("../lib/landing/contenido-pro");
   const { renderizarLandingPro } = await import("../lib/landing/renderer-pro");
   const { garantiaDelProducto, testimoniosDelProducto } = await import("../lib/landing/plantillas");
   const { redactarConProveedores, htmlDesdeRespuesta } = await import("../lib/landing/agente-landing");
@@ -819,7 +819,13 @@ async function generarLandingPro(a: {
     const system = sistemaContenidoPro(tipoPro);
     const user = pedidoContenidoPro(datos, { garantia, plazoEntrega, tipo: tipoPro });
     const r: { text: string; error?: string; proveedor?: string } = a.usaAgentePropio
-      ? await redactarConProveedores({ tenantId, system, user, timeoutMs: a.timeoutMs ?? 90_000 })
+      ? await redactarConProveedores({
+          tenantId, system, user, timeoutMs: a.timeoutMs ?? 90_000, maxTokens: 3000, tarea: "landing-pro",
+          // El validador por defecto exige <html>: con él TODA respuesta JSON se
+          // descartaba y la landing salía con el texto de respaldo (landings
+          // 16 y 20 en producción, "plantilla (sin modelo)", 30-09-2026).
+          validar: respuestaProValida,
+        })
       : a.config
         ? await conCandado(async () => {
             const sessionId = await createSession(a.config!.host, a.config!.authHeader);

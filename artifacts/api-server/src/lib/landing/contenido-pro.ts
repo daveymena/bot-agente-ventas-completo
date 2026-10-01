@@ -148,3 +148,14 @@ export function contenidoDeRespaldo(p: ProductoParaContenido, tipo: TipoPro = "f
           ],
   };
 }
+
+/** ¿La respuesta del modelo trae el JSON de la landing PRO? (titular + beneficios) */
+export function respuestaProValida(t: string): boolean {
+  try {
+    const s = String(t || "");
+    const j = JSON.parse(s.slice(s.indexOf("{"), s.lastIndexOf("}") + 1));
+    return !!(j && typeof j.titulo === "string" && j.titulo.trim() && Array.isArray(j.beneficios) && j.beneficios.length);
+  } catch {
+    return false;
+  }
+}
