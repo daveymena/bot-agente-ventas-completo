@@ -629,7 +629,9 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   // cuando el cliente no quiere ninguno de los métodos de arriba, y además
   // ahí ve el producto con su foto y su ficha completa. El enlace corto /p/<id>
   // redirige a la página real y ya trae vista previa con imagen al compartirse.
-  const urlTienda = `${(process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "")}/p/${p.id}`;
+  // Si el producto tiene landing PUBLICADA, va esa (ver destino-del-producto.ts).
+  const { enlaceParaVerElProducto } = await import("./landing/destino-del-producto");
+  const urlTienda = (await enlaceParaVerElProducto(p as any)).url;
   lines.push(variante([`🛒 *O comprá directo en la tienda:*`, `🛒 *También puedes comprarlo acá:*`, `🛒 *Directo desde la web:*`, `🛒 *Si prefieres, desde la tienda:*`], sem));
   lines.push(urlTienda);
   lines.push("");
@@ -980,7 +982,11 @@ export async function construirSeccion(
   // /tienda/:slug/producto/:id a propósito: el corto resuelve solo qué negocio
   // es (app.ts redirige), así que no hay que pasarle el slug hasta acá ni
   // arriesgar que quede viejo si el admin lo cambia.
-  const urlEnTienda = `${getAppUrl().replace(/\/$/, "")}/p/${p.id}`;
+  // Si el producto tiene landing PUBLICADA, el cliente ve esa y no la tienda
+  // (01-10-2026: el bot seguía mandando la página vieja). Ver destino-del-producto.ts.
+  const { enlaceParaVerElProducto } = await import("./landing/destino-del-producto");
+  const verProducto = await enlaceParaVerElProducto(p as any);
+  const urlEnTienda = verProducto.url;
   const corto = (m: any) => m?.shortUrl || m?.url || "";
 
   // ¿ESTE producto tiene video? Medido en produccion el 2026-08-29: NINGUNO de
@@ -1025,7 +1031,7 @@ export async function construirSeccion(
   if (seccion === "tienda") {
     return {
       conFoto: false,
-      mensajes: [`🛒 Míralo en la tienda, con fotos y todo el detalle:\n${urlEnTienda}`, cierre],
+      mensajes: [`🛒 Míralo ${verProducto.esLanding ? "acá" : "en la tienda"}, con fotos y todo el detalle:\n${urlEnTienda}`, cierre],
     };
   }
 

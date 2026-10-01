@@ -42,6 +42,21 @@ export async function landingPublicadaDelProducto(
   }
 }
 
+/**
+ * El enlace que el VENDEDOR de WhatsApp le pasa al cliente para ver el producto.
+ *
+ * 01-10-2026: el dueño hizo la landing nueva y el bot seguía mandando la
+ * página vieja de la tienda: la ficha armaba `/p/:id` a mano y nunca miraba
+ * si había landing. Misma regla que el anuncio: landing PUBLICADA más
+ * reciente del producto; si no hay, la tienda.
+ */
+export async function enlaceParaVerElProducto(
+  p: { id: number; tenantId?: number | null },
+): Promise<{ url: string; esLanding: boolean }> {
+  const l = p.tenantId ? await landingPublicadaDelProducto(Number(p.tenantId), p.id) : null;
+  return l ? { url: l.url, esLanding: true } : { url: urlDePaginaDeProducto(p.id), esLanding: false };
+}
+
 export type PreferenciaWeb = "landing" | "tienda";
 
 /**

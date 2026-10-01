@@ -944,10 +944,16 @@ export async function runAgentReply(conversationId: number) {
       try {
         const { landingPages } = await import("@workspace/db");
         const filas = await db.select().from(landingPages).where(eq(landingPages.tenantId, convo.tenantId));
-        const publicadas = filas.filter((l: any) => l.status === "published" && l.publishedUrl);
+        // La MÁS RECIENTE primero: sin orden salía la primera de la tabla, o
+        // sea la landing vieja aunque hubiera una nueva del mismo producto.
+        const publicadas = filas
+          .filter((l: any) => l.status === "published" && l.publishedUrl)
+          .sort((a: any, b: any) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
         if (publicadas.length) {
           const nombre = String(memory.currentProductName || "").toLowerCase();
+          const focoId = Number(memory.currentProductId || 0);
           const elegida: any =
+            publicadas.find((l: any) => focoId && Number(l.productId) === focoId) ||
             publicadas.find((l: any) => nombre && String(l.name).toLowerCase().includes(nombre)) ||
             publicadas[0];
           const raw = `Acá está la página de *${String(elegida.name).trim()}*:\n${elegida.publishedUrl}`;
