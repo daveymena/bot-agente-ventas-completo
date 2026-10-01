@@ -11,6 +11,8 @@ export interface Product {
   category: string;
   type: 'digital' | 'physical' | 'dropshipping';
   stock: number;
+  /** Talla/color/modelo que eligió el cliente antes de agregar al carrito. */
+  variante?: string;
 }
 
 interface CartItem extends Product {
@@ -79,8 +81,8 @@ interface StoreState {
   updateProduct: (product: Product) => void;
   setProducts: (products: Product[]) => void;
   addToCart: (product: Product) => void;
-  removeFromCart: (id: string) => void;
-  updateCartQuantity: (id: string, quantity: number) => void;
+  removeFromCart: (id: string, variante?: string) => void;
+  updateCartQuantity: (id: string, quantity: number, variante?: string) => void;
   toggleWishlist: (id: string) => void;
   setBranch: (id: string) => void;
   clearCart: () => void;
@@ -159,30 +161,38 @@ export const useStore = create<StoreState>()(
         products: state.products.map(p => p.id === updatedProduct.id ? updatedProduct : p)
       })),
       setProducts: (products) => set({ products }),
-      addToCart: (product) => set((state) => {
-        const existing = state.cart.find(item => item.id === product.id);
-        if (existing) {
-          // Un producto digital NO suma cantidad: es un acceso, no una caja.
-          // Agregarlo dos veces cobraba el doble por el mismo enlace.
-          if (product.type === 'digital') return { cart: state.cart };
-          return {
-            cart: state.cart.map(item =>
-              item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item
-            )
-          };
-        }
-        return { cart: [...state.cart, { ...product, quantity: 1 }] };
-      }),
-      removeFromCart: (id) => set((state) => ({
-        cart: state.cart.filter(item => item.id !== id)
+  addToCart: (product) => set((state) => {
+    // Un producto con variante (talla/color) cuenta por variante: "Camiseta
+    // M" y "Camiseta G" son dos ítems distintos en el carrito, no uno con
+    // cantidad 2.
+    const existing = state.cart.find(
+      item => item.id === product.id && (item.variante || '') === (product.variante || ''),
+    );
+    if (existing) {
+      // Un producto digital NO suma cantidad: es un acceso, no una caja.
+      // Agregarlo dos veces cobraba el doble por el mismo enlace.
+      if (product.type === 'digital') return { cart: state.cart };
+      return {
+        cart: state.cart.map(item =>
+          item.id === product.id && (item.variante || '') === (product.variante || '')
+            ? { ...item, quantity: item.quantity + 1 } : item
+        )
+      };
+    }
+    return { cart: [...state.cart, { ...product, quantity: 1 }] };
+  }),
+      removeFromCart: (id, variante) => set((state) => ({
+        cart: state.cart.filter(item =>
+          !(item.id === id && (item.variante || '') === (variante || ''))
+        )
       })),
-      updateCartQuantity: (id, quantity) => set((state) => ({
+      updateCartQuantity: (id, quantity, variante) => set((state) => ({
         cart: state.cart.map(item =>
           // El tope de 1 para lo digital se aplica acá tambien, no solo en la
           // pantalla: el estado se guarda en localStorage, asi que un carrito
           // viejo con "Cant: 3" seguiria cobrando el triple aunque la interfaz
           // ya no deje subirlo.
-          item.id === id
+          item.id === id && (item.variante || '') === (variante || '')
             ? { ...item, quantity: item.type === 'digital' ? 1 : Math.max(0, quantity) }
             : item
         ).filter(item => item.quantity > 0)

@@ -37,18 +37,25 @@ const Cart = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
         <div className="lg:col-span-2 space-y-6">
           {cart.map((item) => (
-            <div key={item.id} className="bg-white p-6 rounded-2xl border border-gray-100 flex items-center gap-6">
+            <div key={`${item.id}-${item.variante || ''}`} className="bg-white p-6 rounded-2xl border border-gray-100 flex items-center gap-6">
               <img src={item.image} alt={item.name} className="w-24 h-24 rounded-xl object-contain bg-gray-50 p-1" />
               <div className="flex-grow">
                 <div className="flex justify-between mb-1">
                   <h3 className="font-bold text-gray-900">{item.name}</h3>
                   <button
-                    onClick={() => removeFromCart(item.id)}
+                    onClick={() => removeFromCart(item.id, item.variante)}
                     className="text-gray-400 hover:text-red-500 transition-colors"
                   >
                     <Trash2 className="w-5 h-5" />
                   </button>
                 </div>
+                {/* Talla/color/modelo: sin esto, dos camisetas de talla
+                    distinta se ven idénticas en el carrito. */}
+                {item.variante && (
+                  <p className="text-xs font-semibold text-[var(--store-primary)] bg-[var(--store-primary)]/10 inline-block px-2 py-0.5 rounded-full mb-2">
+                    {item.variante}
+                  </p>
+                )}
                 <p className="text-gray-500 text-sm mb-4">{item.category || 'Producto'}</p>
                 <div className="flex items-center justify-between">
                   {/* Un curso digital no se compra "de a 3": es un acceso, no
@@ -64,14 +71,14 @@ const Cart = () => {
                   ) : (
                   <div className="flex items-center border border-gray-200 rounded-lg overflow-hidden">
                     <button
-                      onClick={() => updateCartQuantity(item.id, Math.max(1, item.quantity - 1))}
+                      onClick={() => updateCartQuantity(item.id, Math.max(1, item.quantity - 1), item.variante)}
                       className="w-10 h-10 flex items-center justify-center text-gray-600 hover:bg-gray-50 transition-colors"
                     >
                       <Minus className="w-4 h-4" />
                     </button>
                     <span className="w-12 text-center font-semibold">{item.quantity}</span>
                     <button
-                      onClick={() => updateCartQuantity(item.id, item.quantity + 1)}
+                      onClick={() => updateCartQuantity(item.id, item.quantity + 1, item.variante)}
                       className="w-10 h-10 flex items-center justify-center text-gray-600 hover:bg-gray-50 transition-colors"
                     >
                       <Plus className="w-4 h-4" />

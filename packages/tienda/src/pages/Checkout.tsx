@@ -7,6 +7,7 @@ import { trackInitiateCheckout, trackContact } from '../lib/pixel';
 import { useMoneda } from '@/lib/moneda';
 import {
   DatosDeEnvio, ENVIO_VACIO, ETIQUETAS, DEPARTAMENTOS,
+  CIUDADES_POR_DEPARTAMENTO,
   faltantes, errorDeFormato, departamentoDeCiudad,
 } from '../lib/envio';
 
@@ -61,6 +62,14 @@ export default function Checkout() {
         const depto = departamentoDeCiudad(valor);
         if (depto) siguiente.departamento = depto;
       }
+      // Si cambian de departamento y la ciudad actual no pertenece al nuevo,
+      // se limpia: así no queda "Medellín" con "Valle del Cauca".
+      if (campo === 'departamento' && prev.ciudad) {
+        const ciudadesDelNuevo = CIUDADES_POR_DEPARTAMENTO[valor] || [];
+        if (ciudadesDelNuevo.length && !ciudadesDelNuevo.includes(prev.ciudad)) {
+          siguiente.ciudad = '';
+        }
+      }
       return siguiente;
     });
   };
@@ -90,7 +99,7 @@ export default function Checkout() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           method: 'contraentrega',
-          items: cart.map(i => ({ productId: Number(i.id), quantity: i.quantity })),
+          items: cart.map(i => ({ productId: Number(i.id), quantity: i.quantity, variante: i.variante || undefined })),
           customer: envio,
         }),
       });
@@ -135,7 +144,7 @@ export default function Checkout() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           method: gateway,
-          items: cart.map(i => ({ productId: Number(i.id), quantity: i.quantity })),
+          items: cart.map(i => ({ productId: Number(i.id), quantity: i.quantity, variante: i.variante || undefined })),
           customer: datosDigital,
         }),
       });
@@ -164,7 +173,7 @@ export default function Checkout() {
       return;
     }
 
-    const orderText = `Hola, soy ${nombre}. Me gustaría completar mi pedido de:\n\n${cart.map(i => `- ${i.quantity}x ${i.name} (${formatear(i.price)})`).join('\n')}\n\nTotal: ${formatear(subtotal)}`;
+    const orderText = `Hola, soy ${nombre}. Me gustaría completar mi pedido de:\n\n${cart.map(i => `- ${i.quantity}x ${i.name}${i.variante ? ` (${i.variante})` : ''} (${formatear(i.price)})`).join('\n')}\n\nTotal: ${formatear(subtotal)}`;
     const url = `https://wa.me/${waPhone}?text=${encodeURIComponent(orderText)}`;
 
     trackContact('Cart WhatsApp Checkout');
@@ -257,17 +266,27 @@ export default function Checkout() {
 
                 <div className="grid sm:grid-cols-2 gap-5">
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">{ETIQUETAS.ciudad} *</label>
-                    <input className={inputCls} placeholder="Ej. Medellín" value={envio.ciudad}
-                      onChange={e => setCampo('ciudad', e.target.value)} autoComplete="address-level2" />
-                  </div>
-                  <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">{ETIQUETAS.departamento} *</label>
                     <select className={inputCls} value={envio.departamento}
                       onChange={e => setCampo('departamento', e.target.value)}>
                       <option value="">Selecciona…</option>
                       {DEPARTAMENTOS.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">{ETIQUETAS.ciudad} *</label>
+                    {/* Selector de ciudad filtrado por el departamento elegido.
+                        Si el municipio no está en la lista (pueblos pequeños),
+                        se puede escribir libremente: el input acepta texto
+                        además de las sugerencias del datalist. */}
+                    <input className={inputCls} list="ciudades-datalist"
+                      placeholder={envio.departamento ? 'Ej. ' + (CIUDADES_POR_DEPARTAMENTO[envio.departamento]?.[0] || 'Medellín') : 'Elige departamento primero'}
+                      value={envio.ciudad}
+                      onChange={e => setCampo('ciudad', e.target.value)} autoComplete="address-level2" />
+                    <datalist id="ciudades-datalist">
+                      {(envio.departamento ? CIUDADES_POR_DEPARTAMENTO[envio.departamento] || [] : [])
+                        .map(c => <option key={c} value={c} />)}
+                    </datalist>
                   </div>
                 </div>
 
@@ -406,12 +425,15 @@ export default function Checkout() {
             </h2>
             <div className="space-y-4 mb-8">
               {cart.map(item => (
-                <div key={item.id} className="flex gap-4 p-3 rounded-xl hover:bg-gray-50 transition-colors border border-transparent hover:border-gray-100">
+                <div key={`${item.id}-${item.variante || ''}`} className="flex gap-4 p-3 rounded-xl hover:bg-gray-50 transition-colors border border-transparent hover:border-gray-100">
                   <div className="w-16 h-16 rounded-lg overflow-hidden shrink-0 bg-[var(--store-primary-soft)]">
                     <img src={item.image} alt={item.name} className="w-full h-full object-contain p-1" />
                   </div>
                   <div className="flex-1">
-                    <h4 className="font-semibold text-gray-900 text-sm leading-tight mb-2 line-clamp-2">{item.name}</h4>
+                    <h4 className="font-semibold text-gray-900 text-sm leading-tight mb-1 line-clamp-2">{item.name}</h4>
+                    {item.variante && (
+                      <p className="text-[11px] font-semibold text-[var(--store-primary)] mb-1">{item.variante}</p>
+                    )}
                     <div className="flex justify-between items-center">
                       <span className="text-xs text-gray-500 font-medium">Cant: {item.quantity}</span>
                       <span className="font-bold text-gray-900">{formatear(item.price)}</span>

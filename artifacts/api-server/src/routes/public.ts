@@ -119,6 +119,10 @@ router.get("/products/:slug", async (req, res, next) => {
       sku: p.sku,
       features: p.features,
       paymentLink: p.paymentLink,
+      // Talla/color/modelo: la tienda pinta selectores con esto y el
+      // checkout los envía como opcion_<nombre> (mismo contrato que la
+      // landing y que landing-publica.ts valida).
+      opciones: p.opciones,
       // Nunca exponer el enlace de entrega en un catálogo público: equivale a
       // regalar el producto digital sin una compra verificada.
     }));
@@ -204,6 +208,7 @@ router.get("/product/:slug/:productId", async (req, res, next) => {
         kind: p.kind,
         sku: p.sku,
         features: p.features,
+        opciones: p.opciones,
       },
       related: related
         .filter((r: any) => r.id !== p.id)

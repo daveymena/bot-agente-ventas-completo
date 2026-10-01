@@ -7,6 +7,56 @@
 import { tokensDe, type FamiliaVisual } from "./design-system";
 import { renderizarLandingImagenes } from "./renderer-imagenes";
 
+/**
+ * Departamentos y ciudades principales de Colombia para los selectores del
+ * checkout de la landing. Espejo de packages/tienda/src/lib/envio.ts (los
+ * mismos datos, porque el contrato de campos es idéntico al del bot).
+ */
+const DEPARTAMENTOS_CO = [
+  'Amazonas', 'Antioquia', 'Arauca', 'Atlántico', 'Bogotá D.C.', 'Bolívar',
+  'Boyacá', 'Caldas', 'Caquetá', 'Casanare', 'Cauca', 'Cesar', 'Chocó',
+  'Córdoba', 'Cundinamarca', 'Guainía', 'Guaviare', 'Huila', 'La Guajira',
+  'Magdalena', 'Meta', 'Nariño', 'Norte de Santander', 'Putumayo', 'Quindío',
+  'Risaralda', 'San Andrés y Providencia', 'Santander', 'Sucre', 'Tolima',
+  'Valle del Cauca', 'Vaupés', 'Vichada',
+];
+
+const CIUDADES_POR_DEPARTAMENTO: Record<string, string[]> = {
+  'Amazonas': ['Leticia', 'Puerto Nariño'],
+  'Antioquia': ['Medellín', 'Bello', 'Itagüí', 'Envigado', 'Apartadó', 'Turbo'],
+  'Arauca': ['Arauca', 'Tame'],
+  'Atlántico': ['Barranquilla', 'Soledad', 'Sabanalarga', 'Puerto Colombia'],
+  'Bogotá D.C.': ['Bogotá D.C.'],
+  'Bolívar': ['Cartagena', 'Magangué', 'Turbaco'],
+  'Boyacá': ['Tunja', 'Duitama', 'Sogamoso'],
+  'Caldas': ['Manizales', 'Villamaría', 'La Dorada'],
+  'Caquetá': ['Florencia'],
+  'Casanare': ['Yopal', 'Aguazul'],
+  'Cauca': ['Popayán', 'Santander de Quilichao'],
+  'Cesar': ['Valledupar'],
+  'Chocó': ['Quibdó', 'Istmina'],
+  'Córdoba': ['Montería', 'Cereté'],
+  'Cundinamarca': ['Soacha', 'Zipaquirá', 'Facatativá', 'Fusagasugá', 'Chía'],
+  'Guainía': ['Inírida'],
+  'Guaviare': ['San José del Guaviare'],
+  'Huila': ['Neiva', 'Pitalito'],
+  'La Guajira': ['Riohacha', 'Maicao'],
+  'Magdalena': ['Santa Marta', 'Ciénaga'],
+  'Meta': ['Villavicencio', 'Acacías'],
+  'Nariño': ['Pasto', 'Tumaco', 'Ipiales'],
+  'Norte de Santander': ['Cúcuta', 'Ocaña'],
+  'Putumayo': ['Mocoa'],
+  'Quindío': ['Armenia', 'Calarcá'],
+  'Risaralda': ['Pereira', 'Dosquebradas'],
+  'San Andrés y Providencia': ['San Andrés'],
+  'Santander': ['Bucaramanga', 'Floridablanca', 'Barrancabermeja'],
+  'Sucre': ['Sincelejo'],
+  'Tolima': ['Ibagué', 'Melgar'],
+  'Valle del Cauca': ['Cali', 'Palmira', 'Tuluá', 'Buenaventura'],
+  'Vaupés': ['Mitú'],
+  'Vichada': ['Puerto Carreño'],
+};
+
 export interface SeccionParaRenderizar {
   id: string;
   type: string;
@@ -519,13 +569,20 @@ function renderGallery(section: SeccionParaRenderizar, producto: ProductoParaRen
  */
 export const SCRIPT_TRANSPORTADORA = "(function(){var f=document.querySelector('.checkout-form');if(!f||!/\\/pedido$/.test(f.getAttribute('action')||''))return;var box=f.querySelector('.envio-transportadora');if(!box)return;var c=f.querySelector('[name=ciudad]'),d=f.querySelector('[name=departamento]'),ult='';function q(){var ci=(c.value||'').trim(),de=(d.value||'').trim();if(ci.length<3||de.length<3)return;var k=ci+'|'+de;if(k===ult)return;ult=k;fetch(f.getAttribute('action').replace(/\\/pedido$/,'/envio')+'?ciudad='+encodeURIComponent(ci)+'&departamento='+encodeURIComponent(de)).then(function(r){return r.json()}).then(function(j){if(k!==ult)return;if(!j||!j.ok){box.hidden=true;box.innerHTML='';return;}var t=j.transportadoras||[];var h='';if(t.length){h='<label>Transportadora</label><select name=\"transportadora\"><option value=\"\">La más económica (recomendada)</option>'+t.map(function(n){var e=String(n).replace(/[&<>\"]/g,'');return '<option value=\"'+e+'\">'+e+'</option>'}).join('')+'</select>';}if(j.aceptaContraentrega===false)h+='<p class=\"tiny\">A esta ciudad no hay pago contraentrega: te contactamos para el pago.</p>';if(!t.length&&j.mensaje)h+='<p class=\"tiny\">'+String(j.mensaje).replace(/[&<>]/g,'')+'</p>';box.innerHTML=h;box.hidden=!h;}).catch(function(){});}c.addEventListener('change',q);d.addEventListener('change',q);})();";
 
+/**
+ * Selector de ciudad: al elegir un departamento, el datalist de la ciudad
+ * se rellena con las ciudades principales de ese departamento. Si el
+ * municipio no está en la lista, el input sigue aceptando texto libre.
+ */
+export const SCRIPT_CIUDADES = `(function(){var d=document.querySelector('[name=departamento]'),l=document.getElementById('ciudades-datalist');if(!d||!l)return;var M=${JSON.stringify(CIUDADES_POR_DEPARTAMENTO)};function q(){var a=M[d.value]||[];l.innerHTML=a.map(function(c){return '<option value="'+c+'">'}).join('');}d.addEventListener('change',q);q();})();`;
+
 export function renderCheckout(cierre: CierreDeLanding, producto: ProductoParaRenderizar | null | undefined, negocio: NegocioParaRenderizar | null | undefined): string {
   const wa = whatsapp(producto, negocio);
   const price = precio(producto);
   if (cierre.tipo === "contraentrega" && cierre.accion) {
     const opciones = (producto?.opciones || []).filter((o) => o?.nombre && Array.isArray(o.valores) && o.valores.length);
     const optionFields = opciones.map((o) => `<div class="field"><label>${esc(o.nombre)}${o.obligatoria ? " *" : ""}</label><select name="opcion_${esc(o.nombre)}" ${o.obligatoria ? "required" : ""}><option value="">Seleccionar…</option>${o.valores.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}</select></div>`).join("");
-    return `<div class="checkout" id="pedido"><div class="head"><p class="eyebrow">Compra directa</p><h2>Pídelo desde aquí</h2><p class="lead">Completa los datos de entrega. El precio y las opciones se validan con los datos reales del producto.</p></div><div class="summary"><strong>${esc(producto?.name || "Producto")}</strong>${price ? `<div class="offer-price">${esc(price)}</div>` : ""}<div class="tiny">Pago según las condiciones de entrega del negocio.</div></div><form class="checkout-form" method="post" action="${esc(cierre.accion)}"><div class="checkout-grid">${optionFields}<div class="field"><label>Cantidad *</label><input name="cantidad" type="number" min="1" max="10" value="1" required></div><div class="field"><label>Nombre y apellido *</label><input name="nombre" autocomplete="name" required></div><div class="field"><label>Celular *</label><input name="telefono" inputmode="tel" autocomplete="tel" required></div>${/^(co|col|colombia)?$/i.test(String((cierre as any).pais || "")) ? "" : `<div class="field"><label>Documento *</label><input name="documento" inputmode="numeric" autocomplete="off" required></div>`}<div class="field field--full"><label>Dirección completa *</label><input name="direccion" autocomplete="street-address" required></div><div class="field"><label>Barrio</label><input name="barrio"></div><div class="field"><label>Ciudad *</label><input name="ciudad" autocomplete="address-level2" required></div><div class="field"><label>Departamento *</label><input name="departamento" autocomplete="address-level1" required></div><div class="field field--full envio-transportadora" hidden></div><div class="field field--full"><label>Referencia</label><input name="referencia"></div><div class="field field--full"><label>Cupón de descuento</label><input name="cupon" autocomplete="off" placeholder="Opcional"></div></div><button class="btn btn--primary" type="submit" style="width:100%;margin-top:18px">Pedir ahora y pagar al recibir</button><p class="tiny checkout-status" aria-live="polite"></p></form>${wa ? `<p class="tiny">¿Prefieres escribir? <a href="${esc(wa)}" style="color:var(--accent);font-weight:800">WhatsApp</a></p>` : ""}</div><script>${SCRIPT_TRANSPORTADORA}</script><script>(function(){var f=document.querySelector('.checkout-form');if(!f)return;f.addEventListener('submit',async function(e){e.preventDefault();var b=f.querySelector('button'),s=f.querySelector('.checkout-status');b.disabled=true;s.textContent='Registrando tu pedido…';var d={};new FormData(f).forEach(function(v,k){d[k]=v});try{var r=await fetch(f.action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});var j=await r.json();if(j.ok){if(j.gracias){window.location.href=j.gracias;return;}f.innerHTML='<div class="summary"><strong>✅ ¡Felicidades! Tu pedido quedó registrado</strong><p>Pronto estaremos en contacto para confirmar la entrega.</p></div>';}else{throw new Error(j.error||'No se pudo registrar');}}catch(x){s.textContent=x.message||'No se pudo registrar';b.disabled=false;}})})();</script>`;
+    return `<div class="checkout" id="pedido"><div class="head"><p class="eyebrow">Compra directa</p><h2>Pídelo desde aquí</h2><p class="lead">Completa los datos de entrega. El precio y las opciones se validan con los datos reales del producto.</p></div><div class="summary"><strong>${esc(producto?.name || "Producto")}</strong>${price ? `<div class="offer-price">${esc(price)}</div>` : ""}<div class="tiny">Pago según las condiciones de entrega del negocio.</div></div><form class="checkout-form" method="post" action="${esc(cierre.accion)}"><div class="checkout-grid">${optionFields}<div class="field"><label>Cantidad *</label><input name="cantidad" type="number" min="1" max="10" value="1" required></div><div class="field"><label>Nombre y apellido *</label><input name="nombre" autocomplete="name" required></div><div class="field"><label>Celular *</label><input name="telefono" inputmode="tel" autocomplete="tel" required></div>${/^(co|col|colombia)?$/i.test(String((cierre as any).pais || "")) ? "" : `<div class="field"><label>Documento *</label><input name="documento" inputmode="numeric" autocomplete="off" required></div>`}<div class="field field--full"><label>Dirección completa *</label><input name="direccion" autocomplete="street-address" required></div><div class="field"><label>Barrio</label><input name="barrio"></div><div class="field"><label>Departamento *</label><select name="departamento" autocomplete="address-level1" required><option value="">Selecciona…</option>${DEPARTAMENTOS_CO.map((d) => `<option>${esc(d)}</option>`).join("")}</select></div><div class="field"><label>Ciudad *</label><input name="ciudad" list="ciudades-datalist" autocomplete="address-level2" required placeholder="Elige departamento primero"><datalist id="ciudades-datalist"></datalist></div><div class="field field--full envio-transportadora" hidden></div><div class="field field--full"><label>Referencia</label><input name="referencia"></div><div class="field field--full"><label>Cupón de descuento</label><input name="cupon" autocomplete="off" placeholder="Opcional"></div></div><button class="btn btn--primary" type="submit" style="width:100%;margin-top:18px">Pedir ahora y pagar al recibir</button><p class="tiny checkout-status" aria-live="polite"></p></form>${wa ? `<p class="tiny">¿Prefieres escribir? <a href="${esc(wa)}" style="color:var(--accent);font-weight:800">WhatsApp</a></p>` : ""}</div><script>${SCRIPT_TRANSPORTADORA}</script><script>${SCRIPT_CIUDADES}</script><script>(function(){var f=document.querySelector('.checkout-form');if(!f)return;f.addEventListener('submit',async function(e){e.preventDefault();var b=f.querySelector('button'),s=f.querySelector('.checkout-status');b.disabled=true;s.textContent='Registrando tu pedido…';var d={};new FormData(f).forEach(function(v,k){d[k]=v});try{var r=await fetch(f.action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});var j=await r.json();if(j.ok){if(j.gracias){window.location.href=j.gracias;return;}f.innerHTML='<div class="summary"><strong>✅ ¡Felicidades! Tu pedido quedó registrado</strong><p>Pronto estaremos en contacto para confirmar la entrega.</p></div>';}else{throw new Error(j.error||'No se pudo registrar');}}catch(x){s.textContent=x.message||'No se pudo registrar';b.disabled=false;}})})();</script>`;
   }
   if (cierre.tipo === "pago") {
     const actions = [cierre.mercadopago ? btn("Pagar con MercadoPago", cierre.mercadopago) : "", cierre.paypal ? btn("Pagar con PayPal", cierre.paypal, "soft") : "", wa ? btn("Comprar por WhatsApp", wa, "soft") : ""].filter(Boolean).join("");

@@ -47,6 +47,16 @@
 
 import { tokensDe, type FamiliaVisual, type TokensDeDiseno } from "./design-system";
 
+/** Departamentos de Colombia para el selector del checkout (espejo de envio.ts de la tienda). */
+const DEPARTAMENTOS_CO = [
+  'Amazonas', 'Antioquia', 'Arauca', 'Atlántico', 'Bogotá D.C.', 'Bolívar',
+  'Boyacá', 'Caldas', 'Caquetá', 'Casanare', 'Cauca', 'Cesar', 'Chocó',
+  'Córdoba', 'Cundinamarca', 'Guainía', 'Guaviare', 'Huila', 'La Guajira',
+  'Magdalena', 'Meta', 'Nariño', 'Norte de Santander', 'Putumayo', 'Quindío',
+  'Risaralda', 'San Andrés y Providencia', 'Santander', 'Sucre', 'Tolima',
+  'Valle del Cauca', 'Vaupés', 'Vichada',
+];
+
 export interface SeccionParaRenderizar {
   id: string;
   type: string;
@@ -201,8 +211,7 @@ function enlaceWhatsApp(p?: ProductoParaRenderizar | null, n?: NegocioParaRender
  * obligatorias como `opcion_<nombre>`, pero el formulario nunca las pedía:
  * con tallas cargadas, TODO pedido fallaba con "Selecciona Talla" (26-09-2026).
  */
-export function selectoresDeOpciones(p: ProductoParaRenderizar | null | undefined): string {
-  const lista = Array.isArray((p as any)?.opciones) ? ((p as any).opciones as any[]) : [];
+export function selectoresDeOpciones(p: ProductoParaRenderizar | null | undefined): string {  const lista = Array.isArray((p as any)?.opciones) ? ((p as any).opciones as any[]) : [];
   return lista
     .filter((o) => o?.nombre && Array.isArray(o?.valores) && o.valores.length)
     .map((o) => `<label>${esc(String(o.nombre))}<select name="opcion_${esc(String(o.nombre))}"${o.obligatoria === false ? "" : " required"}><option value="">Elige ${esc(String(o.nombre).toLowerCase())}…</option>${(o.valores as unknown[]).map((v) => `<option>${esc(String(v))}</option>`).join("")}</select></label>`)
@@ -246,8 +255,8 @@ function bloqueDeCierre(c: CierreDeLanding | null | undefined, p: ProductoParaRe
       ${esCol ? "" : campo("documento", "Documento de identidad", 'inputmode="numeric"')}
       ${campo("direccion", "Dirección (calle, número, apto)")}
       <label>Barrio<input name="barrio"></label>
-      ${campo("ciudad", "Ciudad")}
-      ${campo("departamento", esCol ? "Departamento" : "Estado o provincia")}
+      ${esCol ? `<label>Departamento<select name="departamento" required><option value="">Selecciona\u2026</option>${DEPARTAMENTOS_CO.map((d) => `<option>${esc(d)}</option>`).join("")}</select></label>` : campo("departamento", "Estado o provincia")}
+      <label>Ciudad<input name="ciudad" list="ciudades-datalist" required placeholder="Elige departamento primero"><datalist id="ciudades-datalist"></datalist></label>
       <label>Punto de referencia<input name="referencia" placeholder="Frente a la panadería, al lado del parque…"></label>
       <button class="cta" type="submit">${c.pago === "anticipado" ? "Quiero pedirlo" : "Pedir y pagar al recibir"}</button>
       <p class="pedido__estado" aria-live="polite"></p>

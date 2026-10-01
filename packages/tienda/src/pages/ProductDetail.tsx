@@ -22,6 +22,8 @@ interface DetailProduct {
   kind: string;
   sku: string | null;
   features: string[] | null;
+  /** Talla/color/modelo: [{ nombre: "Talla", valores: ["S","M"], obligatoria: true }] */
+  opciones?: Array<{ nombre: string; valores: string[]; obligatoria?: boolean }> | null;
 }
 
 interface RelatedProduct {
@@ -49,6 +51,8 @@ const ProductDetail = () => {
   const [notFound, setNotFound] = useState(false);
   const [fotoActiva, setFotoActiva] = useState(0);
   const [imgError, setImgError] = useState(false);
+  // Selección de talla/color/modelo: { Talla: "M", Color: "Rojo" }
+  const [seleccion, setSeleccion] = useState<Record<string, string>>({});
 
   useEffect(() => {
     setLoading(true);
@@ -135,6 +139,17 @@ const ProductDetail = () => {
     return Array.from(new Set(lista.filter(Boolean)));
   })();
   const videoEmbed = embedDeVideo(product.video || null);
+
+  // Opciones obligatorias sin elegir → el botón de compra queda deshabilitado.
+  const opciones = Array.isArray(product.opciones) ? product.opciones : [];
+  const faltanObligatorias = opciones.some(
+    o => o.obligatoria !== false && !seleccion[o.nombre],
+  );
+  // "Talla M · Color Rojo" — lo que viaja al carrito y al checkout.
+  const variante = opciones
+    .map(o => seleccion[o.nombre])
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
@@ -280,9 +295,33 @@ const ProductDetail = () => {
             ))}
           </div>
 
+          {/* Talla/color/modelo: selectores desde products.opciones (los
+              mismos que Dropi trae en sus variaciones). Sin esto, una
+              camiseta se podía comprar sin elegir talla. */}
+          {opciones.map(o => (
+            <div key={o.nombre} className="mb-4">
+              <label className="block text-sm font-bold text-gray-900 mb-1.5">
+                {o.nombre}
+                {o.obligatoria !== false && <span className="text-red-500 ml-0.5">*</span>}
+              </label>
+              <select
+                value={seleccion[o.nombre] || ''}
+                onChange={e => setSeleccion(prev => ({ ...prev, [o.nombre]: e.target.value }))}
+                required={o.obligatoria !== false}
+                className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-[var(--store-primary)] focus:border-transparent"
+              >
+                <option value="">Elige {o.nombre.toLowerCase()}…</option>
+                {o.valores.map(v => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            </div>
+          ))}
+
           <div className="space-y-3 mb-8">
             <button
               onClick={() => {
+                if (faltanObligatorias) return;
                 addToCart({
                   id: String(product.id),
                   name: product.name,
@@ -297,6 +336,7 @@ const ProductDetail = () => {
                   // que no puede quedar en `any`.
                   type: product.kind === 'physical' ? 'physical' : 'digital',
                   stock: 999,
+                  variante: variante || undefined,
                 });
                 // El precio viaja como string desde la API; el píxel espera un
                 // número. Enviarlo sin convertir le manda a Meta el valor de la
@@ -305,10 +345,15 @@ const ProductDetail = () => {
                 trackInitiateCheckout({ ids: [product.id], value: price, currency: product.currency });
                 navigate(`/tienda/${slug}/checkout`);
               }}
-              className="w-full bg-[var(--store-primary)] text-[var(--store-on-primary)] py-4 rounded-full font-bold hover:bg-[var(--store-primary-hover)] transition-all flex items-center justify-center gap-2.5"
+              disabled={faltanObligatorias}
+              className={`w-full py-4 rounded-full font-bold transition-all flex items-center justify-center gap-2.5 ${
+                faltanObligatorias
+                  ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                  : 'bg-[var(--store-primary)] text-[var(--store-on-primary)] hover:bg-[var(--store-primary-hover)]'
+              }`}
             >
               <ShoppingCart className="w-5 h-5" />
-              Comprar ahora
+              {faltanObligatorias ? 'Elige las opciones para continuar' : 'Comprar ahora'}
             </button>
 
             {waHref && (
