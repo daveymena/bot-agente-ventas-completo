@@ -195,4 +195,9 @@ describe("landing CONTRAENTREGA (modelo product page que vende, 01-10-2026)", ()
     expect(h).not.toMatch(/<video/);
     expect(renderizarLandingCod({ ...base(), videos: ["https://cdn.test/v.mp4"] })).toMatch(/<video src="https:\/\/cdn\.test\/v\.mp4" autoplay muted loop playsinline/);
   });
+  it("'Enviamos con…' solo con transportadoras reales de Dropi, nunca inventadas (01-10-2026)", () => {
+    expect(renderizarLandingCod(base())).not.toMatch(/Enviamos con/);
+    const h = renderizarLandingCod({ ...base(), transportadoras: ["Servientrega", "Inter Rapidísimo"] });
+    expect(h).toMatch(/Enviamos con Servientrega, Inter Rapidísimo/);
+  });
 });

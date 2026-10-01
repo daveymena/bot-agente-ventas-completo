@@ -487,6 +487,25 @@ export async function aplicarDecision(
 
     logger.info({ pagoId, accion, quien, razon }, "[Pago] Decisión del admin aplicada");
 
+    // Compra REAL (2026-10-01): el Purchase a Meta sale solo desde un pago
+    // verificado, nunca del "sí" del cliente (eso era el motor v1 y
+    // contaminaba la optimización). No bloquea: si falla, solo se pierde
+    // la señal de analítica.
+    if (aprobado && pago.tenantId && pago.productId) {
+      try {
+        const { avisarCompraRealAMeta } = await import("./compra-verificada-meta");
+        await avisarCompraRealAMeta({
+          tenantId: pago.tenantId,
+          productId: pago.productId,
+          amount: Number(pago.amount) || 0,
+          currency: (pago as any).currency || "COP",
+          customerPhone: (pago as any).payerPhone || null,
+          customerEmail: (pago as any).payerEmail || null,
+          origen: "comprobante",
+        });
+      } catch { /* avisarCompraRealAMeta nunca lanza; esto es cinturón y tirantes */ }
+    }
+
     return {
       ok: true,
       mensajeParaElAdmin: aprobado

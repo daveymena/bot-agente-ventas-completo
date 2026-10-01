@@ -855,10 +855,21 @@ async function generarLandingPro(a: {
   const { renderizarLandingCod } = await import("../lib/landing/renderer-cod");
   const { videoDeProducto } = await import("../lib/video-de-producto");
   const video = videoDeProducto(product?.metadata);
+  // "Enviamos con…" desde el cotizador de Dropi (idea del dueño 01-10-2026):
+  // las transportadoras que maneja la cuenta, sin inventar. Si no hay token
+  // o Dropi no lista, la línea simplemente no sale (ver renderer-cod).
+  let transportadoras: string[] = [];
+  if (modo === "contraentrega") {
+    try {
+      const { tokenDropiDelTenant, transportadorasGenerales } = await import("../lib/dropi-directo");
+      const token = await tokenDropiDelTenant(tenantId);
+      if (token) transportadoras = await transportadorasGenerales(token);
+    } catch { /* sin transportadoras: la línea no sale */ }
+  }
   const renderizar = a.estilo === "clinico"
     ? renderizarLandingPro
     : modo === "contraentrega"
-      ? (o: any) => renderizarLandingCod({ ...o, caracteristicas: datos.features, videos: fabricante.clips.length ? fabricante.clips : /\.(mp4|webm)(\?|$)/i.test(video) ? [video] : [] })
+      ? (o: any) => renderizarLandingCod({ ...o, caracteristicas: datos.features, videos: fabricante.clips.length ? fabricante.clips : /\.(mp4|webm)(\?|$)/i.test(video) ? [video] : [], transportadoras })
       : renderizarLandingModerna;
   const html = renderizar({
     contenido: contenidoDesdeRespuesta(crudo, datos, tipoPro),

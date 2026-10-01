@@ -17,6 +17,7 @@ import telegramRouter from "./routes/telegram";
 import subscriptionWebhooksRouter from "./routes/subscription-webhooks";
 import activationRouter from "./routes/activation";
 import aiCatalogRouter from "./routes/ai-catalog";
+import { integracionesRouter, integracionesWebhooksRouter } from "./routes/integraciones";
 import { logger } from "./lib/logger";
 import { securityShield } from "./lib/security-shield";
 import { imageUrlFixer } from "./lib/image-url-fixer";
@@ -612,6 +613,11 @@ const publicRoutes = [
   // arriba. Sin esto, resolveTenant() exigiría una cookie de sesión que
   // OpenCode nunca va a tener.
   "/internal/mcp",
+  // Webhooks de integraciones (Shopify orders/create con HMAC sobre
+  // req.rawBody, notificaciones orders_v2 de Mercado Libre, callback OAuth de
+  // ML): los llaman las plataformas, sin sesión. Cada handler verifica la
+  // firma y resuelve el tenant por tienda/seller guardado (01-10-2026).
+  "/integraciones/webhooks",
   // Formulario de la landing pública (/l/:slug): pedido, cupón, evento y
   // transportadoras. Lo usa el VISITANTE del anuncio, sin sesión; cada ruta
   // resuelve el negocio por el slug de la landing publicada. Faltaba en esta
@@ -947,6 +953,11 @@ app.use("/api/activation", activationRouter);
 // los trae no existía. Un archivo de rutas sin montar es código muerto que
 // parece funcionalidad.
 app.use("/api/ai", aiCatalogRouter);
+// Integraciones (Shopify, AliExpress, Mercado Libre, Falabella): el router
+// con sesión va acá; los webhooks son PÚBLICOS (firma HMAC, resuelven el
+// tenant sin sesión) y van en `publicRoutes` abajo.
+app.use("/api/integraciones", integracionesRouter);
+app.use("/api/integraciones/webhooks", integracionesWebhooksRouter);
 app.use("/api", router);
 
 // Short URL redirect: /p/:productId → /tienda/:slug/producto/:productId

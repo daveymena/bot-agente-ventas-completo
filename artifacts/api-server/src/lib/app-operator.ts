@@ -3445,7 +3445,7 @@ ${explicarObjetivos()}` };
   {
     name: "fb_create_ad",
     description: "Crear una campaña de anuncios en Facebook/Instagram para un producto. Se crea SIEMPRE en PAUSA (no gasta hasta que el admin la active en Ads Manager). Meta adapta el creativo a cada tamaño/dispositivo automáticamente. GASTA DINERO al activarse. ⚠️ El 'objetivo' decide A DÓNDE va la gente y A QUIÉN le muestra Meta el anuncio: si el admin dijo WhatsApp, mensajes, tráfico o alcance, PASALO — sin ese dato se crea de ventas apuntando a la web, que es otra campaña distinta.",
-    args: '{ "productId": number (req), "objetivo": "ventas"|"trafico"|"mensajes"|"reconocimiento"|"formulario" (opcional pero IMPORTANTE — "mensajes" abre WhatsApp, "trafico" lleva a la web buscando clics, "ventas" lleva a la web buscando compradores, def "ventas"), "destinoWeb"?: "landing"|"tienda" (si el admin pidió la LANDING pasá "landing" con objetivo "trafico" o "ventas", NUNCA "mensajes"), "dailyBudget": number (opcional, en la moneda de la cuenta, def 5000), "startDate": string opcional ISO, "cities": string[] opcional, "ageMin": number opcional, "ageMax": number opcional }',
+    args: '{ "productId": number (req), "objetivo": "ventas"|"trafico"|"mensajes"|"reconocimiento"|"formulario" (opcional pero IMPORTANTE — "mensajes" abre WhatsApp, "trafico" lleva a la web buscando clics, "ventas" lleva a la web buscando compradores, def "ventas"), "destinoWeb"?: "landing"|"tienda" (si el admin pidió la LANDING pasá "landing" con objetivo "trafico" o "ventas", NUNCA "mensajes"), "dailyBudget": number (opcional, en la moneda de la cuenta, def 5000), "startDate": string opcional ISO, "cities": string[] opcional, "ageMin": number opcional, "ageMax": number opcional, "customAudiences"?: string[] (ids de fb_audiencia_*), "interests"?: string[] (nombres) }',
     run: async (args, ctx) => {
       if (!args.productId) return { ok: false, summary: "Falta 'productId'" };
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
@@ -3456,6 +3456,17 @@ ${explicarObjetivos()}` };
       if (args.cities) targeting.geoLocations = { cities: args.cities };
       if (args.ageMin) targeting.ageMin = Number(args.ageMin);
       if (args.ageMax) targeting.ageMax = Number(args.ageMax);
+      if (Array.isArray(args.customAudiences) && args.customAudiences.length) {
+        targeting.customAudiences = args.customAudiences.map(String).filter(Boolean).slice(0, 10);
+      }
+      if (Array.isArray(args.interests) && args.interests.length) {
+        try {
+          const { resolveInterestIds } = await import("./facebook");
+          targeting.interests = await resolveInterestIds((fb as any).config?.userAccessToken, args.interests.map(String).slice(0, 5));
+        } catch {
+          targeting.interests = args.interests.map(String).slice(0, 5).map((name) => ({ id: "", name }));
+        }
+      }
 
       // El objetivo NO se pasaba: `createAdForProduct` lo recibe desde hace
       // rato (facebook.ts) y esta herramienta simplemente no se lo mandaba, así
@@ -3521,6 +3532,106 @@ ${explicarObjetivos()}` };
           `Actívala en Ads Manager. Preview: ${r.previewUrl}`,
         data: r,
       };
+    },
+  },
+  {
+    name: "fb_audiencias",
+    description: "Lista las audiencias de la cuenta (retargeting, clientes, lookalikes). Lectura.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no configurado (falta token)." };
+      try {
+        const { listarAudiencias } = await import("./facebook-audiences");
+        const cfg = (fb as any).config;
+        const lista = await listarAudiencias({ userToken: cfg.userAccessToken, adAccountId: cfg.adAccountId, pixelId: cfg.pixelId });
+        if (!lista.length) return { ok: true, summary: "La cuenta no tiene audiencias: creá una con fb_audiencia_web o fb_audiencia_clientes.", data: [] };
+        return { ok: true, summary: `Audiencias: ${lista.map((a) => `${a.name} (${a.subtype}, id ${a.id}${a.approximate_count != null ? `, ~${a.approximate_count}` : ""})`).join(" / ")}`, data: lista };
+      } catch (e: any) {
+        return { ok: false, summary: `No se pudieron listar: ${e?.message || e}` };
+      }
+    },
+  },
+  {
+    name: "fb_audiencia_web",
+    description: "Crea audiencia de retargeting del sitio (píxel, 180 días). No gasta.",
+    args: '{ "dominio"?, "dias"? (def 180), "nombre"? }',
+    run: async (args, ctx) => {
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no configurado (falta token)." };
+      try {
+        const { crearAudienciaWeb } = await import("./facebook-audiences");
+        const cfg = (fb as any).config;
+        let dominio = String(args.dominio || "").trim();
+        if (!dominio) {
+          try { dominio = new URL(process.env.APP_URL || "").hostname; } catch { dominio = ""; }
+        }
+        if (!dominio) return { ok: false, summary: "Falta el dominio (y no se pudo deducir de APP_URL)." };
+        const dias = Math.min(Math.max(Number(args.dias) || 180, 1), 180);
+        const r = await crearAudienciaWeb(
+          { userToken: cfg.userAccessToken, adAccountId: cfg.adAccountId, pixelId: cfg.pixelId },
+          String(args.nombre || `Web ${dominio} ${dias}d`).slice(0, 80),
+          dominio, dias,
+        );
+        return { ok: true, summary: `Audiencia web creada (id ${r.id}): visitantes de ${dominio} (${dias} días). Usala en fb_create_ad con customAudiences: ["${r.id}"]. Tarda unas horas en poblarse.`, data: r };
+      } catch (e: any) {
+        return { ok: false, summary: `No se pudo crear: ${e?.message || e}` };
+      }
+    },
+  },
+  {
+    name: "fb_audiencia_clientes",
+    description: "Crea audiencia con los teléfonos del CRM (hasheados). Mínimo 100. No gasta.",
+    args: '{ "nombre"?, "limite"? (def 5000) }',
+    run: async (args, ctx) => {
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no configurado (falta token)." };
+      try {
+        const { crearAudienciaClientes } = await import("./facebook-audiences");
+        const cfg = (fb as any).config;
+        const r = await crearAudienciaClientes(
+          { userToken: cfg.userAccessToken, adAccountId: cfg.adAccountId, pixelId: cfg.pixelId },
+          ctx.tenantId,
+          String(args.nombre || "Clientes WhatsApp/CRM").slice(0, 80),
+          Number(args.limite) || 5000,
+        );
+        return { ok: true, summary: `Audiencia de clientes creada (id ${r.id}) con ${r.subidos} teléfonos hasheados. Usala en fb_create_ad con customAudiences: ["${r.id}"].`, data: r };
+      } catch (e: any) {
+        return { ok: false, summary: `No se pudo crear: ${e?.message || e}` };
+      }
+    },
+  },
+  {
+    name: "fb_lookalike",
+    description: "Crea lookalike 1-3% sobre una audiencia origen. No gasta.",
+    args: '{ "origen" (req, id de audiencia), "nombre"?, "pais"? (def CO), "ratio"? (def 0.01) }',
+    run: async (args, ctx) => {
+      const origen = String(args.origen || "").trim();
+      if (!origen) return { ok: false, summary: "Falta 'origen' (id de audiencia, ver fb_audiencias)." };
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no configurado (falta token)." };
+      try {
+        const { crearLookalike } = await import("./facebook-audiences");
+        const cfg = (fb as any).config;
+        const r = await crearLookalike(
+          { userToken: cfg.userAccessToken, adAccountId: cfg.adAccountId, pixelId: cfg.pixelId },
+          String(args.nombre || `Similar ${origen}`).slice(0, 80),
+          origen,
+          String(args.pais || "CO"),
+          Number(args.ratio) || 0.01,
+        );
+        return { ok: true, summary: `Lookalike creado (id ${r.id}) sobre ${origen}. Usalo en fb_create_ad con customAudiences: ["${r.id}"]. Tarda unas horas en poblarse.`, data: r };
+      } catch (e: any) {
+        return { ok: false, summary: `No se pudo crear: ${e?.message || e}` };
+      }
     },
   },
   {
@@ -4325,6 +4436,29 @@ ${explicarObjetivos()}` };
         status: "confirmed",
         paymentStatus: "approved",
       } as any);
+
+      // Compra REAL (2026-10-01): el admin vio la plata en su cuenta, así que
+      // acá SÍ sale el Purchase a Meta. (El que salía con el pago pendiente
+      // desde el motor v1 se eliminó: contaminaba la optimización.)
+      try {
+        const { avisarCompraRealAMeta } = await import("./compra-verificada-meta");
+        let email: string | null = null;
+        if ((convo as any).leadId) {
+          try {
+            const [lead] = await db.select({ email: leads.email }).from(leads).where(eq(leads.id, (convo as any).leadId)).limit(1);
+            if (lead?.email) email = lead.email;
+          } catch { /* sin correo igual se informa la compra */ }
+        }
+        await avisarCompraRealAMeta({
+          tenantId: ctx.tenantId,
+          productId: Number((convo as any).currentProductId) || 0,
+          amount: monto,
+          currency: String(prod?.currency || "COP"),
+          customerPhone: (convo as any).contactPhone || null,
+          customerEmail: email,
+          origen: "transferencia",
+        });
+      } catch { /* nunca rompe el registro del pago */ }
 
       return {
         ok: true,
@@ -5177,6 +5311,96 @@ ${explicarObjetivos()}` };
       const { estadoWooCommerce } = await import("./woocommerce-estado");
       const r = await estadoWooCommerce(ctx.tenantId);
       return { ok: r.configurada && r.conexion.ok, summary: r.resumen, data: r };
+    },
+  },
+  {
+    // Integraciones externas (Shopify, AliExpress, Mercado Libre, Falabella).
+    // Las credenciales viven cifradas en tenants.metadata.integraciones y las
+    // guarda el dueño desde el panel (PUT /api/integraciones/:plataforma);
+    // Atlas NO pide ni muestra secretos: si falta algo, dice QUÉ cargar y dónde.
+    name: "integraciones_estado",
+    description: "Qué integraciones están conectadas (Shopify, AliExpress, Mercado Libre, Falabella). Lectura.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { estadoIntegraciones } = await import("./integraciones/index");
+      const estado = await estadoIntegraciones(ctx.tenantId);
+      const conectadas = Object.entries(estado).filter(([, v]) => v.conectada).map(([k, v]) => `${k}${v.tienda ? ` (${v.tienda})` : ""}`);
+      return {
+        ok: true,
+        summary: conectadas.length
+          ? `Conectadas: ${conectadas.join(", ")}.`
+          : "Ninguna integración conectada. El dueño las conecta en el panel (Integraciones) o te dicta las claves: Shopify (dominio + token shpat_), AliExpress (app_key + app_secret de Portals), Mercado Libre (client_id + client_secret, después autorizar), Falabella (fase 4).",
+        data: estado,
+      };
+    },
+  },
+  {
+    name: "integracion_importar",
+    description: "Importa productos de la tienda externa al catálogo. Para AliExpress pedí QUÉ buscar.",
+    args: '{ "plataforma": "shopify"|"aliexpress"|"mercadolibre" (req), "consulta"?, "limite"? (def 50) }',
+    run: async (args, ctx) => {
+      const p = String(args?.plataforma || "").toLowerCase();
+      if (!["shopify", "aliexpress", "mercadolibre"].includes(p)) {
+        return { ok: false, summary: "Falta 'plataforma': shopify, aliexpress o mercadolibre (falabella es fase 4)." };
+      }
+      try {
+        const { importar } = await import("./integraciones/index");
+        const r = await importar(ctx.tenantId, p as "shopify" | "aliexpress" | "mercadolibre", { consulta: args?.consulta, limite: args?.limite });
+        const fallos = r.detalles.slice(0, 5).join(" / ");
+        return { ok: r.errores === 0, summary: `Importados ${r.importados} nuevos, ${r.actualizados} actualizados, ${r.errores} errores.${fallos ? ` Ej: ${fallos}` : ""}`, data: r };
+      } catch (e: any) {
+        return { ok: false, summary: `No se pudo importar de ${p}: ${e?.message || e}` };
+      }
+    },
+  },
+  {
+    name: "integracion_publicar",
+    description: "Publica un producto interno en Shopify o Mercado Libre (ML exige categoriaId).",
+    args: '{ "plataforma": "shopify"|"mercadolibre" (req), "productId" (req), "categoriaId"? }',
+    run: async (args, ctx) => {
+      const p = String(args?.plataforma || "").toLowerCase();
+      const productId = Number(args?.productId);
+      if (!["shopify", "mercadolibre"].includes(p)) return { ok: false, summary: "Plataforma: shopify o mercadolibre." };
+      if (!productId) return { ok: false, summary: "Falta 'productId' (id interno del producto)." };
+      try {
+        const { db: base, products } = await import("@workspace/db");
+        const { eq, and } = await import("drizzle-orm");
+        const [prod] = await base.select().from(products).where(and(eq(products.id, productId), eq(products.tenantId, ctx.tenantId))).limit(1);
+        if (!prod) return { ok: false, summary: `Producto ${productId} no existe en este negocio.` };
+        let meta: any = {};
+        try { meta = JSON.parse(String((prod as any).metadata || "{}")); } catch { meta = {}; }
+        const { publicar } = await import("./integraciones/index");
+        const r = await publicar(ctx.tenantId, p as "shopify" | "mercadolibre", {
+          nombre: (prod as any).name,
+          descripcion: String((prod as any).description || ""),
+          precio: Number((prod as any).price) || 0,
+          moneda: (prod as any).currency || "COP",
+          imagenes: [...(meta?.[p]?.imageUrls || []), (prod as any).imageUrl].filter(Boolean),
+          categoriaId: args?.categoriaId,
+          stock: (prod as any).stock ?? undefined,
+        });
+        return { ok: true, summary: `Publicado en ${p} (id ${r.id})${r.link ? `: ${r.link}` : ""}.`, data: r };
+      } catch (e: any) {
+        return { ok: false, summary: `No se pudo publicar en ${p}: ${e?.message || e}` };
+      }
+    },
+  },
+  {
+    name: "integracion_pedidos",
+    description: "Trae pedidos externos como internos (sin despacho automático a Dropi).",
+    args: '{ "plataforma": "shopify"|"mercadolibre"|"falabella" (req), "limite"? (def 50) }',
+    run: async (args, ctx) => {
+      const p = String(args?.plataforma || "").toLowerCase();
+      if (!["shopify", "mercadolibre", "falabella"].includes(p)) {
+        return { ok: false, summary: "Plataforma: shopify, mercadolibre o falabella (AliExpress requiere OAuth del comprador)." };
+      }
+      try {
+        const { traerPedidos } = await import("./integraciones/index");
+        const r = await traerPedidos(ctx.tenantId, p as "shopify" | "mercadolibre" | "falabella", args?.limite);
+        return { ok: r.errores === 0, summary: `Pedidos: ${r.creados} creados, ${r.repetidos} repetidos, ${r.errores} errores.${r.detalles.slice(0, 5).join(" / ") ? ` Ej: ${r.detalles.slice(0, 5).join(" / ")}` : ""}`, data: r };
+      } catch (e: any) {
+        return { ok: false, summary: `No se pudieron traer pedidos de ${p}: ${e?.message || e}` };
+      }
     },
   },
   {
@@ -6230,6 +6454,121 @@ ${explicarObjetivos()}` };
       } catch (e: any) {
         return { ok: false, summary: `No pude armar los datos: ${e?.message || e}` };
       }
+    },
+  },
+  {
+    // El método de un curso completo de e-commerce, condensado y marcado por
+    // fuente (autor / verificado / hipótesis). Se pide por tema para no meter
+    // el método entero en cada turno: Groq corta en 8.000 tokens por minuto.
+    name: "metodo_de_venta",
+    description:
+      "Método de venta por tema, con cuentas de precio y embudo. Lectura.",
+    args: '{ "tema": "producto"|"costeo"|"landing"|"creativos"|"pauta"|"metricas"|"whatsapp"|"no_se_hace", "costoProducto"?, "fleteBase"?, "cpaObjetivo"?, "entregaPct"?, "canceladosPct"?, "gasto"?, "impresiones"?, "clics"?, "visitas"?, "conversaciones"?, "ventas"?, "puntoEquilibrio"? }',
+    run: async (args) => {
+      const m = await import("./marketing-team/metodo-de-venta");
+      const tema = m.normalizarTema(args?.tema);
+      if (!tema) return { ok: true, summary: m.INDICE };
+      const partes = [m.textoDelTema(tema)];
+      let data: any = { tema };
+      if (tema === "costeo" && num(args?.costoProducto) && num(args?.cpaObjetivo)) {
+        const p = m.precioDeVenta({
+          costoProducto: num(args.costoProducto) ?? 0, fleteBase: num(args.fleteBase), cpaObjetivo: num(args.cpaObjetivo) ?? 0,
+          entregaPct: num(args.entregaPct), canceladosPct: num(args.canceladosPct),
+        });
+        data = { ...data, precio: p };
+        partes.unshift(
+          `Precio sugerido $${p.precioSugerido.toLocaleString("es-CO")} (${p.supuestos}). Flete con devoluciones $${p.fleteConDevoluciones.toLocaleString("es-CO")}, ` +
+          `publicidad costeada $${p.cpaCosteado.toLocaleString("es-CO")}, ganancia por entregado $${p.gananciaPorEntregado.toLocaleString("es-CO")}. ` +
+          `Punto de equilibrio en el administrador de anuncios: $${p.cpaPuntoEquilibrio.toLocaleString("es-CO")} por venta. Para entregar 10 hay que generar ${p.pedidosParaEntregarDiez} pedidos.`,
+        );
+      }
+      if (tema === "metricas" && num(args?.gasto)) {
+        const h = m.diagnosticarEmbudo({
+          gasto: num(args.gasto) ?? 0, impresiones: num(args.impresiones), clics: num(args.clics), visitas: num(args.visitas),
+          conversaciones: num(args.conversaciones), ventas: num(args.ventas), puntoEquilibrio: num(args.puntoEquilibrio) || undefined,
+        });
+        data = { ...data, hallazgos: h };
+        partes.unshift(h.length
+          ? "Diagnóstico:\n" + h.map((x) => `→ [${x.etapa}] ${x.lectura} ${x.accion}`).join("\n")
+          : "Diagnóstico: con estos números no aparece ninguna etapa rota; si no hay ventas, falta muestra.");
+      }
+      return { ok: true, summary: partes.join("\n\n"), data };
+    },
+  },
+  {
+    // Oferta 2× con costo y flete REALES (idea del dueño 01-10-2026).
+    // El precio NO se inventa: sale de metodo_de_venta.precioDeVenta con el
+    // costo del proveedor guardado al importar (dropiCost) y el flete cotizado
+    // en Dropi (o pasado a mano). Sin costo o sin flete, se PIDE el dato, no
+    // se estima. Con `aplicar: true` guarda la oferta en la landing del
+    // producto (packs "1 unidad" + "Lleva 2"); sin eso solo la propone y el
+    // dueño aprueba el precio antes de que exista en ningún lado.
+    name: "oferta_2x_sugerir",
+    description: "Calcula la oferta 'Lleva 2' con costo y flete reales. Sin aplicar, solo la propone.",
+    args: '{ "productId" (req), "ciudad"?, "fleteBase"?, "cpaObjetivo"?, "aplicar"? (def false) }',
+    run: async (args, ctx) => {
+      const productId = Number(args?.productId);
+      if (!productId) return { ok: false, summary: "Falta 'productId' (id interno del producto)." };
+      const { db: base, products, landingPages } = await import("@workspace/db");
+      const { eq, and, desc } = await import("drizzle-orm");
+      const [prod] = await base.select().from(products).where(and(eq(products.id, productId), eq(products.tenantId, ctx.tenantId))).limit(1);
+      if (!prod) return { ok: false, summary: `Producto ${productId} no existe en este negocio.` };
+      let meta: any = {};
+      try { meta = typeof (prod as any).metadata === "string" ? JSON.parse((prod as any).metadata) : ((prod as any).metadata || {}); } catch { meta = {}; }
+      const costo = Number(meta.dropiCost ?? meta?.woocommerce?.dropiCost ?? meta.costoProveedor) || 0;
+      if (!(costo > 0)) {
+        return { ok: false, summary: `No tengo el costo del proveedor de "${(prod as any).name}": se importa con el producto (dropiCost) o pasámelo y lo guardo. Sin costo real no hay oferta 2×.` };
+      }
+      let flete = Number(args?.fleteBase) || 0;
+      if (!(flete > 0) && args?.ciudad) {
+        try {
+          const { cotizarEnvioDropi } = await import("./dropi-cotizador");
+          const dropiId = Number(meta.dropiProductId) || 0;
+          if (!dropiId) return { ok: false, summary: "Para cotizar necesito que el producto venga de Dropi (sin dropiProductId no hay flete real)." };
+          const cot = await cotizarEnvioDropi(ctx.tenantId, {
+            dropiProductId: dropiId, ciudad: String(args.ciudad), precioVenta: Number((prod as any).price) || 0, cantidad: 2,
+          });
+          const f = Number((cot as any)?.flete ?? (cot as any)?.total) || 0;
+          if (!(f > 0)) return { ok: false, summary: `Dropi no cotizó flete a ${args.ciudad}: ${String((cot as any)?.error || "sin dato").slice(0, 150)}` };
+          flete = f;
+        } catch (e: any) {
+          return { ok: false, summary: `No se pudo cotizar el flete: ${e?.message || e}` };
+        }
+      }
+      if (!(flete > 0)) {
+        return { ok: false, summary: "Falta el flete real: pasá 'ciudad' (cotizo en Dropi) o 'fleteBase' (si ya lo sabés). Sin flete no hay oferta 2×." };
+      }
+      const m = await import("./marketing-team/metodo-de-venta");
+      const p = m.precioDeVenta({
+        costoProducto: 2 * costo,
+        fleteBase: flete,
+        cpaObjetivo: Number(args?.cpaObjetivo) || 0,
+        entregaPct: undefined, canceladosPct: undefined,
+      } as any);
+      const precio1 = Number((prod as any).price) || 0;
+      const ahorro = 2 * precio1 - p.precioSugerido;
+      const fmt = (n: number) => "$" + Math.round(n).toLocaleString("es-CO");
+      const resumen =
+        `Oferta 2× para "${(prod as any).name}": ${fmt(p.precioSugerido)} por 2 unidades ` +
+        `(costo ${fmt(2 * costo)} + flete ${fmt(flete)}${Number(args?.cpaObjetivo) ? ` + publicidad ${fmt(Number(args.cpaObjetivo))}` : " + SIN publicidad costeada (pasá cpaObjetivo)"}). ` +
+        (ahorro > 0
+          ? `Contra 2× ${fmt(precio1)} el cliente ahorra ${fmt(ahorro)}.`
+          : `⚠️ Eso NO deja ahorro contra 2× ${fmt(precio1)}: no la apliques así; subí el precio de 1 o bajá costos.`) +
+        (args?.aplicar ? "" : " Decime 'aplícala' y la guardo en la landing (packs 1 + 2).");
+      if (!args?.aplicar) return { ok: true, summary: resumen, data: { precio2x: p.precioSugerido, ahorro, costo2x: 2 * costo, flete } };
+      if (!(ahorro > 0)) return { ok: false, summary: resumen + " No la guardé porque no deja ahorro." };
+      const [landing] = await base.select().from(landingPages)
+        .where(and(eq(landingPages.tenantId, ctx.tenantId), eq(landingPages.productId, productId)))
+        .orderBy(desc(landingPages.id)).limit(1);
+      if (!landing) return { ok: false, summary: "El producto todavía no tiene landing: generala primero y después aplico la oferta." };
+      let design: any = {};
+      try { design = typeof (landing as any).design === "string" ? JSON.parse((landing as any).design) : ((landing as any).design || {}); } catch { design = {}; }
+      design.ofertas = [
+        { nombre: "1 unidad", precio: precio1, cantidad: 1 },
+        { nombre: `Lleva 2 por ${fmt(p.precioSugerido)} (ahorrás ${fmt(ahorro)})`, precio: p.precioSugerido, cantidad: 2 },
+      ];
+      await base.update(landingPages).set({ design } as any).where(eq(landingPages.id, (landing as any).id));
+      return { ok: true, summary: `${resumen} Guardada en la landing "${(landing as any).name}" (packs 1 + 2).`, data: { landingId: (landing as any).id, precio2x: p.precioSugerido, ahorro } };
     },
   },
   {
@@ -9090,15 +9429,17 @@ export const READ_ONLY_TOOLS = new Set([
   "predict_customer", "optimize_price", "optimize_copy",
   "analyze_channel_performance", "reason_business_decision",
   // Lectura de web (información externa)
-  "web_fetch", "web_search", "web_scrape_images", "search_product_images", "ver_imagen", "fb_ad_library", "atlas_ad_intelligence",
+  "web_fetch", "web_search", "web_scrape_images", "search_product_images", "ver_imagen", "fb_ad_library", "atlas_ad_intelligence", "fb_audiencias",
   // Que es y cuanto cuesta la plataforma: solo lectura, no cambia nada.
   "plataforma_info",
   "research_start", "research_check",
   // Listar conjuntos es lectura pura. pause/resume/set_budget NO van acá a
   // propósito: mueven dinero real y tienen que pasar por confirmación.
   "fb_list_adsets", "fb_radiografia_campana", "anuncio_datos_expertos",
+  // El método de venta: reglas y cuentas puras, no toca Meta ni la base.
+  "metodo_de_venta",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
-  "dropi_status", "dropi_margen", "dropi_pedidos", "dropi_buscar", "video_anuncio_estado", "fabricante_ver", "dropi_search_products", "woocommerce_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
+  "dropi_status", "dropi_margen", "dropi_pedidos", "dropi_buscar", "video_anuncio_estado", "fabricante_ver", "dropi_search_products", "woocommerce_estado", "integraciones_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
   "dropi_verificar_producto", "dropi_con_ordenes", "dropi_importar_lote_estado", "dropi_cotizar_envio",
   // Radar de ganadores + calculadora de rentabilidad + espía de tiendas +
   // estimación previa: las cuatro son lectura pura (cruzan datos y calculan,
@@ -9517,6 +9858,7 @@ PRINCIPIOS OBLIGATORIOS:
 5.5. LEER NO SE PIDE PERMISO. Nunca preguntes "¿confirmás que reviso?" ni "¿querés que consulte?": las herramientas de lectura no cambian nada, no gastan un peso y no se deshacen. Corrélas y CONTESTÁ CON EL RESULTADO. El admin te pidió algo, no te pidió un presupuesto de trabajo. Pedir confirmación se reserva EXCLUSIVAMENTE para lo que cambia algo real (crear, editar, borrar, publicar, gastar, enviar) -- eso va por propose_action y ahí sí espera su "sí".
 5.6. SI TE PIDEN UNA ACCIÓN, HACÉ EL CAMINO COMPLETO EN EL MISMO TURNO. Ejemplo real: ante "activá el anuncio del piano" NO contestes "te propongo diagnosticar primero, ¿confirmás?". Encadenalo vos: buscá la campaña, revisá por qué no entrega (lectura, sin preguntar), identificá el anuncio apagado y recién ahí proponé el ÚNICO cambio real que hace falta, ya con el id concreto y diciendo cuánto va a gastar por día. Una sola confirmación, sobre la acción de verdad.
 5.9. ANUNCIOS: EXPERTO, NO GENÉRICO. Antes de escribir o proponer CUALQUIER anuncio llamá anuncio_datos_expertos {productId}: ahí está lo que ya convirtió en esta cuenta (gancho, formato, costo por resultado), la estructura de campaña a repetir, las referencias del rubro, qué DEBE decir el anuncio, el formato del copy (emoji al inicio de cada línea, línea en blanco entre bloques, 3-5 beneficios, precio exacto y cómo llega, una sola acción, 8-12 líneas) y las sugerencias de imagen/video para ese producto. El anuncio que entregues cita esos datos: "arranco con pregunta porque el gancho que mejor convirtió fue X", "meta: costo por conversación ≤ $Y", "imagen: el producto en uso, 4:5, con el precio en etiqueta". Un anuncio sin precio, sin cómo llega o sin sugerencia creativa está incompleto. Al subirlo (fb_upload_draft_to_meta) se replica la estructura real de la cuenta (dos conjuntos, Instagram, mejoras) salvo que el admin pida otra cosa. Y después de publicar, tu trabajo sigue: leé métricas a las 24-48 h y aplicá las reglas de decisión (cambiar gancho, pausar conjunto, escalar 20%).
+5.10. MÉTODO DE VENTA, NO INTUICIÓN. Para elegir producto, poner precio, armar la página o diagnosticar ventas, llamá metodo_de_venta {tema} (con números: costeo o metricas). Citá la fuente (autor/verificado/hipótesis) y nunca recomiendes lo de no_se_hace.
 5.8. PARA ENTRENAR AL VENDEDOR DE WHATSAPP, MEDÍ, NO OPINES. El ciclo es siempre el mismo: (1) reproducí el caso con agente_probar_chat (los mensajes del cliente en orden, o el conversationId real) y leé lo que el cliente RECIBIRÍA y los HALLAZGOS; (2) si hay algo mal, corregí la CAUSA con la herramienta que corresponde: un dato del negocio o del producto → agente_perfil_negocio / update_product; una regla o un dato que el vendedor debe saber o no puede decir → agente_conocimiento; identidad, tono o instrucciones → update_agent (todas pasan por confirmación del admin); (3) volvé a correr agente_probar_chat con los MISMOS mensajes y mostrá el antes/después. Nunca digas "no puedo simular un chat": sí podés. Nunca afirmes que el agente "ya responde bien" sin haberlo reproducido en este turno. Esto vale para cualquier negocio de la plataforma, no solo para uno.
 5.4. SI ALGO NO FUNCIONA, DIAGNOSTICALO VOS. Ante un "esto no anda", "por qué no responde" o "algo está roto", llamá system_diagnose: prueba cada conexión de verdad (Facebook, WhatsApp, IA, cobros) y devuelve qué falla, por qué y cómo se arregla. No le pidas al admin que averigüe él lo que vos podés ver.
 6. LARGO Y ORDEN (el admin lee en el celular; medido el 11-09-2026: respuestas de 40 líneas con la acción al final, tres avisos repetidos y dos preguntas de cierre):

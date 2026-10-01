@@ -608,7 +608,7 @@ export function precioPorFactor(costo: number, factor: number): number | null {
   return v;
 }
 
-export async function importarProductoDropi(tenantId: number, token: string, dropiId: number, opts: { precio?: number | null; factorSobreCosto?: number | null; categoria?: string | null; curar?: boolean } = {}): Promise<ResultadoImportacion> {
+export async function importarProductoDropi(tenantId: number, token: string, dropiId: number, opts: { precio?: number | null; factorSobreCosto?: number | null; categoria?: string | null; curar?: boolean; postImportacion?: boolean } = {}): Promise<ResultadoImportacion> {
   const r = await detalleProductoDropi(token, dropiId);
   if (!r.ok || !r.data) return { ok: false, error: `No se pudo leer el producto ${dropiId} en Dropi: ${r.error}` };
   const p = r.data;
@@ -716,6 +716,16 @@ export async function importarProductoDropi(tenantId: number, token: string, dro
     metadata: JSON.stringify(dropi),
   } as any).returning();
   logger.info({ tenantId, productId: (creado as any).id, dropiId: p.id, curadoPor: ficha?.curadoPor || null }, "[DropiDirecto] Producto importado");
+  // Post-importación (01-10-2026): producto NUEVO → en segundo plano se
+  // buscan los activos del fabricante y se arma la landing en borrador,
+  // avisando al dueño. El lote masivo lo apaga (decenas de trabajos a la
+  // vez quemarían la cuota de IA); esos se lanzan de a uno después.
+  if (opts.postImportacion !== false) {
+    try {
+      const { lanzarPostImportacion } = await import("./dropi-post-importacion");
+      lanzarPostImportacion(tenantId, Number((creado as any).id));
+    } catch { /* la importación ya salió: esto es accesorio */ }
+  }
   return { ok: true, productId: (creado as any).id, nombre: (creado as any).name, curadoPor: ficha?.curadoPor, complementadoDesde: ficha?.complementadoDesde };
 }
 
@@ -1031,6 +1041,30 @@ export interface TransportadorasCiudad {
   nota: string;
   /** Lo que Dropi SÍ dice de la ciudad (trajectory/bycity): si la cubre, el trayecto y si acepta contraentrega. */
   ciudad?: { nombre: string; cubierta: boolean; trayecto: string | null; aceptaContraentrega: boolean | null } | null;
+}
+
+/**
+ * Las transportadoras que maneja la cuenta de Dropi, SIN filtro de ciudad.
+ * (Idea del dueño 01-10-2026: "Enviamos con…" desde el cotizador de Dropi.)
+ *
+ * Dropi NO dice por API qué transportadora llega a cada ciudad —eso se
+ * confirma al despachar—, así que la landing las nombra como las que maneja
+ * la tienda en general y el renderer solo muestra la línea si vienen de acá
+ * (nunca inventadas). Vacío cuando no hay token o Dropi no lista.
+ */
+export async function transportadorasGenerales(token: string): Promise<string[]> {
+  try {
+    const gen = await dropiIntegracion<any>(token, "distribution_companies", undefined, "GET", 20000);
+    if (!gen.ok) return [];
+    const nombres: string[] = [];
+    for (const c of listaDeObjetos(gen.data)) {
+      const nombre = String(c?.name ?? c?.nombre ?? c?.company_name ?? c?.company ?? c?.distribution_company ?? "").trim();
+      if (nombre && !nombres.some((n) => n.toUpperCase() === nombre.toUpperCase())) nombres.push(nombre);
+    }
+    return nombres.slice(0, 6);
+  } catch {
+    return [];
+  }
 }
 
 /** El array venga donde venga: plano, `objects`, `data`, etc. */

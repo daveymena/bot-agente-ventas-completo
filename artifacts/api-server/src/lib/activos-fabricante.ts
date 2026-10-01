@@ -85,6 +85,50 @@ export function tramosParaClips(duracion: number, cantidad: number, seg = 3): nu
   return Array.from({ length: n }, (_, i) => Math.round((1 + (util - 1) * (n === 1 ? 0.3 : i / (n - 1))) * 10) / 10);
 }
 
+/**
+ * Consultas de búsqueda: la original en español + su traducción al inglés
+ * (idea del dueño 01-10-2026). AliExpress indexa en inglés y con la consulta
+ * traducida aparecen fichas que en español no salen. Sin duplicar cuando la
+ * traducción es igual o vacía. Pura (testeable).
+ */
+export function consultasDeBusqueda(consultaEs: string, consultaEn?: string | null): string[] {
+  const es = String(consultaEs || "").trim();
+  const en = String(consultaEn || "").trim();
+  const out = [es];
+  if (en && en.toLowerCase() !== es.toLowerCase()) out.push(en);
+  return out.filter(Boolean);
+}
+
+/**
+ * Traduce la consulta a inglés con el proveedor de redacción del negocio.
+ * Best-effort y rápido (15 s): si no hay proveedor o falla, null y la
+ * búsqueda sigue solo en español. Nunca inventa: solo traduce.
+ */
+export async function traducirConsultaAingles(tenantId: number, consulta: string): Promise<string | null> {
+  const es = String(consulta || "").trim();
+  if (!es || /^[a-z0-9\s\-',.()&]+$/i.test(es) && !/[áéíóúñü]/i.test(es)) {
+    // Sin tildes ni eñes puede ya estar en inglés o ser marca: igual se
+    // intenta, pero si falla no pasa nada (la búsqueda en ES sigue).
+  }
+  if (!es) return null;
+  try {
+    const { redactarConProveedores } = await import("./landing/agente-landing");
+    const r = await redactarConProveedores({
+      tenantId,
+      system: "Traducí al inglés lo que te pasan para buscarlo en AliExpress. Respondé SOLO con la traducción, sin comillas ni explicaciones.",
+      user: es.slice(0, 120),
+      timeoutMs: 15_000,
+      maxTokens: 40,
+      tarea: "traducir-consulta",
+    });
+    const en = String(r?.text || "").replace(/^["'«»“”]+|["'«»“”.,;]+$/g, "").trim().split("\n")[0]!.trim();
+    if (!en || en.length > 120) return null;
+    return en.toLowerCase() === es.toLowerCase() ? null : en;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Utilidades de proceso ──────────────────────────────────────────────────
 
 function run(cmd: string, args: string[], timeoutMs = 120_000): Promise<{ code: number; out: string; err: string }> {
@@ -297,7 +341,7 @@ export async function buscarActivosDelFabricante(tenantId: number, productId: nu
   try { m = typeof p.metadata === "string" ? JSON.parse(p.metadata as any) : (p.metadata || {}); } catch { m = {}; }
   const nuestras = fotosDeReferencia(m, p.imageUrl);
   if (!nuestras.length) return { ok: false, error: "El producto no tiene foto del proveedor: sin ella no puedo comprobar que sea el mismo producto." };
-  const r = await buscarActivos(productId, nuestras, String(opts.consulta || p.name || "").trim(), opts);
+  const r = await buscarActivos(productId, nuestras, String(opts.consulta || p.name || "").trim(), { ...opts, tenantId });
   if (r.ok && r.activos) {
     await db.update(products).set({ metadata: JSON.stringify({ ...m, activosFabricante: r.activos }) } as any).where(eq(products.id, productId));
     logger.info({ tenantId, productId, revisados: r.activos.revisados, fotos: r.activos.fotos.length, clips: r.activos.clips.length }, "[Fabricante] activos buscados");
@@ -306,7 +350,7 @@ export async function buscarActivosDelFabricante(tenantId: number, productId: nu
 }
 
 /** El núcleo, sin base de datos: busca, compara con visión, baja y corta. */
-export async function buscarActivos(productId: number, fotosNuestras: string[], consulta: string, opts: { maxFichas?: number } = {}): Promise<{ ok: boolean; error?: string; activos?: ActivosFabricante }> {
+export async function buscarActivos(productId: number, fotosNuestras: string[], consulta: string, opts: { maxFichas?: number; tenantId?: number } = {}): Promise<{ ok: boolean; error?: string; activos?: ActivosFabricante }> {
   const tmp = path.join(os.tmpdir(), `fabricante-${productId}-${Date.now()}`);
   await mkdir(tmp, { recursive: true });
   await mkdir(dirFabricante(), { recursive: true });
@@ -330,15 +374,70 @@ export async function buscarActivos(productId: number, fotosNuestras: string[], 
     await pag.goto(`https://www.aliexpress.com/w/wholesale-${encodeURIComponent(consulta.replace(/\s+/g, "-"))}.html?SortType=total_tranpro_desc`, { waitUntil: "domcontentloaded", timeout: 45_000 });
     const candidatos = candidatosDeBusqueda(await pag.content());
     await pag.close().catch(() => {});
-    if (!candidatos.length) return { ok: false, error: "AliExpress no devolvió resultados (puede ser un captcha desde el servidor)." };
+
+    // 2b. API oficial de afiliados (sin scraping, sin captcha) con la consulta
+    // en español + traducida al inglés (01-10-2026). Sus fichas entran al
+    // MISMO circuito de verificación por visión de abajo: la API también trae
+    // modelos parecidos, no iguales. Solo si el negocio conectó AliExpress.
+    interface FichaLista { id: string; url: string; vendidosTexto: string; fotos: string[]; videos: string[] }
+    const fichasApi: FichaLista[] = [];
+    let consultaEn: string | null = null;
+    if (opts.tenantId) {
+      try {
+        const { leerCredenciales } = await import("./integraciones/credenciales");
+        const cred: any = await leerCredenciales(opts.tenantId, "aliexpress");
+        if (cred?.tienda && cred?.token) {
+          consultaEn = await traducirConsultaAingles(opts.tenantId, consulta);
+          const { buscarProductos, detalleProductos } = await import("./integraciones/aliexpress");
+          const vistas = new Set<string>();
+          for (const q of consultasDeBusqueda(consulta, consultaEn)) {
+            let encontrados: any[] = [];
+            try {
+              encontrados = await buscarProductos(
+                { appKey: cred.tienda, appSecret: cred.token, trackingId: cred.secreto },
+                q, { porPagina: 8, moneda: cred.moneda || "COP" },
+              );
+            } catch (e: any) {
+              logger.warn({ err: String(e?.message || e).slice(0, 150) }, "[Fabricante] la API de AliExpress no buscó");
+              continue;
+            }
+            const ids = encontrados.map((p) => p.idExterno).filter((id) => id && !vistas.has(id)).slice(0, 6);
+            ids.forEach((id) => vistas.add(id));
+            if (!ids.length) continue;
+            let detalles: any[] = [];
+            try {
+              detalles = await detalleProductos({ appKey: cred.tienda, appSecret: cred.token, trackingId: cred.secreto }, ids, cred.moneda || "COP");
+            } catch { continue; }
+            for (const d of detalles) {
+              fichasApi.push({
+                id: `api-${d.idExterno}`,
+                url: d.urlOrigen || `https://es.aliexpress.com/item/${d.idExterno}.html`,
+                vendidosTexto: String((d.extra as any)?.vendidos ?? ""),
+                fotos: d.imagenes,
+                videos: d.videoUrl ? [d.videoUrl] : [],
+              });
+            }
+            if (fichasApi.length >= 8) break;
+          }
+          if (consultaEn) activos.consulta = `${consulta} / EN: ${consultaEn}`;
+        }
+      } catch { /* sin API: sigue el scraping */ }
+    }
+    if (!candidatos.length && !fichasApi.length) return { ok: false, error: "AliExpress no devolvió resultados (puede ser un captcha desde el servidor)." };
 
     // 3. Fichas, de la más vendida para abajo, hasta juntar video + fotos que pasen la visión.
+    // Las de la API oficial ya traen fotos/videos (sin scraping): entran a la
+    // MISMA verificación por visión que las scrapeadas.
     let n = 0;
     const huellas = new Set<string>();
-    for (const c of candidatos.slice(0, opts.maxFichas ?? 12)) {
+    const fichas: Array<{ id: string; url: string; vendidosTexto: string; preficha?: { fotos: string[]; videos: string[] } }> = [
+      ...candidatos.slice(0, opts.maxFichas ?? 12).map((c) => ({ id: c.id, url: `https://es.aliexpress.com/item/${c.id}.html`, vendidosTexto: c.vendidosTexto })),
+      ...fichasApi.map((f) => ({ id: f.id, url: f.url, vendidosTexto: f.vendidosTexto, preficha: { fotos: f.fotos, videos: f.videos } })),
+    ];
+    for (const c of fichas) {
       if (activos.clips.length && activos.fotos.length >= 6) break;
       activos.revisados++;
-      const f = await leerFicha(nav, c.id).catch(() => null);
+      const f = c.preficha ?? await leerFicha(nav, c.id).catch(() => null);
       if (!f || (!f.fotos.length && !f.videos.length)) { activos.descartados.push({ itemId: c.id, motivo: "sin fotos ni video legibles" }); continue; }
       // ¿Es el mismo producto? Se mira la foto principal de la ficha.
       const principal = path.join(tmp, `${c.id}-principal`);
@@ -347,7 +446,7 @@ export async function buscarActivos(productId: number, fotosNuestras: string[], 
       const igual = await mismoProductoPorMayoria(refs, jpg);
       const ref = igual.ref;
       if (!igual.si || !ref) { activos.descartados.push({ itemId: c.id, motivo: igual.motivo }); continue; }
-      const fuente = { itemId: c.id, url: `https://es.aliexpress.com/item/${c.id}.html`, vendidos: c.vendidosTexto, fotos: 0, video: false };
+      const fuente = { itemId: c.id, url: c.url, vendidos: c.vendidosTexto, fotos: 0, video: false };
 
       // Fotos de esa ficha: cada una se vuelve a comprobar (las fichas mezclan variantes y banners).
       for (const u of f.fotos) {

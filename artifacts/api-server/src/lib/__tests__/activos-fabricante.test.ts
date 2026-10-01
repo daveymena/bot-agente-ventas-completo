@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { candidatosDeBusqueda, vendidosDe, fotoGrande, esFotoDeGaleria, tramosParaClips, activosAprobados, ARCHIVO_FABRICANTE, veredictoEsSi, fotosDeReferencia } from "../activos-fabricante";
+import { candidatosDeBusqueda, vendidosDe, fotoGrande, esFotoDeGaleria, tramosParaClips, activosAprobados, ARCHIVO_FABRICANTE, veredictoEsSi, fotosDeReferencia, consultasDeBusqueda } from "../activos-fabricante";
 
 /**
  * Activos del fabricante (AliExpress), 01-10-2026. Lo que se puede probar sin
@@ -87,5 +87,11 @@ describe("visión: DeepSeek con el razonamiento apagado en TODAS las llamadas", 
       const s = fs.readFileSync(path.resolve(__dirname, "..", f), "utf8");
       expect(s, f).toMatch(/\.\.\.opcionesDeVision\(proveedor\)/);
     }
+  });
+  it("consultas ES + EN sin duplicar (01-10-2026)", () => {
+    expect(consultasDeBusqueda("mochila burbuja", "bubble backpack")).toEqual(["mochila burbuja", "bubble backpack"]);
+    expect(consultasDeBusqueda("mochila", "mochila")).toEqual(["mochila"]);
+    expect(consultasDeBusqueda("mochila", null)).toEqual(["mochila"]);
+    expect(consultasDeBusqueda("  ", "backpack")).toEqual(["backpack"]);
   });
 });

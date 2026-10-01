@@ -124,12 +124,16 @@ async function correrLote(lote: EstadoLote, token: string, items: ItemLote[]): P
   for (const it of items) {
     if (detenidos.has(lote.id)) { lote.estado = "detenido"; break; }
     const id = Number(it.dropiProductId);
-    let r = await importarProductoDropi(lote.tenantId, token, id, { precio: Number(it.precio) || null, factorSobreCosto: lote.factorSobreCosto, curar: lote.curar }).catch((e: any) => ({ ok: false as const, error: String(e?.message || e) }));
+    // postImportacion: false — el lote trae muchos productos a la vez y lanzar
+    // por cada uno la búsqueda de activos + la landing quemaría la cuota de
+    // IA. Esos se lanzan de a uno después (o los dispara importarProductoDropi
+    // en importaciones individuales).
+    let r = await importarProductoDropi(lote.tenantId, token, id, { precio: Number(it.precio) || null, factorSobreCosto: lote.factorSobreCosto, curar: lote.curar, postImportacion: false }).catch((e: any) => ({ ok: false as const, error: String(e?.message || e) }));
     // Límite de Dropi: se espera una vez y se reintenta ese mismo producto.
     if (!r.ok && /exceeded the allowed number/i.test(String((r as any).error || ""))) {
       logger.warn({ tenantId: lote.tenantId, id }, "[DropiLote] Dropi limitó las peticiones; espero 60 s");
       await dormir(ESPERA_LIMITE_MS);
-      r = await importarProductoDropi(lote.tenantId, token, id, { precio: Number(it.precio) || null, factorSobreCosto: lote.factorSobreCosto, curar: lote.curar }).catch((e: any) => ({ ok: false as const, error: String(e?.message || e) }));
+      r = await importarProductoDropi(lote.tenantId, token, id, { precio: Number(it.precio) || null, factorSobreCosto: lote.factorSobreCosto, curar: lote.curar, postImportacion: false }).catch((e: any) => ({ ok: false as const, error: String(e?.message || e) }));
     }
     if (r.ok && (r as any).productId) {
       lote.importados.push({ dropiProductId: id, productId: (r as any).productId, nombre: String((r as any).nombre || id), nuevo: !(r as any).yaExistia });

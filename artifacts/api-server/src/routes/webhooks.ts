@@ -37,30 +37,10 @@ async function avisarCompraAMeta(opts: {
   customerEmail?: string;
   origen: string;
 }): Promise<void> {
-  try {
-    const tenant = await tenantManager.getTenantById(opts.tenantId);
-    const fb: any = (tenant as any)?.facebook || {};
-    if (!fb.pixelId || !fb.accessToken) {
-      logger.debug({ tenantId: opts.tenantId }, "[Webhook→Meta] Tenant sin píxel o sin token: no se envía el evento de compra");
-      return;
-    }
-    const { sendPurchaseEvent } = await import("../lib/meta-conversions-api");
-    const ok = await sendPurchaseEvent({
-      pixelId: fb.pixelId,
-      accessToken: fb.accessToken,
-      value: Number(opts.amount) || 0,
-      currency: opts.currency || "COP",
-      contentIds: [opts.productId],
-      customerPhone: opts.customerPhone,
-      customerEmail: opts.customerEmail,
-    });
-    logger.info(
-      { tenantId: opts.tenantId, productId: opts.productId, ok, origen: opts.origen },
-      ok ? "[Webhook→Meta] Compra verificada informada a Meta" : "[Webhook→Meta] Meta no confirmó el evento de compra",
-    );
-  } catch (e: any) {
-    logger.warn({ err: e?.message, origen: opts.origen }, "[Webhook→Meta] No se pudo informar la compra a Meta");
-  }
+  // Punto único desde el 2026-10-01: lib/compra-verificada-meta.ts (misma
+  // regla para pasarelas, comprobantes y transferencias confirmadas).
+  const { avisarCompraRealAMeta } = await import("../lib/compra-verificada-meta");
+  await avisarCompraRealAMeta({ ...opts, origen: opts.origen || "pasarela" });
 }
 
 /**

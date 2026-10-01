@@ -204,6 +204,14 @@ const TOOL_SCHEMAS: Record<string, object> = {
   get_agent: { type: "object", properties: {}, additionalProperties: false },
   fb_radiografia_campana: { type: "object", properties: { campaignId: { type: "string" } }, additionalProperties: false },
   anuncio_datos_expertos: { type: "object", properties: { productId: { type: "number" }, objetivo: { type: "string" } }, required: ["productId"], additionalProperties: false },
+  // Un solo esquema chico para todo el método: los números son opcionales y
+  // solo se usan en costeo y métricas. Ver marketing-team/metodo-de-venta.ts.
+  metodo_de_venta: {
+    type: "object",
+    properties: { tema: { type: "string" }, costoProducto: { type: "number" }, cpaObjetivo: { type: "number" }, gasto: { type: "number" }, ventas: { type: "number" } },
+    required: ["tema"],
+  },
+  fb_audiencias: { type: "object", properties: {}, additionalProperties: false },
   agente_probar_chat: {
     type: "object",
     properties: {
@@ -402,6 +410,7 @@ const TOOL_SCHEMAS: Record<string, object> = {
   },
   dropi_status: { type: "object", properties: {}, additionalProperties: false },
   woocommerce_estado: { type: "object", properties: {}, additionalProperties: false },
+  integraciones_estado: { type: "object", properties: {}, additionalProperties: false },
   dropi_search_products: {
     type: "object",
     properties: { query: { type: "string" }, limit: { type: "number", description: "Por defecto 10" } },
@@ -1287,7 +1296,7 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // de publicar ("¿cuánto me va a costar?", "¿a cuántos llega?"), nunca en
     // el pedido de crear a secas.
     patron: /propuesta|propon|estrategia|[aá]ngulo|antes de (gastar|invertir|pagar|publicar|crear)|mostr[aá](me)?|ense[ñn][aá](me)?|c[oó]mo lo ver[ií]as|qu[eé] har[ií]as|cu[aá]nto (cuesta|vale|sale|cobra|gasta)|alcance|a cu[aá]ntos (llega|les llega)|estimaci[oó]n/i,
-    herramientas: ["propuesta_campana", "fb_estimar", "list_products", "anuncio_datos_expertos"],
+    herramientas: ["propuesta_campana", "fb_estimar", "list_products", "anuncio_datos_expertos", "metodo_de_venta"],
   },
   {
     // Cuenta publicitaria y su moneda (30-09-2026): "no detecta mi cuenta COP".
@@ -1299,7 +1308,7 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // Dónde se caen los clientes: sin esto Atlas proponía más anuncios con
     // 0 ventas cerradas (25-09-2026).
     patron: /embudo|d[oó]nde se (caen|pierden|quedan)|por qu[eé] no (vend|compr|cierr)|no (vendo|compran|cierra)|ventas|clientes/i,
-    herramientas: ["embudo_de_ventas", "marketing_attribution", "list_recent_conversations"],
+    herramientas: ["embudo_de_ventas", "marketing_attribution", "list_recent_conversations", "metodo_de_venta"],
   },
   {
     // ── Anuncios: ANALIZAR ───────────────────────────────────────────────
@@ -1307,7 +1316,14 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // Un "¿cómo va mi campaña de Facebook?" matchea los dos grupos y recibe la
     // unión, que es lo correcto: ahí sí hacen falta las dos mitades.
     patron: /m[eé]trica|rendimiento|resultado|c[oó]mo va|c[oó]mo est[aá]|gast|roas|cpa|cpc|conversion|analiz|diagn[oó]stic|atribuci|aprendiz|optimiz|competencia|competidor|estructura|configur|armad|replic|como (las|los) (que|activ)|en pausa|pausad/i,
-    herramientas: ["fb_campaign_metrics", "fb_list_adsets", "fb_agent_logs", "fb_ad_library", "embudo_de_ventas", "marketing_attribution", "marketing_diagnostico", "marketing_aprendizajes", "ad_brief", "fb_radiografia_campana"],
+    herramientas: ["fb_campaign_metrics", "fb_list_adsets", "fb_agent_logs", "fb_ad_library", "embudo_de_ventas", "marketing_attribution", "marketing_diagnostico", "marketing_aprendizajes", "ad_brief", "fb_radiografia_campana", "metodo_de_venta"],
+  },
+  {
+    // El método de venta (curso condensado el 01-10-2026): cómo pautar,
+    // costear, armar la página o hacer creativos. Viaja solo cuando se pide
+    // ESO, para no sumarle tokens al pedido de crear un anuncio.
+    patron: /c[oó]mo (pauto|pautar|vendo|vender|costeo|costear|hago (un |los )?creativ)|m[eé]todo de venta|costeo|costear|precio de venta|punto de equilibrio|devoluci|producto ganador|winner|testeo|probar (un )?producto|landing|p[aá]gina de venta|gancho|hook|ugc/i,
+    herramientas: ["metodo_de_venta"],
   },
   {
     patron: /whatsapp|wasap|conversaci|chat|mensaje|cliente|lead/i,
@@ -1348,8 +1364,8 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // las del puente viejo: Atlas nunca veía dropi_buscar/margen/pedidos y en
     // los 3 turnos de Dropi de ese día contestó "el catálogo directo rechaza el
     // token" (el error del puente) con el directo respondiendo.
-    patron: /dropi|proveedor|dropshipping|transportadora|flete|cotiz|stock|woo\s?commerce|wordpress|dropify|pedidos? (llega|recib)|descripci[oó]n|ficha|ganador|radar|potencial|qu[eé] (vender|importar|producto)|rentab|roi|equilibrio|vale la pena|m[aá]s vendid/i,
-    herramientas: ["dropi_status", "dropi_buscar", "dropi_con_ordenes", "dropi_margen", "dropi_pedidos", "dropi_verificar_producto", "dropi_importar_lote_estado", "dropi_cotizar_envio", "woocommerce_estado", "dropi_transportadoras_sondeo", "producto_ficha_desde_imagenes_ver", "producto_ficha_desde_imagenes_guardar", "producto_ganador", "dropi_roi"],
+    patron: /dropi|proveedor|dropshipping|transportadora|flete|cotiz|stock|woo\s?commerce|wordpress|dropify|pedidos? (llega|recib)|descripci[oó]n|ficha|ganador|radar|potencial|qu[eé] (vender|importar|producto)|rentab|roi|equilibrio|vale la pena|m[aá]s vendid|shopify|mercado\s?libre|meli|falabella|aliexpress|tienda externa/i,
+    herramientas: ["dropi_status", "dropi_buscar", "dropi_con_ordenes", "dropi_margen", "dropi_pedidos", "dropi_verificar_producto", "dropi_importar_lote_estado", "dropi_cotizar_envio", "woocommerce_estado", "integraciones_estado", "dropi_transportadoras_sondeo", "producto_ficha_desde_imagenes_ver", "producto_ficha_desde_imagenes_guardar", "producto_ganador", "dropi_roi"],
   },
   {
     patron: /copy|texto|redact|descripci|t[ií]tulo/i,
