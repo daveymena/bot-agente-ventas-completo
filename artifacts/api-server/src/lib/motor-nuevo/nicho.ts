@@ -389,10 +389,23 @@ export function hechosYProhibiciones(
     prohibiciones.push(
       `No prometas un plazo distinto de "${despacho.plazo}" ni otra forma de pagar el envío.`,
     );
+  } else if (forma === "digital" || forma === "mixto") {
+    // Lo digital SÍ tiene entrega conocida aunque el dueño no la escriba: así
+    // funciona el sistema (verificacion-pago.ts). Pago verificado → el acceso
+    // sale en este mismo chat (y por correo si lo dejó). Sin esto el vendedor
+    // contestaba "lo consulto" a "¿cómo me llega el curso?" (30-09-2026).
+    hechos.push(
+      `Entrega de lo digital: el acceso se envía por este mismo chat de WhatsApp apenas el pago queda verificado ` +
+        `(y también al correo, si el cliente lo da). No hay envío físico.${forma === "mixto" ? " Lo físico: cómo y cuándo se despacha no está cargado." : ""}`,
+    );
+    prohibiciones.push(
+      "No prometas minutos exactos para la entrega del acceso: depende de que el pago quede verificado.",
+    );
+    if (forma === "mixto") sinConfirmar.push("cómo y cuánto tarda el despacho de lo físico");
   } else {
     sinConfirmar.push("cómo se entrega y cuánto tarda");
     prohibiciones.push(
-      "No prometas ninguna forma de entrega ni ningún plazo: el negocio no lo cargó. Si te preguntan, di que lo confirmas.",
+      "No prometas ninguna forma de entrega ni ningún plazo: el negocio no lo cargó. Si te preguntan, di con honestidad que ese dato no lo tienes publicado y sigue ayudando; no prometas escribirle después.",
     );
   }
 
@@ -402,7 +415,7 @@ export function hechosYProhibiciones(
   } else {
     sinConfirmar.push("si hay garantía o devolución");
     prohibiciones.push(
-      "No prometas garantía, devolución ni cambios: no hay ninguna cargada. Si pregunta, di que lo confirmas.",
+      "No prometas garantía, devolución ni cambios: no hay ninguna cargada. Si pregunta, di con honestidad que no hay una garantía publicada para este producto, sin prometer que alguien le escribe, y sigue con lo que sí incluye.",
     );
   }
 

@@ -1120,9 +1120,9 @@ export const ejecutores: Record<string, Ejecutor> = {
         ok: true,
         mensaje:
           `El dueño cargó que los clientes preguntan "${mejor.item.pregunta}" pero NO dejó respuesta. ` +
-          `Respondé RAZONANDO con la ficha del producto y criterio general del tipo de producto (dicho como general, ` +
+          `Responde RAZONANDO con la ficha del producto y criterio general del tipo de producto (dicho como general, ` +
           `no como característica de este modelo). Si es una condición comercial no cargada (garantía, plazo, descuento), ` +
-          `no la afirmes y seguí ayudando. No inventes, y no prometas que alguien le va a responder.`,
+          `no la afirmes y sigue ayudando. No inventes, y no prometas que alguien le va a responder.`,
       };
     }
 
@@ -1469,12 +1469,16 @@ export const ejecutores: Record<string, Ejecutor> = {
           `No afirmes que existe: di que lo confirmas.`,
       };
     }
+    // Lo digital no se agota: no hay "existencias" que revisar.
+    if (p.stock == null && /^(digital|curso|ebook|software)$/i.test(String(p.kind || ""))) {
+      return { ok: true, mensaje: `${p.name} es digital: está disponible siempre, no tiene límite de unidades. Dilo con seguridad.` };
+    }
     if (p.stock == null) {
       det.stockEstado = "sin_dato";
       return {
         ok: true,
         mensaje:
-          `${p.name} no tiene inventario configurado. No afirmes una cantidad. Si pregunta si hay, decí que se ` +
+          `${p.name} no tiene inventario configurado. No afirmes una cantidad. Si pregunta si hay, di que se ` +
           `puede pedir y que la disponibilidad se valida al registrar el pedido; no prometas escribirle después.`,
       };
     }

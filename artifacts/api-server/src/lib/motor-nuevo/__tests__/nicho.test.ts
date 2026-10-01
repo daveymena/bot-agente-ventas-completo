@@ -119,12 +119,16 @@ describe("lo que se puede afirmar", () => {
     assert.match(texto, /todo el país/);
   });
 
-  test("sin entrega cargada, se prohíbe prometer cualquier plazo", () => {
+  test("digital sin entrega cargada: se sabe CÓMO llega (por el chat, al verificar el pago), no se promete el tiempo exacto", () => {
+    // 30-09-2026: antes se prohibía hablar de la entrega y el vendedor
+    // contestaba "lo consulto" a "¿cómo me llega el curso?", algo que el
+    // sistema sí sabe (verificacion-pago.ts entrega el acceso en el chat).
     const guion = guionDelNegocio({ catalogo: DIGITALES, negocio: { nombre: "Sin Datos" } });
     const texto = renderGuion(guion);
 
     assert.match(texto, /NO TIENES ESTOS DATOS/);
-    assert.ok(guion.prohibiciones.some((p) => /No prometas ninguna forma de entrega/.test(p)), guion.prohibiciones.join(" | "));
+    assert.ok(guion.hechos.some((h) => /acceso se envía por este mismo chat/.test(h)), guion.hechos.join(" | "));
+    assert.ok(guion.prohibiciones.some((p) => /No prometas minutos exactos/.test(p)), guion.prohibiciones.join(" | "));
   });
 
   test("sin medios de pago cargados, se prohíbe dar cuentas o enlaces", () => {

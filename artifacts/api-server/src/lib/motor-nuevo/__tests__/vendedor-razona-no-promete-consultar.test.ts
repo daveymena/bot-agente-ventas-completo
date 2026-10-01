@@ -40,3 +40,20 @@ describe("el vendedor recibe lo que el sistema ya sabe", () => {
     expect(condicionesSinRespaldo("Tiene garantía de 30 días.", { producto: sinGarantia }).length).toBeGreaterThan(0);
   });
 });
+
+describe("productos digitales", () => {
+  it("si el negocio no cargó la entrega, el vendedor igual sabe cómo llega el acceso (no 'lo consulto')", async () => {
+    const { hechosYProhibiciones } = await import("../nicho");
+    const r = hechosYProhibiciones({} as any, "digital", []);
+    expect(r.hechos.join(" ")).toMatch(/acceso se envía por este mismo chat/);
+    expect(r.prohibiciones.join(" ")).not.toMatch(/di que lo confirmas/);
+    expect(r.sinConfirmar.join(" ")).not.toMatch(/cómo se entrega/);
+  });
+
+  it("un digital sin stock cargado está disponible, no 'revisamos existencias'", async () => {
+    const { ejecutores } = await import("../herramientas");
+    const ctx: any = { catalogo: [{ id: 7, name: "Curso de Piano", description: null, price: 60000, currency: "COP", kind: "digital", stock: null }], estado: { detalleProducto: {}, datos: {} } };
+    const r: any = (ejecutores as any).consultar_disponibilidad(ctx, { productoId: 7 });
+    expect(r.mensaje).toMatch(/disponible siempre/);
+  });
+});

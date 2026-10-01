@@ -149,7 +149,8 @@ describe("10 físico: variante negra con inventario real", () => {
     const sinStock = { ...PIANO, stock: null };
     const ctx: ContextoHerramientas = { estado: estadoInicial(1), catalogo: [sinStock], partes: [], conocimiento: [], guion: gDigital(), mensajeDelCliente: "", efectos: [] };
     const d = (await ejecutores.consultar_disponibilidad(ctx, { productoId: 1 })) as any;
-    expect(d.mensaje).toMatch(/no tiene inventario|confirmás/i);
+    // El piano es DIGITAL: no se agota (30-09-2026). Antes pedía "confirmar existencias".
+    expect(d.mensaje).toMatch(/disponible siempre/i);
   });
 });
 
