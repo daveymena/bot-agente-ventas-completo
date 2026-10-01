@@ -85,6 +85,20 @@ const TRADUCCION: Array<[RegExp, string]> = (
     ["confirmame", "confírmame"], ["esperame", "espérame"], ["ayudame", "ayúdame"],
     ["decile", "dile"], ["contale", "cuéntale"], ["mandale", "mándale"],
     ["preguntale", "pregúntale"], ["dejale", "déjale"], ["referite", "refiérete"],
+    // Las de Atlas y de los guiones de video (30-09-2026: los audios sonaban
+    // argentinos aunque la voz era colombiana).
+    ["escribinos", "escríbenos"], ["contanos", "cuéntanos"], ["decinos", "dinos"],
+    ["mandanos", "mándanos"], ["avisanos", "avísanos"], ["pasanos", "pásanos"],
+    ["pedilo", "pídelo"], ["pedila", "pídela"], ["pedilos", "pídelos"],
+    ["pedímelo", "pídemelo"], ["pedímela", "pídemela"], ["decímelo", "dímelo"],
+    ["mandámelo", "mándamelo"], ["pasámelo", "pásamelo"],
+    ["elegilo", "elígelo"], ["elegila", "elígela"], ["probalo", "pruébalo"],
+    ["miralo", "míralo"], ["compralo", "cómpralo"], ["llevalo", "llévalo"],
+    ["aprovechalo", "aprovéchalo"], ["revisalo", "revísalo"], ["confirmalo", "confírmalo"],
+    ["decíselo", "díselo"], ["contáselo", "cuéntaselo"],
+    // "vos" suelto: primero las preposiciones (se aplican EN ORDEN), después el resto.
+    ["con vos", "contigo"], ["para vos", "para ti"], ["a vos", "a ti"],
+    ["de vos", "de ti"], ["por vos", "por ti"], ["vos", "tú"],
 
     // ── El verbo ser ──────────────────────────────────────────────────────
     ["sos", "eres"],

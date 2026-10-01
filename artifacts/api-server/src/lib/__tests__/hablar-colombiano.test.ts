@@ -47,7 +47,7 @@ describe("el voseo se traduce al salir", () => {
     // /\bpodés\b/ ingenuo no matchea "podés" cuando cierra la oración. Es el
     // mismo error que ya costó un arreglo entero en este proyecto.
     expect(hablarColombiano("Claro que podés")).toBe("Claro que puedes");
-    expect(hablarColombiano("¿Vos qué querés?")).toBe("¿Vos qué quieres?");
+    expect(hablarColombiano("¿Vos qué querés?")).toBe("¿Tú qué quieres?");
     expect(hablarColombiano("dale, contame")).toBe("dale, cuéntame");
   });
 
