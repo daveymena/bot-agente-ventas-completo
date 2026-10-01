@@ -846,7 +846,16 @@ async function generarLandingPro(a: {
   // La MODERNA es el estándar (01-10-2026, el dueño: 'la idea es que generen landings profesionales');
   // el estilo 'clínico' (azul y blanco) sigue saliendo de la plantilla PRO.
   const { renderizarLandingModerna } = await import("../lib/landing/renderer-moderno");
-  const renderizar = a.estilo === "clinico" ? renderizarLandingPro : renderizarLandingModerna;
+  // Contraentrega (dropshipping): la product page que VENDE en etapa de prueba
+  // (modelo Momo Today, ver lib/landing/renderer-cod.ts). Las demás, la moderna.
+  const { renderizarLandingCod } = await import("../lib/landing/renderer-cod");
+  const { videoDeProducto } = await import("../lib/video-de-producto");
+  const video = videoDeProducto(product?.metadata);
+  const renderizar = a.estilo === "clinico"
+    ? renderizarLandingPro
+    : modo === "contraentrega"
+      ? (o: any) => renderizarLandingCod({ ...o, caracteristicas: datos.features, videos: /.(mp4|webm)(?|$)/i.test(video) ? [video] : [] })
+      : renderizarLandingModerna;
   const html = renderizar({
     contenido: contenidoDesdeRespuesta(crudo, datos, tipoPro),
     producto: { id: product?.id, name: datos.name, price: Number(product?.price) || 0, categoria: datos.category, opciones },

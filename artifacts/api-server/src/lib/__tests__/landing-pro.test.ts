@@ -3,6 +3,7 @@ import { renderizarLandingPro, paletaPorCategoria } from "../landing/renderer-pr
 import { contenidoDesdeRespuesta, contenidoDeRespaldo, sistemaContenidoPro } from "../landing/contenido-pro";
 import { htmlDesdeRespuesta } from "../landing/agente-landing";
 import { renderizarLandingModerna } from "../landing/renderer-moderno";
+import { renderizarLandingCod } from "../landing/renderer-cod";
 
 /**
  * Landing PRO (modelo elegido por el dueño, 30-09-2026): plantilla fija +
@@ -157,5 +158,41 @@ describe("landing MODERNA (estándar desde 01-10-2026)", () => {
   });
   it("el modelo no puede prometer cobertura de envío", () => {
     expect(sistemaContenidoPro("fisico")).toMatch(/COBERTURA/);
+  });
+});
+
+describe("landing CONTRAENTREGA (modelo product page que vende, 01-10-2026)", () => {
+  const base = () => ({
+    contenido: contenidoDeRespaldo(producto, "fisico"),
+    producto: { name: "Mochila X", price: 109900, categoria: "Mascotas" },
+    fotos: ["https://cdn.test/1.jpg", "https://cdn.test/2.jpg", "https://cdn.test/3.jpg", "https://cdn.test/4.jpg"],
+    negocio: { nombre: "Tienda", whatsapp: "573001112233" },
+    accion: "/api/landing-publica/x/pedido",
+    modo: "contraentrega" as const, tipo: "fisico" as const,
+  });
+  it("formulario contraentrega a /pedido con los campos que exige el servidor", () => {
+    const h = renderizarLandingCod(base());
+    expect(h).toContain('action="/api/landing-publica/x/pedido"');
+    for (const n of ["nombre", "telefono", "departamento", "ciudad", "direccion"]) expect(h).toMatch(new RegExp(`name="${n}"`));
+    expect(h).toContain('href="#pedido"');
+  });
+  it("no inventa: sin precio anterior real no hay tachado, ni 'Oferta', ni estrellas", () => {
+    const h = renderizarLandingCod(base());
+    expect(h).not.toMatch(/<s>|class="badge"|★|4\.9|reseñas/i);
+  });
+  it("con precio anterior REAL mayor sale tachado y 'Oferta'; si no es mayor, no", () => {
+    expect(renderizarLandingCod({ ...base(), precioAnterior: 159900 })).toMatch(/<s>\$159\.900<\/s><span class="badge">Oferta/);
+    expect(renderizarLandingCod({ ...base(), precioAnterior: 99000 })).not.toMatch(/<s>/);
+  });
+  it("los scripts van dentro de <script> (antes se imprimían como texto)", () => {
+    const h = renderizarLandingCod(base());
+    const sinScripts = h.replace(/<script>[\s\S]*?<\/script>/g, "");
+    expect(sinScripts).not.toMatch(/function\s*\(|addEventListener/);
+  });
+  it("cada foto una sola vez y videos solo si existen", () => {
+    const h = renderizarLandingCod(base());
+    for (const u of base().fotos) expect(h.split(`src="${u}"`).length - 1).toBeLessThanOrEqual(1);
+    expect(h).not.toMatch(/<video/);
+    expect(renderizarLandingCod({ ...base(), videos: ["https://cdn.test/v.mp4"] })).toMatch(/<video src="https:\/\/cdn\.test\/v\.mp4" autoplay muted loop playsinline/);
   });
 });
