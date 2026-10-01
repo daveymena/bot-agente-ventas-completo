@@ -18,7 +18,7 @@
  */
 import { getProviderConfig } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
-import { modelosDeVision, visionDisponible } from "./media-entrante";
+import { modelosDeVision, visionDisponible, opcionesDeVision } from "./media-entrante";
 
 export interface FichaDesdeImagenes {
   descripcion: string;
@@ -95,6 +95,7 @@ export async function fichaDesdeImagenes(
           model: modelo,
           temperature: 0.1,
           max_tokens: 700,
+          ...opcionesDeVision(proveedor),
           messages: [{
             role: "user",
             content: [

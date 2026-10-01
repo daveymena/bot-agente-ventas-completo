@@ -159,7 +159,7 @@ export function veredictoEsSi(texto: string): boolean {
 }
 
 export async function mismoProducto(nuestra: Buffer, candidata: Buffer): Promise<{ si: boolean; motivo: string }> {
-  const { modelosDeVision } = await import("./media-entrante");
+  const { modelosDeVision, opcionesDeVision } = await import("./media-entrante");
   const { getProviderConfig } = await import("@workspace/integrations-openai-ai-server");
   // Estricta a propósito: con "el color puede variar" el modelo dio por igual una
   // mochila rígida tipo astronauta azul frente a la burbuja de tela negra (01-10-2026).
@@ -180,7 +180,7 @@ export async function mismoProducto(nuestra: Buffer, candidata: Buffer): Promise
         body: JSON.stringify({
           model: modelo, max_tokens: 300,
           // Sin esto DeepSeek gasta los tokens razonando y devuelve vacío (medido 01-10-2026).
-          ...(proveedor === "deepseek" ? { thinking: { type: "disabled" } } : {}),
+          ...opcionesDeVision(proveedor),
           messages: [{ role: "user", content: [
             { type: "text", text: pregunta },
             { type: "image_url", image_url: { url: `data:image/jpeg;base64,${nuestra.toString("base64")}` } },

@@ -73,3 +73,19 @@ describe("activos del fabricante: decisión de la visión", () => {
     expect(fotosDeReferencia({}, null)).toEqual([]);
   });
 });
+
+describe("visión: DeepSeek con el razonamiento apagado en TODAS las llamadas", () => {
+  it("opcionesDeVision apaga el razonamiento solo para deepseek", async () => {
+    const { opcionesDeVision } = await import("../media-entrante");
+    expect(opcionesDeVision("deepseek")).toEqual({ thinking: { type: "disabled" } });
+    expect(opcionesDeVision("ollama_local")).toEqual({});
+  });
+  it("las 4 funciones de visión usan opcionesDeVision", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    for (const f of ["media-entrante.ts", "ficha-desde-imagenes.ts", "leer-comprobante.ts", "activos-fabricante.ts"]) {
+      const s = fs.readFileSync(path.resolve(__dirname, "..", f), "utf8");
+      expect(s, f).toMatch(/\.\.\.opcionesDeVision\(proveedor\)/);
+    }
+  });
+});

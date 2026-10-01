@@ -35,6 +35,21 @@ import { modelosDe } from "./modelos-por-tarea";
  */
 const VISION_DE_RESERVA = { proveedor: "deepseek", modelo: "deepseek-v4-flash-vision-exp" };
 
+/**
+ * Opciones extra por proveedor para TODA llamada de visión.
+ *
+ * DeepSeek razona antes de contestar y, con imágenes difíciles (un comprobante
+ * real), se gastaba el presupuesto entero pensando y devolvía `content` vacío;
+ * subir `max_tokens` no lo arreglaba (ver leer-comprobante.ts). Medido el
+ * 01-10-2026 con dos fotos de producto: sin opciones → vacío en 4,9 s; con el
+ * razonamiento apagado → respuesta correcta en 1,7 s. Por eso va acá y no en
+ * cada archivo: el respaldo de visión solo sirve si TODOS los que lo llaman
+ * lo apagan.
+ */
+export function opcionesDeVision(proveedor: string): Record<string, unknown> {
+  return proveedor === "deepseek" ? { thinking: { type: "disabled" } } : {};
+}
+
 /** Modelos con vision, en orden. "proveedor|modelo" separados por coma. */
 export function modelosDeVision(): Array<{ proveedor: string; modelo: string }> {
   const configurados = String(process.env.VISION_MODELS || "")
@@ -208,6 +223,7 @@ export async function describirImagen(imagen: Buffer, mime = "image/jpeg", pregu
         body: JSON.stringify({
           model: modelo,
           max_tokens: 500,
+          ...opcionesDeVision(proveedor),
           messages: [{
             role: "user",
             content: [

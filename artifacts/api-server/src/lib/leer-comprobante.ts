@@ -44,7 +44,7 @@
  */
 import { logger } from "./logger";
 import { getProviderConfig } from "@workspace/integrations-openai-ai-server";
-import { modelosDeVision } from "./media-entrante";
+import { modelosDeVision, opcionesDeVision } from "./media-entrante";
 import type { CuentaTransferencia } from "./tenant-payment-credentials";
 
 /** Lo que se pudo leer del comprobante. `null` en un campo = NO se leyó. */
@@ -211,6 +211,7 @@ export async function leerComprobante(
           // devuelven `content` vacío si se les aprieta.
           max_tokens: 900,
           temperature: 0,
+          ...opcionesDeVision(proveedor),
           messages: [{
             role: "user",
             content: [
