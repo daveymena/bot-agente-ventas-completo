@@ -87,7 +87,9 @@ export function instruccionDeDuda(p: Producto, seccion: string, hechosDelNegocio
     `NO se volvió a enviar la maqueta "${seccion}" de ${p.name}: ya la recibió. ` +
     `Si vuelve a preguntar es porque le quedó una DUDA. Identificá cuál es (lo que pregunta AHORA, no lo que ya leyó) ` +
     `y respóndela con tus palabras, razonando con estos datos reales, en 2-4 frases, sin copiar los renglones de la maqueta. ` +
-    `Si el dato para su duda no está acá, dilo con honestidad y ofrece averiguarlo: no inventes.\n\n` +
+    `Si el dato exacto no está acá, RAZONÁ: lo que sepas de cómo funciona este tipo de producto dilo como criterio ` +
+    `general ("en general, este tipo de…"), nunca como característica de este modelo; las condiciones comerciales ` +
+    `(garantía, plazo, descuento) no cargadas no se afirman: no inventes. No prometas "averiguarlo" ni que alguien le escribe.\n\n` +
     `DATOS:\n${datosParaRazonar(p, seccion, hechosDelNegocio)}`
   );
 }

@@ -135,7 +135,16 @@ export async function cargarCatalogoDelNegocio(tenantId: number): Promise<Produc
     }
 
     const precio = p.price != null && Number.isFinite(Number(p.price)) ? Number(p.price) : null;
-    const stock = p.stock != null && Number.isFinite(Number(p.stock)) ? Number(p.stock) : null;
+    // Los productos de Dropi guardan el stock en metadata.dropiStock (la
+    // importación no llena la columna): sin esto el vendedor creía que NINGÚN
+    // producto de Dropi tenía inventario y contestaba "reviso existencias y
+    // te confirmo" a todo (30-09-2026).
+    const stockCrudo = p.stock != null ? p.stock : meta?.dropiStock;
+    const stock = stockCrudo != null && stockCrudo !== "" && Number.isFinite(Number(stockCrudo)) ? Number(stockCrudo) : null;
+    // La garantía cargada en el producto (editor de producto) es un hecho que
+    // el vendedor puede decir, y el candado de letra chica la acepta.
+    const garantiaProducto = String(meta?.garantia || "").trim();
+    if (garantiaProducto) caracteristicas = [...(caracteristicas || []), `Garantía: ${garantiaProducto}`];
 
     return {
       id: p.id,

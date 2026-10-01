@@ -56,7 +56,7 @@ import {
   type RepositorioEstado,
 } from "./estado-conversacion";
 import { buscarContextoRelevante } from "./buscar-contexto";
-import { bloqueDeLaFichaEnFoco } from "./lo-que-dice-la-ficha";
+import { bloqueDeLaFichaEnFoco, puntosDeLaFicha } from "./lo-que-dice-la-ficha";
 import { sinCondicionesSinRespaldo, condicionesSinRespaldo } from "./condiciones-sin-respaldo";
 import { renderGuion, type GuionDelNegocio } from "./nicho";
 import { hablarColombiano } from "../hablar-colombiano";
@@ -1034,7 +1034,13 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
       // y no hay maqueta que lo acompañe, el cliente no puede quedarse sin
       // respuesta: se le dice lo único honesto que hay para decir.
       if (!textoFinal && !hayTarjetas()) {
-        textoFinal = "Ese detalle puntual te lo confirmo con el equipo y te escribo 🙌";
+        // Antes: "te lo confirmo con el equipo y te escribo". Nadie recibe
+        // esa pregunta, así que la promesa no se cumplía (30-09-2026). Se dice
+        // la verdad y se sigue con lo que SÍ está en la ficha.
+        const puntos = enFoco ? puntosDeLaFicha(enFoco).slice(0, 2) : [];
+        textoFinal = puntos.length
+          ? `Eso puntual no lo tengo confirmado para prometértelo. Lo que sí te puedo asegurar: ${puntos.join("; ")}.`
+          : "Eso puntual no lo tengo confirmado para prometértelo, así que prefiero no decírtelo a medias. ¿Qué más te gustaría saber del producto?";
       }
     }
   }

@@ -1120,7 +1120,9 @@ export const ejecutores: Record<string, Ejecutor> = {
         ok: true,
         mensaje:
           `El dueño cargó que los clientes preguntan "${mejor.item.pregunta}" pero NO dejó respuesta. ` +
-          `Está marcado como sin dato: dile que lo confirmas. No inventes.`,
+          `Respondé RAZONANDO con la ficha del producto y criterio general del tipo de producto (dicho como general, ` +
+          `no como característica de este modelo). Si es una condición comercial no cargada (garantía, plazo, descuento), ` +
+          `no la afirmes y seguí ayudando. No inventes, y no prometas que alguien le va a responder.`,
       };
     }
 
@@ -1472,8 +1474,8 @@ export const ejecutores: Record<string, Ejecutor> = {
       return {
         ok: true,
         mensaje:
-          `${p.name} no tiene inventario configurado. No afirmes stock ni disponibilidad: ` +
-          `di que revisas existencias y confirmas.`,
+          `${p.name} no tiene inventario configurado. No afirmes una cantidad. Si pregunta si hay, decí que se ` +
+          `puede pedir y que la disponibilidad se valida al registrar el pedido; no prometas escribirle después.`,
       };
     }
     det.stock = p.stock;

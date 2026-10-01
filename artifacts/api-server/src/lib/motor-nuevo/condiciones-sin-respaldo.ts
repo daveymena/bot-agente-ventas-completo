@@ -103,7 +103,7 @@ const DICE_LA_VERDAD =
   /te (?:lo )?confirm|lo confirmo|confirmarte|con el equipo|te escribo|te aviso|te averiguo|no (?:tengo|tenemos|manejamos|hay|ofrecemos|incluye|incluimos)|sin garant|no viene con/i;
 
 export interface RespaldoDelNegocio {
-  producto?: Pick<Producto, "name" | "description"> | null;
+  producto?: (Pick<Producto, "name" | "description"> & Partial<Pick<Producto, "caracteristicas" | "preguntas">>) | null;
   /** `guion.hechos` + `guion.datosDelNegocio`: lo que el dueño SÍ cargó. */
   guion?: Pick<GuionDelNegocio, "hechos" | "datosDelNegocio"> | null;
   /** Respuestas cargadas en `product_knowledge` que aplican a este producto. */
@@ -115,6 +115,10 @@ export function textoQueRespalda(r: RespaldoDelNegocio): string {
   return [
     r.producto?.name,
     r.producto?.description,
+    // Características y preguntas curadas también son lo que el dueño cargó:
+    // "Garantía: 30 días" en la ficha respalda decir "tiene garantía de 30 días".
+    ...(r.producto?.caracteristicas ?? []),
+    ...(r.producto?.preguntas ?? []).map((q) => `${q.p} ${q.r}`),
     ...(r.guion?.hechos ?? []),
     ...(r.guion?.datosDelNegocio ?? []),
     ...(r.conocimiento ?? []),
