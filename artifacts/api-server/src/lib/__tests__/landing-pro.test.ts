@@ -73,3 +73,35 @@ describe("landing PRO", () => {
     expect(contenidoDesdeRespuesta("esto no es json", producto).titulo).toBe(c.titulo);
   });
 });
+
+describe("landing PRO por tipo y estilo", () => {
+  const base = () => ({
+    contenido: contenidoDeRespaldo(producto, "digital"),
+    producto: { name: "Curso de Piano", price: 60000, categoria: "Cursos" },
+    fotos: ["https://cdn.test/p.jpg"],
+    negocio: { nombre: "Academia", whatsapp: "573001112233" },
+    accion: "__FORM_ACTION__",
+  });
+
+  it("digital: botones de pago reales, sin formulario de envío ni contra entrega", () => {
+    const h = renderizarLandingPro({ ...base(), tipo: "digital", modo: "pago", enlaces: { mercadopago: "https://mpago.la/abc" } });
+    expect(h).toContain("https://mpago.la/abc");
+    expect(h).not.toMatch(/name="direccion"|contra entrega|ENVÍO A DOMICILIO/i);
+    expect(h).toContain("Obtén tu acceso");
+  });
+
+  it("servicio: cierra por WhatsApp para agendar", () => {
+    const h = renderizarLandingPro({ ...base(), contenido: contenidoDeRespaldo(producto, "servicio"), tipo: "servicio", modo: "whatsapp" });
+    expect(h).toContain("Agendar por WhatsApp");
+    expect(h).toContain("https://wa.me/573001112233");
+    expect(h).not.toMatch(/<form/);
+  });
+
+  it("estilo clínico: azul de marca, botón verde, checkout en 3 pasos con resumen", () => {
+    const h = renderizarLandingPro({ ...base(), contenido: contenidoDeRespaldo(producto), producto: { name: producto.name, price: 45000 }, tipo: "fisico", modo: "contraentrega", estilo: "clinico" });
+    expect(h).toContain('<body class="clinico">');
+    expect(h).toContain("--p:#1D4ED8");
+    expect(h).toMatch(/<i>1<\/i>Datos de contacto[\s\S]*<i>2<\/i>Dirección de envío[\s\S]*<i>3<\/i>Forma de pago/);
+    expect(h).toContain("Resumen de tu compra");
+  });
+});

@@ -19,8 +19,15 @@ export interface ProductoParaContenido {
   category?: string | null;
 }
 
-export function sistemaContenidoPro(): string {
-  return `Sos redactor de landings de productos que se venden por anuncios en Colombia, con pago contra entrega. Escribís en español neutro de Colombia, frases cortas, sin adjetivos vacíos ("increíble", "premium", "único").
+export type TipoPro = "fisico" | "digital" | "servicio";
+const CIERRE: Record<TipoPro, string> = {
+  fisico: "producto físico que se envía; se paga contra entrega",
+  digital: "producto DIGITAL (curso, ebook, plantilla): se paga en línea y se recibe el acceso; no hay envío ni contra entrega",
+  servicio: "SERVICIO: se agenda por WhatsApp; no hay envío ni contra entrega",
+};
+
+export function sistemaContenidoPro(tipo: TipoPro = "fisico"): string {
+  return `Sos redactor de landings que se venden por anuncios en Colombia. Esto es un ${CIERRE[tipo]}. Escribís en español neutro de Colombia, frases cortas, sin adjetivos vacíos ("increíble", "premium", "único").
 Devolvé SOLO un objeto JSON válido, sin texto antes ni después, con esta forma exacta:
 {"chip":"3-5 palabras con el dato más útil (ej. 'Talla única ajustable')",
  "titulo":"titular de beneficio, 3-6 palabras, sin el nombre del producto",
@@ -34,13 +41,13 @@ Devolvé SOLO un objeto JSON válido, sin texto antes ni después, con esta form
  "faq":[{"p":"pregunta real de un comprador","r":"respuesta de 1-2 frases"}]}
 REGLAS:
 - 4 beneficios, 3 pasos, 3 a 4 preguntas.
-- Los pasos son CÓMO SE USA el producto; si los datos no lo dicen, son cómo se compra: pedir → recibir en casa → pagar al recibir.
+- Los pasos son CÓMO SE USA el producto; si los datos no lo dicen, son cómo se compra: ${tipo === "fisico" ? "pedir → recibir en casa → pagar al recibir" : tipo === "digital" ? "pagar en línea → recibir el acceso → empezar" : "escribir por WhatsApp → agendar → recibir el servicio"}.
 - Solo hechos que estén en los datos. PROHIBIDO inventar: medidas, materiales, tiempos de resultado ("en 14 días"), porcentajes, estrellas, reseñas, testimonios, descuentos, stock, garantías o plazos de envío.
 - "eyebrow" nunca es el nombre de la técnica (Problema, Solución, Atención, Interés, Deseo, Acción).
-- Una pregunta del FAQ es sobre el pago contra entrega: "Pagas en efectivo cuando lo recibes en tu casa."`;
+- ${tipo === "fisico" ? "Una pregunta del FAQ es sobre el pago contra entrega: \"Pagas en efectivo cuando lo recibes en tu casa.\"" : tipo === "digital" ? "Una pregunta del FAQ es cómo se recibe el acceso: \"Después del pago te lo enviamos.\" No menciones envío ni contra entrega." : "Una pregunta del FAQ es cómo se agenda: \"Escríbenos por WhatsApp y coordinamos el horario.\" No menciones envío ni contra entrega."}`;
 }
 
-export function pedidoContenidoPro(p: ProductoParaContenido, extra: { garantia?: string | null; plazoEntrega?: string | null } = {}): string {
+export function pedidoContenidoPro(p: ProductoParaContenido, extra: { garantia?: string | null; plazoEntrega?: string | null; tipo?: TipoPro } = {}): string {
   return JSON.stringify({
     producto: {
       nombre: p.name,
@@ -50,7 +57,7 @@ export function pedidoContenidoPro(p: ProductoParaContenido, extra: { garantia?:
       caracteristicas: (p.features || []).slice(0, 12),
     },
     hechos_del_negocio: {
-      pago: "contra entrega",
+      pago: extra.tipo === "digital" ? "en línea (MercadoPago/PayPal/transferencia)" : extra.tipo === "servicio" ? "se coordina por WhatsApp" : "contra entrega",
       plazo_de_entrega: extra.plazoEntrega || "NO definido: no lo menciones",
       garantia: extra.garantia || "NO definida: no la menciones",
     },
@@ -61,14 +68,14 @@ const texto = (v: unknown, max: number) => String(v ?? "").replace(/\s+/g, " ").
 const ROTULO_METODO = /^(el |la )?(problema|soluci[oó]n|atenci[oó]n|inter[eé]s|deseo|acci[oó]n)\s*[:.]?$/i;
 
 /** Del texto del modelo al contenido; lo que falte se completa con el producto. */
-export function contenidoDesdeRespuesta(raw: string, p: ProductoParaContenido): ContenidoPro {
+export function contenidoDesdeRespuesta(raw: string, p: ProductoParaContenido, tipo: TipoPro = "fisico"): ContenidoPro {
   let j: any = null;
   try {
     const s = String(raw || "");
     const desde = s.indexOf("{"), hasta = s.lastIndexOf("}");
     if (desde >= 0 && hasta > desde) j = JSON.parse(s.slice(desde, hasta + 1));
   } catch { j = null; }
-  const base = contenidoDeRespaldo(p);
+  const base = contenidoDeRespaldo(p, tipo);
   if (!j || typeof j !== "object") return base;
 
   const lista = <T,>(v: unknown, fn: (x: any) => T | null, min: number, max: number, respaldo: T[]): T[] => {
@@ -95,27 +102,49 @@ export function contenidoDesdeRespuesta(raw: string, p: ProductoParaContenido): 
 }
 
 /** Contenido armado solo con los datos del producto (sin modelo). */
-export function contenidoDeRespaldo(p: ProductoParaContenido): ContenidoPro {
+export function contenidoDeRespaldo(p: ProductoParaContenido, tipo: TipoPro = "fisico"): ContenidoPro {
   const feats = (p.features || []).map((f) => texto(String(f).replace(/^[^\p{L}\p{N}]+/u, ""), 70)).filter(Boolean);
   const desc = texto(p.description, 600);
   const primeraFrase = desc.split(/(?<=[.!?])\s/)[0] || "";
   return {
-    chip: "Pago contra entrega",
-    titulo: "Pídelo hoy y",
-    tituloResaltado: "págalo al recibir",
+    chip: tipo === "fisico" ? "Pago contra entrega" : tipo === "digital" ? "Acceso digital" : "Atención personalizada",
+    titulo: tipo === "fisico" ? "Pídelo hoy y" : tipo === "digital" ? "Empieza hoy" : "Agenda hoy",
+    tituloResaltado: tipo === "fisico" ? "págalo al recibir" : tipo === "digital" ? "a tu ritmo" : "por WhatsApp",
     lead: `${p.name}${primeraFrase ? `: ${primeraFrase}` : ""}`.slice(0, 260),
-    bullets: feats.length ? feats.slice(0, 3) : ["Envío a domicilio", "Pagas cuando lo recibes", "Te confirmamos por WhatsApp"],
-    cta: "Lo quiero",
+    bullets: feats.length ? feats.slice(0, 3) : tipo === "fisico" ? ["Envío a domicilio", "Pagas cuando lo recibes", "Te confirmamos por WhatsApp"] : tipo === "digital" ? ["Acceso después del pago", "Desde el celular o el computador", "Soporte por WhatsApp"] : ["Atención directa", "Horario a tu medida", "Respuesta por WhatsApp"],
+    cta: tipo === "fisico" ? "Lo quiero" : tipo === "digital" ? "Quiero el acceso" : "Quiero agendar",
     problema: { eyebrow: "Por qué elegirlo", titulo: p.name, texto: desc.slice(0, 320) || `Conoce ${p.name}.` },
-    beneficios: (feats.length ? feats : ["Envío a domicilio", "Pago contra entrega", "Compra segura", "Atención por WhatsApp"]).slice(0, 4).map((f, i) => ({ icono: ["sparkle", "check", "box", "chat"][i] || "check", titulo: f.split(/\s+/).slice(0, 3).join(" "), texto: f })),
-    pasos: [
-      { titulo: "Haz tu pedido", texto: "Deja tus datos en el formulario." },
-      { titulo: "Lo recibes en casa", texto: "Te lo enviamos a tu dirección." },
-      { titulo: "Pagas al recibir", texto: "En efectivo, cuando lo tengas en tus manos." },
-    ],
-    faq: [
-      { p: "¿Cómo funciona el pago contra entrega?", r: "Pagas en efectivo cuando recibes el producto en tu casa." },
-      { p: "¿Cómo sé que mi pedido quedó registrado?", r: "Te confirmamos por WhatsApp antes de despacharlo." },
-    ],
+    beneficios: (feats.length ? feats : tipo === "fisico" ? ["Envío a domicilio", "Pago contra entrega", "Compra segura", "Atención por WhatsApp"] : ["Atención por WhatsApp", "Pago seguro", "A tu ritmo", "Soporte"]).slice(0, 4).map((f, i) => ({ icono: ["sparkle", "check", "box", "chat"][i] || "check", titulo: f.split(/\s+/).slice(0, 3).join(" "), texto: f })),
+    pasos: tipo === "fisico"
+      ? [
+          { titulo: "Haz tu pedido", texto: "Deja tus datos en el formulario." },
+          { titulo: "Lo recibes en casa", texto: "Te lo enviamos a tu dirección." },
+          { titulo: "Pagas al recibir", texto: "En efectivo, cuando lo tengas en tus manos." },
+        ]
+      : tipo === "digital"
+        ? [
+            { titulo: "Haz tu pago", texto: "Con el medio que prefieras." },
+            { titulo: "Recibe el acceso", texto: "Te lo enviamos después del pago." },
+            { titulo: "Empieza", texto: "Desde tu celular o computador." },
+          ]
+        : [
+            { titulo: "Escríbenos", texto: "Por WhatsApp, con lo que necesitas." },
+            { titulo: "Agendamos", texto: "Coordinamos día y hora contigo." },
+            { titulo: "Te atendemos", texto: "En el horario acordado." },
+          ],
+    faq: tipo === "fisico"
+      ? [
+          { p: "¿Cómo funciona el pago contra entrega?", r: "Pagas en efectivo cuando recibes el producto en tu casa." },
+          { p: "¿Cómo sé que mi pedido quedó registrado?", r: "Te confirmamos por WhatsApp antes de despacharlo." },
+        ]
+      : tipo === "digital"
+        ? [
+            { p: "¿Cómo recibo el acceso?", r: "Después del pago te lo enviamos." },
+            { p: "¿Qué medios de pago hay?", r: "Los que ves en el botón de pago, o transferencia por WhatsApp." },
+          ]
+        : [
+            { p: "¿Cómo agendo?", r: "Escríbenos por WhatsApp y coordinamos el horario." },
+            { p: "¿Cuánto cuesta?", r: "Te damos el valor exacto por WhatsApp según lo que necesites." },
+          ],
   };
 }

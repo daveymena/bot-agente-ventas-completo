@@ -41,12 +41,24 @@ export interface OpcionesPro {
   negocio: { nombre: string; whatsapp?: string | null };
   /** action del formulario (o el marcador __FORM_ACTION__). */
   accion: string;
-  pagoAlRecibir: boolean;
+  /** Compatibilidad: se deriva de `modo`. */
+  pagoAlRecibir?: boolean;
   /** Plazo de entrega configurado por el negocio; null = no se promete. */
   plazoEntrega?: string | null;
   garantia?: string | null;
   testimonios?: Array<{ nombre: string; ciudad?: string; texto: string }>;
   ofertas?: Array<{ nombre: string; cantidad: number; precio: number }>;
+  /**
+   * Cómo cierra la venta:
+   *  - contraentrega: formulario de pedido (físico de Dropi).
+   *  - pago: botones a los enlaces de pago reales (digital, físico pagado antes).
+   *  - whatsapp: un botón a WhatsApp (servicios, o digital sin enlaces).
+   */
+  modo?: "contraentrega" | "pago" | "whatsapp";
+  tipo?: "fisico" | "digital" | "servicio";
+  enlaces?: { mercadopago?: string; paypal?: string };
+  /** "pro" (neutro, del dueño) o "clinico" (azul/blanco, botón verde, checkout en pasos). */
+  estilo?: "pro" | "clinico";
 }
 
 // ── Paletas neutras, para ambos sexos ─────────────────────────────────────
@@ -215,20 +227,49 @@ body{font-size:15.5px;padding-bottom:84px}.hdr-in{height:56px}.logo{font-size:15
 .testis{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:12px;margin-inline:calc(var(--gutter) * -1);padding:4px var(--gutter) 10px;scrollbar-width:none}.testi{flex:0 0 84%;scroll-snap-align:start}
 .order{border-radius:26px;padding:20px 16px}.order h2{font-size:24px}.row2{grid-template-columns:1fr}.guarantee{flex-direction:column;text-align:center}.sticky{display:block}.wa{display:none}}
 @media (min-width:761px) and (max-width:1000px){.trust{grid-template-columns:1fr 1fr}.steps,.testis{grid-template-columns:1fr 1fr}}
+.paso-form{display:flex;align-items:center;gap:10px;font-weight:800;font-size:16px;margin-top:6px}
+.paso-form i{font-style:normal;width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:color-mix(in srgb,var(--p) 12%,white);color:var(--p);font-size:14px}
+.pago-fijo{display:flex;align-items:center;gap:10px;border:2px solid var(--p);border-radius:14px;padding:14px 16px;font-weight:700;background:color-mix(in srgb,var(--p) 5%,white)}
+.resumen{border:1px solid var(--line);border-radius:var(--radius-md);padding:16px;display:grid;gap:10px;background:var(--bg-2)}
+.resumen-fila{display:flex;justify-content:space-between;gap:12px;font-size:14px}.resumen-fila.total-r{font-size:18px;font-weight:800;border-top:1px solid var(--line);padding-top:10px}
+.pagos{display:grid;gap:10px}.btn-alt{background:#fff;color:var(--ink);border:2px solid var(--line);padding:16px 24px;font-size:16px}
+.seguro{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:var(--ink-2)}.seguro .ico{width:18px;height:18px;color:var(--p)}
+/* ── Estilo CLÍNICO (azul y blanco, botón verde: imagen de referencia del dueño) ── */
+body.clinico{background:#F1F6FF}
+.clinico .hero{background:linear-gradient(180deg,#fff 0%,#EAF2FF 100%)}
+.clinico .btn-cta{background:#16A34A;box-shadow:0 12px 28px -10px rgba(22,163,74,.6)}
+.clinico .btn-sm{background:#16A34A}
+.clinico .grad-text{background:none;color:var(--p);-webkit-text-fill-color:var(--p)}
+.clinico .chip{background:#DBEAFE;color:#1D4ED8}
+.clinico .dark{background:linear-gradient(135deg,#1E3A8A,#1D4ED8)}
+.clinico .dark::before{display:none}
+.clinico .sec:not(.dark):not(.order-sec)>.wrap{background:#fff;border-radius:28px;padding-block:clamp(24px,4vw,40px);box-shadow:0 10px 30px -18px rgba(29,78,216,.25)}
+.clinico .order-sec{background:transparent}
+.clinico .order{border:0;box-shadow:0 30px 60px -30px rgba(29,78,216,.35)}
+.clinico .order h2{background:linear-gradient(135deg,#1D4ED8,#3B82F6);color:#fff;margin:calc(clamp(20px,4vw,36px) * -1) calc(clamp(20px,4vw,36px) * -1) 0;padding:22px;border-radius:var(--radius-xl) var(--radius-xl) 0 0;text-align:left}
+.clinico .step{background:rgba(255,255,255,.08)}
+.clinico .foot{background:#0F1E4A}
+@media (max-width:760px){.clinico .sec:not(.dark):not(.order-sec)>.wrap{border-radius:22px;margin-inline:12px;padding-inline:16px}.clinico .order h2{margin:-20px -16px 0;border-radius:26px 26px 0 0}}
 `;
 
 const SCRIPT = `(function(){
 var t=document.getElementById('gtrack');if(t){var d=[].slice.call(document.querySelectorAll('#gdots i')),th=[].slice.call(document.querySelectorAll('.g-thumbs button')),c=document.getElementById('gcount');
 var s=function(i){d.forEach(function(x,k){x.classList.toggle('on',k===i)});th.forEach(function(x,k){x.setAttribute('aria-current',k===i)});if(c)c.textContent=(i+1)+'/'+(d.length||th.length)};
 t.addEventListener('scroll',function(){s(Math.round(t.scrollLeft/t.clientWidth))},{passive:true});th.forEach(function(b){b.onclick=function(){t.scrollTo({left:t.clientWidth*+b.dataset.i,behavior:'smooth'})}});}
-var tot=document.getElementById('total');[].slice.call(document.querySelectorAll('input[name="oferta"]')).forEach(function(r){r.onchange=function(){if(tot)tot.textContent=r.dataset.total}});
+var tot=document.getElementById('total'),tr=document.getElementById('totalResumen');[].slice.call(document.querySelectorAll('input[name="oferta"]')).forEach(function(r){r.onchange=function(){if(tot)tot.textContent=r.dataset.total;if(tr)tr.textContent=r.dataset.total}});
 var st=document.getElementById('sticky'),hc=document.getElementById('heroCta'),ob=document.getElementById('pedido');if(st&&hc&&ob&&'IntersectionObserver' in window){var past=false,on=false,u=function(){st.classList.toggle('show',past&&!on)};
 new IntersectionObserver(function(e){past=!e[0].isIntersecting&&e[0].boundingClientRect.top<0;u()}).observe(hc);new IntersectionObserver(function(e){on=e[0].isIntersecting;u()},{threshold:.15}).observe(ob);}
 })();`;
 
 export function renderizarLandingPro(o: OpcionesPro): string {
   const c = o.contenido;
-  const pal = PALETAS[paletaPorCategoria(o.producto.categoria)];
+  const estilo = o.estilo === "clinico" ? "clinico" : "pro";
+  const pal = estilo === "clinico" ? { p: "#1D4ED8", p2: "#3B82F6", soft: "#EFF6FF" } : PALETAS[paletaPorCategoria(o.producto.categoria)];
+  const tipo = o.tipo || "fisico";
+  const modo = o.modo || (o.pagoAlRecibir ? "contraentrega" : "whatsapp");
+  // Desde acá, "al recibir" sale del modo (el campo viejo queda por compatibilidad).
+  o = { ...o, pagoAlRecibir: modo === "contraentrega" };
+  const enlaces = o.enlaces || {};
   const precio = Number(o.producto.price) || 0;
   // Fotos: la del bloque "problema" se RESERVA (no va en la galería) cuando
   // hay 3 o más; con menos, el bloque va sin foto. Nunca la misma dos veces.
@@ -240,19 +281,39 @@ export function renderizarLandingPro(o: OpcionesPro): string {
   const ofertas = (o.ofertas || []).filter((x) => x && x.nombre && Number(x.precio) > 0 && Number(x.cantidad) > 0);
   const totalInicial = ofertas[0]?.precio ?? precio;
 
-  const bar = [
-    o.pagoAlRecibir ? `💵 <b>PAGO CONTRA ENTREGA</b>` : "",
-    `🚚 <b>ENVÍO A DOMICILIO</b>${o.plazoEntrega ? ` · ${esc(o.plazoEntrega)}` : ""}`,
-    o.garantia ? `🛡️ <b>${esc(o.garantia)}</b>` : "",
-  ].filter(Boolean).map((x) => `<span>${x}</span>`).join("");
+  type Fila = [string, string, string];
+  const bar = (tipo === "fisico"
+    ? [
+        o.pagoAlRecibir ? `💵 <b>PAGO CONTRA ENTREGA</b>` : "",
+        `🚚 <b>ENVÍO A DOMICILIO</b>${o.plazoEntrega ? ` · ${esc(o.plazoEntrega)}` : ""}`,
+        o.garantia ? `🛡️ <b>${esc(o.garantia)}</b>` : "",
+      ]
+    : tipo === "digital"
+      ? [o.plazoEntrega ? `⚡ <b>${esc(o.plazoEntrega)}</b>` : `⚡ <b>ACCESO DIGITAL</b>`, wa ? `💬 Soporte por <b>WhatsApp</b>` : "", o.garantia ? `🛡️ <b>${esc(o.garantia)}</b>` : ""]
+      : [wa ? `💬 <b>AGENDA POR WHATSAPP</b>` : "", o.garantia ? `🛡️ <b>${esc(o.garantia)}</b>` : ""]
+  ).filter(Boolean).map((x) => `<span>${x}</span>`).join("");
 
-  const confianza: Array<[string, string, string]> = [
-    ["truck", "Envío a domicilio", o.plazoEntrega || "Te confirmamos por WhatsApp"],
-    ...(o.pagoAlRecibir ? [["cash", "Pago contra entrega", "Pagas al recibir"] as [string, string, string]] : []),
-    ...(o.garantia ? [["shield", "Garantía", o.garantia] as [string, string, string]] : []),
-    ["lock", "Compra segura", "Tus datos protegidos"],
-    ...(wa ? [["chat", "Atención", "Por WhatsApp"] as [string, string, string]] : []),
-  ].slice(0, 4) as Array<[string, string, string]>;
+  const confianza: Fila[] = (tipo === "fisico"
+    ? [
+        ["truck", "Envío a domicilio", o.plazoEntrega || "Te confirmamos por WhatsApp"] as Fila,
+        ...(o.pagoAlRecibir ? [["cash", "Pago contra entrega", "Pagas al recibir"] as Fila] : []),
+        ...(o.garantia ? [["shield", "Garantía", o.garantia] as Fila] : []),
+        ["lock", "Compra segura", "Tus datos protegidos"] as Fila,
+        ...(wa ? [["chat", "Atención", "Por WhatsApp"] as Fila] : []),
+      ]
+    : tipo === "digital"
+      ? [
+          ["bolt", "Acceso digital", o.plazoEntrega || "Te llega después del pago"] as Fila,
+          ...(enlaces.mercadopago || enlaces.paypal ? [["lock", "Pago seguro", [enlaces.mercadopago ? "MercadoPago" : "", enlaces.paypal ? "PayPal" : ""].filter(Boolean).join(" o ")] as Fila] : []),
+          ...(wa ? [["chat", "Soporte", "Por WhatsApp"] as Fila] : []),
+          ...(o.garantia ? [["shield", "Garantía", o.garantia] as Fila] : []),
+        ]
+      : [
+          ...(wa ? [["chat", "Atención directa", "Por WhatsApp"] as Fila] : []),
+          ["clock", "Agenda", "Coordinamos el horario contigo"] as Fila,
+          ...(o.garantia ? [["shield", "Garantía", o.garantia] as Fila] : []),
+        ]
+  ).slice(0, 4);
 
   const opciones = (o.producto.opciones || []).filter((x) => x?.nombre && Array.isArray(x.valores) && x.valores.length);
   const camposOpciones = opciones.map((x) => `<div class="field"><label>${esc(x.nombre)}${x.obligatoria ? " *" : ""}</label><select name="opcion_${esc(x.nombre)}" ${x.obligatoria ? "required" : ""}><option value="">Elegí ${esc(x.nombre.toLowerCase())}…</option>${x.valores.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}</select></div>`).join("");
@@ -260,6 +321,52 @@ export function renderizarLandingPro(o: OpcionesPro): string {
   const img = (src: string, alt: string, eager = false) => `<img src="${esc(src)}" alt="${esc(alt)}"${eager ? "" : ' loading="lazy"'} decoding="async">`;
   const testimonios = (o.testimonios || []).filter((t) => t?.nombre && t?.texto).slice(0, 3);
   const lead = esc(c.lead).replace(esc(o.producto.name), `<strong>${esc(o.producto.name)}</strong>`);
+  const waLink = (texto: string) => (wa ? `https://wa.me/${wa}?text=${encodeURIComponent(texto)}` : "");
+
+  // ── Cierre según el modo ────────────────────────────────────────────────
+  const packs = ofertas.length > 1
+    ? `<div class="packs" role="radiogroup" aria-label="Ofertas">${ofertas.map((x, i) => `<label class="pack"><input type="radio" name="oferta" value="${i}" data-total="${cop(x.precio)}" ${i === 0 ? "checked" : ""}><span class="radio"></span><span class="pack-info"><b>${esc(x.nombre)}</b><span>${cop(x.precio / x.cantidad)} c/u</span></span><span class="pack-price"><b>${cop(x.precio)}</b></span></label>`).join("")}</div>`
+    : ofertas.length === 1 ? `<input type="hidden" name="oferta" value="0">` : `<input type="hidden" name="cantidad" value="1">`;
+  const resumen = totalInicial > 0
+    ? `<div class="resumen"><b>Resumen de tu compra</b><div class="resumen-fila"><span>${esc(o.producto.name)}${ofertas[0] ? ` · ${esc(ofertas[0].nombre)}` : " × 1"}</span><span id="totalResumen">${cop(totalInicial)}</span></div>${tipo === "fisico" ? `<div class="resumen-fila"><span>Envío</span><span>${o.plazoEntrega ? esc(o.plazoEntrega) : "Se confirma por WhatsApp"}</span></div>` : ""}<div class="resumen-fila total-r"><span>Total${o.pagoAlRecibir ? " al recibir" : ""}</span><b id="total">${cop(totalInicial)}</b></div></div>`
+    : "";
+  let bloquePedido: string;
+  if (modo === "contraentrega") {
+    bloquePedido = `<h2>${ofertas.length > 1 ? "Elige tu oferta" : "Haz tu pedido"}</h2>
+  <form class="form checkout-form" method="post" action="${esc(o.accion)}">
+    ${packs}
+    ${camposOpciones}
+    <div class="paso-form"><i>1</i>Datos de contacto</div>
+    <div class="field"><input name="nombre" placeholder="Nombre completo" autocomplete="name" required></div>
+    <div class="field"><input name="telefono" placeholder="WhatsApp / Celular" inputmode="tel" autocomplete="tel" required></div>
+    <div class="paso-form"><i>2</i>Dirección de envío</div>
+    <div class="row2"><div class="field"><input name="ciudad" placeholder="Ciudad o municipio" autocomplete="address-level2" required></div><div class="field"><input name="departamento" placeholder="Departamento" autocomplete="address-level1" required></div></div>
+    <div class="field"><input name="direccion" placeholder="Dirección (calle, carrera, número)" autocomplete="street-address" required></div>
+    <div class="row2"><div class="field"><input name="barrio" placeholder="Barrio"></div><div class="field"><input name="referencia" placeholder="Referencia (opcional)"></div></div>
+    <div class="envio-transportadora" hidden></div>
+    <div class="paso-form"><i>3</i>Forma de pago</div>
+    <div class="pago-fijo">${svg("cash")} Contra entrega (efectivo al recibir)</div>
+    ${resumen || `<div class="total"><span>Total a pagar al recibir</span><b id="total"></b></div>`}
+    <button class="btn btn-cta btn-block" type="submit">Confirmar pedido ${svg("arrow")}</button>
+    <p class="fine">🔒 Sin pagos anticipados · Tus datos están protegidos</p>
+  </form>`;
+  } else if (modo === "pago") {
+    const botones = [
+      enlaces.mercadopago ? `<a class="btn btn-cta btn-block" href="${esc(enlaces.mercadopago)}" target="_blank" rel="noopener">Pagar con MercadoPago ${svg("arrow")}</a>` : "",
+      enlaces.paypal ? `<a class="btn btn-alt btn-block" href="${esc(enlaces.paypal)}" target="_blank" rel="noopener">Pagar con PayPal</a>` : "",
+      wa ? `<a class="btn btn-alt btn-block" href="${esc(waLink(`Hola, quiero pagar ${o.producto.name} por transferencia`))}" target="_blank" rel="noopener">${svg("wa")} Pagar por transferencia</a>` : "",
+    ].filter(Boolean);
+    bloquePedido = `<h2>${tipo === "digital" ? "Obtén tu acceso" : "Haz tu pedido"}</h2>
+  ${resumen}
+  <div class="pagos">${botones.join("") || `<p class="fine">Escríbenos para coordinar el pago.</p>`}</div>
+  <p class="fine">🔒 ${tipo === "digital" ? "Después del pago te enviamos el acceso" : "Pago seguro · Te confirmamos el envío por WhatsApp"}</p>`;
+  } else {
+    bloquePedido = `<h2>${tipo === "servicio" ? "Agenda tu cita" : "Quiero más información"}</h2>
+  ${precio > 0 ? resumen : ""}
+  ${wa ? `<a class="btn btn-cta btn-block" href="${esc(waLink(`Hola, me interesa ${o.producto.name}`))}" target="_blank" rel="noopener">${svg("wa")} ${tipo === "servicio" ? "Agendar por WhatsApp" : "Escribir por WhatsApp"}</a>` : `<p class="fine">Pronto habilitaremos el contacto.</p>`}
+  <p class="fine">Te respondemos personalmente.</p>`;
+  }
+  const textoSticky = modo === "contraentrega" ? "Pedir · Pago al recibir" : modo === "pago" ? (tipo === "digital" ? "Comprar ahora" : "Pedir ahora") : tipo === "servicio" ? "Agendar" : "Quiero info";
 
   return `<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -268,9 +375,9 @@ ${galeria[0] || fotoProblema ? `<meta property="og:image" content="${esc(galeria
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
 <style>:root{--p:${pal.p};--p2:${pal.p2};--p-soft:${pal.soft}}${CSS}</style></head>
-<body>
+<body class="${estilo}">
 <div class="topbar"><div class="topbar-in">${bar}</div></div>
-<header class="hdr"><div class="wrap hdr-in"><a class="logo" href="#top"><span class="logo-mark">${esc(iniciales)}</span><span>${esc(o.negocio.nombre || o.producto.name)}</span></a><a class="btn btn-sm" href="#pedido">Pedir ahora</a></div></header>
+<header class="hdr"><div class="wrap hdr-in"><a class="logo" href="#top"><span class="logo-mark">${esc(iniciales)}</span><span>${esc(o.negocio.nombre || o.producto.name)}</span></a>${estilo === "clinico" ? `<span class="seguro">${svg("shield")} Compra 100% segura</span>` : `<a class="btn btn-sm" href="#pedido">${esc(textoSticky.split(" ·")[0])}</a>`}</div></header>
 <main id="top">
 <section class="hero"><div class="wrap"><div class="hero-grid">
   ${galeria.length ? `<div class="gallery"><div class="g-track" id="gtrack" aria-label="Fotos del producto">${galeria.map((s, i) => `<div class="g-slide">${img(s, `${o.producto.name} foto ${i + 1}`, i === 0)}</div>`).join("")}</div>
@@ -302,21 +409,7 @@ ${testimonios.length ? `<section class="sec"><div class="wrap"><div class="sec-h
 <div class="testis">${testimonios.map((t) => `<figure class="testi"><q>${esc(t.texto)}</q><figcaption class="who"><span class="avatar">${esc(t.nombre.trim()[0] || "")}</span><div><b>${esc(t.nombre)}</b>${t.ciudad ? `<span>${esc(t.ciudad)}</span>` : ""}</div></figcaption></figure>`).join("")}</div></div></section>` : ""}
 
 <section class="sec order-sec" id="pedido"><div class="wrap"><div class="order" id="orderBox">
-  <h2>${ofertas.length > 1 ? "Elige tu oferta" : "Haz tu pedido"}</h2>
-  <form class="form checkout-form" method="post" action="${esc(o.accion)}">
-    ${ofertas.length > 1 ? `<div class="packs" role="radiogroup" aria-label="Ofertas">${ofertas.map((x, i) => `<label class="pack"><input type="radio" name="oferta" value="${i}" data-total="${cop(x.precio)}" ${i === 0 ? "checked" : ""}><span class="radio"></span><span class="pack-info"><b>${esc(x.nombre)}</b><span>${cop(x.precio / x.cantidad)} c/u</span></span><span class="pack-price"><b>${cop(x.precio)}</b></span></label>`).join("")}</div>` : ofertas.length === 1 ? `<input type="hidden" name="oferta" value="0">` : `<input type="hidden" name="cantidad" value="1">`}
-    ${camposOpciones}
-    <div class="form-title">${o.pagoAlRecibir ? "Completa tus datos · Pagas al recibir 💵" : "Completa tus datos"}</div>
-    <div class="field"><input name="nombre" placeholder="Nombre completo" autocomplete="name" required></div>
-    <div class="field"><input name="telefono" placeholder="WhatsApp / Celular" inputmode="tel" autocomplete="tel" required></div>
-    <div class="row2"><div class="field"><input name="ciudad" placeholder="Ciudad o municipio" autocomplete="address-level2" required></div><div class="field"><input name="departamento" placeholder="Departamento" autocomplete="address-level1" required></div></div>
-    <div class="field"><input name="direccion" placeholder="Dirección de entrega" autocomplete="street-address" required></div>
-    <div class="row2"><div class="field"><input name="barrio" placeholder="Barrio"></div><div class="field"><input name="referencia" placeholder="Referencia (opcional)"></div></div>
-    <div class="envio-transportadora" hidden></div>
-    <div class="total"><span>${o.pagoAlRecibir ? "Total a pagar al recibir" : "Total"}</span><b id="total">${totalInicial > 0 ? cop(totalInicial) : ""}</b></div>
-    <button class="btn btn-cta btn-block" type="submit">${o.pagoAlRecibir ? "Confirmar pedido contra entrega" : "Confirmar pedido"} ${svg("arrow")}</button>
-    <p class="fine">🔒 ${o.pagoAlRecibir ? "Sin pagos anticipados · Pagas al recibir" : "Te contactamos para coordinar el pago"}</p>
-  </form>
+  ${bloquePedido}
 </div></div></section>
 
 ${c.faq.length ? `<section class="sec"><div class="wrap"><div class="sec-head"><h2>Preguntas frecuentes</h2></div>
@@ -325,7 +418,7 @@ ${c.faq.length ? `<section class="sec"><div class="wrap"><div class="sec-head"><
 ${o.garantia ? `<section class="sec" style="padding-top:0"><div class="wrap"><div class="guarantee"><span class="seal">${svg("shield")}</span><div><h3>Compra con garantía</h3><p>${esc(o.garantia)}</p></div></div></div></section>` : ""}
 </main>
 <footer class="foot"><div class="wrap">© ${new Date().getFullYear()} ${esc(o.negocio.nombre || o.producto.name)}</div></footer>
-<div class="sticky" id="sticky"><div class="sticky-in"><div class="sticky-price">${totalInicial > 0 ? `<b>${cop(totalInicial)}</b>` : ""}</div><a class="btn btn-cta" href="#pedido">${o.pagoAlRecibir ? "Pedir · Pago al recibir" : "Pedir ahora"}</a></div></div>
+<div class="sticky" id="sticky"><div class="sticky-in"><div class="sticky-price">${totalInicial > 0 ? `<b>${cop(totalInicial)}</b>` : ""}</div><a class="btn btn-cta" href="#pedido">${esc(textoSticky)}</a></div></div>
 ${wa ? `<a class="wa" href="https://wa.me/${wa}?text=${encodeURIComponent(`Hola, quiero información de ${o.producto.name}`)}" target="_blank" rel="noopener" aria-label="Escribir por WhatsApp">${svg("wa")}</a>` : ""}
 <script>${SCRIPT}</script><script>${SCRIPT_TRANSPORTADORA}</script>
 </body></html>`;

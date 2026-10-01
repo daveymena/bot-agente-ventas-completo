@@ -438,7 +438,10 @@ export function estadoDeGeneracion(l: any): { estado: "generando" | "lista" | "f
     estado: "lista",
     texto:
       `✅ La landing [${l.id}] "${l.name}" está LISTA (${gen}${st.motivoRespaldo ? `; el generador premium falló: ${String(st.motivoRespaldo).slice(0, 120)}` : ""}). ` +
-      (familia ? `Estilo visual: "${familia}"${st.familiaPorque ? ` — ${st.familiaPorque}` : ""}. Si el admin quiere otro, landing_editar con "poné estilo X" (premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch, electronica, suplemento, gourmet). ` : "") +
+      (String(st.familiaPorque || "").startsWith("plantilla PRO")
+        ? `Diseño: ${st.familiaPorque}. Para la variante azul/blanca, landing_crear con estilo "clinico"; el HTML libre de antes solo con estilo "libre". `
+        : "") +
+      (familia && !String(st.familiaPorque || "").startsWith("plantilla PRO") ? `Estilo visual: "${familia}"${st.familiaPorque ? ` — ${st.familiaPorque}` : ""}. Si el admin quiere otro, landing_editar con "poné estilo X" (premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch, electronica, suplemento, gourmet). ` : "") +
       `Vista previa: ${vistaPrevia} . ${l.status === "published" ? "Ya está publicada." : `Está en borrador: para la URL pública, landing_publicar con id ${l.id}.`}`,
     vistaPrevia,
   };
@@ -446,7 +449,7 @@ export function estadoDeGeneracion(l: any): { estado: "generando" | "lista" | "f
 
 export function lanzarGeneracionDeLandingEnSegundoPlano(
   ctx: OperatorContext,
-  job: { landingId: number; slug: string; product: any; instruccion: string; familia: string | null },
+  job: { landingId: number; slug: string; product: any; instruccion: string; familia: string | null; estilo?: "pro" | "clinico" | "libre" | null },
 ): void {
   landingsEnCurso.set(job.landingId, { tenantId: ctx.tenantId, sessionId: ctx.sessionId, productName: String(job.product?.name || ""), desde: Date.now() });
 
@@ -467,7 +470,7 @@ export function lanzarGeneracionDeLandingEnSegundoPlano(
       //    request esperando, se le da tiempo real.
       try {
         const { generarLandingConOpenCode } = await import("../routes/landing-studio-opencode");
-        const r = await generarLandingConOpenCode({ product: job.product, instruction: job.instruccion, familia: job.familia, timeoutMs: 150_000 });
+        const r = await generarLandingConOpenCode({ product: job.product, instruction: job.instruccion, familia: job.familia, timeoutMs: 150_000, estilo: job.estilo === "clinico" ? "clinico" : "pro", htmlLibre: job.estilo === "libre" });
         tipo = r.tipo;
         if (r.error || !r.html) throw new Error(r.error || "respuesta vacía");
         let html = r.html;
@@ -4900,7 +4903,7 @@ ${explicarObjetivos()}` };
     name: "landing_crear",
     description:
       "Genera una landing HTML del producto. Corre en segundo plano: devuelve el id NUEVO en estado generando; hasta que landing_estado diga lista no describas ninguna landing (menos una vieja). Borrador; publicar: landing_publicar. Va por propose_action.",
-    args: '{ "productId": number (req), "instruccion"?: string, "familia"?: string (estilo: premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch, electronica, suplemento, gourmet) }',
+    args: '{ "productId": number (req), "estilo"?: "pro"|"clinico"|"libre", "instruccion"?: string, "familia"?: string (solo con estilo libre: premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch, electronica, suplemento, gourmet) }',
     run: async (args, ctx) => {
       const id = num(args?.productId);
       if (!id) return { ok: false, summary: "Falta 'productId'." };
@@ -4909,6 +4912,9 @@ ${explicarObjetivos()}` };
 
       const instruccion = String(args?.instruccion || args?.instruction || "Genera una landing page profesional y de alta conversión para este producto.");
       const familia = String(args?.familia || "").trim() || null;
+      // Plantilla PRO por defecto (modelo del dueño, 30-09-2026); "clinico" =
+      // azul/blanco; "libre" = el HTML libre de antes, solo si se pide.
+      const estilo = (["pro", "clinico", "libre"].includes(String(args?.estilo)) ? String(args.estilo) : "pro") as "pro" | "clinico" | "libre";
 
       // ── Por qué NO se genera acá adentro ──────────────────────────────
       //
@@ -4937,7 +4943,7 @@ ${explicarObjetivos()}` };
         html: null,
       } as any).returning();
 
-      lanzarGeneracionDeLandingEnSegundoPlano(ctx, { landingId: creada.id, slug, product: prod, instruccion, familia });
+      lanzarGeneracionDeLandingEnSegundoPlano(ctx, { landingId: creada.id, slug, product: prod, instruccion, familia, estilo });
 
       return {
         ok: true,
