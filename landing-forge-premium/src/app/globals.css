@@ -1,0 +1,167 @@
+@import 'tailwindcss';
+
+/*
+  Estilos del PANEL (no de las landings).
+  Las landings exportadas traen su propio CSS, independiente de Tailwind.
+*/
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Space Grotesk', 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  --color-ink-950: #07070c;
+  --color-ink-900: #0b0b12;
+  --color-ink-850: #101018;
+  --color-ink-800: #15161f;
+  --color-ink-700: #1d1e2a;
+  --color-ink-600: #2a2b3a;
+  --color-ink-500: #3a3c4e;
+  --color-ink-400: #585a70;
+  --color-ink-300: #8a8ca4;
+  --color-ink-200: #b9bbcd;
+  --color-ink-100: #e4e5ef;
+
+  --color-brand-500: #7c5cff;
+  --color-brand-400: #9178ff;
+  --color-brand-600: #6a48f5;
+  --color-mint-400: #30d5c8;
+  --color-lime-400: #c8ff2e;
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--color-ink-900);
+    color: var(--color-ink-100);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  ::selection {
+    background: var(--color-brand-500);
+    color: #fff;
+  }
+
+  /* Scrollbar discreto */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-ink-600) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: var(--color-ink-600);
+    border-radius: 99px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover {
+    background: var(--color-ink-500);
+    background-clip: content-box;
+  }
+
+  input[type='color'] {
+    -webkit-appearance: none;
+    appearance: none;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+  input[type='color']::-webkit-color-swatch-wrapper {
+    padding: 0;
+  }
+  input[type='color']::-webkit-color-swatch {
+    border: 1px solid var(--color-ink-600);
+    border-radius: 8px;
+  }
+}
+
+@layer components {
+  .panel-card {
+    @apply rounded-2xl border border-ink-700 bg-ink-850;
+  }
+
+  .panel-input {
+    @apply w-full rounded-xl border border-ink-600 bg-ink-900 px-3.5 py-2.5 text-sm text-ink-100
+      placeholder:text-ink-400 outline-none transition
+      focus:border-brand-500 focus:ring-2 focus:ring-brand-500/25;
+  }
+
+  .panel-label {
+    @apply mb-1.5 block text-xs font-semibold tracking-wide text-ink-300;
+  }
+
+  /*
+    Tailwind v4 no permite usar @apply con clases de componente propias, así que
+    la base del botón se declara una sola vez para todas las variantes.
+  */
+  .panel-btn,
+  .panel-btn-primary,
+  .panel-btn-ghost,
+  .panel-btn-subtle {
+    @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold
+      transition active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-40;
+  }
+
+  .panel-btn-primary {
+    @apply bg-brand-500 text-white hover:bg-brand-600;
+  }
+
+  .panel-btn-ghost {
+    @apply border border-ink-600 bg-ink-800 text-ink-100 hover:border-ink-500 hover:bg-ink-700;
+  }
+
+  .panel-btn-subtle {
+    @apply text-ink-300 hover:bg-ink-800 hover:text-ink-100;
+  }
+
+  .panel-chip {
+    @apply inline-flex items-center gap-1.5 rounded-full border border-ink-600 bg-ink-800
+      px-2.5 py-1 text-[11px] font-medium text-ink-200;
+  }
+}
+
+@layer utilities {
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}
+
+/* Animación de entrada de los paneles */
+@keyframes panel-fade {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.animate-panel {
+  animation: panel-fade 0.22s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-panel {
+    animation: none;
+  }
+}
