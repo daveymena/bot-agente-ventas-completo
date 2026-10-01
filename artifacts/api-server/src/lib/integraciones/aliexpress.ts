@@ -37,13 +37,17 @@ export function firmarTop(params: Record<string, string>, appSecret: string): st
 }
 
 async function llamarApi(cred: CredAli, metodo: string, especificos: Record<string, string>): Promise<any> {
+  // Gateway IOP (api-sg.aliexpress.com): timestamp en MILISEGUNDOS y
+  // sign_method "sha256" (HMAC-SHA256, mayúsculas). Antes iba "hmac" (que en
+  // esta plataforma es otro algoritmo) y la hora como texto local de
+  // Colombia: todas las llamadas habrían vuelto "IncompleteSignature" o
+  // "timestamp inválido".
+  void fechaTop;
   const params: Record<string, string> = {
     method: metodo,
     app_key: cred.appKey,
-    timestamp: fechaTop(),
-    format: "json",
-    v: "2.0",
-    sign_method: "hmac",
+    timestamp: String(Date.now()),
+    sign_method: "sha256",
     ...especificos,
   };
   params.sign = firmarTop(params, cred.appSecret);
@@ -58,6 +62,9 @@ async function llamarApi(cred: CredAli, metodo: string, especificos: Record<stri
   if (!r.ok) throw new Error(`AliExpress ${r.status}: ${JSON.stringify(data).slice(0, 300)}`);
   const err = data?.error_response || data?.error_response?.msg;
   if (err) throw new Error(`AliExpress: ${err.msg || err.sub_msg || JSON.stringify(err).slice(0, 200)} (código ${err.code || "?"})`);
+  // IOP responde los errores en la raíz: {"code":"IncompleteSignature","message":...}.
+  // Sin esto, una firma mala se veía como "0 productos" en vez de un error.
+  if (data?.code && String(data.code) !== "0") throw new Error(`AliExpress: ${data.message || data.code} (código ${data.code})`);
   return data;
 }
 

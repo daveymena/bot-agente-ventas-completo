@@ -25,7 +25,8 @@ describe("firmas", () => {
   it("Seller (Falabella): determinista y sensible al secreto", () => {
     const p = { Action: "GetOrders", UserID: "7" };
     expect(firmarSeller(p, "k")).toBe(firmarSeller(p, "k"));
-    expect(firmarSeller(p, "k")).toMatch(/^[0-9A-F]{64}$/);
+    // Hex en MINÚSCULA (así lo compara el Seller Center; antes se exigía mayúscula).
+    expect(firmarSeller(p, "k")).toMatch(/^[0-9a-f]{64}$/);
     expect(firmarSeller(p, "otra")).not.toBe(firmarSeller(p, "k"));
   });
 
@@ -67,5 +68,59 @@ describe("notificación de Mercado Libre", () => {
     expect(idOrdenDeNotificacion({ topic: "orders_v2", resource: "/orders/123456" })).toBe("123456");
     expect(idOrdenDeNotificacion({ topic: "orders_v2" })).toBeNull();
     expect(idOrdenDeNotificacion({ topic: "ping" })).toBeNull();
+  });
+});
+
+// ── Arreglos del 01-10-2026 (revisión contra la documentación de cada API) ──
+import { vi, afterEach } from "vitest";
+
+describe("AliExpress IOP: firma y hora como las pide api-sg", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("manda sign_method=sha256 y timestamp en milisegundos, y la firma valida", async () => {
+    let cuerpo = "";
+    vi.stubGlobal("fetch", vi.fn(async (_u: string, o: any) => { cuerpo = String(o.body); return new Response(JSON.stringify({ aliexpress_affiliate_product_query_response: { resp_result: { result: { products: { product: [] } } } } }), { status: 200 }); }));
+    const { buscarProductos, firmarTop } = await import("../aliexpress");
+    await buscarProductos({ appKey: "k", appSecret: "s" }, "mochila");
+    const q = Object.fromEntries(new URLSearchParams(cuerpo));
+    expect(q.sign_method).toBe("sha256");
+    expect(Math.abs(Number(q.timestamp) - Date.now())).toBeLessThan(60_000);
+    const { sign, ...resto } = q;
+    expect(sign).toBe(firmarTop(resto, "s"));
+  });
+  it("un error en la raíz ({code, message}) se informa, no se ve como 0 productos", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ code: "IncompleteSignature", message: "firma" }), { status: 200 })));
+    const { buscarProductos } = await import("../aliexpress");
+    await expect(buscarProductos({ appKey: "k", appSecret: "s" }, "x")).rejects.toThrow(/IncompleteSignature/);
+  });
+});
+
+describe("Falabella Seller Center: firma clave=valor&… en hex minúscula", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("firmarSeller = HMAC-SHA256 de los parámetros ordenados y codificados", async () => {
+    const { firmarSeller } = await import("../falabella");
+    const esperado = crypto.createHmac("sha256", "clave").update("Action=GetOrders&Timestamp=2026-10-01T10%3A00%3A00.000Z&UserID=a%40b.co", "utf8").digest("hex");
+    expect(firmarSeller({ UserID: "a@b.co", Action: "GetOrders", Timestamp: "2026-10-01T10:00:00.000Z" }, "clave")).toBe(esperado);
+  });
+  it("llama al endpoint de Falabella con la misma codificación que firmó", async () => {
+    let url = "";
+    vi.stubGlobal("fetch", vi.fn(async (u: string) => { url = u; return new Response(JSON.stringify({ SuccessResponse: { Body: { Orders: {} } } }), { status: 200 }); }));
+    const { listarOrdenes } = await import("../falabella");
+    await listarOrdenes({ sellerId: "a@b.co", apiKey: "clave" }, 5);
+    expect(url).toMatch(/^https:\/\/sellercenter-api\.falabella\.com\/\?Action=GetOrders&/);
+    expect(url).toMatch(/&Signature=[0-9a-f]{64}$/);
+  });
+});
+
+describe("Mercado Libre: la dirección sale del envío", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it("listarOrdenes completa ciudad y dirección con /shipments/{id}", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (u: string) => {
+      if (u.includes("/orders/search")) return new Response(JSON.stringify({ results: [{ id: 9, status: "paid", buyer: { first_name: "Ana" }, shipping: { id: 77 }, order_items: [] }] }), { status: 200 });
+      if (u.includes("/shipments/77")) return new Response(JSON.stringify({ destination: { receiver_name: "Ana Pérez", receiver_phone: "3001112233", shipping_address: { address_line: "Calle 1 # 2-3", city: { name: "Cali" }, state: { name: "Valle del Cauca" }, neighborhood: { name: "Centro" } } } }), { status: 200 });
+      return new Response("{}", { status: 404 });
+    }));
+    const { listarOrdenes } = await import("../mercadolibre");
+    const [o] = await listarOrdenes("tok", "123", 5);
+    expect(o).toMatchObject({ ciudad: "Cali", departamento: "Valle del Cauca", direccion: "Calle 1 # 2-3", barrio: "Centro", pagado: true });
   });
 });

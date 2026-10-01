@@ -14,6 +14,7 @@ import { HelpTourButton } from "@/components/HelpTourButton";
 import { useAutoTour } from "@/hooks/use-auto-tour";
 import { getHelpGuide } from "@/data/help-guides";
 import { describeError } from "@/lib/utils";
+import { urlLoginFacebook } from "@/lib/facebook-login";
 
 const HELP_GUIDE = getHelpGuide("facebook")!;
 
@@ -301,27 +302,10 @@ export default function FacebookAdsPage() {
   // FB_LOGIN_CONFIG_ID configurado. response_type=code (no `token`): el
   // código de un solo uso se canjea del lado del servidor, así el access
   // token real nunca pasa por la URL del navegador.
+  // Permisos y config_id en lib/facebook-login.ts (los comparte Integraciones).
   const startFacebookLogin = () => {
-    if (!fbAppConfig.appId) return;
-    const redirectUri = window.location.origin + window.location.pathname;
-    const configId = (fbAppConfig as any).loginConfigId;
-    const base = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(fbAppConfig.appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code`;
-    if (configId) {
-      window.open(`${base}&config_id=${encodeURIComponent(configId)}`, "_blank", "noopener,noreferrer");
-      return;
-    }
-    const scope = [
-      "pages_show_list", "pages_read_engagement", "pages_manage_posts",
-      "pages_manage_metadata", "pages_messaging", "ads_management", "catalog_management",
-      // Sin esto /me/businesses falla y las cuentas del Business Manager no
-      // se pueden listar (caso real 30-09-2026: la cuenta COP no aparecía).
-      "business_management",
-      // Campañas de formulario (25-09-2026): crear el formulario y leer los
-      // leads. Con config_id (arriba) estos permisos van en la configuración
-      // de "Inicio de sesión para empresas" de la app en Meta, no acá.
-      "leads_retrieval", "pages_manage_ads",
-    ].join(",");
-    window.open(`${base}&scope=${encodeURIComponent(scope)}`, "_blank", "noopener,noreferrer");
+    const url = urlLoginFacebook(fbAppConfig, window.location.origin + window.location.pathname);
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const loadData = async () => {

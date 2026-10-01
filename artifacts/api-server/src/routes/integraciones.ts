@@ -146,7 +146,11 @@ integracionesRouter.get("/:plataforma/webhook-url", async (req, res) => {
 
 function redirectUri(): string {
   const base = String(process.env.APP_URL || "").replace(/\/+$/, "");
-  return `${base}/api/integraciones/mercadolibre/callback`;
+  // El callback vive en el router PÚBLICO, montado en /api/integraciones/webhooks.
+  // Antes apuntaba a /api/integraciones/mercadolibre/callback, que no existe
+  // (y necesita sesión): Mercado Libre volvía a un 404 y la conexión nunca se
+  // guardaba. Esta misma URL es la que va en la app de developers.mercadolibre.
+  return `${base}/api/integraciones/webhooks/mercadolibre/callback`;
 }
 
 /** GET /api/integraciones/mercadolibre/autorizar — redirige a Mercado Libre. */
@@ -182,7 +186,8 @@ integracionesWebhooksRouter.get("/mercadolibre/callback", async (req, res) => {
       secreto: tok.accessToken, refresh: tok.refreshToken, expiraEn: tok.expiraEn, vendedorId: tok.vendedorId,
     });
     logger.info({ tenantId: t, vendedorId: tok.vendedorId }, "[Integraciones] Mercado Libre autorizado");
-    return res.send("Mercado Libre conectado. Ya podés cerrar esta ventana y volver al panel.");
+    // De vuelta al panel, a la página desde donde se conectó.
+    return res.redirect("/integraciones?mercadolibre=conectado");
   } catch (e: any) {
     logger.warn({ err: e?.message }, "[Integraciones] falló el callback de Mercado Libre");
     return res.status(400).send(`No se pudo conectar: ${e?.message || e}`);

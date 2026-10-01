@@ -199,17 +199,49 @@ function aPedidoExterno(o: any): PedidoExterno {
   };
 }
 
-/** Órdenes recientes del vendedor. */
+/**
+ * La dirección NO viene en la orden: Mercado Libre la entrega en el envío
+ * (`/shipments/{shipping.id}`). Sin esto los pedidos llegaban sin ciudad ni
+ * dirección. Si el envío no se puede leer (permisos, envío propio), la orden
+ * entra igual con lo que traiga.
+ */
+async function conDireccion(token: string, o: any): Promise<any> {
+  const envioId = o?.shipping?.id;
+  if (!envioId || o?.shipping?.receiver_address) return o;
+  try {
+    const r = await fetch(`${API}/shipments/${envioId}`, {
+      headers: { Authorization: `Bearer ${token}`, "x-format-new": "true" },
+      signal: AbortSignal.timeout(20_000),
+    });
+    if (!r.ok) return o;
+    const s: any = await r.json().catch(() => ({}));
+    const dir = s?.destination?.shipping_address || s?.receiver_address;
+    if (!dir) return o;
+    const destinatario = s?.destination?.receiver_name || dir.receiver_name || null;
+    const telefono = s?.destination?.receiver_phone || dir.receiver_phone || null;
+    return {
+      ...o,
+      shipping: { ...o.shipping, receiver_address: { ...dir, street_name: dir.address_line || dir.street_name, street_number: dir.address_line ? undefined : dir.street_number } },
+      buyer: { ...o.buyer, ...(destinatario && !o.buyer?.first_name ? { first_name: destinatario } : {}), ...(telefono && !o.buyer?.phone?.number ? { phone: { number: telefono } } : {}) },
+    };
+  } catch {
+    return o;
+  }
+}
+
+/** Órdenes recientes del vendedor (con la dirección del envío). */
 export async function listarOrdenes(token: string, vendedorId: string, limite = 50): Promise<PedidoExterno[]> {
   const d: any = await meliGET(token, `/orders/search?seller=${vendedorId}&limit=${Math.min(limite, 50)}&sort=date_desc`);
-  return ((d?.results || []) as any[]).map(aPedidoExterno);
+  const out: PedidoExterno[] = [];
+  for (const o of (d?.results || []) as any[]) out.push(aPedidoExterno(await conDireccion(token, o)));
+  return out;
 }
 
 /** Lee una orden por id (lo que trae la notificación orders_v2). */
 export async function leerOrden(token: string, idOrden: string | number): Promise<PedidoExterno> {
   const d: any = await meliGET(token, `/orders/${idOrden}`);
   if (!d?.id) throw new Error(`Orden ${idOrden} no encontrada.`);
-  return aPedidoExterno(d);
+  return aPedidoExterno(await conDireccion(token, d));
 }
 
 /** Extrae el id de orden de una notificación `orders_v2` ({resource: "/orders/123"}). */

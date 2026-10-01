@@ -82,14 +82,17 @@ export async function borrarCredenciales(tenantId: number, plataforma: Plataform
 }
 
 /** Estado resumido (sin secretos) para el panel y Atlas. */
-export async function estadoIntegraciones(tenantId: number): Promise<Record<string, { conectada: boolean; tienda?: string; activa: boolean; actualizadaEn?: string }>> {
+export async function estadoIntegraciones(tenantId: number): Promise<Record<string, { conectada: boolean; autorizada: boolean; tienda?: string; activa: boolean; actualizadaEn?: string }>> {
   const tenant = await tenantManager.getTenantById(tenantId);
   const integ = leerMeta(tenant).integraciones || {};
-  const out: Record<string, { conectada: boolean; tienda?: string; activa: boolean; actualizadaEn?: string }> = {};
+  const out: Record<string, { conectada: boolean; autorizada: boolean; tienda?: string; activa: boolean; actualizadaEn?: string }> = {};
   for (const p of ["shopify", "aliexpress", "mercadolibre", "falabella"]) {
     const c = integ[p];
     out[p] = {
       conectada: !!(c && (c.token || c.tienda)),
+      // Mercado Libre: guardar client_id/secret NO es estar conectado; falta
+      // el OAuth (el callback guarda el access token en `secreto`).
+      autorizada: p === "mercadolibre" ? !!c?.secreto : !!(c && c.token && c.tienda),
       tienda: c?.tienda,
       activa: c?.activa !== false,
       actualizadaEn: c?.actualizadaEn,

@@ -14,13 +14,22 @@ import type { PedidoExterno } from "./tipos";
 export interface CredFala { sellerId: string; apiKey: string; endpoint?: string }
 
 /** Firma Seller Center: HMAC-SHA256(apiKey, concat(k+v ordenados)). Pura (testeable). */
+/**
+ * Firma del Seller Center (familia SellerCenter de Rocket, la que usa
+ * Falabella): parámetros ORDENADOS, `clave=valor` con encoding RFC 3986 y
+ * unidos con `&`; HMAC-SHA256 con la API key, en hex MINÚSCULA. La versión
+ * anterior pegaba `clavevalor` sin `=`/`&` y en mayúsculas: toda llamada
+ * habría vuelto "E7: Signature mismatching".
+ */
+const rfc3986 = (s: string) => encodeURIComponent(s).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 export function firmarSeller(params: Record<string, string>, apiKey: string): string {
-  const base = Object.keys(params).sort().map((k) => `${k}${params[k]}`).join("");
-  return crypto.createHmac("sha256", apiKey).update(base, "utf8").digest("hex").toUpperCase();
+  const base = Object.keys(params).sort().map((k) => `${rfc3986(k)}=${rfc3986(params[k]!)}`).join("&");
+  return crypto.createHmac("sha256", apiKey).update(base, "utf8").digest("hex");
 }
 
 function base(cred: CredFala): string {
-  return String(cred.endpoint || "https://seller.sodimac.cl/api").replace(/\/+$/, "");
+  // Endpoint unificado de Falabella Seller Center (el anterior era el de Sodimac Chile).
+  return String(cred.endpoint || "https://sellercenter-api.falabella.com").replace(/\/+$/, "");
 }
 
 async function sellerGET(cred: CredFala, accion: string, extra: Record<string, string> = {}): Promise<any> {
@@ -32,9 +41,12 @@ async function sellerGET(cred: CredFala, accion: string, extra: Record<string, s
     Version: "1.0",
     ...extra,
   };
-  (params as any).Signature = firmarSeller(params, cred.apiKey);
-  const url = `${base(cred)}?${new URLSearchParams(params)}`;
-  const r = await fetch(url, { signal: AbortSignal.timeout(30_000) });
+  const firma = firmarSeller(params, cred.apiKey);
+  // La URL usa EXACTAMENTE la misma codificación que se firmó.
+  const query = Object.keys(params).sort().map((k) => `${rfc3986(k)}=${rfc3986(params[k]!)}`).join("&");
+  const url = `${base(cred)}/?${query}&Signature=${firma}`;
+  // Falabella pide User-Agent con formato SELLER/TECNOLOGIA/VERSION/INTEGRACION/UNIDAD.
+  const r = await fetch(url, { headers: { "User-Agent": `${cred.sellerId}/Node/1.0/PROPIA/FACO` }, signal: AbortSignal.timeout(30_000) });
   const d: any = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(`Falabella ${r.status}: ${JSON.stringify(d).slice(0, 200)}`);
   if (d?.ErrorResponse) throw new Error(`Falabella: ${d.ErrorResponse.Head?.ErrorMessage || "error"}`.slice(0, 200));
