@@ -4,9 +4,13 @@
 // antes era una "V" al lado de "VentasPro" → se leía "V VentasPro".
 import { createRequire } from "node:module";
 import { writeFileSync } from "node:fs";
-const require = createRequire("C:/Users/ADMIN/Videos/asb-fix/artifacts/api-server/package.json");
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+const AQUI = path.dirname(fileURLToPath(import.meta.url));
+// sharp viene instalado en el api-server.
+const require = createRequire(path.join(AQUI, "../../api-server/package.json"));
 const sharp = require("sharp");
-const PUB = "C:/Users/ADMIN/Videos/asb-fix/artifacts/ventas-pro/public/";
+const PUB = path.join(AQUI, "../public") + "/";
 
 const DEFS = `<defs>
     <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
@@ -87,5 +91,5 @@ const preview = `<svg xmlns="http://www.w3.org/2000/svg" width="760" height="300
 <g transform="translate(470,190) scale(0.14)">${maskable}</g>
 <g transform="translate(570,214) scale(0.03125)">${marca()}</g>
 </svg>`;
-await sharp(Buffer.from(preview), { density: 144 }).png().toFile("C:/Users/ADMIN/Downloads/logo-ventaspro-preview.png");
+await sharp(Buffer.from(preview), { density: 144 }).png().toFile(path.join(AQUI, "logo-preview.png"));
 console.log("ok");
