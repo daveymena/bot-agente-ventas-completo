@@ -858,7 +858,7 @@ async function generarLandingPro(a: {
   const renderizar = a.estilo === "clinico"
     ? renderizarLandingPro
     : modo === "contraentrega"
-      ? (o: any) => renderizarLandingCod({ ...o, caracteristicas: datos.features, videos: fabricante.clips.length ? fabricante.clips : /.(mp4|webm)(?|$)/i.test(video) ? [video] : [] })
+      ? (o: any) => renderizarLandingCod({ ...o, caracteristicas: datos.features, videos: fabricante.clips.length ? fabricante.clips : /\.(mp4|webm)(\?|$)/i.test(video) ? [video] : [] })
       : renderizarLandingModerna;
   const html = renderizar({
     contenido: contenidoDesdeRespuesta(crudo, datos, tipoPro),
