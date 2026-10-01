@@ -283,216 +283,85 @@ const bajada = (s: SeccionParaRenderizar) => (s.subtitle ? `<p class="lead">${es
  * El catálogo. Cada entrada compone DISTINTO -- distinta grilla, distinto lugar
  * para la foto, distinta jerarquía-- que es lo que pedía el punto 3 del plan.
  */
-const LAYOUTS: Record<string, Renderizador> = {
-  // ── HERO ────────────────────────────────────────────────────────────────
-  hero_center: (s, p) => `<div class="wrap center narrow">
-    ${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}${boton(s.cta, p)}
-    ${figura(s, p, "fig fig--below")}
-  </div>`,
 
-  hero_left: (s, p) => `<div class="wrap left">
-    ${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}${boton(s.cta, p)}
-  </div>`,
-
-  hero_split: (s, p) => `<div class="wrap grid-2 middle">
-    <div>${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}${boton(s.cta, p)}</div>
-    ${figura(s, p) || '<div class="ghost"></div>'}
-  </div>`,
-
-  hero_product_focus: (s, p) => `<div class="wrap grid-2 middle reverse">
-    ${figura(s, p, "fig fig--hero")}
-    <div>${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}
-      ${precio(p) ? `<p class="price">${esc(precio(p))}</p>` : ""}${boton(s.cta, p)}</div>
-  </div>`,
-
-  hero_editorial: (s, p) => `<div class="wrap narrow center">
-    ${eyebrow(s)}<h1 class="serif">${esc(s.title || "")}</h1>
-  </div>${figura(s, p, "fig fig--bleed")}<div class="wrap narrow center">${bajada(s)}${boton(s.cta, p)}</div>`,
-
-  // Dropshipping 2026: degradado del acento a todo el hero, foto flotando con
-  // halo, etiqueta de contraentrega y tres micro-beneficios debajo.
-  hero_gradient_product: (s, p) => `<div class="wrap grid-2 middle hero-grad">
-    <div>${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}
-      <p class="pill">📦 Pago contraentrega · envío a todo el país</p>
-      ${precio(p) ? `<p class="price">${esc(precio(p))}</p>` : ""}${boton(s.cta, p)}</div>
-    ${figura(s, p, "fig fig--hero fig--halo")}
-  </div>`,
-
-  hero_dark: (s, p) => `<div class="wrap grid-2 middle">
-    <div>${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}${boton(s.cta, p)}</div>
-    ${figura(s, p, "fig fig--glow")}
-  </div>`,
-
-  /**
-   * La foto va SI O SI.
-   *
-   * Sin ella, una landing de respuesta directa renderizaba cero imagenes:
-   * hero_offer, benefits_numbered y offer_urgency --sus tres layouts
-   * favoritos-- no ponian ninguna. Medido generando la pagina de muestra, y es
-   * exactamente lo que el dueno reporto: "no adjunta la imagen ni nada". En
-   * venta directa, no ver el producto es la peor version del problema.
-   */
-  hero_offer: (s, p) => `<div class="wrap center narrow">
-    ${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}
-    ${figura(s, p, "fig fig--below")}
-    ${precio(p) ? `<p class="price price--big">${esc(precio(p))}</p>` : ""}${boton(s.cta, p)}
-  </div>`,
-
-  hero_full_visual: (s, p) => {
-    const src = urlSegura(s.image) || urlSegura(p?.imageUrl);
-    const fondo = src ? ` style="background-image:linear-gradient(rgba(0,0,0,.55),rgba(0,0,0,.55)),url('${esc(src)}')"` : "";
-    return `<div class="hero-visual${src ? " has-bg" : ""}"${fondo}><div class="wrap center narrow">
-      ${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}${boton(s.cta, p)}
-    </div></div>`;
-  },
-
-  // ── BENEFICIOS ──────────────────────────────────────────────────────────
-  benefits_cards: (s, p) => `<div class="wrap">
-    <div class="head">${eyebrow(s)}${titulo(s)}${bajada(s)}</div>
-    <ul class="cards">${items(s.body).map((i) => `<li class="card">${conVineta(i)}</li>`).join("")}</ul>
-  </div>`,
-
-  benefits_icon_grid: (s) => `<div class="wrap">
-    <div class="head">${eyebrow(s)}${titulo(s)}${bajada(s)}</div>
-    <ul class="icons">${items(s.body).map((i) => `<li>${conVineta(i)}</li>`).join("")}</ul>
-  </div>`,
-
-  benefits_split: (s, p) => `<div class="wrap grid-2 middle">
-    <div>${eyebrow(s)}${titulo(s)}${bajada(s)}
-      <ul class="plain">${items(s.body).map((i) => `<li>${conVineta(i)}</li>`).join("")}</ul></div>
-    ${figura(s, p) || '<div class="ghost"></div>'}
-  </div>`,
-
-  benefits_numbered: (s) => `<div class="wrap narrow">
-    <div class="head left">${eyebrow(s)}${titulo(s)}${bajada(s)}</div>
-    <ol class="numbered">${items(s.body).map((i) => `<li>${esc(i)}</li>`).join("")}</ol>
-  </div>`,
-
-  benefits_editorial: (s) => `<div class="wrap narrow">
-    <div class="head">${eyebrow(s)}<h2 class="serif">${esc(s.title || "")}</h2>${bajada(s)}</div>
-    <div class="columns">${items(s.body).map((i) => `<p>${esc(i)}</p>`).join("")}</div>
-  </div>`,
-
-  benefits_visual: (s, p) => `<div class="wrap">
-    <div class="head">${eyebrow(s)}${titulo(s)}${bajada(s)}</div>
-    ${figura(s, p, "fig fig--bleed")}
-    <ul class="icons">${items(s.body).map((i) => `<li>${conVineta(i)}</li>`).join("")}</ul>
-  </div>`,
-
-  // ── OFERTA ──────────────────────────────────────────────────────────────
-  offer_card: (s, p) => `<div class="wrap center narrow">
-    <div class="panel">${eyebrow(s)}${titulo(s)}${bajada(s)}
-      ${precio(p) ? `<p class="price price--big">${esc(precio(p))}</p>` : ""}
-      ${s.body ? `<ul class="plain center-list">${items(s.body).map((i) => `<li>${conVineta(i)}</li>`).join("")}</ul>` : ""}
-      ${boton(s.cta, p)}</div>
-  </div>`,
-
-  offer_split: (s, p) => `<div class="wrap grid-2 middle">
-    ${figura(s, p) || '<div class="ghost"></div>'}
-    <div>${eyebrow(s)}${titulo(s)}${bajada(s)}
-      ${precio(p) ? `<p class="price price--big">${esc(precio(p))}</p>` : ""}${boton(s.cta, p)}</div>
-  </div>`,
-
-  offer_product: (s, p) => `<div class="wrap grid-2 middle">
-    <div>${eyebrow(s)}${titulo(s)}${bajada(s)}
-      ${s.body ? `<ul class="plain">${items(s.body).map((i) => `<li>${conVineta(i)}</li>`).join("")}</ul>` : ""}
-      ${precio(p) ? `<p class="price price--big">${esc(precio(p))}</p>` : ""}${boton(s.cta, p)}</div>
-    ${figura(s, p, "fig fig--float") || '<div class="ghost"></div>'}
-  </div>`,
-
-  offer_minimal: (s, p) => `<div class="wrap narrow left">
-    ${titulo(s)}${bajada(s)}${precio(p) ? `<p class="price">${esc(precio(p))}</p>` : ""}${boton(s.cta, p)}
-  </div>`,
-
-  offer_dark: (s, p) => `<div class="wrap center narrow">
-    <div class="panel panel--glow">${eyebrow(s)}${titulo(s)}${bajada(s)}
-      ${precio(p) ? `<p class="price price--big">${esc(precio(p))}</p>` : ""}${boton(s.cta, p)}</div>
-  </div>`,
-
-  /**
-   * Urgencia SIN inventarla: se destaca la oferta que ya existe, no se agrega
-   * un contador ni "quedan 3 cupos". El punto 18 del plan es absoluto, y esta
-   * es justo la sección donde sería más fácil romperlo.
-   */
-  offer_urgency: (s, p) => `<div class="wrap center narrow">
-    <div class="panel panel--accent">${titulo(s)}${bajada(s)}
-      ${figura(s, p, "fig fig--below")}
-      ${precio(p) ? `<p class="price price--big">${esc(precio(p))}</p>` : ""}${boton(s.cta, p)}</div>
-  </div>`,
-
-  // ── TESTIMONIOS ─────────────────────────────────────────────────────────
-  testimonial_cards: (s) => `<div class="wrap">
-    <div class="head">${titulo(s)}${bajada(s)}</div>
-    <ul class="cards">${items(s.body).map((i) => `<li class="card quote">${esc(i)}</li>`).join("")}</ul>
-  </div>`,
-
-  testimonial_quote: (s) => `<div class="wrap narrow center">
-    <blockquote>${esc(s.body || s.subtitle || "")}</blockquote>${s.title ? `<p class="who">${esc(s.title)}</p>` : ""}
-  </div>`,
-
-  testimonial_large: (s) => `<div class="wrap narrow center">
-    ${titulo(s)}<blockquote class="big">${esc(s.body || s.subtitle || "")}</blockquote>
-  </div>`,
-
-  testimonial_editorial: (s) => `<div class="wrap narrow">
-    ${titulo(s)}<div class="columns">${items(s.body).map((i) => `<p>${esc(i)}</p>`).join("")}</div>
-  </div>`,
-
-  testimonial_slider: (s) => `<div class="wrap">
-    <div class="head">${titulo(s)}${bajada(s)}</div>
-    <ul class="rail">${items(s.body).map((i) => `<li class="card quote">${esc(i)}</li>`).join("")}</ul>
-  </div>`,
-
-  // ── FAQ ─────────────────────────────────────────────────────────────────
-  faq_accordion: (s) => `<div class="wrap narrow">
-    <div class="head left">${titulo(s)}${bajada(s)}</div>
-    <div class="faq">${items(s.body).map((i) => `<details><summary>${esc(i)}</summary></details>`).join("")}</div>
-  </div>`,
-
-  faq_minimal: (s) => `<div class="wrap narrow left">
-    ${titulo(s)}<ul class="plain">${items(s.body).map((i) => `<li>${esc(i)}</li>`).join("")}</ul>
-  </div>`,
-
-  faq_cards: (s) => `<div class="wrap">
-    <div class="head">${titulo(s)}${bajada(s)}</div>
-    <ul class="cards">${items(s.body).map((i) => `<li class="card">${esc(i)}</li>`).join("")}</ul>
-  </div>`,
-
-  faq_split: (s) => `<div class="wrap grid-2">
-    <div>${titulo(s)}${bajada(s)}</div>
-    <div class="faq">${items(s.body).map((i) => `<details><summary>${esc(i)}</summary></details>`).join("")}</div>
-  </div>`,
-
-  // ── CIERRE y genérico ───────────────────────────────────────────────────
-  cta_final: (s, p) => `<div class="wrap center narrow">
-    <h2>${esc(s.title || "")}</h2>${bajada(s)}${boton(s.cta, p)}
-  </div>`,
-
-  // ── GALERÍA: las fotos reales del producto ──────────────────────────────
-  gallery_grid: (s, p) => {
-    const fotos = (Array.isArray(s.images) ? s.images : []).map(urlSegura).filter(Boolean);
-    if (fotos.length === 0) return "";
-    return `<div class="wrap">
-    <div class="head">${eyebrow(s)}${titulo(s)}${bajada(s)}</div>
-    <ul class="galeria">${fotos.map((u) => `<li><img src="${esc(u)}" alt="${esc(p?.name || "")}" loading="lazy" decoding="async"></li>`).join("")}</ul>
+const galeriaHero = (s: SeccionParaRenderizar, p: ProductoParaRenderizar | null | undefined) => {
+  const fotos = (Array.isArray(s.images) ? s.images : []).filter(Boolean).map(urlSegura);
+  if (!fotos.length && p?.imageUrl) fotos.push(urlSegura(p.imageUrl));
+  if (!fotos.length) return '';
+  return `<div class="gallery">
+    <div class="g-track">${fotos.map(f => `<div class="g-slide"><img src="${esc(f)}" alt="${esc(p?.name || "")}"></div>`).join('')}</div>
   </div>`;
-  },
-
-  // ── FAQ con respuesta ("¿Pregunta? | Respuesta") ────────────────────────
-  faq_respuestas: (s) => `<div class="wrap narrow">
-    <div class="head left">${eyebrow(s)}${titulo(s)}${bajada(s)}</div>
-    <div class="faq">${items(s.body).map((i) => { const { q, a } = preguntaYRespuesta(i); return `<details><summary>${esc(q)}</summary>${a ? `<p>${esc(a)}</p>` : ""}</details>`; }).join("")}</div>
-  </div>`,
-
-  // ── LOGÍSTICA: tres datos que se leen de un vistazo ─────────────────────
-  logistics_strip: (s, p) => `<div class="wrap narrow">
-    <div class="head">${eyebrow(s)}${titulo(s)}${bajada(s)}</div>
-    <ul class="franja">${items(s.body).map((i) => `<li>${conVineta(i)}</li>`).join("")}</ul>
-    ${boton(s.cta, p)}
-  </div>`,
 };
 
-/** Cuando el layout pedido no existe, se compone algo correcto igual. */
+const LAYOUTS: Record<string, Renderizador> = {
+  hero_center: (s, p) => `<section class="sec hero" id="${esc(s.id || "")}"><div class="wrap hero-grid">
+    <div class="hero-info">${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}
+      ${precio(p) ? `<div class="price-card"><div><small>Oferta Especial</small><span class="price-now">${esc(precio(p))}</span></div></div>` : ""}
+      ${boton(s.cta || "Comprar Ahora", p)}
+    </div>
+    ${galeriaHero(s, p)}
+  </div></section>`,
+
+  hero_left: (s, p, t) => LAYOUTS.hero_center(s, p, t),
+  hero_split: (s, p, t) => LAYOUTS.hero_center(s, p, t),
+  hero_product_focus: (s, p, t) => LAYOUTS.hero_center(s, p, t),
+  hero_editorial: (s, p, t) => LAYOUTS.hero_center(s, p, t),
+  hero_gradient_product: (s, p, t) => LAYOUTS.hero_center(s, p, t),
+  hero_dark: (s, p, t) => LAYOUTS.hero_center(s, p, t),
+  hero_offer: (s, p, t) => LAYOUTS.hero_center(s, p, t),
+  hero_full_visual: (s, p, t) => LAYOUTS.hero_center(s, p, t),
+
+  benefits_cards: (s, p) => `<section class="sec" id="${esc(s.id || "")}"><div class="wrap">
+    <div class="sec-head">${eyebrow(s)}<h2>${esc(s.title || "")}</h2>${bajada(s)}</div>
+    <div class="bens">${items(s.body).map(i => `<div class="ben"><div class="trust-ico">✓</div><b>${esc(i)}</b></div>`).join('')}</div>
+  </div></section>`,
+  benefits_icon_grid: (s, p, t) => LAYOUTS.benefits_cards(s, p, t),
+  benefits_split: (s, p, t) => LAYOUTS.benefits_cards(s, p, t),
+  
+  benefits_numbered: (s, p) => `<section class="sec dark" id="${esc(s.id || "")}"><div class="wrap">
+    <div class="sec-head">${eyebrow(s)}<h2>${esc(s.title || "")}</h2>${bajada(s)}</div>
+    <div class="steps">${items(s.body).map((i, idx) => `<div class="step"><div class="step-n">${idx+1}</div><h3>Paso ${idx+1}</h3><p>${esc(i)}</p></div>`).join('')}</div>
+  </div></section>`,
+  benefits_editorial: (s, p, t) => LAYOUTS.benefits_cards(s, p, t),
+  benefits_visual: (s, p, t) => LAYOUTS.benefits_cards(s, p, t),
+
+  offer_card: (s, p) => `<section class="sec order-sec" id="${esc(s.id || "")}"><div class="wrap order">
+    <h2>${esc(s.title || "Oferta")}</h2>
+    ${precio(p) ? `<div class="pack"><div class="pack-info"><b>1 Unidad</b></div><div class="pack-price"><b>${esc(precio(p))}</b></div></div>` : ""}
+    ${boton(s.cta || "Comprar Ahora", p)}
+  </div></section>`,
+  offer_split: (s, p, t) => LAYOUTS.offer_card(s, p, t),
+  offer_product: (s, p, t) => LAYOUTS.offer_card(s, p, t),
+  offer_minimal: (s, p, t) => LAYOUTS.offer_card(s, p, t),
+  offer_dark: (s, p, t) => LAYOUTS.offer_card(s, p, t),
+  offer_urgency: (s, p, t) => LAYOUTS.offer_card(s, p, t),
+
+  testimonial_cards: (s, p) => `<section class="sec" id="${esc(s.id || "")}"><div class="wrap">
+    <div class="sec-head"><h2>${esc(s.title || "Opiniones")}</h2>${bajada(s)}</div>
+    <div class="testis">${items(s.body).map(i => `<div class="testi"><q>${esc(i)}</q><div class="who"><div class="avatar">👤</div><b>Cliente Satisfecho</b><span class="stars">⭐⭐⭐⭐⭐</span></div></div>`).join('')}</div>
+  </div></section>`,
+  testimonial_quote: (s, p, t) => LAYOUTS.testimonial_cards(s, p, t),
+  testimonial_large: (s, p, t) => LAYOUTS.testimonial_cards(s, p, t),
+  testimonial_editorial: (s, p, t) => LAYOUTS.testimonial_cards(s, p, t),
+  testimonial_slider: (s, p, t) => LAYOUTS.testimonial_cards(s, p, t),
+
+  faq_accordion: (s, p) => `<section class="sec" id="${esc(s.id || "")}"><div class="wrap">
+    <div class="sec-head"><h2>${esc(s.title || "Preguntas Frecuentes")}</h2></div>
+    <div class="faq">${items(s.body).map(i => `<details><summary>${esc(i)}</summary><p>Respuesta detallada próximamente.</p></details>`).join('')}</div>
+  </div></section>`,
+  faq_minimal: (s, p, t) => LAYOUTS.faq_accordion(s, p, t),
+  faq_cards: (s, p, t) => LAYOUTS.faq_accordion(s, p, t),
+  faq_split: (s, p, t) => LAYOUTS.faq_accordion(s, p, t),
+  faq_respuestas: (s, p) => `<section class="sec" id="${esc(s.id || "")}"><div class="wrap">
+    <div class="sec-head"><h2>${esc(s.title || "Preguntas Frecuentes")}</h2></div>
+    <div class="faq">${items(s.body).map(i => { const { q, a } = preguntaYRespuesta(i); return `<details><summary>${esc(q)}<span class="pm">+</span></summary><p>${esc(a)}</p></details>`; }).join('')}</div>
+  </div></section>`,
+
+  gallery_grid: (s, p) => `<section class="sec" id="${esc(s.id || "")}"><div class="wrap"><div class="sec-head"><h2>Galería</h2></div>${galeriaHero(s, p)}</div></section>`,
+  logistics_strip: (s, p) => `<section class="sec" id="${esc(s.id || "")}"><div class="wrap trust">${items(s.body).map(i => `<div class="trust-item"><div class="trust-ico">🚚</div><b>${esc(i)}</b></div>`).join('')}</div></section>`,
+  cta_final: (s, p, t) => LAYOUTS.offer_card(s, p, t)
+};
+
 const GENERICO: Renderizador = (s, p) => `<div class="wrap narrow">
   <div class="head">${eyebrow(s)}${titulo(s)}${bajada(s)}</div>
   ${s.body ? `<ul class="plain">${items(s.body).map((i) => `<li>${conVineta(i)}</li>`).join("")}</ul>` : ""}
@@ -525,29 +394,78 @@ function renderizadorDe(sec: SeccionParaRenderizar, t: TokensDeDiseno): Renderiz
   return GENERICO;
 }
 
+
 // ─── CSS ─────────────────────────────────────────────────────────────────────
 
 /**
- * El CSS sale ENTERO de los tokens.
- *
- * Es lo que hace que cambiar de familia cambie la página y no solo la paleta:
- * el ancho, el aire, la escala tipográfica, la alineación por defecto, la
- * forma del CTA y el tratamiento de la imagen son todos variables.
+ * CSS profesional basado en landing-pro-sofia.
+ * Clases semánticas: .hdr .hero-grid .gallery .bens .testis .steps .order .faq .sticky .foot
  */
 const CSS_MARCO = `
-.top{position:sticky;top:0;z-index:20;background:var(--fondo);border-bottom:1px solid var(--linea);backdrop-filter:blur(8px)}
-.top__in{max-width:var(--ancho);margin:0 auto;padding:12px var(--pad-x);display:flex;align-items:center;justify-content:space-between;gap:16px;text-align:left}
-.marca{font-weight:700;letter-spacing:-.01em}
-.cta--chica{padding:10px 16px;font-size:.92em}
+/* ── Header ───────────────────────────────────────────────────────────── */
+.hdr{position:sticky;top:0;z-index:40;background:rgba(255,255,255,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--linea)}
+.hdr-in{max-width:var(--ancho);margin:0 auto;padding:14px var(--pad-x);display:flex;align-items:center;justify-content:space-between;gap:16px}
+.logo{font-weight:800;font-size:1.05rem;letter-spacing:-.02em;color:var(--texto);text-decoration:none}
+.logo-mark{display:inline-block;width:28px;height:28px;border-radius:8px;background:var(--acento);margin-right:8px;vertical-align:middle}
+/* ── Confianza strip ──────────────────────────────────────────────────── */
 .sec--confianza{padding-block:0 !important}
 .confianza{list-style:none;margin:0 auto;padding:14px var(--pad-x);max-width:var(--ancho);display:flex;flex-wrap:wrap;gap:10px 28px;justify-content:center;border-top:1px solid var(--linea);border-bottom:1px solid var(--linea);font-size:.95em}
 .confianza li{display:flex;align-items:center;gap:8px}
-.galeria{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px}
-.galeria li{margin:0;aspect-ratio:1;overflow:hidden;border-radius:var(--radio);background:var(--superficie)}
-.galeria img{width:100%;height:100%;object-fit:cover;display:block}
-.faq details p{margin:10px 0 0;color:var(--suave)}
-.franja{list-style:none;margin:0 0 20px;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,200px),1fr));gap:12px}
-.franja li{display:flex;align-items:flex-start;gap:10px;padding:14px 16px;border:1px solid var(--linea);border-radius:var(--radio);background:var(--superficie)}
+/* ── Hero grid ────────────────────────────────────────────────────────── */
+.hero{padding:0}
+.hero-grid{display:grid;grid-template-columns:1fr 1fr;min-height:88vh;align-items:center;max-width:var(--ancho);margin:0 auto;padding:40px var(--pad-x);gap:clamp(28px,5vw,64px)}
+.hero-info{display:flex;flex-direction:column;gap:20px;align-items:flex-start}
+.price-card{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.price-now{font-size:clamp(1.8rem,4vw,2.8rem);font-weight:900;color:var(--acento)}
+.price-before{text-decoration:line-through;color:var(--suave);font-size:1rem}
+/* ── Gallery ──────────────────────────────────────────────────────────── */
+.gallery{position:relative;overflow:hidden;border-radius:20px;box-shadow:0 24px 60px rgba(0,0,0,.13)}
+.g-track{display:flex;gap:12px;transition:transform .4s cubic-bezier(.4,0,.2,1)}
+.g-slide{flex:0 0 100%;border-radius:20px;overflow:hidden;aspect-ratio:1}
+.g-slide img{width:100%;height:100%;object-fit:cover;display:block}
+.g-thumbs{display:flex;gap:8px;margin-top:10px}
+.g-thumb{width:56px;height:56px;border-radius:10px;overflow:hidden;cursor:pointer;opacity:.6;transition:opacity .2s;flex-shrink:0}
+.g-thumb.active,.g-thumb:hover{opacity:1}
+.g-thumb img{width:100%;height:100%;object-fit:cover}
+.g-dots{display:flex;justify-content:center;gap:6px;margin-top:10px}
+.g-dot{width:8px;height:8px;border-radius:50%;background:var(--linea);cursor:pointer;transition:background .2s,transform .2s}
+.g-dot.active{background:var(--acento);transform:scale(1.3)}
+/* ── Trust strip ──────────────────────────────────────────────────────── */
+.trust{display:flex;flex-wrap:wrap;gap:10px 28px;justify-content:center;padding:16px var(--pad-x);border-top:1px solid var(--linea);border-bottom:1px solid var(--linea)}
+.trust-item{display:flex;align-items:center;gap:8px;font-size:.92rem}
+.trust-ico{font-size:1.1em}
+/* ── Benefits ─────────────────────────────────────────────────────────── */
+.bens{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px}
+.ben{display:flex;flex-direction:column;gap:8px;padding:22px;background:var(--superficie);border-radius:var(--radio);border:1px solid var(--linea)}
+.ben .trust-ico{font-size:1.8rem}
+/* ── Steps dark ───────────────────────────────────────────────────────── */
+.dark{background:#0f172a;color:#e2e8f0}
+.dark h2{color:#f8fafc}
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:20px}
+.step{display:flex;gap:18px;align-items:flex-start}
+.step-n{width:36px;height:36px;border-radius:50%;background:var(--acento);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.95rem;flex-shrink:0}
+/* ── Testimonials ─────────────────────────────────────────────────────── */
+.testis{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+.testi{padding:22px;background:var(--superficie);border-radius:var(--radio);border:1px solid var(--linea);display:flex;flex-direction:column;gap:12px}
+.who{display:flex;align-items:center;gap:10px}
+.avatar{width:40px;height:40px;border-radius:50%;background:color-mix(in srgb,var(--acento) 20%,white);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.95rem;color:var(--acento);flex-shrink:0}
+.stars{color:#f59e0b;font-size:.9rem}
+/* ── Order / Offer ────────────────────────────────────────────────────── */
+.order-sec{background:color-mix(in srgb,var(--acento) 5%,white)}
+.order{max-width:600px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+.pack{background:white;border:2px solid var(--linea);border-radius:16px;padding:24px;display:flex;flex-direction:column;gap:10px}
+.pack.featured{border-color:var(--acento);box-shadow:0 8px 30px color-mix(in srgb,var(--acento) 20%,transparent)}
+.pack-info{display:flex;flex-direction:column;gap:4px}
+.pack-price{font-size:1.5rem;font-weight:900;color:var(--acento)}
+/* ── FAQ ──────────────────────────────────────────────────────────────── */
+.faq-wrap{max-width:680px;margin:0 auto;display:flex;flex-direction:column;gap:4px}
+.faq details{border-bottom:1px solid var(--linea);padding:16px 0}
+.faq summary{cursor:pointer;font-weight:600;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:12px}
+.faq summary::-webkit-details-marker{display:none}
+.pm{font-size:1.2rem;color:var(--acento);transition:transform .25s}
+.faq details[open] .pm{transform:rotate(45deg)}
+.faq details p{margin:12px 0 0;color:var(--suave);line-height:1.6}
+/* ── Formulario de pedido ─────────────────────────────────────────────── */
 .pedido{display:grid;gap:12px;max-width:520px;margin:0 auto}
 .pedido label{display:grid;gap:6px;font-size:.92em;color:var(--suave)}
 .pedido input{font:inherit;padding:12px 14px;border:1px solid var(--linea);border-radius:var(--radio);background:var(--superficie);color:var(--texto)}
@@ -557,44 +475,51 @@ const CSS_MARCO = `
 .o-bien{text-align:center;margin-top:18px;color:var(--suave)}.o-bien a{color:var(--texto)}
 .botones{display:flex;flex-wrap:wrap;gap:12px;justify-content:center}
 .cta--alt{background:transparent;color:var(--texto);border:1px solid var(--texto)}
-.pie{padding:32px var(--pad-x) 96px;border-top:1px solid var(--linea);color:var(--suave);font-size:.9em;text-align:center}
-.pie p{margin:4px 0}.pie a{color:inherit}
-.pie__nota{opacity:.8}
-.fijo{position:fixed;left:0;right:0;bottom:0;z-index:30;padding:10px 16px calc(10px + env(safe-area-inset-bottom));background:var(--fondo);border-top:1px solid var(--linea);display:none}
-.fijo .cta{display:block;text-align:center;width:100%}
-@media (max-width:720px){.fijo{display:block}.top .cta--chica{display:none}}
-/* ── Movimiento (pedido del dueño: "cosas que se mueven, sensaciones") ──
-   Todo parte VISIBLE: solo con JS y IntersectionObserver se ocultan las
-   secciones para revelarlas; sin script o con "reducir movimiento", la
-   página es estática y completa. */
+/* ── Galería secundaria ───────────────────────────────────────────────── */
+.galeria{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:12px}
+.galeria li{margin:0;aspect-ratio:1;overflow:hidden;border-radius:var(--radio);background:var(--superficie)}
+.galeria img{width:100%;height:100%;object-fit:cover;display:block}
+/* ── Sticky bar & footer ──────────────────────────────────────────────── */
+.sticky{position:fixed;left:0;right:0;bottom:0;z-index:50;padding:10px 16px calc(10px + env(safe-area-inset-bottom));background:rgba(255,255,255,.96);border-top:1px solid var(--linea);backdrop-filter:blur(12px);display:none}
+.sticky-in{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:var(--ancho);margin:0 auto}
+.sticky-price{font-weight:800;font-size:1.1rem;color:var(--acento)}
+.foot{padding:32px var(--pad-x) 96px;border-top:1px solid var(--linea);color:var(--suave);font-size:.9em;text-align:center}
+.foot p{margin:4px 0}.foot a{color:inherit}
+.foot__nota{opacity:.8}
+/* ── Buttons ──────────────────────────────────────────────────────────── */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:14px 28px;border-radius:var(--radio);font-weight:700;font-size:1rem;text-decoration:none;cursor:pointer;border:none;transition:transform .18s,box-shadow .18s,filter .18s;background:var(--acento);color:var(--sobre-acento)}
+.btn:hover{transform:translateY(-2px);box-shadow:0 12px 28px color-mix(in srgb,var(--acento) 35%,transparent);filter:brightness(1.05)}
+.btn:active{transform:translateY(0)}
+.btn-cta{background:var(--acento);color:var(--sobre-acento);padding:16px 36px;font-size:1.05rem;border-radius:var(--radio)}
+.btn-sm{padding:9px 18px;font-size:.9rem;background:var(--acento);color:var(--sobre-acento);border-radius:var(--radio)}
+.btn-block{display:flex;width:100%;justify-content:center}
+.cta{display:inline-flex;align-items:center;justify-content:center;gap:8px;padding:14px 28px;border-radius:var(--radio);font-weight:700;font-size:1rem;text-decoration:none;cursor:pointer;border:none;background:var(--acento);color:var(--sobre-acento);transition:transform .18s,box-shadow .18s}
+.cta:hover{transform:translateY(-2px);box-shadow:0 12px 28px color-mix(in srgb,var(--acento) 35%,transparent)}
+.pulse{animation:pulse 2.5s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--acento) 40%,transparent)}60%{box-shadow:0 0 0 10px transparent}}
+/* ── Animaciones ──────────────────────────────────────────────────────── */
 html{scroll-behavior:smooth}
 .js .sec[data-reveal]{opacity:0;transform:translateY(22px);transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1)}
 .js .sec[data-reveal].visto{opacity:1;transform:none}
 .js .sec--hero{opacity:1;transform:none}
 .sec--hero h1{animation:entra .8s cubic-bezier(.2,.7,.2,1) both}
-.sec--hero .lead,.sec--hero .price{animation:entra .8s .12s cubic-bezier(.2,.7,.2,1) both}
-.sec--hero .cta{animation:entra .8s .22s cubic-bezier(.2,.7,.2,1) both}
-.sec--hero .fig img{animation:flota 6s ease-in-out infinite}
+.sec--hero .lead,.sec--hero .price-card{animation:entra .8s .12s cubic-bezier(.2,.7,.2,1) both}
+.sec--hero .cta,.sec--hero .btn{animation:entra .8s .22s cubic-bezier(.2,.7,.2,1) both}
 @keyframes entra{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
-@keyframes flota{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-.confianza li{animation:entra .6s cubic-bezier(.2,.7,.2,1) both}
-.confianza li:nth-child(2){animation-delay:.1s}.confianza li:nth-child(3){animation-delay:.2s}
-.cta{transition:transform .18s ease,box-shadow .18s ease,filter .18s ease}
-.cta:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(0,0,0,.18);filter:brightness(1.04)}
-.cta:active{transform:translateY(0)}
-.card,.franja li,.icons li{transition:transform .22s ease,box-shadow .22s ease}
-.card:hover,.franja li:hover{transform:translateY(-3px);box-shadow:0 14px 30px rgba(0,0,0,.10)}
-.galeria img{transition:transform .5s cubic-bezier(.2,.7,.2,1)}
-.galeria li:hover img{transform:scale(1.06)}
-.fijo .cta{animation:latido 2.6s ease-in-out infinite}
-@keyframes latido{0%,100%{box-shadow:0 0 0 0 rgba(0,0,0,0)}50%{box-shadow:0 0 0 8px rgba(0,0,0,.06)}}
-.faq details{transition:background .2s ease}
-.faq details[open]{background:var(--superficie)}
+.ben,.testi,.pack{transition:transform .22s ease,box-shadow .22s ease}
+.ben:hover,.testi:hover{transform:translateY(-3px);box-shadow:0 14px 30px rgba(0,0,0,.10)}
+@media (max-width:760px){
+  .hero-grid{grid-template-columns:1fr;min-height:unset;padding-top:24px}
+  .gallery{margin-top:0}
+  .bens{grid-template-columns:1fr}
+  .testis{grid-template-columns:1fr}
+  .sticky{display:block}
+  .hdr .btn-sm{display:none}
+}
 @media (prefers-reduced-motion:reduce){
   html{scroll-behavior:auto}
   .js .sec[data-reveal]{opacity:1;transform:none;transition:none}
-  .sec--hero h1,.sec--hero .lead,.sec--hero .price,.sec--hero .cta,.sec--hero .fig img,.confianza li,.fijo .cta{animation:none}
-  .cta,.card,.franja li,.galeria img{transition:none}
+  *{animation-duration:.01ms!important}
 }
 `;
 
@@ -604,9 +529,10 @@ const JS_MOVIMIENTO = `<script>
   document.documentElement.classList.add('js');
   var secs=[].slice.call(document.querySelectorAll('.sec:not(.sec--hero):not(.sec--confianza)'));
   secs.forEach(function(s){s.setAttribute('data-reveal','')});
-  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('visto');io.unobserve(e.target);}})},{rootMargin:'0px 0px -10% 0px',threshold:.12});
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){
+    if(e.isIntersecting){e.target.classList.add('visto');io.unobserve(e.target);}
+  },{rootMargin:'0px 0px -10% 0px',threshold:.12});
   secs.forEach(function(s){io.observe(s)});
-  // Lo que ya está en pantalla al cargar no espera al scroll.
   secs.forEach(function(s){var r=s.getBoundingClientRect();if(r.top<innerHeight*.9)s.classList.add('visto');});
 })();
 </script>`;
@@ -615,7 +541,6 @@ function css(t: TokensDeDiseno): string {
   const escala = t.tipografia.escala;
   const alinear = t.alineacion === "izquierda" ? "left" : "center";
 
-  // El CTA cambia de FORMA, no de color: es lo que distingue a las familias.
   const ctaPorEstilo: Record<string, string> = {
     solido: `background:var(--acento);color:var(--sobre-acento);border:none;`,
     contorno: `background:transparent;color:var(--texto);border:1px solid var(--texto);`,
@@ -624,8 +549,6 @@ function css(t: TokensDeDiseno): string {
     subrayado: `background:transparent;color:var(--texto);border:none;border-bottom:2px solid var(--acento);border-radius:0;padding-left:0;padding-right:0;`,
   };
 
-  // Y la imagen cambia de ENCUADRE, que es lo que hace que la misma foto se
-  // vea premium en una familia y comercial en otra.
   const imgPorTrato: Record<string, string> = {
     enmarcada: `border-radius:var(--radio);border:var(--borde);box-shadow:var(--sombra);`,
     "a-sangre": `border-radius:0;width:100%;`,
@@ -647,112 +570,41 @@ html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--fondo);color:var(--texto);font-family:${t.tipografia.texto};
   line-height:${t.tipografia.interlineado};-webkit-font-smoothing:antialiased}
 img{max-width:100%;height:auto;display:block}
-
 .sec{padding:var(--pad-y) var(--pad-x)}
 ${t.fondos === "alterno" ? `.sec:nth-child(even){background:var(--superficie)}` : ""}
 ${t.fondos === "degradado-sutil" ? `.sec:nth-child(even){background:linear-gradient(180deg,var(--superficie),var(--fondo))}` : ""}
 ${t.fondos === "degradado-vivo" ? `
 .sec:nth-child(even):not(.sec--hero):not(.sec--cierre){background:color-mix(in srgb,var(--acento) 7%,#fff)}
-.sec.sec--hero,.sec.sec--cierre{background:linear-gradient(135deg,color-mix(in srgb,var(--acento) 70%,#0b0b14) 0%,var(--acento) 100%);color:#fff;position:relative;overflow:hidden}
+.sec.sec--hero,.sec.sec--cierre{background:linear-gradient(135deg,color-mix(in srgb,var(--acento) 70%,#0b0b14) 0%,var(--acento) 100%);color:#fff}
 .sec--hero h1,.sec--hero h2,.sec--cierre h1,.sec--cierre h2{color:#fff}
-.sec--cierre .pedido label,.sec--cierre .pedido .ayuda,.sec--cierre p{color:rgba(255,255,255,.9)}
-.sec--cierre .pedido input,.sec--cierre .pedido select,.sec--cierre .pedido textarea{background:#fff;color:#111}
-.sec--cierre .pedido button,.sec--cierre button[type=submit]{background:#fff;color:var(--acento);font-weight:800;box-shadow:0 14px 40px rgba(0,0,0,.25)}
-.sec--hero::before,.sec--cierre::before{content:"";position:absolute;inset:-20% -10% auto -10%;height:70%;background:radial-gradient(60% 60% at 30% 20%,rgba(255,255,255,.22),transparent 70%);pointer-events:none}
-.sec--hero .lead,.sec--hero .eyebrow,.sec--cierre .lead,.sec--cierre .eyebrow{color:rgba(255,255,255,.85)}
-.sec--hero .price,.sec--cierre .price{color:#fff;font-size:1.8rem}
-.sec--hero .btn,.sec--cierre .btn{background:#fff;color:var(--acento);box-shadow:0 14px 40px rgba(0,0,0,.25)}
-.btn{background:linear-gradient(135deg,var(--acento),color-mix(in srgb,var(--acento) 70%,#000));box-shadow:0 12px 30px color-mix(in srgb,var(--acento) 40%,transparent)}
-.card,.faq details,.benefit{background:rgba(255,255,255,.72);backdrop-filter:blur(10px);border:1px solid rgba(255,255,255,.6);box-shadow:var(--sombra)}
-.fig--halo img{border-radius:28px;box-shadow:0 30px 80px color-mix(in srgb,var(--acento) 45%,transparent),0 0 0 8px rgba(255,255,255,.12)}
-.pill{display:inline-block;padding:8px 16px;border-radius:999px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.35);font-weight:600;font-size:.95rem}
 ` : ""}
 .wrap{max-width:var(--ancho);margin-inline:auto;display:flex;flex-direction:column;gap:var(--sep);text-align:${alinear}}
 .wrap.narrow{max-width:min(720px,var(--ancho))}
 .wrap.center{text-align:center;align-items:center}
 .wrap.left{text-align:left;align-items:flex-start}
-.head{display:flex;flex-direction:column;gap:12px}
-.head.left{text-align:left;align-items:flex-start}
-
+.head,.sec-head{display:flex;flex-direction:column;gap:12px}
 h1,h2{font-family:${t.tipografia.display};font-weight:${t.tipografia.pesoDisplay};
   letter-spacing:${t.tipografia.espaciadoTitulo};line-height:1.08;margin:0;text-wrap:balance}
 h1{font-size:clamp(${(1.9 * escala).toFixed(2)}rem,${(4.4 * escala).toFixed(1)}vw,${(3.5 * escala).toFixed(2)}rem)}
 h2{font-size:clamp(${(1.5 * escala).toFixed(2)}rem,${(3.2 * escala).toFixed(1)}vw,${(2.4 * escala).toFixed(2)}rem)}
-.serif{font-family:${t.tipografia.display}}
 p{margin:0}
 .lead{color:var(--suave);font-size:clamp(1rem,1.8vw,1.15rem);max-width:62ch;${alinear === "center" ? "margin-inline:auto;" : ""}}
 .eyebrow{margin:0;font-size:.72rem;text-transform:uppercase;letter-spacing:.18em;color:var(--suave)}
 .price{font-size:1.4rem;font-weight:700;margin:0}
-.price--big{font-size:clamp(1.8rem,4vw,2.6rem)}
-.who{color:var(--suave);font-size:.9rem;margin:0}
-
-.cta{display:inline-block;padding:15px 30px;border-radius:var(--radio);font-weight:700;
-  text-decoration:none;font-size:1rem;transition:transform .15s ease,opacity .15s ease;
-  align-self:${alinear === "center" ? "center" : "flex-start"};${ctaPorEstilo[t.cta] || ctaPorEstilo.solido}}
-.cta:hover{transform:translateY(-1px);opacity:.92}
-.cta:focus-visible{outline:3px solid var(--acento);outline-offset:3px}
-
-.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:clamp(24px,4vw,56px);text-align:left;align-items:start}
-.grid-2.middle{align-items:center}
-.grid-2>div{display:flex;flex-direction:column;gap:var(--sep);align-items:flex-start}
-.ghost{display:none}
-
+.who-name{color:var(--suave);font-size:.9rem;margin:0}
 .fig{margin:0}
 .fig img{${imgPorTrato[t.imagen] || imgPorTrato.enmarcada}width:100%}
 .fig--below{margin-top:12px;max-width:760px;width:100%}
-.fig--bleed{margin-inline:calc(var(--pad-x) * -1);width:calc(100% + var(--pad-x) * 2)}
-.fig--bleed img{border-radius:0;max-height:520px;object-fit:cover}
-.fig--float img{box-shadow:0 30px 60px rgba(0,0,0,.22)}
-.fig--glow img{box-shadow:0 0 80px color-mix(in srgb,var(--acento) 30%,transparent)}
-.hero-visual{min-height:clamp(380px,58vh,560px);display:flex;align-items:center;
-  background-size:cover;background-position:center}
-.hero-visual.has-bg{color:#fff}
-.hero-visual.has-bg h1,.hero-visual.has-bg .lead,.hero-visual.has-bg .eyebrow{color:#fff}
-
-.cards{list-style:none;padding:0;margin:0;display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;text-align:left}
-.card{background:var(--fondo);border:var(--borde);border-radius:var(--radio);
-  box-shadow:var(--sombra);padding:22px}
-.quote{font-style:italic;color:var(--suave)}
-.rail{list-style:none;padding:0 0 8px;margin:0;display:flex;gap:16px;overflow-x:auto;
-  scroll-snap-type:x mandatory;text-align:left}
-.rail .card{min-width:min(300px,80vw);scroll-snap-align:start}
-.icons{list-style:none;padding:0;margin:0;display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;text-align:left}
-.icons li,.plain li{display:flex;gap:10px;align-items:flex-start}
-.plain{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px;text-align:left}
-.center-list{align-items:center}
-.numbered{margin:0;padding-left:1.2em;display:flex;flex-direction:column;gap:12px;text-align:left}
-.numbered li::marker{font-weight:700;color:var(--acento)}
-.columns{columns:2;column-gap:40px;text-align:left}
-.columns p{margin:0 0 14px;break-inside:avoid}
-.tick{width:18px;height:18px;flex:0 0 18px;margin-top:4px;border-radius:50%;
-  background:var(--acento);position:relative}
-.tick::after{content:"";position:absolute;inset:0;margin:auto;width:5px;height:9px;
-  border:solid var(--sobre-acento);border-width:0 2px 2px 0;transform:rotate(45deg) translate(-1px,-1px)}
-
-.panel{background:var(--superficie);border:var(--borde);border-radius:var(--radio);
-  box-shadow:var(--sombra);padding:clamp(28px,5vw,52px);display:flex;flex-direction:column;
-  gap:var(--sep);align-items:center;width:100%}
-.panel--accent{border:2px solid var(--acento)}
-.panel--glow{box-shadow:0 0 60px color-mix(in srgb,var(--acento) 22%,transparent)}
-
+.tick{width:18px;height:18px;flex:0 0 18px;margin-top:4px;border-radius:50%;background:var(--acento);position:relative}
+.tick::after{content:"";position:absolute;inset:0;margin:auto;width:5px;height:9px;border:solid var(--sobre-acento);border-width:0 2px 2px 0;transform:rotate(45deg) translate(-1px,-1px)}
 .faq{display:flex;flex-direction:column;gap:8px;text-align:left}
 details{border-bottom:1px solid var(--linea);padding:16px 0}
 summary{cursor:pointer;font-weight:600;list-style:none}
 summary::-webkit-details-marker{display:none}
-blockquote{margin:0;font-size:clamp(1.15rem,2.6vw,1.5rem);line-height:1.5}
-blockquote.big{font-size:clamp(1.4rem,3.4vw,2rem)}
-
-/* ── Móvil: no es el desktop encogido ────────────────────────────────── */
+.plain{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:10px;text-align:left}
+.plain li{display:flex;gap:10px;align-items:flex-start}
 @media (max-width:860px){
   .sec{padding:clamp(44px,9vw,72px) var(--pad-x)}
-  .grid-2{grid-template-columns:1fr;gap:28px}
-  /* La foto sube: en un teléfono, ver el producto antes de leer decide el scroll. */
-  .grid-2.reverse .fig{order:-1}
-  .columns{columns:1}
-  .cta{width:100%;max-width:none;text-align:center}
-  .wrap{text-align:${alinear};gap:20px}
 }
 @media (prefers-reduced-motion:reduce){
   *{animation:none!important;transition:none!important}
@@ -764,11 +616,6 @@ blockquote.big{font-size:clamp(1.4rem,3.4vw,2rem)}
 
 /**
  * Compone la landing completa.
- *
- * Devuelve un documento HTML autónomo: sin CDNs, sin fuentes externas
- * obligatorias y sin JavaScript. Una landing que depende de una red ajena para
- * verse bien es una landing que a veces no se ve bien -- y esta la va a abrir
- * gente que llegó de un anuncio pago.
  */
 export function renderizarLanding(opts: OpcionesDeRender): string {
   const t = tokensDe(opts.familia);
@@ -776,15 +623,13 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
   const secciones = Array.isArray(opts.secciones) ? opts.secciones : [];
 
   const n = opts.negocio || null;
-  // Con cierre en la página, los CTA van al ancla del cierre.
   destinoDelCierre = opts.cierre && (opts.cierre.tipo !== "pago" || opts.cierre.mercadopago || opts.cierre.paypal || n?.whatsapp) ? "#pedido" : null;
   const cierreHtml = bloqueDeCierre(opts.cierre, p, n);
   const marca = esc(n?.nombre || "");
   const ctaTexto = esc(String(secciones.find((x) => x.type === "hero")?.cta || (n?.modelo === "fisico" ? "Pedir por WhatsApp" : "Lo quiero")).trim());
   const irA = esc(destino(p));
+  const precioTxt = precio(p);
 
-  // Una sección sin título, sin ítems y sin foto es un hueco con un rótulo
-  // arriba ("HOW IT WORKS" y nada más, medido en la landing 4). No se dibuja.
   const conContenido = (s: SeccionParaRenderizar) =>
     !!(String(s.title || "").trim() || items(s.body).length || urlSegura(s.image) || (Array.isArray(s.images) && s.images.length));
 
@@ -800,9 +645,9 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
     })
     .join("\n");
 
-  const cabecera = `<header class="top"><div class="top__in"><span class="marca">${marca || esc(p?.name || "")}</span><a class="cta cta--chica" href="${irA}">${ctaTexto}</a></div></header>`;
-  const pie = `<footer class="pie"><div class="wrap">${marca ? `<p>${marca}</p>` : ""}${n?.whatsapp ? `<p><a href="https://wa.me/${esc(String(n.whatsapp).replace(/\D/g, ""))}">Escribinos por WhatsApp</a></p>` : ""}<p class="pie__nota">Precios en ${esc(String(p?.currency || "COP"))}. ${n?.modelo === "fisico" ? "Pago contraentrega según condiciones del negocio." : ""}</p></div></footer>`;
-  const fijo = `<div class="fijo"><a class="cta" href="${irA}">${ctaTexto}</a></div>`;
+  const cabecera = `<header class="hdr"><div class="hdr-in"><a class="logo" href="#"><span class="logo-mark" aria-hidden="true"></span>${marca || esc(p?.name || "")}</a><a class="btn btn-sm" href="${irA}">${ctaTexto}</a></div></header>`;
+  const pie = `<footer class="foot"><div class="wrap">${marca ? `<p>${marca}</p>` : ""}${n?.whatsapp ? `<p><a href="https://wa.me/${esc(String(n.whatsapp).replace(/\D/g, ""))}">Escribinos por WhatsApp</a></p>` : ""}<p class="foot__nota">Precios en ${esc(String(p?.currency || "COP"))}. ${n?.modelo === "fisico" ? "Pago contraentrega según condiciones del negocio." : ""}</p></div></footer>`;
+  const stickyBar = `<div class="sticky"><div class="sticky-in">${precioTxt ? `<span class="sticky-price">${esc(precioTxt)}</span>` : `<span>${marca}</span>`}<a class="btn btn-cta pulse" href="${irA}">${ctaTexto}</a></div></div>`;
 
   const titulo = esc(opts.nombre || p?.name || "Landing");
   const desc = esc(String(p?.description || secciones[0]?.subtitle || "").replace(/\s+/g, " ").slice(0, 155));
@@ -825,7 +670,7 @@ ${cabecera}
 ${cuerpo}
 ${cierreHtml}
 ${pie}
-${fijo}
+${stickyBar}
 ${JS_MOVIMIENTO}
 </body>
 </html>`;
