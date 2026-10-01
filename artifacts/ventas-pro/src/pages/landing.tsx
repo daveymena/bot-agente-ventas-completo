@@ -16,46 +16,26 @@ import {
   CreditCard,
   Menu,
   X,
-  Wand2,
   Globe,
   Megaphone,
   Receipt,
   Search,
   Ticket,
   Truck,
-  Compass,
 } from "lucide-react";
 
 // ─── Datos ──────────────────────────────────────────────────────────────
 // Solo afirmaciones que el producto realmente cumple hoy (verificadas en el
 // código) -- nada de cifras de clientes o testimonios inventados. La prueba
 // social acá es "esto es lo que la plataforma hace", no "esto dice fulano".
+// El CÓMO en cinco pasos. Una línea cada uno: el detalle de cada pieza está
+// en los pilares y no se repite (30-09-2026: la página decía lo mismo 5 veces).
 const ECOSYSTEM_STEPS = [
-  {
-    icon: Megaphone,
-    title: "Atlas trae clientes",
-    desc: "Investiga la competencia, arma la página de venta, escribe el anuncio y lo sube a Meta en pausa. Vos aprobás; él ejecuta.",
-  },
-  {
-    icon: MessageCircle,
-    title: "El cliente escribe",
-    desc: "Por WhatsApp, Messenger o un comentario en Facebook. Sofía responde en segundos con tu catálogo y el tono de tu negocio.",
-  },
-  {
-    icon: Bot,
-    title: "Sofía vende de verdad",
-    desc: "Presenta el producto, da el precio cuando lo piden, resuelve objeciones y pasa a los medios de pago en el momento justo.",
-  },
-  {
-    icon: Receipt,
-    title: "Cobra y entrega",
-    desc: "Link de MercadoPago o PayPal, transferencia con comprobante leído solo, o contraentrega con pedido en Dropi o WooCommerce.",
-  },
-  {
-    icon: LayoutDashboard,
-    title: "Vos dirigís desde el panel",
-    desc: "Conversaciones en vivo, prospectos, campañas y métricas. Tomás el control cuando querés y Atlas te dice qué hacer después.",
-  },
+  { icon: Megaphone, title: "Atlas trae clientes", desc: "Publica el anuncio y la página de venta." },
+  { icon: MessageCircle, title: "El cliente escribe", desc: "Desde el anuncio, la página o tu tienda." },
+  { icon: Bot, title: "Sofía lo atiende", desc: "Responde, resuelve dudas y lo lleva a comprar." },
+  { icon: Receipt, title: "Cobras y entregas", desc: "Pago en línea, transferencia o contraentrega." },
+  { icon: LayoutDashboard, title: "Tú diriges", desc: "Todo queda en el panel, con el siguiente paso sugerido." },
 ];
 
 /**
@@ -70,7 +50,7 @@ const PILARES = [
     tint: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
     eyebrow: "Sofía, tu vendedora",
     title: "Vender por chat",
-    desc: "Atiende WhatsApp, Messenger y comentarios de Facebook con tu catálogo, y aprende lo que le enseñás.",
+    desc: "Atiende WhatsApp, Messenger y comentarios de Facebook con tu catálogo, y aprende lo que le enseñas.",
     items: [
       "Presenta, cotiza y cierra con el flujo de un vendedor humano",
       "Lee comprobantes de pago con visión y los deja listos para aprobar",
@@ -80,20 +60,6 @@ const PILARES = [
     img: { src: "/screens/gen/sofia.webp", alt: "Sofía vendiendo el curso de piano por WhatsApp", w: 1200, h: 1400 },
   },
   {
-    icon: Megaphone,
-    tint: "bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300",
-    eyebrow: "Atlas, tu agencia en un chat",
-    title: "Atraer clientes",
-    desc: "De «quiero anunciar esto» a una campaña en Meta, en pausa, lista para activar.",
-    items: [
-      "Investiga la competencia en la Biblioteca de Anuncios de Meta",
-      "Escribe el anuncio con los datos reales del producto y lo sube a Facebook e Instagram",
-      "Píxel, atribución y radiografía de cada campaña en lenguaje de dueño",
-      "Plan de contenido orgánico y publicación en tu página",
-    ],
-    img: { src: "/screens/gen/atlas-web.webp", alt: "Atlas ejecutando la ruta de marketing", w: 1600, h: 1000 },
-  },
-  {
     icon: Globe,
     tint: "bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
     eyebrow: "Landing Studio y tu Tienda",
@@ -101,8 +67,8 @@ const PILARES = [
     desc: "Tienda online propia y páginas de venta armadas con las fotos reales de tus productos.",
     items: [
       "Tienda con catálogo, categorías y checkout MercadoPago / PayPal",
-      "Landing pages con estructura AIDA, editables por chat y con URL pública lista para el anuncio",
-      "Dropshipping: importás de Dropi, sincronizás con WooCommerce, pedido contraentrega",
+      "Landing pages pensadas para el celular, con fotos reales, editables por chat y con URL lista para el anuncio",
+      "Dropshipping: importas de Dropi en lote, cotizas el envío y el pedido sale contraentrega",
       "Fichas de producto escritas solas desde una foto o un Excel",
     ],
     img: { src: "/screens/gen/tienda.webp", alt: "Tu tienda online con el catálogo en vivo", w: 1200, h: 1400 },
@@ -114,28 +80,27 @@ const PILARES = [
     title: "Dirigir el negocio",
     desc: "Responde «¿qué está pasando?» y «¿qué hago ahora?», con Atlas revisando tu negocio y proponiendo el siguiente paso.",
     items: [
-      "Bandeja de conversaciones en vivo con control manual cuando querés",
+      "Bandeja de conversaciones en vivo con control manual cuando quieras",
       "Prospectos, embudo, tiempo de respuesta y valor generado",
       "Diagnóstico de qué le falta a tu negocio y ruta guiada paso a paso",
-      "Cada negocio con su WhatsApp, sus datos y su catálogo, aislados",
     ],
     img: { src: "/screens/gen/inbox-web.webp", alt: "Bandeja de entrada con control manual", w: 1600, h: 1000 },
   },
 ];
 
-const TOOLS = [
-  { icon: Bot, title: "Sofía, tu vendedora", desc: "WhatsApp, Messenger y comentarios de Facebook con el mismo cerebro y tu catálogo." },
-  { icon: Compass, title: "Atlas, tu operador", desc: "Le hablás en tu idioma y él configura, investiga, crea y publica. Pide confirmación antes de gastar." },
-  { icon: Wand2, title: "Landing Studio", desc: "Páginas de venta con fotos reales, formulario contraentrega o pago, y edición por chat." },
-  { icon: Facebook, title: "Facebook e Instagram Ads", desc: "Borrador, campaña en pausa, activación, presupuesto, métricas y por qué no entrega." },
-  { icon: Store, title: "Tienda online propia", desc: "Catálogo, categorías, importación por Excel y checkout integrado." },
-  { icon: Truck, title: "Dropshipping", desc: "Importación desde Dropi, pedidos contraentrega y sincronización con WooCommerce." },
-  { icon: Receipt, title: "Comprobantes leídos solos", desc: "Sofía lee la captura de Nequi o Daviplata y vos aprobás con un clic." },
-  { icon: Ticket, title: "Cupones y seguimientos", desc: "Descuentos reales, follow-ups automáticos y envíos masivos por WhatsApp o correo." },
-  { icon: Search, title: "Investigación real", desc: "Biblioteca de Anuncios de Meta y búsqueda web para decidir con datos, no de memoria." },
-  { icon: CreditCard, title: "MercadoPago y PayPal", desc: "Cobrá ventas y suscripciones con los métodos que tus clientes ya usan." },
-  { icon: BarChart3, title: "Analíticas y atribución", desc: "Embudo, tiempo de respuesta, valor generado y qué campaña trajo cada venta." },
-  { icon: ShieldCheck, title: "Multi-negocio aislado", desc: "Cada cuenta con su propia sesión de WhatsApp, datos y catálogo, sin mezclas." },
+// Con qué se conecta. Antes eran 12 tarjetas que repetían los pilares; acá va
+// solo lo nuevo: los servicios con los que ya viene integrado.
+const INTEGRACIONES = [
+  { icon: MessageCircle, nombre: "WhatsApp" },
+  { icon: Facebook, nombre: "Messenger y Facebook" },
+  { icon: Megaphone, nombre: "Meta Ads (Facebook e Instagram)" },
+  { icon: Search, nombre: "Biblioteca de Anuncios de Meta" },
+  { icon: CreditCard, nombre: "MercadoPago y PayPal" },
+  { icon: Receipt, nombre: "Nequi y Daviplata (comprobantes)" },
+  { icon: Truck, nombre: "Dropi" },
+  { icon: Store, nombre: "WooCommerce" },
+  { icon: Ticket, nombre: "Cupones y correo" },
+  { icon: BarChart3, nombre: "Píxel de Meta" },
 ];
 
 // ─── Fondo del hero: un solo resplandor índigo arriba + trama de puntos que
@@ -275,7 +240,7 @@ export default function LandingPage() {
   const NAV = [
     ["pilares", "Qué hace"],
     ["ecosistema", "Cómo funciona"],
-    ["herramientas", "Herramientas"],
+    ["herramientas", "Integraciones"],
     ["precios", "Precios"],
   ] as const;
 
@@ -286,7 +251,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2.5">
             <img src="/logo-mark.svg" alt="VentasPro" className="h-8 w-8" />
-            <span className="font-bold text-lg tracking-tight">VentasPro</span>
+            <span className="font-bold text-lg tracking-tight">VentasPro<sup className="ml-0.5 text-[10px] font-extrabold text-primary">IA</sup></span>
           </Link>
           <nav className="hidden lg:flex items-center gap-8 text-[15px] font-medium text-slate-600 dark:text-slate-300">
             {NAV.map(([id, label]) => (
@@ -421,8 +386,8 @@ export default function LandingPage() {
               claro
               alineado="left"
               etiqueta="Atlas · tu agencia en un chat"
-              titulo="Decile «quiero anunciar este curso» y Atlas hace el resto"
-              bajada="No es un generador de textos: es un operador que investiga la competencia, arma la página de venta, escribe el anuncio con los datos reales de tu producto y lo sube a Meta en pausa. Vos aprobás cada paso."
+              titulo="Dile «quiero anunciar este producto» y Atlas hace el resto"
+              bajada="No es un generador de textos: es un operador que trabaja con los datos reales de tu producto. Tú apruebas cada paso."
             />
             <Reveal delay={0.1}>
               <ListaCheck
@@ -432,6 +397,8 @@ export default function LandingPage() {
                   "Crea la landing page con tus fotos y la publica con URL lista para el anuncio",
                   "Sube la campaña a Facebook e Instagram en pausa: no gasta hasta que digas",
                   "Te explica en 3 líneas qué está pasando con cada campaña y qué hacer",
+                  "Píxel y atribución: qué campaña trajo cada venta",
+                  "Plan de contenido orgánico y publicación en tu página",
                   "Configura y entrena a Sofía desde la misma conversación",
                 ]}
               />
@@ -448,8 +415,8 @@ export default function LandingPage() {
       <section id="ecosistema" className="max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-28 scroll-mt-16">
         <Encabezado
           etiqueta="El ecosistema completo"
-          titulo="Del anuncio a la venta cerrada, sin que se te escape un cliente"
-          bajada="Cada pieza se conecta con las demás: lo que Atlas anuncia lo vende Sofía, y lo que Sofía vende lo cobrás y lo entregás desde el mismo panel."
+          titulo="Del anuncio a la venta cerrada"
+          bajada="Lo que Atlas anuncia lo vende Sofía, y lo que Sofía vende lo cobras y lo entregas desde el mismo panel."
         />
         <ol className="mt-16 grid gap-8 md:grid-cols-2 lg:grid-cols-5 lg:gap-6">
           {ECOSYSTEM_STEPS.map((step, i) => (
@@ -473,23 +440,17 @@ export default function LandingPage() {
       <section id="herramientas" className="border-y border-slate-200 bg-slate-50 py-20 sm:py-28 dark:border-white/10 dark:bg-white/[0.03] scroll-mt-16">
         <div className="max-w-7xl mx-auto px-4 sm:px-6">
           <Encabezado
-            etiqueta="Todo en un solo panel"
-            titulo="Las herramientas, una por una"
-            bajada="Sin integraciones que armar: ya vienen conectadas entre sí."
+            etiqueta="Ya viene conectado"
+            titulo="Integraciones listas"
+            bajada="Sin configuraciones técnicas: conectas tu cuenta y funciona."
           />
-          <div className="mt-14 grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {TOOLS.map((tool, i) => (
-              <Reveal key={tool.title} delay={(i % 3) * 0.06}>
-                <div className="h-full rounded-3xl border border-slate-200 bg-white p-6 transition-shadow hover:shadow-lg hover:shadow-slate-900/5 dark:border-white/10 dark:bg-slate-900">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                    <tool.icon className="h-5 w-5" />
-                  </div>
-                  <h3 className="mt-4 text-lg font-bold">{tool.title}</h3>
-                  <p className="mt-1.5 text-[15px] leading-relaxed text-slate-600 dark:text-slate-300">{tool.desc}</p>
-                </div>
-              </Reveal>
+          <ul className="mt-12 flex flex-wrap justify-center gap-3">
+            {INTEGRACIONES.map((x) => (
+              <li key={x.nombre} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-[15px] font-semibold text-slate-700 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200">
+                <x.icon className="h-4 w-4 text-primary" /> {x.nombre}
+              </li>
             ))}
-          </div>
+          </ul>
         </div>
       </section>
 
@@ -497,7 +458,7 @@ export default function LandingPage() {
       <section id="precios" className="max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-28 scroll-mt-16">
         <Encabezado
           etiqueta="Planes simples"
-          titulo="Empezá gratis, crecé cuando lo necesites"
+          titulo="Empieza gratis y crece cuando lo necesites"
           bajada="7 días de prueba con 30 mensajes. Sin tarjeta."
         />
         {plans.length > 0 && (
@@ -547,7 +508,7 @@ export default function LandingPage() {
           <div className="relative">
             <h2 className="text-3xl sm:text-5xl font-black tracking-tight leading-[1.1]">Tu próximo cliente ya te está escribiendo</h2>
             <p className="mt-5 text-lg sm:text-xl text-white/85 max-w-xl mx-auto leading-relaxed">
-              Conectá tu WhatsApp en minutos y dejá que Sofía se encargue del resto.
+              Conecta tu WhatsApp en minutos y deja que Sofía se encargue del resto.
             </p>
             <Button asChild size="lg" variant="secondary" className="mt-9 rounded-full gap-2 text-base px-9 h-12">
               <Link href="/auth?tab=register"><Zap className="h-4 w-4" /> Comenzar gratis ahora</Link>
@@ -561,7 +522,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10 flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <img src="/logo-mark.svg" alt="VentasPro" className="h-6 w-6" />
-            <span className="font-bold text-sm">VentasPro</span>
+            <span className="font-bold text-sm">VentasPro<sup className="ml-0.5 text-[9px] font-extrabold text-primary">IA</sup></span>
           </div>
           <nav className="flex items-center gap-6 text-sm text-slate-600 dark:text-slate-300">
             <Link href="/pricing" className="hover:text-slate-900 dark:hover:text-white transition-colors">Precios</Link>
