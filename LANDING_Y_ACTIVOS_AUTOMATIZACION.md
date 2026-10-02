@@ -125,22 +125,25 @@ Cada paso deja su resultado guardado en el producto, para que landing, anuncio y
 | Sección de video en la landing | ❌ el renderer no tiene `<video>` | ✅ **hecho** | `renderer-cod.ts:158`; y `sanear-html.ts` borra el `<video>` sin fuente real (guardia anti-invento) |
 | Ofertas por cantidad (2×/3×) | ❌ | ✅ **hecho** | `ofertasValidas` en `landing/crear-landing-imagenes.ts` + "Elige tu oferta" en `renderer-v3/moderno/cod/imagenes/pro` |
 | Ángulos / buyer persona | ❌ (la idea #1 pendiente) | ✅ **hecho** | `construirBrief()` devuelve 3 ángulos; `ruta-guiada.ts` (cableado en `routes/operator-opencode.ts`) los ofrece paso a paso |
-| **GIFs desde video (ffmpeg)** | ❌ | ✅ **hecho (02-10)** | `lib/gifs-de-producto.ts` + 8 tests (args puros: el CI no tiene ffmpeg) |
+| **GIFs / clips de video (ffmpeg)** | ❌ | ✅ **ya estaba hecho** | `activos-fabricante.ts`: `tramosParaClips`, `cortarClips`, `videoDeFotos`, `gifDeVideo`, `gifDeFotos`. **En uso**: `app-operator.ts:5763` (Atlas ya hace "haz un gif") y `activosAprobados` → `landing-studio-opencode.ts:849`. Ruta pública `/media/fabricante/`. ⚠️ Una sesión creó un módulo duplicado (`gifs-de-producto.ts`) por no verificar primero; se borró (commit `9029f2d`). |
 | **Campaña en un clic (panel)** | no estaba en el plan | ✅ **hecho (02-10)** | `lib/campana-un-clic.ts` + `routes/campana.ts` (`POST /api/campana/generar`) + botón en `facebook.tsx` |
+| Aprobación de activos del fabricante | (no estaba en el plan) | ✅ **hecho** | `activosAprobados()` exige `aprobado: true` en la metadata: nada entra a la landing sin que el dueño lo apruebe |
 | Variantes A/B de landing | ❌ | 🟡 **parcial** | `routes/marketing.ts` ya tiene experimentos (hipótesis + variante + presupuesto + duración); falta la UI |
-| Referencias en 2-3 idiomas | amplía lo existente | 🟡 **parcial** | `fb_ad_library` busca por país; falta traducir el término y recorrer idiomas |
+| Referencias en 2-3 idiomas | amplía lo existente | 🟡 **parcial** | `fb_ad_library` busca por país y `traducirConsultaAingles` ya existe en `activos-fabricante.ts`; falta recorrer los idiomas |
 | Infografía automática | ❌ | 🟡 **parcial (otro camino)** | `crear-landing-imagenes.ts` + `plan-imagenes.ts` generan paneles con IA; no es la compuesta con Chromium |
 | 3 ganchos distintos por video | 🟡 | ❌ | `video-anuncio.ts` hace un video por producto, no 3 ganchos |
 
-### Lo que sigue, en orden
+### Lo que sigue, en orden (lo que DE VERDAD falta)
 
-1. **Cablear los GIFs**: el módulo existe pero **nadie lo llama todavía**. Va en el
-   flujo de campaña (guardado en el producto) y en la landing.
-2. **Infografía compuesta con Chromium** (texto exacto, sin API paga), reusando el
-   patrón de `video-anuncio.ts`.
-3. **Variantes A/B**: UI sobre los experimentos que ya existen en `routes/marketing.ts`.
-4. **Referencias multi-idioma** en `fb_ad_library`.
-5. **3 ganchos distintos** por video.
+1. **Variantes A/B**: UI sobre los experimentos que ya existen en `routes/marketing.ts`.
+2. **Referencias multi-idioma**: `traducirConsultaAingles` ya existe; falta que `fb_ad_library` recorra 2-3 idiomas y guarde los anuncios activos de más de 15 días.
+3. **3 ganchos distintos** por video (hoy hay uno por producto).
+4. **Infografía compuesta con Chromium** (texto exacto, sin API paga), reusando el patrón de `video-anuncio.ts`.
+
+> ⚠️ **Lección de esta ronda**: cuatro de los pasos de arriba figuraban como ❌ y
+> ya estaban hechos (píxel, video, ofertas, ángulos) **y los GIFs también**.
+> Antes de escribir una función nueva, buscar la que ya existe por su
+> comportamiento — no por su nombre.
 
 ⚠️ **Regla que no cambia**: nada de la sección 6 se automatiza. Un activo sin
 dato real detrás se cae, no se rellena.
