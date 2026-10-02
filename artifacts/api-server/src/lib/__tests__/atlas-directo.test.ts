@@ -246,6 +246,13 @@ describe("cuándo se enciende", () => {
     expect(configDirecta({ DEEPSEEK_API_KEY: "k2" } as any)?.proveedor).toBe("deepseek");
     expect(configDirecta({} as any)).toBe(null);
   });
+
+  /** El endpoint tiene que terminar en /chat/completions (405 de Ollama sin el sufijo). */
+  it("ollama pro apunta al chat completions, no a /v1 pelado", () => {
+    const c = configDirecta({ OLLAMA_CLOUD_API_KEY: "k" } as any)!;
+    expect(c.baseUrl.endsWith("/chat/completions")).toBe(true);
+    expect(configDirecta({ DEEPSEEK_API_KEY: "k2" } as any)!.baseUrl.endsWith("/chat/completions")).toBe(true);
+  });
 });
 
 /**
