@@ -13,6 +13,8 @@ import {
   tramosDe,
   argsWebpDesdeVideo,
   argsWebpDesdeFoto,
+  leerMetadata,
+  elegirFuentes,
   LADO_POR_DEFECTO,
   DURACION_CLIP,
 } from "../gifs-de-producto";
@@ -95,5 +97,40 @@ describe("valores por defecto", () => {
   test("el cuadrado es 600 y el tramo de 3 s, como pide el plan", () => {
     expect(LADO_POR_DEFECTO).toBe(600);
     expect(DURACION_CLIP).toBe(3);
+  });
+});
+
+describe("leerMetadata", () => {
+  test("acepta el objeto (Postgres/jsonb) y el texto (SQLite)", () => {
+    expect(leerMetadata({ videoAnuncio: { archivo: "/x.mp4" } })).toEqual({ videoAnuncio: { archivo: "/x.mp4" } });
+    expect(leerMetadata('{"videoAnuncio":{"archivo":"/x.mp4"}}')).toEqual({ videoAnuncio: { archivo: "/x.mp4" } });
+  });
+
+  test("con basura no tira: devuelve vacío", () => {
+    expect(leerMetadata(null)).toEqual({});
+    expect(leerMetadata("no es json")).toEqual({});
+    expect(leerMetadata(42)).toEqual({});
+  });
+});
+
+describe("elegirFuentes", () => {
+  test("con video, usa el video y NO mezcla fotos", () => {
+    const f = elegirFuentes({ videoAnuncio: { archivo: "/tmp/v.mp4" } }, ["https://x/a.jpg", "https://x/b.jpg"]);
+    expect(f.video).toBe("/tmp/v.mp4");
+    // Mezclar dos orígenes daría una página con dos estéticas distintas.
+    expect(f.fotos).toEqual([]);
+  });
+
+  test("sin video, anima hasta 4 fotos", () => {
+    const fotos = ["a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg"];
+    const f = elegirFuentes({}, fotos);
+    expect(f.video).toBeNull();
+    expect(f.fotos).toEqual(["a.jpg", "b.jpg", "c.jpg", "d.jpg"]);
+  });
+
+  test("sin ningún activo devuelve vacío (no inventa una fuente)", () => {
+    expect(elegirFuentes({}, [])).toEqual({ video: null, fotos: [] });
+    // Un archivo vacío o con espacios no es un video.
+    expect(elegirFuentes({ videoAnuncio: { archivo: "   " } }, []).video).toBeNull();
   });
 });

@@ -229,3 +229,86 @@ async function duracionDe(archivo: string): Promise<number> {
     return 0;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * CABLEADO: de la fila del producto a los recortes guardados
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+/** Lee `metadata` sin tirar: puede venir como objeto (jsonb) o como texto (SQLite). */
+export function leerMetadata(crudo: unknown): Record<string, any> {
+  if (!crudo) return {};
+  if (typeof crudo === "string") {
+    try {
+      const p = JSON.parse(crudo);
+      return p && typeof p === "object" ? p : {};
+    } catch {
+      return {};
+    }
+  }
+  return typeof crudo === "object" ? { ...(crudo as Record<string, any>) } : {};
+}
+
+/**
+ * De dónde se recortan los GIFs.
+ *
+ * El video del anuncio ya generado es un ARCHIVO LOCAL y tiene movimiento real:
+ * es la mejor fuente y va primero. Si no hay, se animan las fotos (ffmpeg las
+ * baja por URL). Si no hay ninguna de las dos, se devuelve vacío y quien llame
+ * decide qué decir: nunca se inventa un activo.
+ */
+export function elegirFuentes(meta: Record<string, any>, fotos: string[]): { video: string | null; fotos: string[] } {
+  const video = String(meta?.videoAnuncio?.archivo || "").trim() || null;
+  // Con video no se animan fotos: mezclar dos orígenes da una página incoherente.
+  if (video) return { video, fotos: [] };
+  return { video: null, fotos: (fotos || []).map((f) => String(f || "").trim()).filter(Boolean).slice(0, 4) };
+}
+
+export interface ResultadoGifsDeProducto extends ResultadoGifs {
+  /** Si los recortes quedaron guardados en el producto. */
+  guardado: boolean;
+}
+
+/**
+ * Genera los recortes de UN producto y los deja guardados en su metadata.
+ *
+ * Guardarlos en el producto (y no en la pantalla que los pidió) es lo que hace
+ * que la landing, el anuncio y el vendedor lean el MISMO activo.
+ */
+export async function generarGifsDelProducto(
+  tenantId: number,
+  productId: number,
+  opts: { cuantos?: number; lado?: number } = {},
+): Promise<ResultadoGifsDeProducto> {
+  const { db, products } = await import("@workspace/db");
+  const { and, eq } = await import("drizzle-orm");
+
+  const [p] = await db
+    .select()
+    .from(products)
+    .where(and(eq(products.id, productId), eq(products.tenantId, tenantId)))
+    .limit(1);
+  if (!p) return { ok: false, error: "Ese producto no existe en este negocio.", clips: [], guardado: false };
+
+  const meta = leerMetadata((p as any).metadata);
+  const { fotosDelProducto } = await import("./fotos-de-producto");
+  const fotos = fotosDelProducto(p, process.env.APP_URL || "https://ventasproia.com", 4);
+  const fuentes = elegirFuentes(meta, fotos);
+
+  const r = await generarGifsDeProducto({ productId, video: fuentes.video, fotos: fuentes.fotos, ...opts });
+  if (!r.ok) return { ...r, guardado: false };
+
+  meta.gifs = r.clips.map((c) => ({ ...c, en: new Date().toISOString() }));
+  try {
+    await db
+      .update(products)
+      .set({ metadata: JSON.stringify(meta) })
+      .where(eq(products.id, productId));
+  } catch (e: any) {
+    // Los recortes existen; lo que falló fue guardarlos. Se dice tal cual: el
+    // llamador no puede quedarse creyendo que quedaron en el producto.
+    return { ok: false, error: `Se generaron los recortes pero no se pudieron guardar: ${e?.message || "error"}`, clips: r.clips, guardado: false };
+  }
+
+  return { ...r, guardado: true };
+}
+
