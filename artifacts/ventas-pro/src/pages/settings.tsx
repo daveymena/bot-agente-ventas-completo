@@ -48,7 +48,7 @@ export default function Settings() {
     // "github" sigue en el tipo porque hay negocios guardados con ese valor y
     // hay que poder mostrarlos, pero ya no es el valor inicial: GitHub retiró
     // GitHub Models y arrancar apuntando ahí deja al negocio sin IA.
-    aiProvider: "github_copilot_internal" as "github" | "github_copilot_internal" | "ollama_local" | "openai_default" | "nvidia" | "g4f" | "opencode",
+    aiProvider: "github_copilot_internal" as "github" | "github_copilot_internal" | "ollama_local" | "ollama_cloud" | "openai_default" | "nvidia" | "g4f" | "opencode",
     githubToken: "",
     githubModel: "gpt-4o-mini",
     copilotSessionToken: "",
@@ -392,6 +392,7 @@ export default function Settings() {
                       <option value="github_copilot_internal">GitHub Copilot Internal (VS Code Flow)</option>
                       <option value="nvidia">NVIDIA NIM (High Performance)</option>
                       <option value="ollama_local">Ollama (Local)</option>
+                      <option value="ollama_cloud">Ollama Cloud (Pro)</option>
                       <option value="openai_default">OpenAI Direct</option>
                       <option value="g4f">G4F (111+ Proveedores Gratis)</option>
                     </select>
@@ -442,6 +443,15 @@ export default function Settings() {
                             <div className={`h-2 w-2 rounded-full ${hasToken ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`} />
                             <span className="text-[10px] font-bold uppercase tracking-wider">
                               {hasToken ? 'Conectado a NVIDIA NIM' : 'Sin Conexión (Falta API Key)'}
+                            </span>
+                          </>
+                        );
+                      } else if (formData.aiProvider === "ollama_cloud") {
+                        return (
+                          <>
+                            <div className="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
+                            <span className="text-[10px] font-bold uppercase tracking-wider">
+                              Ollama Cloud: la clave se carga en “Proveedores y modelos de IA” y el motor elige el modelo por propósito
                             </span>
                           </>
                         );
