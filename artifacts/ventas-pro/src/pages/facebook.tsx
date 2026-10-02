@@ -160,6 +160,12 @@ export default function FacebookAdsPage() {
   const [creating, setCreating] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState<any>(null);
+
+  // "Generar campaña" en un clic: el mismo camino que usa Atlas por chat
+  // (POST /api/campana/generar), pero disparado desde acá.
+  const [generandoCampana, setGenerandoCampana] = useState(false);
+  const [campanaResult, setCampanaResult] = useState<any>(null);
+  const [objetivoCampana, setObjetivoCampana] = useState<"ventas" | "trafico" | "mensajes" | "reconocimiento">("ventas");
   const [tab, setTab] = useState<Tab>("config");
 
   const [pageInfo, setPageInfo] = useState<PageInfo | null>(null);
@@ -425,6 +431,36 @@ export default function FacebookAdsPage() {
     } catch (e: any) {
       toast({ title: "Error", description: describeError(e, "No se pudo crear el anuncio. Revisá que Facebook esté conectado."), variant: "destructive" });
     } finally { setCreating(false); }
+  };
+
+  // ── Generar campaña en un clic ──────────────────────────────────────────
+  // Hace lo mismo que pedírselo a Atlas por chat, sin chat: el servidor busca
+  // el producto, arma la segmentación sugerida, escribe el copy con los datos
+  // reales del producto y guarda el borrador PAUSADO. No publica ni gasta.
+  // Si algo se niega (producto ambiguo, margen negativo), vuelve el motivo en
+  // palabras del negocio y NO se inventa nada.
+  const generarCampanaUnClic = async () => {
+    if (!selectedProduct) return;
+    try {
+      setGenerandoCampana(true);
+      setCampanaResult(null);
+      const res = await apiRequest("/campana/generar", {
+        method: "POST",
+        body: JSON.stringify({
+          producto: selectedProduct.name,
+          dailyBudget: budget,
+          objetivo: objetivoCampana,
+        }),
+      });
+      setCampanaResult(res);
+      toast({
+        title: res.ok ? "Campaña generada" : "No se pudo generar",
+        description: res.resumen,
+        variant: res.ok ? undefined : "destructive",
+      });
+    } catch (e: any) {
+      toast({ title: "Error", description: describeError(e, "No se pudo generar la campaña."), variant: "destructive" });
+    } finally { setGenerandoCampana(false); }
   };
 
   const syncCatalog = async () => {
@@ -927,6 +963,48 @@ export default function FacebookAdsPage() {
                           {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Megaphone className="mr-2 h-4 w-4" />}
                           {creating ? "Creando..." : `Crear anuncio para ${selectedProduct.name}`}
                         </Button>
+
+                        {/* ── Generar campaña en un clic ───────────────────────
+                            Mismo camino que Atlas por chat: segmentación +
+                            copy investigado + borrador, de una sola vez. */}
+                        <div className="mt-4 space-y-3 rounded-md border border-dashed p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <p className="text-sm font-medium">Generar campaña en un clic</p>
+                              <p className="text-xs text-muted-foreground">Segmentación + copy + borrador, sin ir paso a paso.</p>
+                            </div>
+                            <select
+                              className="h-9 rounded-md border bg-background px-2 text-sm"
+                              value={objetivoCampana}
+                              onChange={(e) => setObjetivoCampana(e.target.value as any)}
+                            >
+                              <option value="ventas">Ventas (web)</option>
+                              <option value="mensajes">Mensajes (WhatsApp)</option>
+                              <option value="trafico">Tráfico (clics)</option>
+                              <option value="reconocimiento">Reconocimiento</option>
+                            </select>
+                          </div>
+                          <Button variant="secondary" onClick={generarCampanaUnClic} disabled={generandoCampana || !selectedProduct} className="w-full">
+                            {generandoCampana ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Target className="mr-2 h-4 w-4" />}
+                            {generandoCampana ? "Generando (busca, investiga y escribe)..." : `Generar campaña para ${selectedProduct.name}`}
+                          </Button>
+                          {campanaResult && (
+                            <div className="space-y-2 rounded bg-muted p-3 text-xs">
+                              <p className="font-semibold">{campanaResult.resumen}</p>
+                              {campanaResult.copy?.headline && (
+                                <p className="whitespace-pre-wrap break-words font-medium">{campanaResult.copy.headline}</p>
+                              )}
+                              {campanaResult.copy?.primaryText && (
+                                <p className="whitespace-pre-wrap break-words">{campanaResult.copy.primaryText}</p>
+                              )}
+                              {Array.isArray(campanaResult.pasos) && campanaResult.pasos.map((p: any, i: number) => (
+                                <p key={i} className={p.ok ? "text-green-600" : "text-amber-600"}>
+                                  {p.ok ? "✓" : "⚠"} {p.detalle}
+                                </p>
+                              ))}
+                            </div>
+                          )}
+                        </div>
                       </CardContent>
                     </Card>
                   </>
