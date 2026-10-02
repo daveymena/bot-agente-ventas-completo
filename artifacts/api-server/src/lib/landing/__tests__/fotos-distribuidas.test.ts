@@ -62,3 +62,31 @@ describe("fotos bien distribuidas, ninguna repetida", () => {
     expect(html).toContain("<svg");
   });
 });
+
+describe("hero y sellos sin detalles rotos", () => {
+  const prod = {
+    name: "Mochila Mascotas", description: "Bolsa de gran espacio hace que tu mascota sea más atractiva. Hecho de material premium resistente al agua con costuras reforzadas.",
+    imageUrl: "https://cdn.example.com/m.webp", images: ["https://cdn.example.com/m.webp"],
+    price: 109000, currency: "COP", whatsapp: "+57 300 123 4567",
+  };
+  const secs = [{ id: "hero", type: "hero", title: "¿Tu mascota se estresa?", subtitle: "", cta: "Pedir" }];
+  it("el subtítulo del hero termina en frase completa, nunca a mitad de idea", () => {
+    const html = renderizarLanding({
+      nombre: "x", familia: "familiar", producto: prod,
+      negocio: { modelo: "fisico" }, secciones: secs,
+    });
+    expect(html).not.toMatch(/Hecho…/);
+    expect(html).toContain("más atractiva.");
+  });
+  it("los sellos salen sin emojis duplicados y con icono hasta el de tiempo", () => {
+    const html = renderizarLanding({
+      nombre: "x", familia: "familiar", producto: prod,
+      negocio: { modelo: "fisico", confianza: ["🚚 Envío incluido", "⏱️ Llega en 3 a 5 días"] },
+      secciones: secs,
+    });
+    expect(html).not.toContain("🚚");
+    expect(html).not.toContain("⏱️");
+    expect(html).toContain("Llega en 3 a 5 días");
+    expect(html).toContain("<svg");
+  });
+});

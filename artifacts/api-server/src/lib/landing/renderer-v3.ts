@@ -108,6 +108,16 @@ function items(body: unknown): string[] {
   return partes.map((x) => acotar(x)).slice(0, MAX_ITEMS);
 }
 
+/** Corta al final de la última frase que entra; si no hay, en palabra + "…". */
+function cortarFrase(texto: string, max: number): string {
+  const s = String(texto || "").trim().replace(/\s+/g, " ");
+  if (s.length <= max) return s;
+  const trozo = s.slice(0, max);
+  const fin = Math.max(trozo.lastIndexOf(". "), trozo.lastIndexOf("? "), trozo.lastIndexOf("! "), trozo.lastIndexOf("… "));
+  if (fin > max * 0.35) return trozo.slice(0, fin + 1).trim();
+  return acotar(s, max);
+}
+
 /** Corta en la última palabra que entra y avisa con "…". */
 function acotar(texto: string, max = MAX_ITEM): string {
   const t = String(texto || "").trim();
@@ -486,6 +496,7 @@ const ICONOS_CONFIANZA: Array<[RegExp, string]> = [
   [/garant|devoluci|segur|proteg|confi/i, "M12 3l8 3v6c0 4.6-3.4 8.3-8 9-4.6-.7-8-4.4-8-9V6zM8.5 12l2.5 2.5 4.5-5"],
   [/soporte|ayuda|whatsapp|acompa/i, "M4 5h16v11H9l-5 4zM8 9h8M8 12.5h5"],
   [/calidad|original|premium|f[aá]brica/i, "M12 2l2.6 6.2 6.7.5-5.1 4.4 1.6 6.5L12 16.4 6.2 19.6l1.6-6.5L2.7 8.7l6.7-.5z"],
+  [/llega|tiempo|plazo|d[ií]as|horas|tarda|env[ií]o/i, "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2"],
 ];
 function iconoPara(texto: string): string {
   const d = ICONOS_CONFIANZA.find(([re]) => re.test(texto))?.[1];
@@ -995,7 +1006,7 @@ function renderHeroVariante(hv: HeroV, c: { heroTitle: string; heroSubtitle: str
   if (hv === "stack") return `<section class="shell hero hero--stack"><div class="hero-copy">${copy}${price}${actions}</div>${media}</section>`;
   if (hv === "bleed" && c.heroImage) return `<section class="shell hero hero--bleed"><div class="hero-bg"><img src="${esc(c.heroImage)}" alt="${esc(c.producto?.name || c.heroTitle)}" loading="eager" decoding="async"></div><div class="hero-card">${copy}${price}${actions}</div></section>`;
   if (hv === "buybox") {
-    const meta = c.trust.slice(0, 3).map((x) => `<li>${esc(x)}</li>`).join("");
+    const meta = c.trust.slice(0, 3).map((x) => `<li>${esc(String(x || "").replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\uFE0F\s]+/u, "").trim())}</li>`).join("");
     const buyboxPrice = precio(c.producto) ? `<div class="buybox-price">${esc(precio(c.producto))}</div>` : "";
     const panel = `<div class="buybox"><p class="eyebrow">${ojo}</p><h2>${esc(c.heroTitle)}</h2>${c.heroSubtitle ? `<p class="lead">${esc(c.heroSubtitle)}</p>` : ""}${buyboxPrice}${btn(c.heroCta, c.destino)}${c.wa ? `<p class="tiny" style="margin:12px 0 0"><a href="${esc(c.wa)}" style="color:var(--accent);font-weight:800">Resolver dudas por WhatsApp</a></p>` : ""}${meta ? `<ul class="buybox-meta">${meta}</ul>` : ""}</div>`;
     return `<section class="shell hero hero--buybox"><div class="hero-media">${heroGallery(c.heroGaleria && c.heroGaleria.length ? c.heroGaleria : (c.heroImage ? [c.heroImage] : []), c.producto?.name || c.heroTitle)}</div>${panel}</section>`;
@@ -1023,7 +1034,7 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
   const destino = opts.cierre ? "#pedido" : (urlSegura(producto?.paymentLink) || wa || "#pedido");
   const heroTitle = tituloLegible(String(hero.title || producto?.name || ""));
   // Un hero es una promesa, no la ficha entera: se acota como el resto.
-  const heroSubtitle = acotar(String(hero.subtitle || producto?.description || "").replace(/\s+/g, " "), 260);
+  const heroSubtitle = cortarFrase(String(hero.subtitle || producto?.description || ""), 220);
   const heroCta = String(hero.cta || (fisico ? "Pedir ahora" : "Comprar ahora"));
   const trust = (negocio?.confianza || []).filter(Boolean).slice(0, 5);
   const todasFotos = [...new Set((producto?.images || []).map(safeImage).filter(Boolean))].filter(Boolean);
@@ -1041,8 +1052,9 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
   const header = `<header class="top"><div class="top__in"><span class="brand">${esc(negocio?.nombre || opts.nombre || producto?.name || "")}</span>${btn(heroCta, destino)}</div></header>`;
   const hv = heroDe(familia, (hero as any).layout);
   const heroHtml = renderHeroVariante(hv, { heroTitle, heroSubtitle, heroCta, destino, wa, heroImage, heroGaleria, producto, fisico, tokens, trust });
-  const trustHtml = trust.length ? `<section class="shell"><div class="trust">${trust.map((x) => `<span>${iconoPara(x)} ${esc(x)}</span>`).join("")}</div></section>` : "";
-  const topbarHtml = trust.length >= 2 ? `<div class="topbar"><div class="topbar-in">${trust.slice(0, 3).map((x) => `<span>${iconoPara(x)} ${esc(x)}</span>`).join("")}</div></div>` : "";
+  const sinEmoji = (x: string) => String(x || "").replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\uFE0F\s]+/u, "").trim();
+  const trustHtml = trust.length ? `<section class="shell"><div class="trust">${trust.map((x) => `<span>${iconoPara(x)} ${esc(sinEmoji(x))}</span>`).join("")}</div></section>` : "";
+  const topbarHtml = trust.length >= 2 ? `<div class="topbar"><div class="topbar-in">${trust.slice(0, 3).map((x) => `<span>${iconoPara(x)} ${esc(sinEmoji(x))}</span>`).join("")}</div></div>` : "";
 
   // ── Presupuesto de fotos ─────────────────────────────────────────────
   // Cada foto lateral se usa UNA vez y nunca la del hero: antes "rotaban"
