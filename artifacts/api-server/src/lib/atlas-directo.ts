@@ -332,12 +332,44 @@ export async function correrTurnoDirecto(o: OpcionesDeTurnoDirecto): Promise<Res
 }
 
 /**
+ * Config del camino directo: Ollama Pro (paga del dueño) como principal,
+ * DeepSeek como respaldo. Sin clave de ninguno no hay camino directo.
+ *
+ * Por qué Ollama primero (02-10-2026): la key de DeepSeek se quedó sin
+ * saldo (402) y Atlas quedaba "pensando" hasta para un saludo: el directo
+ * fallaba y el turno caía al puente OpenCode, donde la rotación también
+ * estaba muerta y el big-pickle de respaldo es lento. Con Ollama Pro el
+ * turno va directo a ollama.com/v1 sin intermediarios ni cola global.
+ */
+export interface ConfigDirecta { apiKey: string; baseUrl: string; modelo: string; proveedor: string }
+
+export function configDirecta(env: NodeJS.ProcessEnv = process.env): ConfigDirecta | null {
+  if (env.OLLAMA_CLOUD_API_KEY) {
+    return {
+      apiKey: String(env.OLLAMA_CLOUD_API_KEY),
+      baseUrl: String(env.ATLAS_DIRECTO_URL || env.OLLAMA_CLOUD_URL || "https://ollama.com/v1"),
+      modelo: String(env.ATLAS_DIRECTO_MODELO || env.OLLAMA_CLOUD_MODEL || "gpt-oss:20b"),
+      proveedor: "ollama_cloud",
+    };
+  }
+  if (env.DEEPSEEK_API_KEY) {
+    return {
+      apiKey: String(env.DEEPSEEK_API_KEY),
+      baseUrl: String(env.ATLAS_DIRECTO_URL || URL_POR_DEFECTO),
+      modelo: String(env.ATLAS_DIRECTO_MODELO || "deepseek-v4-flash"),
+      proveedor: "deepseek",
+    };
+  }
+  return null;
+}
+
+/**
  * ¿Está el camino directo habilitado y utilizable?
  *
- * Se enciende con `ATLAS_DIRECTO=true` y necesita la clave de DeepSeek. Sin
- * clave no se enciende aunque la variable diga que sí: quedarse sin camino es
- * peor que usar el lento.
+ * Se enciende con `ATLAS_DIRECTO=true` y necesita la clave de Ollama Pro
+ * o la de DeepSeek. Sin clave no se enciende aunque la variable diga que
+ * sí: quedarse sin camino es peor que usar el lento.
  */
 export function directoDisponible(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.ATLAS_DIRECTO === "true" && Boolean(env.DEEPSEEK_API_KEY);
+  return env.ATLAS_DIRECTO === "true" && configDirecta(env) !== null;
 }

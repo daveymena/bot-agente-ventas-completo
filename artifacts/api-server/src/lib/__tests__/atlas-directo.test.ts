@@ -13,7 +13,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { correrTurnoDirecto, directoDisponible } from "../atlas-directo";
+import { correrTurnoDirecto, directoDisponible, configDirecta } from "../atlas-directo";
 import { textoDelResultado } from "../opencode-mcp-tools";
 
 const CTX = { tenantId: 1, sessionId: "s1", turnId: "t1" } as any;
@@ -237,6 +237,14 @@ describe("cuándo se enciende", () => {
   /** Quedarse sin ningún camino es peor que usar el lento. */
   it("sin clave no se enciende aunque la variable diga que sí", () => {
     expect(directoDisponible({ ATLAS_DIRECTO: "true", DEEPSEEK_API_KEY: "" } as any)).toBe(false);
+  });
+
+  /** Ollama Pro (paga) es el principal; DeepSeek queda de respaldo. */
+  it("ollama pro enciende el directo y manda sobre deepseek", () => {
+    expect(directoDisponible({ ATLAS_DIRECTO: "true", OLLAMA_CLOUD_API_KEY: "k" } as any)).toBe(true);
+    expect(configDirecta({ OLLAMA_CLOUD_API_KEY: "k", DEEPSEEK_API_KEY: "k2" } as any)?.proveedor).toBe("ollama_cloud");
+    expect(configDirecta({ DEEPSEEK_API_KEY: "k2" } as any)?.proveedor).toBe("deepseek");
+    expect(configDirecta({} as any)).toBe(null);
   });
 });
 

@@ -30,7 +30,7 @@ import { randomUUID } from "node:crypto";
 import { requireAdmin, type TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
 import { esUnSiParaEstePlan } from "../lib/es-un-si";
-import { correrTurnoDirecto, directoDisponible, type NivelDeEsfuerzo } from "../lib/atlas-directo";
+import { correrTurnoDirecto, directoDisponible, configDirecta, type NivelDeEsfuerzo } from "../lib/atlas-directo";
 import { promptDeAtlas, executeAction, verifyMutation, investigacionRapida, mensajeParaAdmin, isReadOnlyTool, notaDeLandingsEnSegundoPlano, type OperatorContext } from "../lib/app-operator";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
@@ -1607,9 +1607,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             // esto es lo que evita que una herramienta se comporte distinto segun
             // por donde vino la llamada.
             ctx: { tenantId, sessionId, turnId, turnDeadline, objetivoDelAdmin: objetivoDelAdmin ?? undefined },
-            baseUrl: process.env.ATLAS_DIRECTO_URL || undefined,
-                apiKey: String(process.env.DEEPSEEK_API_KEY || ""),
-            modelo: process.env.ATLAS_DIRECTO_MODELO || "deepseek-v4-flash",
+            ...configDirecta()!,
             esfuerzo: esfuerzoDelTurno,
             presupuestoMs: Math.max(turnDeadline - Date.now(), 10_000),
             cancelSignal: senalDeCorte,
@@ -1650,9 +1648,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
                 "- No vuelvas a escribir el copy en el chat ni pidas confirmación otra vez: el sistema ya le muestra " +
                 "la propuesta al admin y le pide el sí. Solo hacé la llamada.",
               ctx: { tenantId, sessionId, turnId, turnDeadline, objetivoDelAdmin: objetivoDelAdmin ?? undefined },
-              baseUrl: process.env.ATLAS_DIRECTO_URL || undefined,
-              apiKey: String(process.env.DEEPSEEK_API_KEY || ""),
-              modelo: process.env.ATLAS_DIRECTO_MODELO || "deepseek-v4-flash",
+              ...configDirecta()!,
               esfuerzo: "max",
               presupuestoMs: Math.max(turnDeadline - Date.now(), 10_000),
               cancelSignal: senalDeCorte,
@@ -2007,9 +2003,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
                   `No le pidas que escriba nada para continuar.` +
                   (pedidas.textoLimpio ? `\n\nLo que alcanzaste a responder antes (no lo repitas, completalo):\n${pedidas.textoLimpio.slice(-4_000)}` : ""),
                 ctx: { tenantId, sessionId, turnId, turnDeadline, objetivoDelAdmin: objetivoDelAdmin ?? undefined },
-                baseUrl: process.env.ATLAS_DIRECTO_URL || undefined,
-                apiKey: String(process.env.DEEPSEEK_API_KEY || ""),
-                modelo: process.env.ATLAS_DIRECTO_MODELO || "deepseek-v4-flash",
+                ...configDirecta()!,
                 presupuestoMs: Math.max(turnDeadline - Date.now() - 10_000, 10_000),
                 cancelSignal: senalDeCorte,
                 onProgreso: progreso,
@@ -2106,9 +2100,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
                 herramientas: toolRegistry,
                 mensaje: `${text}\n\n${instruccionParte}\n\nTrabajo ya completado en este turno:\n${finalReplyVerificado.slice(-6_000)}`,
                 ctx: { tenantId, sessionId, turnId, turnDeadline, objetivoDelAdmin: objetivoDelAdmin ?? undefined },
-                baseUrl: process.env.ATLAS_DIRECTO_URL || undefined,
-                apiKey: String(process.env.DEEPSEEK_API_KEY || ""),
-                modelo: process.env.ATLAS_DIRECTO_MODELO || "deepseek-v4-flash",
+                ...configDirecta()!,
                 presupuestoMs: Math.max(turnDeadline - Date.now() - 10_000, 10_000),
                 cancelSignal: senalDeCorte,
                 onProgreso: progreso,

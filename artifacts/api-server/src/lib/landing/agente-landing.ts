@@ -46,7 +46,7 @@ import { sanearHtmlDeLanding } from "./sanear-html";
  *   ollama_local → el Ollama del EasyPanel (OLLAMA_LOCAL_URL)
  *   ollama_cloud → ollama.com (OLLAMA_CLOUD_API_KEY)
  */
-const PROVEEDORES = ["deepseek", "opencode", "groq", "openrouter", "ollama_local", "ollama_cloud"] as const;
+const PROVEEDORES = ["ollama_cloud", "deepseek", "opencode", "groq", "openrouter", "ollama_local"] as const;
 /**
  * Orden "gratuitos primero" para trabajos que no ameritan gastar DeepSeek
  * (curar fichas de producto, clasificar, resumir). DeepSeek queda al final
