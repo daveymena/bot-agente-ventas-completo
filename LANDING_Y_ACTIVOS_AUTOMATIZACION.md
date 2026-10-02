@@ -108,3 +108,49 @@ Cada paso deja su resultado guardado en el producto, para que landing, anuncio y
 - "Más de 450 unidades vendidas esta semana", "últimas unidades", precio tachado o garantía que no sean reales.
 - Usar tal cual el video, las fotos con marca o la landing de un competidor (la réplica de la app traduce las imágenes ajenas y las publica como propias).
 - Bloquear clic derecho "para que no te copien": el mismo autor muestra que se salta con una extensión. Si el contenido es propio, se protege con marca de agua.
+
+---
+
+# 7. ESTADO VERIFICADO EN CÓDIGO (2026-10-02)
+
+> Corrige las tablas de arriba, que quedaron viejas: varias cosas que figuran
+> como ❌ **ya están construidas y en uso**. Se verificó leyendo qué código se
+> consume de verdad (no comentarios) y corriendo las pruebas.
+
+| Pieza | Lo que decía el plan | Estado REAL | Evidencia |
+|---|---|---|---|
+| Datos inventados en landings | ❌ quitarlos | ✅ **hecho** | `__tests__/plantillas-sin-inventos.test.ts` (59 casos) en verde |
+| Purchase falso a Meta | ❌ quitarlo | ✅ **hecho** | `compra-verificada-meta.ts` + test: el Purchase sale SOLO de un pago verificado |
+| Píxel de Meta en la landing | ❌ falta | ✅ **hecho** | `landing-publica.ts:57` usa `landing/monitor.ts` (`PageView`, `ViewContent`, `InitiateCheckout`, `Purchase`) |
+| Sección de video en la landing | ❌ el renderer no tiene `<video>` | ✅ **hecho** | `renderer-cod.ts:158`; y `sanear-html.ts` borra el `<video>` sin fuente real (guardia anti-invento) |
+| Ofertas por cantidad (2×/3×) | ❌ | ✅ **hecho** | `ofertasValidas` en `landing/crear-landing-imagenes.ts` + "Elige tu oferta" en `renderer-v3/moderno/cod/imagenes/pro` |
+| Ángulos / buyer persona | ❌ (la idea #1 pendiente) | ✅ **hecho** | `construirBrief()` devuelve 3 ángulos; `ruta-guiada.ts` (cableado en `routes/operator-opencode.ts`) los ofrece paso a paso |
+| **GIFs / clips de video (ffmpeg)** | ❌ | ✅ **ya estaba hecho** | `activos-fabricante.ts`: `tramosParaClips`, `cortarClips`, `videoDeFotos`, `gifDeVideo`, `gifDeFotos`. **En uso**: `app-operator.ts:5763` (Atlas ya hace "haz un gif") y `activosAprobados` → `landing-studio-opencode.ts:849`. Ruta pública `/media/fabricante/`. ⚠️ Una sesión creó un módulo duplicado (`gifs-de-producto.ts`) por no verificar primero; se borró (commit `9029f2d`). |
+| **Campaña en un clic (panel)** | no estaba en el plan | ✅ **hecho (02-10)** | `lib/campana-un-clic.ts` + `routes/campana.ts` (`POST /api/campana/generar`) + botón en `facebook.tsx` |
+| Aprobación de activos del fabricante | (no estaba en el plan) | ✅ **hecho** | `activosAprobados()` exige `aprobado: true` en la metadata: nada entra a la landing sin que el dueño lo apruebe |
+| Variantes A/B | ❌ | ✅ **ya estaba hecho (end-to-end)** | Backend: `routes/marketing.ts` (crear/listar/cerrar) + `marketing-team/agents/experiment-manager.ts`, con la regla anti-fake: **sin impresiones mínimas el resultado queda `INCONCLUSO`, nunca `GANADOR`**. UI: `ventas-pro/src/pages/marketing.tsx` → `ExperimentosTab` con botón "Crear experimento". |
+| Referencias en 2-3 idiomas | amplía lo existente | ✅ **hecho (02-10)** | `lib/referencias-de-mercado.ts`: recorre el idioma del negocio + uno extra con `traducirConsultaAingles` (que ya existía), une sin repetir y ordena primero el anuncio que **más se repite**; guarda en `metadata.referencias`. 13 tests con buscador y traductor inyectables (sin Chromium ni red). `POST /api/campana/referencias`. |
+| 3 ganchos distintos | 🟡 | ✅ **ya estaba hecho** | `lanzamiento.ts:100` pide `ganchos:["…","…","…"]` (dolor / curiosidad / resultado, ≤90 caracteres) + copies + guion de video. |
+| Infografía automática | ❌ (compuesta con Chromium) | 🟡 **existe por otro camino** | `landing/plan-imagenes.ts` + `crear-landing-imagenes.ts` arman los paneles (dolor, beneficios, comparativa, ofertas…) y sus prompts. No es la composición con Chromium que describe el plan. |
+
+### Lo que sigue (lo que DE VERDAD falta de este plan)
+
+El plan, revisado paso por paso, **ya está implementado**. Queda **un solo** punto,
+y a propósito:
+
+1. **Infografía compuesta con Chromium** (texto exacto, sin API paga). ⚠️ **No se
+   va a construir por ahora**: `landing/plan-imagenes.ts` + `crear-landing-imagenes.ts`
+   ya generan los paneles (dolor, beneficios, comparativa, ofertas) y sus prompts.
+   Una segunda vía sería **dos implementaciones de lo mismo**, que es exactamente
+   el error que ya se cometió dos veces en este repo (el motor v2 y los GIFs).
+   Si se hace, que sea **reemplazando** la vía de IA, no sumándose a ella.
+
+> ⚠️ **Lección de estas rondas (caro de repetir)**: **seis** pasos de este plan
+> figuraban como ❌ y ya estaban hechos (datos inventados, Purchase, píxel, video,
+> ofertas, ángulos, GIFs, A/B y 3 ganchos). Dos veces se empezó a escribir código
+> que ya existía: el motor v2 y los GIFs. **Antes de crear una función, buscar la
+> que ya existe por su comportamiento — no por su nombre.**
+
+⚠️ **Regla que no cambia**: nada de la sección 6 se automatiza. Un activo sin
+dato real detrás se cae, no se rellena.
+

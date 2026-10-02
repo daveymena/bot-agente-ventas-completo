@@ -82,6 +82,53 @@ async function recordResearchEvidence(ctx: OperatorContext, query: string): Prom
 }
 
 /**
+ * Guarda el RESULTADO de una investigación para que lo lea el copy.
+ *
+ * Por qué existe y por qué es distinto de `recordResearchEvidence`:
+ *   · `research_evidence` es la MARCA de que hubo investigación (la usa el
+ *     candado de `fb_ad_draft`: "todavía no investigaste nada").
+ *   · `research_result` es el CONTENIDO. `crear_anuncio` lee ESTE (por negocio,
+ *     últimas 3 h) para que el copy salga del ángulo que funciona hoy y no solo
+ *     de los datos del producto.
+ *
+ * Sin esta fila, quien arme un anuncio fuera del chat (por ejemplo el botón del
+ * panel) escribe un anuncio honesto pero SIN investigación -- medido el
+ * 2026-10-02: el mismo `crear_anuncio` daba un copy distinto desde el panel que
+ * desde Atlas, porque el chat sí guardaba el resultado.
+ *
+ * `estado: "listo"` es obligatorio: con "fallo" el copy lo ignora a propósito.
+ */
+export async function guardarInvestigacionDeMercado(
+  tenantId: number,
+  titulo: string,
+  contenido: string,
+  sessionId = `panel-${tenantId}-${Date.now()}`,
+): Promise<{ ok: boolean; motivo?: string }> {
+  const texto = String(contenido || "").trim();
+  // Mismo umbral que la lectura de `crear_anuncio`: menos de 80 caracteres no
+  // es una investigación, y guardarla haría creer que sí se investigó.
+  if (texto.length < 80) return { ok: false, motivo: "la investigación vino vacía o demasiado corta" };
+  try {
+    await db.insert(architectMemory).values({
+      tenantId,
+      sessionId,
+      memoryType: "research_result",
+      title: String(titulo || "investigación de mercado").slice(0, 200),
+      content: texto.slice(0, 20_000),
+      tags: [],
+      metadata: { estado: "listo", agente: "panel" },
+    });
+    // Y la marca, para que el candado de fb_ad_draft también la vea.
+    await recordResearchEvidence({ tenantId, sessionId }, titulo);
+    logger.info({ tenantId, largo: texto.length }, "[AppOperator] Investigación de mercado guardada para el copy");
+    return { ok: true };
+  } catch (e: any) {
+    logger.warn({ err: e?.message, tenantId }, "[AppOperator] No se pudo guardar la investigación de mercado");
+    return { ok: false, motivo: e?.message || "error guardando" };
+  }
+}
+
+/**
  * Gate real (no una sugerencia en el prompt): ¿hubo una búsqueda/lectura web
  * reciente en esta sesión? Sin esto, fb_ad_draft no genera nada -- el modelo
  * puede saltarse una instrucción del prompt, pero no puede saltarse esto.

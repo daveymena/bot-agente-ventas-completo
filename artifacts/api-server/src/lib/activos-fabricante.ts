@@ -65,12 +65,72 @@ export function candidatosDeBusqueda(html: string): Candidato[] {
   return [...vistos.values()].sort((a, b) => b.vendidos - a.vendidos);
 }
 
-/** Foto de la galería en tamaño completo: quita el sufijo de miniatura ("_220x220q75.jpg_.webp"). */
+/**
+ * Foto de la galería en tamaño completo.
+ *
+ * AliExpress sirve la MISMA foto en tres formas de miniatura, y las tres hay
+ * que saber desarmarlas o se baja el cuadradito borroso:
+ *   1. por sufijo:  "foto.jpg_220x220q75.jpg_.avif" → "foto.jpg"
+ *   2. por ruta:    ".../Sabc123/96x96.png"         → ".../Sabc123.png"
+ *   3. con basura:  "...96x96.png)"  ← así viene en el HTML/JS embebido
+ *
+ * El `.avif` faltaba en la lista: AliExpress ya sirve fotos en ese formato, y
+ * al no reconocerlo se bajaba la miniatura tal cual (medido 2026-10-02).
+ */
 export function fotoGrande(url: string): string {
-  let u = String(url || "").split("?")[0]!;
+  const EXT = "jpe?g|png|webp|avif|gif";
+  let u = String(url || "")
+    .trim()
+    .replace(/^["'`(\[]+/, "") // delimitadores de apertura (vienen del HTML/JS)
+    .replace(/[)"',;\\\]]+$/, ""); // y de cierre
+  u = u.split("?")[0]!;
   if (u.startsWith("//")) u = "https:" + u;
-  return u.replace(/(\.(?:jpe?g|png|webp))_[^/]*$/i, "$1");
+  u = u.replace(new RegExp(`(\\.(?:${EXT}))_[^/]*$`, "i"), "$1");
+  u = u.replace(new RegExp(`/\\d{2,4}x\\d{2,4}(\\.(?:${EXT}))$`, "i"), "$1");
+  return u;
 }
+
+/** Qué es de verdad el archivo, por su firma (magic bytes). */
+export type TipoDeArchivo = "imagen" | "video" | "html" | "otro";
+
+/**
+ * Mira los PRIMEROS bytes, no la extensión de la URL.
+ *
+ * Por qué existe: `bajar()` solo miraba el tamaño, así que una respuesta de
+ * AliExpress con **HTTP 200 y `content-type: text/html`** (muro de login,
+ * captcha o redirección) pasaba el filtro y se guardaba COMO `.mp4` o `.jpg`.
+ * Eso es exactamente lo que llegaba a la landing como "video dañado" o "imagen
+ * mala". Medido el 2026-10-02: una ficha de AliExpress devuelve 200 + 73 KB de
+ * HTML y el filtro viejo la aceptaba.
+ */
+export function tipoDeArchivo(buf: Buffer): TipoDeArchivo {
+  if (!buf || buf.length < 12) return "otro";
+  const h = buf.subarray(0, 24);
+  const hex = h.toString("hex");
+  const ascii = (a: number, b: number) => h.toString("ascii", a, b);
+
+  // Imágenes
+  if (h[0] === 0xff && h[1] === 0xd8 && h[2] === 0xff) return "imagen"; // JPEG
+  if (hex.startsWith("89504e47")) return "imagen"; // PNG
+  if (ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") return "imagen"; // WEBP
+  if (ascii(0, 3) === "GIF") return "imagen"; // GIF
+  // AVIF/HEIC comparten el contenedor `ftyp` con MP4: los separa la MARCA.
+  if (ascii(4, 8) === "ftyp") {
+    const marca = ascii(8, 12);
+    if (marca === "avif" || marca === "avis" || marca === "heic" || marca === "heix" || marca === "mif1") return "imagen";
+    return "video"; // isom, mp42, avc1, M4V …, etc.
+  }
+  // Videos
+  if (hex.startsWith("1a45dfa3")) return "video"; // WebM / MKV
+  if (ascii(0, 4) === "OggS") return "video";
+
+  // HTML: lo que llega cuando AliExpress bloquea, pide login o redirige.
+  const inicio = buf.subarray(0, 300).toString("utf8").trimStart().toLowerCase();
+  if (/^<(!doctype|html|head|\?xml)/.test(inicio)) return "html";
+
+  return "otro";
+}
+
 
 /** Solo fotos de producto del CDN de AliExpress (kf/), sin íconos ni banners. */
 export function esFotoDeGaleria(url: string): boolean {
@@ -143,12 +203,38 @@ function run(cmd: string, args: string[], timeoutMs = 120_000): Promise<{ code: 
   });
 }
 
-async function bajar(url: string, destino: string, maxBytes = 60_000_000): Promise<boolean> {
+/**
+ * Baja un archivo y VERIFICA qué bajó.
+ *
+ * El bug que esto corrige (2026-10-02): antes solo miraba el status y el
+ * TAMAÑO. Una respuesta de AliExpress con HTTP 200 y `text/html` (muro de
+ * login, captcha, redirección) pasaba el filtro y se guardaba como `.mp4` o
+ * `.jpg` — eso es lo que llegaba a la landing como video dañado o imagen mala.
+ * Ahora se exige que la FIRMA (magic bytes) coincida con lo que se fue a
+ * buscar, y el HTML se rechaza siempre.
+ */
+async function bajar(
+  url: string,
+  destino: string,
+  opts: { esperado?: "imagen" | "video"; maxBytes?: number } = {},
+): Promise<boolean> {
+  const maxBytes = opts.maxBytes ?? 60_000_000;
   try {
     const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0", Referer: "https://es.aliexpress.com/" }, signal: AbortSignal.timeout(90_000) });
     if (!r.ok) return false;
     const buf = Buffer.from(await r.arrayBuffer());
     if (buf.length < 2000 || buf.length > maxBytes) return false;
+
+    const tipo = tipoDeArchivo(buf);
+    // HTML con 200 es la trampa: por status y tamaño parece un archivo válido.
+    if (tipo === "html") {
+      logger.warn({ url: url.slice(0, 120) }, "[Fabricante] la URL devolvió HTML en vez de un archivo; se descarta");
+      return false;
+    }
+    if (opts.esperado && tipo !== opts.esperado) {
+      logger.warn({ url: url.slice(0, 120), esperado: opts.esperado, llego: tipo }, "[Fabricante] el archivo no es del tipo pedido");
+      return false;
+    }
     await writeFile(destino, buf);
     return true;
   } catch { return false; }
@@ -157,6 +243,47 @@ async function bajar(url: string, destino: string, maxBytes = 60_000_000): Promi
 async function duracionDe(archivo: string): Promise<number> {
   const r = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", archivo], 30_000).catch(() => null);
   return Number(r?.out?.trim()) || 0;
+}
+
+/**
+ * ¿Lo que devolvió ffprobe es un video USABLE?
+ *
+ * Por qué hace falta, además de mirar la firma: un mp4 **truncado** (descarga
+ * cortada a la mitad) o un contenedor con la cabecera bien y el resto roto
+ * pasan el chequeo de magic bytes, y después ffmpeg no puede cortarlos: los
+ * clips salen vacíos, congelados o con un solo cuadro. Eso era la otra mitad de
+ * "videos dañados".
+ *
+ * Es puro a propósito: la DECISIÓN se prueba sin ffprobe (que no está en CI ni
+ * en la máquina de desarrollo).
+ */
+export function veredictoDeVideo(salidaFfprobe: string): { ok: boolean; duracion: number; motivo?: string } {
+  let j: any = null;
+  try {
+    j = JSON.parse(String(salidaFfprobe || "").trim() || "{}");
+  } catch {
+    return { ok: false, duracion: 0, motivo: "ffprobe devolvió algo ilegible" };
+  }
+  const hayVideo = Array.isArray(j?.streams) && j.streams.some((s: any) => s?.codec_type === "video");
+  if (!hayVideo) return { ok: false, duracion: 0, motivo: "no tiene pista de video" };
+  const d = Number(j?.format?.duration) || 0;
+  // Con menos de un segundo no hay tramo de 3 s que cortar: sería un clip vacío.
+  if (!(d > 1)) return { ok: false, duracion: d, motivo: `duración ilegible (${d || "sin dato"})` };
+  return { ok: true, duracion: d };
+}
+
+/** Corre ffprobe y decide con `veredictoDeVideo`. */
+export async function videoUtil(archivo: string): Promise<{ ok: boolean; duracion: number; motivo?: string }> {
+  const r = await run(
+    "ffprobe",
+    ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_type", "-show_entries", "format=duration", "-of", "json", archivo],
+    30_000,
+  ).catch(() => null);
+  if (!r || r.code !== 0) {
+    // ffprobe que falla = archivo que no puede abrir (truncado o roto).
+    return { ok: false, duracion: 0, motivo: "ffprobe no pudo abrirlo" };
+  }
+  return veredictoDeVideo(r.out);
 }
 
 // ─── Visión: ¿es el mismo producto? ─────────────────────────────────────────
@@ -362,7 +489,7 @@ export async function buscarActivos(productId: number, fotosNuestras: string[], 
     const refBruta = path.join(tmp, "ref-bruta");
     const refs: Buffer[] = [];
     for (const [i, u] of fotosNuestras.slice(0, 3).entries()) {
-      if (!(await bajar(/^https?:/i.test(u) ? u : `${app}${u}`, `${refBruta}-${i}`))) continue;
+      if (!(await bajar(/^https?:/i.test(u) ? u : `${app}${u}`, `${refBruta}-${i}`, { esperado: "imagen" }))) continue;
       const j = await aJpeg(`${refBruta}-${i}`, path.join(tmp, `ref-${i}.jpg`));
       if (j) refs.push(j);
     }
@@ -441,7 +568,7 @@ export async function buscarActivos(productId: number, fotosNuestras: string[], 
       if (!f || (!f.fotos.length && !f.videos.length)) { activos.descartados.push({ itemId: c.id, motivo: "sin fotos ni video legibles" }); continue; }
       // ¿Es el mismo producto? Se mira la foto principal de la ficha.
       const principal = path.join(tmp, `${c.id}-principal`);
-      const jpg = f.fotos[0] && (await bajar(f.fotos[0], principal)) ? await aJpeg(principal, `${principal}.jpg`) : null;
+      const jpg = f.fotos[0] && (await bajar(f.fotos[0], principal, { esperado: "imagen" })) ? await aJpeg(principal, `${principal}.jpg`) : null;
       if (!jpg) { activos.descartados.push({ itemId: c.id, motivo: "no se pudo leer su foto principal" }); continue; }
       const igual = await mismoProductoPorMayoria(refs, jpg);
       const ref = igual.ref;
@@ -452,7 +579,7 @@ export async function buscarActivos(productId: number, fotosNuestras: string[], 
       for (const u of f.fotos) {
         if (activos.fotos.length >= 8) break;
         const bruta = path.join(tmp, `${c.id}-f${++n}`);
-        if (!(await bajar(u, bruta))) continue;
+        if (!(await bajar(u, bruta, { esperado: "imagen" }))) continue;
         // Las fichas de distintos vendedores repiten las MISMAS fotos (medido: 4 de 4 iguales).
         const huella = createHash("sha1").update(await readFile(bruta)).digest("hex");
         if (huellas.has(huella)) continue;
@@ -468,9 +595,14 @@ export async function buscarActivos(productId: number, fotosNuestras: string[], 
       if (!activos.clips.length) {
         for (const v of f.videos.slice(0, 2)) {
           const vid = path.join(tmp, `${c.id}.mp4`);
-          if (!(await bajar(v, vid))) continue;
+          if (!(await bajar(v, vid, { esperado: "video" }))) continue;
+          // Un mp4 truncado pasa la firma y no se puede cortar: se caza acá,
+          // antes de gastar el corte, y con el motivo real (antes se reportaba
+          // como "muestra otro producto", que era mentira).
+          const util = await videoUtil(vid);
+          if (!util.ok) { activos.descartados.push({ itemId: c.id, motivo: `video ilegible: ${util.motivo}` }); continue; }
           const cuadro = path.join(tmp, `${c.id}-cuadro.jpg`);
-          const d = await duracionDe(vid);
+          const d = util.duracion;
           await run("ffmpeg", ["-y", "-v", "error", "-ss", String(Math.min(3, d / 3)), "-i", vid, "-frames:v", "1", "-vf", "scale=640:-2", cuadro], 30_000).catch(() => null);
           if (!existsSync(cuadro) || !(await mismoProducto(ref, await readFile(cuadro))).si) { activos.descartados.push({ itemId: c.id, motivo: "su video muestra otro producto" }); continue; }
           const clips = await cortarClips(vid, path.join(dirFabricante(), `${productId}-clip`), { cantidad: 4 });
@@ -525,7 +657,7 @@ export async function gifDeVideo(productId: number, videoUrl: string, opts: { fo
   await mkdir(dirFabricante(), { recursive: true });
   try {
     const local = path.join(tmp, "v.mp4");
-    if (!(await bajar(videoUrl, local, 200_000_000))) return [];
+    if (!(await bajar(videoUrl, local, { esperado: "video", maxBytes: 200_000_000 }))) return [];
     const salidas = await cortarClips(local, path.join(dirFabricante(), `${productId}-gif-${Date.now()}`), { cantidad: opts.cantidad ?? 3, formato: opts.formato ?? "gif", lado: opts.formato === "mp4" ? 600 : 480 });
     return salidas.map(urlPublicaFabricante);
   } finally {
@@ -543,7 +675,7 @@ export async function gifDeFotos(productId: number, fotos: string[], opts: { for
     const locales: string[] = [];
     for (const [i, u] of fotos.slice(0, 6).entries()) {
       const d = path.join(tmp, `f${i}`);
-      if (await bajar(/^https?:/i.test(u) ? u : `${app}${u}`, d)) locales.push(d);
+      if (await bajar(/^https?:/i.test(u) ? u : `${app}${u}`, d, { esperado: "imagen" })) locales.push(d);
     }
     if (!locales.length) return [];
     const formato = opts.formato ?? "gif";
