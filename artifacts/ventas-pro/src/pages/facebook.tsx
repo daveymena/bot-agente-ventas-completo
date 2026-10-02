@@ -89,6 +89,22 @@ interface PageInfo {
   picture?: string;
 }
 
+/** El renglón gris de destino del anuncio (lo que Meta muestra bajo la foto). */
+function destinoDelAnuncio(d: DraftAd | null): string {
+  const st: any = d?.strategy || {};
+  if (Array.isArray(st.ciudades) && st.ciudades.length) return st.ciudades.join(", ");
+  return "En ventasproia.com";
+}
+
+/** El texto del botón, según el CTA de la estrategia (como lo llama Meta en el feed). */
+function ctaDelAnuncio(d: DraftAd | null): string {
+  const st: any = d?.strategy || {};
+  if (st.ctaType === "SIGN_UP") return "Registrarse";
+  if (st.ctaType === "CONTACT_US") return "Contactarnos";
+  // SHOP_NOW o WHATSAPP_MESSAGE: el feed de Meta lo muestra como "Comprar".
+  return "Comprar";
+}
+
 interface DraftAd {
   id: number;
   productId: number;
@@ -104,6 +120,8 @@ interface DraftAd {
   images: string[] | null;
   niche: string | null;
   budget: number | null;
+  /** La estrategia del borrador: ahí viaja la segmentación (interests/edad). */
+  strategy?: { ageMin?: number; ageMax?: number; genders?: number[]; interests?: string[]; ciudades?: string[]; city?: string; angle?: string; hook?: string } | null;
   createdAt: string;
 }
 
@@ -192,6 +210,16 @@ export default function FacebookAdsPage() {
 
   // Editor de borrador (modal editable)
   const [editingDraft, setEditingDraft] = useState<DraftAd | null>(null);
+  // La segmentación del borrador, editable: se generaba (y la subida a Meta la
+  // leía) pero el modal no la mostraba -- para ajustar el público había que
+  // pedirle otro borrador a Atlas. Reportado por el dueño (02-10-2026).
+  const [editAgeMin, setEditAgeMin] = useState(18);
+  const [editAgeMax, setEditAgeMax] = useState(55);
+  const [editGenero, setEditGenero] = useState<"todos" | "hombres" | "mujeres">("todos");
+  const [editIntereses, setEditIntereses] = useState("");
+  const [editCiudades, setEditCiudades] = useState("");
+  // "Cómo se vería publicado": el mock del anuncio dentro del modal.
+  const [verVistaPrevia, setVerVistaPrevia] = useState(false);
   const [editHeadline, setEditHeadline] = useState("");
   const [editPrimaryText, setEditPrimaryText] = useState("");
   const [editDescription, setEditDescription] = useState("");
@@ -631,6 +659,15 @@ export default function FacebookAdsPage() {
     setEditDescription((d as any).description || "");
     setEditBudget(d.budget || 5000);
     setEditImages(d.images && d.images.length > 0 ? d.images : (d.imageUrl ? [d.imageUrl] : []));
+    // La segmentación que ya trae el borrador (la generó la subida y la lee
+    // Meta): si no hubiera, los defaults de la pestaña Anuncios.
+    const st: any = d.strategy || {};
+    setEditAgeMin(Number.isFinite(Number(st.ageMin)) ? Number(st.ageMin) : 18);
+    setEditAgeMax(Number.isFinite(Number(st.ageMax)) ? Number(st.ageMax) : 55);
+    setEditGenero(Array.isArray(st.genders) && st.genders.length === 1 ? (st.genders[0] === 1 ? "hombres" : "mujeres") : "todos");
+    setEditIntereses(Array.isArray(st.interests) ? st.interests.join(", ") : "");
+    setEditCiudades(Array.isArray(st.ciudades) ? st.ciudades.join(", ") : (st.city ? String(st.city) : ""));
+    setVerVistaPrevia(false);
   };
 
   // Sube una foto (archivo local -> data URL -> servidor) y la agrega a la
@@ -667,12 +704,27 @@ export default function FacebookAdsPage() {
       setSavingDraft(true);
       const res = await apiRequest(`/facebook/strategist/draft/${editingDraft.id}`, {
         method: "PUT",
-        body: JSON.stringify({ headline: editHeadline, primaryText: editPrimaryText, description: editDescription, budget: editBudget, images: editImages }),
+        body: JSON.stringify({
+          headline: editHeadline,
+          primaryText: editPrimaryText,
+          description: editDescription,
+          budget: editBudget,
+          images: editImages,
+          // La segmentación editada: ahora el público se ajusta desde acá
+          // (viaja en la strategy del borrador, la misma que lee la subida a Meta).
+          targeting: {
+            ageMin: editAgeMin,
+            ageMax: editAgeMax,
+            genders: editGenero === "todos" ? [] : (editGenero === "hombres" ? [1] : [2]),
+            interests: editIntereses.split(",").map((s) => s.trim()).filter(Boolean),
+            ciudades: editCiudades.split(",").map((s) => s.trim()).filter(Boolean),
+          },
+        }),
       });
       if (res.metaSync && !res.metaSync.ok) {
         toast({ title: "Guardado, pero Facebook no aceptó el cambio de imagen", description: res.metaSync.message, variant: "destructive" });
       } else {
-        toast({ title: "Borrador actualizado", description: res.metaSync?.ok ? "El anuncio en Facebook ya muestra las fotos nuevas." : undefined });
+        toast({ title: "Borrador actualizado", description: res.avisoTargeting || (res.metaSync?.ok ? "El anuncio en Facebook ya muestra las fotos nuevas." : undefined) });
       }
       setEditingDraft(null);
       loadDrafts();
@@ -1572,6 +1624,30 @@ export default function FacebookAdsPage() {
                 <Label>Presupuesto diario (COP)</Label>
                 <Input type="number" value={editBudget} onChange={(e) => setEditBudget(Number(e.target.value))} min={1000} />
               </div>
+
+              {/* ── SEGMENTACIÓN (público) ──────────────────────────────────
+                  Ya se generaba y Meta la leía, pero acá no se veía: para
+                  ajustar el público había que pedirle otro borrador a Atlas.
+                  Viaja en la strategy del borrador (la misma verdad). */}
+              <div className="rounded-md border p-3 space-y-3 bg-muted/30">
+                <div className="flex items-center gap-2">
+                  <Target className="h-4 w-4 text-muted-foreground" />
+                  <Label className="mb-0">Segmentación del público</Label>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div><Label>Edad mín.</Label><Input type="number" min={13} max={65} value={editAgeMin} onChange={(e) => setEditAgeMin(Number(e.target.value))} /></div>
+                  <div><Label>Edad máx.</Label><Input type="number" min={13} max={65} value={editAgeMax} onChange={(e) => setEditAgeMax(Number(e.target.value))} /></div>
+                  <div><Label>Género</Label>
+                    <select className="h-10 w-full rounded-md border bg-background px-2 text-sm" value={editGenero} onChange={(e) => setEditGenero(e.target.value as any)}>
+                      <option value="todos">Todos</option><option value="hombres">Hombres</option><option value="mujeres">Mujeres</option>
+                    </select>
+                  </div>
+                </div>
+                <div><Label>Intereses (separados por coma)</Label><Input value={editIntereses} onChange={(e) => setEditIntereses(e.target.value)} placeholder="Ej: Compras online, Bienestar, Hogar" /></div>
+                <div><Label>Ciudades (separadas por coma — vacío = todo el país)</Label><Input value={editCiudades} onChange={(e) => setEditCiudades(e.target.value)} placeholder="Ej: Cali, Palmira" /></div>
+                <p className="text-xs text-muted-foreground">Los intereses se validan contra la taxonomía de Meta al subir; si alguno no existe, te avisa y NO se crea nada.</p>
+              </div>
+
               <div>
                 <Label>Fotos del anuncio ({editImages.length}{editImages.length > 1 ? " · se publica como carrusel" : ""})</Label>
                 <div className="flex flex-wrap gap-2 mt-2">
@@ -1603,6 +1679,56 @@ export default function FacebookAdsPage() {
                 <p className="text-xs text-muted-foreground mt-2">
                   Subí tu propia foto (o varias — se publican como carrusel, la persona desliza entre ellas). Si no subís ninguna, se usa la del producto.
                 </p>
+              </div>
+
+              {/* ── CÓMO SE VERÍA PUBLICADO ────────────────────────────────
+                  El mock del anuncio tal como lo muestra el feed: los campos
+                  de arriba (los editados), no una promesa. Antes no había
+                  forma de VERLO sin publicarlo. */}
+              <div className="rounded-md border bg-muted/30 p-3">
+                <button type="button" onClick={() => setVerVistaPrevia(!verVistaPrevia)} className="flex w-full items-center justify-between text-left">
+                  <span className="flex items-center gap-2 text-sm font-medium">
+                    <Globe className="h-4 w-4 text-muted-foreground" /> Ver cómo se vería publicado
+                  </span>
+                  <span className="text-xs text-muted-foreground">{verVistaPrevia ? "ocultar" : "mostrar"}</span>
+                </button>
+                {verVistaPrevia && (
+                  <div className="mt-3 max-w-md mx-auto overflow-hidden rounded-lg border bg-background text-sm">
+                    <div className="flex items-center gap-2 p-2.5">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-full border bg-primary/15">
+                        <span className="text-[10px] font-bold text-primary">FB</span>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-semibold leading-tight">Tu página</p>
+                        <p className="text-[11px] text-muted-foreground">Patrocinado · ahora</p>
+                      </div>
+                    </div>
+                    {editPrimaryText ? (
+                      <p className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words px-2.5 pb-2 text-[13px]">{editPrimaryText}</p>
+                    ) : (
+                      <p className="px-2.5 pb-2 text-[13px] text-muted-foreground">(sin texto todavía)</p>
+                    )}
+                    {editImages[0] ? (
+                      <div className="relative bg-muted">
+                        <img src={editImages[0]} alt="Creativo del anuncio" className="aspect-[4/5] w-full object-cover" />
+                        {editImages.length > 1 ? (
+                          <span className="absolute bottom-2 right-2 rounded-full bg-black/70 px-2 py-0.5 text-[11px] text-white">
+                            1/{editImages.length} · carrusel
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    <div className="flex items-center justify-between border-t p-2.5">
+                      <div className="min-w-0">
+                        <p className="truncate text-[11px] text-muted-foreground">{destinoDelAnuncio(editingDraft)}</p>
+                        {editDescription ? <p className="truncate text-[12px]">{editDescription}</p> : null}
+                      </div>
+                      <span className="ml-2 shrink-0 rounded bg-primary/10 px-2.5 py-1.5 text-[12px] font-semibold text-primary">
+                        {ctaDelAnuncio(editingDraft)}
+                      </span>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
             <DialogFooter className="flex gap-2">

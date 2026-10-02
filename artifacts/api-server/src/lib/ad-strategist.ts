@@ -1088,6 +1088,22 @@ export class AdStrategist {
     // sentido y puede terminar pareciendo todavía menos al producto.
     let hasRealProductImage = !!imageUrl;
 
+    // ── Imágenes del borrador: la GALERÍA completa del producto ──────────
+    //
+    // Bug del 02-10-2026 (reportado por el dueño): "que escoja en automático
+    // las imágenes disponibles". Al crear, el borrador traía SOLO la imageUrl
+    // (una foto) aunque el producto tuviera la galería entera en su metadata
+    // (Dropi la importa completa) — el admin tenía que subir a mano las demás
+    // para que salir carrusel, teniendo las fotos ya ahí.
+    //
+    // Orden: las propias del admin (si trajo) → galería del producto → la
+    // imageUrl. La primera SIEMPRE va como principal, que es la que Meta
+    // muestra grande y la que quedó en el producto.
+    const { fotosDelProducto } = await import("./fotos-de-producto");
+    const galeriaDelProducto = fotosDelProducto(product, getAppUrl(), 6)
+      .map((u) => this.toAbsoluteUrl(u))
+      .filter(Boolean);
+
     // Sin foto real del producto: antes de caer al cartel de texto gris, se
     // intenta generar una con IA a partir del nombre y la descripción REALES
     // del producto (no un estilo genérico por nicho) -- así corresponde al
@@ -1140,7 +1156,12 @@ export class AdStrategist {
       headline: adCopy.headline,
       description: adCopy.description,
       imageUrl,
-      images: manualAbsolute.length > 0 ? manualAbsolute : undefined,
+      // La galería completa: carrusel automático sin que el admin la suba a
+      // mano. Las propias del admin manda; después las del producto; y la
+      // imageUrl SIEMPRE va (es la principal y la que se muestra en el panel).
+      // Sin duplicados: la misma URL tres veces es un carrusel con tres fotos
+      // iguales, que Meta rechaza y el admin no entiende.
+      images: [...new Set([...manualAbsolute, ...galeriaDelProducto, imageUrl].filter(Boolean))].slice(0, 6),
       campaignId: null,
       adSetId: null,
       adId: null,

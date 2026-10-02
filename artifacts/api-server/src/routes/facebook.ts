@@ -704,7 +704,9 @@ router.put("/strategist/draft/:id", async (req, res, next) => {
     const draftId = parseInt(req.params.id);
     const tenantId = (req as any).tenant?.id ?? null;
     if (!tenantId) return res.status(401).json({ ok: false, message: "No autenticado" });
-    const { headline, primaryText, description, budget, images } = req.body || {};
+    const { headline, primaryText, description, budget, images, targeting } = req.body || {};
+    // ¿El admin tocó la segmentación en este guardado? (para el aviso de abajo)
+    const updatingTargeting = !!(targeting && typeof targeting === "object");
     const patch: Record<string, any> = { updatedAt: new Date() };
     if (typeof headline === "string") patch.headline = headline;
     if (typeof primaryText === "string") patch.primaryText = primaryText;
@@ -721,6 +723,30 @@ router.put("/strategist/draft/:id", async (req, res, next) => {
       const list = images.filter((u: any) => typeof u === "string" && u);
       patch.images = list;
       if (list[0]) patch.imageUrl = list[0];
+    }
+    // ── La SEGMENTACIÓN que el admin editó en el modal ──────────────────
+    //
+    // Ya se generaba (strategy.interests/ageMin/ageMax/genders) y la subida a
+    // Meta la leía (subirBorradorAMeta), pero el modal no la mostraba ni se
+    // podía cambiar: para ajustar el público había que pedirle a Atlas que
+    // generara otro borrador. Se guarda EN LA strategy (no en un campo
+    // nuevo) — es la misma verdad que lee la subida, no una segunda.
+    if (targeting && typeof targeting === "object") {
+      const [fila] = await db.select().from(facebookDrafts).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, tenantId))).limit(1);
+      const st: any = fila?.strategy && typeof fila.strategy === "object" ? { ...(fila.strategy as any) } : {};
+      if (targeting.ageMin != null && Number.isFinite(Number(targeting.ageMin))) st.ageMin = Math.max(13, Math.min(65, Number(targeting.ageMin)));
+      if (targeting.ageMax != null && Number.isFinite(Number(targeting.ageMax))) st.ageMax = Math.max(st.ageMin ?? 13, Math.min(65, Number(targeting.ageMax)));
+      if (Array.isArray(targeting.genders)) st.genders = targeting.genders;
+      if (Array.isArray(targeting.interests)) {
+        st.interests = targeting.interests.map((i: any) => String(typeof i === "string" ? i : (i?.name ?? i?.nombre ?? "")).trim()).filter(Boolean);
+      }
+      if (Array.isArray(targeting.ciudades)) {
+        // Las ciudades viajan como geoLocations (como las lee el PUT viejo y
+        // como las manda el anuncio) — pero en la strategy, que es lo único
+        // que la subida a Meta lee de aquí.
+        st.ciudades = targeting.ciudades.map(String).filter(Boolean);
+      }
+      patch.strategy = st;
     }
     const [updated] = await db.update(facebookDrafts).set(patch).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, tenantId))).returning();
     if (!updated) return res.status(404).json({ ok: false, message: "Borrador no encontrado" });
@@ -757,7 +783,19 @@ router.put("/strategist/draft/:id", async (req, res, next) => {
         budgetSync = { ok: r.ok, message: r.message };
       }
     }
-    return res.json({ ok: true, draft: updated, metaSync, budgetSync });
+    return res.json({
+      ok: true,
+      draft: updated,
+      metaSync,
+      budgetSync,
+      // Aviso honesto: la segmentación editada la lee la SUBIDA (cuando arma el
+      // conjunto en Meta). Si el conjunto YA existe, el público real es el de
+      // Meta y no este: decirtelo evita "lo guardé y sigue mostrando otro público".
+      avisoTargeting:
+        updatingTargeting && (updated as any).adSetId
+          ? "El conjunto ya existe en Meta: el público editado se aplica solo al VOLVER A SUBIR (crea conjunto nuevo). Para cambiarlo en el conjunto actual, hacelo en el Administrador de anuncios."
+          : null,
+    } as any);
   } catch (e) { return next(e); }
 });
 
