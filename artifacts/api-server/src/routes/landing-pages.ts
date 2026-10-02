@@ -74,6 +74,19 @@ router.patch("/:id", async (req: TenantRequest, res, next) => {
   } catch (e) { return next(e); }
 });
 
+/** Qué pasó en la landing: visitas, inicios de pedido, pedidos y rechazos (24 h y 7 días). */
+router.get("/:id/monitor", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+    const id = Number(req.params.id);
+    const [row] = await db.select().from(landingPages).where(and(eq(landingPages.id, id), eq(landingPages.tenantId, tenantId))).limit(1);
+    if (!row) return res.status(404).json({ error: "Landing no encontrada" });
+    const { resumenDeLanding } = await import("../lib/landing/monitor");
+    return res.json(await resumenDeLanding(tenantId, row.slug));
+  } catch (e) { return next(e); }
+});
+
 /** Render guardado para el editor. El mismo renderer se usa en preview y público. */
 router.get("/:id/render", async (req: TenantRequest, res, next) => {
   try {
@@ -134,6 +147,11 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
       },
       negocio,
       cierre,
+      // Landing de imágenes (lib/landing/plan-imagenes.ts): paneles, ofertas
+      // del dueño y sellos de las condiciones reales del negocio.
+      modo: (row.design as any)?.modo ?? null,
+      ofertas: (row.design as any)?.ofertas ?? null,
+      sellos: (await import("../lib/landing/plan-imagenes")).sellosDelNegocio(c),
     });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.send(html);
@@ -197,13 +215,18 @@ router.post("/preview", async (req: TenantRequest, res, next) => {
       },
       negocio,
       cierre,
+      // Landing de imágenes (lib/landing/plan-imagenes.ts): paneles, ofertas
+      // del dueño y sellos de las condiciones reales del negocio.
+      modo: (req.body?.design as any)?.modo ?? null,
+      ofertas: (req.body?.design as any)?.ofertas ?? null,
+      sellos: (await import("../lib/landing/plan-imagenes")).sellosDelNegocio(c),
     });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.send(html);
   } catch (e) { return next(e); }
 });
 
-async function enlacesDePagoLocal(tenantId: number, producto: any): Promise<{ mercadopago?: string; paypal?: string }> {
+export async function enlacesDePagoLocal(tenantId: number, producto: any): Promise<{ mercadopago?: string; paypal?: string }> {
   try {
     const { PaymentGateway } = await import("../lib/payments");
     const { tenantManager } = await import("../lib/tenantManager");

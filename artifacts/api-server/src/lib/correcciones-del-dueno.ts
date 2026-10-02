@@ -16,7 +16,7 @@
  */
 
 import { and, desc, eq } from "drizzle-orm";
-import { db, agents, productKnowledge } from "@workspace/db";
+import { db, agents, products, productKnowledge } from "@workspace/db";
 import { PALABRAS_GENERICAS } from "./motor-nuevo/herramientas";
 
 /** Largo máximo de lo que el dueño escribe en una corrección. */
@@ -156,6 +156,35 @@ export async function loQueSabeElVendedor(tenantId: number) {
   };
 }
 
+/* ── Presentación de la IA ─────────────────────────────────────────────── */
+
+/**
+ * La ficha de un físico la redacta la IA y se guarda en
+ * `products.metadata.presentacion` con una firma de (producto + indicaciones).
+ * Cuando cambia una indicación, la firma cambia y se re-redacta sola en el
+ * próximo mensaje. Pero si la firma llegara a coincidir (reorden, mayúsculas)
+ * o el dueño quiere ver el cambio YA, se borra el caché acá para forzar la
+ * re-redacción en el siguiente turno. Sin esto, "Corregir" guardaba bien pero
+ * la ficha seguía saliendo igual hasta que algo más tocara el producto.
+ */
+export async function invalidarPresentaciones(tenantId: number): Promise<void> {
+  try {
+    const filas = await db
+      .select({ id: products.id, metadata: products.metadata })
+      .from(products)
+      .where(eq(products.tenantId, tenantId))
+      .limit(200);
+    for (const f of filas as any[]) {
+      const meta = objeto(f.metadata);
+      if (!("presentacion" in meta)) continue;
+      delete meta.presentacion;
+      await db.update(products).set({ metadata: JSON.stringify(meta) } as any).where(eq(products.id, f.id));
+    }
+  } catch {
+    // El caché es optimización: si falla, la firma igual fuerza la re-redacción.
+  }
+}
+
 /* ── Corregir ────────────────────────────────────────────────────────────── */
 
 export type Resultado = { ok: boolean; mensaje: string };
@@ -215,6 +244,7 @@ export async function corregirForma(tenantId: number, indicacion: string): Promi
   if (texto.length > LARGO_MAXIMO) return { ok: false, mensaje: `La indicación es muy larga (máximo ${LARGO_MAXIMO} caracteres).` };
   const r = await reescribirIndicaciones(tenantId, (actuales) => agregarIndicacion(actuales, texto));
   if (!r.ok) return r;
+  await invalidarPresentaciones(tenantId);
   const quienes = r.agentes!;
   return { ok: true, mensaje: `Listo: ${quienes.join(" y ")} ya lo ${quienes.length > 1 ? "aplican" : "aplica"} desde el próximo mensaje.` };
 }
@@ -303,5 +333,65 @@ export async function borrarIndicacion(tenantId: number, indice: number): Promis
     const i = renglones.findIndex((x) => x.toLowerCase() === texto.toLowerCase());
     return i < 0 ? renglones.map((x) => `- ${x}`).join("\n") : quitarIndicacion(actuales, i);
   });
-  return r.ok ? { ok: true, mensaje: "Indicación quitada." } : r;
+  if (!r.ok) return r;
+  await invalidarPresentaciones(tenantId);
+  return { ok: true, mensaje: "Indicación quitada." };
+}
+
+/* ── Editar (todo modificable sin salirse de los parámetros) ─────────────── */
+
+/**
+ * Edita la respuesta de un dato existente. El disparador/pregunta NO cambia
+ * (es como el cliente lo preguntó); solo el texto que dice el vendedor.
+ * Los parámetros mandan: tope de largo, sin vacío.
+ */
+export async function editarDato(tenantId: number, id: number, respuestaCorrecta: string): Promise<Resultado> {
+  const respuesta = String(respuestaCorrecta || "").trim();
+  if (!Number.isInteger(id) || id <= 0) return { ok: false, mensaje: "id inválido" };
+  if (!respuesta) return { ok: false, mensaje: "Escribe qué debe responder." };
+  if (respuesta.length > LARGO_MAXIMO) return { ok: false, mensaje: `La respuesta es muy larga (máximo ${LARGO_MAXIMO} caracteres).` };
+  const filas = await db
+    .select({ id: productKnowledge.id })
+    .from(productKnowledge)
+    .where(and(eq(productKnowledge.id, id), eq(productKnowledge.tenantId, tenantId)))
+    .limit(1);
+  if (!filas.length) return { ok: false, mensaje: "Esa respuesta ya no existe." };
+  await db.update(productKnowledge).set({ respuesta } as any).where(and(eq(productKnowledge.id, id), eq(productKnowledge.tenantId, tenantId)));
+  return { ok: true, mensaje: "Respuesta actualizada: desde el próximo mensaje el vendedor responde eso." };
+}
+
+/**
+ * Edita una indicación existente (la número `indice` de la lista unida).
+ * Pasa por `configurarAgente`, así que mantiene sus reglas: nada de precios
+ * ni plazos en la forma (esos van en la base, no en el prompt).
+ */
+export async function editarIndicacion(tenantId: number, indice: number, nueva: string): Promise<Resultado> {
+  const texto = String(nueva || "").trim();
+  if (!Number.isInteger(indice) || indice < 0) return { ok: false, mensaje: "índice inválido" };
+  if (!texto) return { ok: false, mensaje: "Escribe cómo debe hablar el vendedor." };
+  if (texto.length > LARGO_MAXIMO) return { ok: false, mensaje: `La indicación es muy larga (máximo ${LARGO_MAXIMO} caracteres).` };
+  const lista = indicacionesDe(await agentesQueAtienden(tenantId));
+  const vieja = lista[indice];
+  if (!vieja) return { ok: false, mensaje: "Esa indicación ya no existe." };
+  if (vieja.toLowerCase() === texto.toLowerCase()) return { ok: true, mensaje: "Sin cambios: ya decía eso." };
+  const r = await reescribirIndicaciones(tenantId, (actuales) => {
+    const renglones = renglonesDeIndicaciones(actuales);
+    const i = renglones.findIndex((x) => x.toLowerCase() === vieja.toLowerCase());
+    if (i < 0) return renglones.map((x) => `- ${x}`).join("\n");
+    renglones[i] = texto;
+    // Sin duplicados: si el nuevo texto ya estaba en otro renglón, se quita el viejo.
+    const vistos = new Set<string>();
+    return renglones
+      .filter((x) => {
+        const k = x.toLowerCase();
+        if (vistos.has(k)) return false;
+        vistos.add(k);
+        return true;
+      })
+      .map((x) => `- ${x}`)
+      .join("\n");
+  });
+  if (!r.ok) return r;
+  await invalidarPresentaciones(tenantId);
+  return { ok: true, mensaje: "Indicación actualizada: aplica desde el próximo mensaje." };
 }

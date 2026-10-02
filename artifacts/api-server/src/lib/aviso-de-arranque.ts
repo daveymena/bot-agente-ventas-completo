@@ -56,8 +56,16 @@ const REGLAS: ReglaAviso[] = [
     mensaje: "🔎 Voy a ver qué está haciendo la competencia para traerte datos reales…",
   },
   {
-    patron: /investig|research|averigu|indag|\bbusc/,
+    // Sin "busc" (29-09-2026): "buscá en Dropi X" no es una investigación y
+    // el aviso prometía fuentes que el turno ya no busca.
+    patron: /investig|research|averigu|indag/,
     mensaje: "🔎 Voy a investigar eso y te traigo las fuentes…",
+  },
+
+  // ── Catálogo de Dropi (antes caía en "Reviso tus pedidos y entregas") ───
+  {
+    patron: /(?=.*dropi).*(catalogo|producto|vendid|busc|stock|ganador|margen|importa)/,
+    mensaje: "📦 Consulto el catálogo de Dropi…",
   },
 
   // ── Cambios sobre campañas (van a pedir confirmación antes de tocar Meta)

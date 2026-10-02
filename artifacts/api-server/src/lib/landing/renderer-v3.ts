@@ -5,6 +5,9 @@
  * El diseño cambia composición y jerarquía, no solo colores.
  */
 import { tokensDe, type FamiliaVisual } from "./design-system";
+import { renderizarLandingImagenes } from "./renderer-imagenes";
+
+import { DEPARTAMENTOS_CO, SCRIPT_GEO } from "../geo-colombia";
 
 export interface SeccionParaRenderizar {
   id: string;
@@ -58,6 +61,12 @@ export interface CierreDeLanding {
 export interface OpcionesDeRender {
   nombre: string;
   secciones: SeccionParaRenderizar[];
+  /** "imagenes" = landing de paneles verticales (ver renderer-imagenes.ts). */
+  modo?: string | null;
+  /** Ofertas del dueño (solo modo imágenes): el pedido cobra estas. */
+  ofertas?: Array<{ nombre: string; cantidad: number; precio: number }> | null;
+  /** Sellos de las condiciones reales del negocio (solo modo imágenes). */
+  sellos?: string[] | null;
   familia: FamiliaVisual | string | null;
   producto?: ProductoParaRenderizar | null;
   negocio?: NegocioParaRenderizar | null;
@@ -97,6 +106,16 @@ function items(body: unknown): string[] {
     partes = texto.split(/(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÑ¿¡])/).map((x) => x.trim()).filter(Boolean);
   }
   return partes.map((x) => acotar(x)).slice(0, MAX_ITEMS);
+}
+
+/** Corta al final de la última frase que entra; si no hay, en palabra + "…". */
+function cortarFrase(texto: string, max: number): string {
+  const s = String(texto || "").trim().replace(/\s+/g, " ");
+  if (s.length <= max) return s;
+  const trozo = s.slice(0, max);
+  const fin = Math.max(trozo.lastIndexOf(". "), trozo.lastIndexOf("? "), trozo.lastIndexOf("! "), trozo.lastIndexOf("… "));
+  if (fin > max * 0.35) return trozo.slice(0, fin + 1).trim();
+  return acotar(s, max);
 }
 
 /** Corta en la última palabra que entra y avisa con "…". */
@@ -155,7 +174,7 @@ function btn(texto: unknown, href: unknown, variant = "primary"): string {
   return text && url ? `<a class="btn btn--${variant}" href="${esc(url)}">${esc(text)}</a>` : "";
 }
 
-function cssBase(familia: string): string {
+export function cssBase(familia: string): string {
   const t = tokensDe(familia);
   const color = t.color;
   const tipo = t.tipografia;
@@ -165,8 +184,19 @@ function cssBase(familia: string): string {
   const sectionX = ritmo.padSeccionX;
   return `
 :root{--bg:${color.fondo};--surface:${color.superficie};--text:${color.texto};--muted:${color.textoSuave};--accent:${color.acento};--on-accent:${color.sobreAcento};--line:${color.borde};--content:${ritmo.anchoContenido};--section:${sectionY};--pad:${sectionX};--gap:${ritmo.separacion};--radius:${forma.radio};--shadow:${forma.sombra}}
-*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--text);font-family:${tipo.texto};font-size:clamp(16px,1.05vw,18px);line-height:${tipo.interlineado};-webkit-font-smoothing:antialiased}a{color:inherit;text-decoration:none}.shell{width:min(100%,calc(var(--content) + 2 * var(--pad)));margin:0 auto;padding-inline:var(--pad)}.narrow{max-width:860px}.top{position:sticky;top:0;z-index:30;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(16px);border-bottom:1px solid color-mix(in srgb,var(--line) 65%,transparent)}.top__in{width:min(100%,calc(var(--content) + 2 * var(--pad)));margin:auto;padding:12px var(--pad);display:flex;align-items:center;justify-content:space-between;gap:16px}.brand{font-weight:800;letter-spacing:-.02em}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:13px 21px;border-radius:${forma.radio};font-weight:800;transition:transform .2s ease,box-shadow .2s ease,background .2s ease}.btn:hover{transform:translateY(-2px)}.btn--primary{background:var(--accent);color:var(--on-accent);box-shadow:0 12px 28px color-mix(in srgb,var(--accent) 24%,transparent)}.btn--soft{background:var(--surface);border:${forma.borde}}.hero{padding:${sectionY} 0 44px;display:grid;grid-template-columns:minmax(0,1.04fr) minmax(320px,.96fr);gap:clamp(28px,5vw,72px);align-items:center;min-height:72vh}.hero--center{display:block;max-width:1040px;margin:auto;text-align:center}.hero--center .hero-copy .actions{justify-content:center}.hero--center .hero-media{margin-top:40px}.hero--center .hero-media:before{inset:10% 4% -4% 4%}.hero-copy{text-align:${t.alineacion === "centrado" ? "center" : "left"}}.hero--center .hero-copy{text-align:center}.eyebrow{margin:0 0 12px;color:var(--accent);font-size:.7rem;font-weight:900;text-transform:uppercase;letter-spacing:.15em}.hero h1{font-family:${tipo.display};font-size:clamp(2.4rem,5.6vw,4.8rem);font-weight:${tipo.pesoDisplay};line-height:1.01;letter-spacing:${tipo.espaciadoTitulo};margin:0 0 20px}.lead{font-size:clamp(1.05rem,1.55vw,1.28rem);color:var(--muted);max-width:62ch}.hero-copy .actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:28px}.hero-price,.offer-price{font-weight:900;letter-spacing:-.04em}.hero-price{font-size:clamp(1.35rem,2.2vw,1.8rem);margin-top:18px}.hero-media{position:relative}.hero-media:before{content:"";position:absolute;inset:8% -7% -7% 9%;border-radius:36px;background:color-mix(in srgb,var(--accent) 11%,transparent);z-index:-1}.hero-media figure{margin:0}.hero-media img{display:block;width:100%;max-height:690px;object-fit:cover;border-radius:${forma.radio};box-shadow:${forma.sombra}}.trust{display:flex;flex-wrap:wrap;gap:10px;padding:18px 0;border-top:${forma.borde};border-bottom:${forma.borde}}.trust span{padding:8px 12px;border-radius:999px;background:var(--surface);border:${forma.borde};font-size:.82rem;font-weight:750}.sec{padding:${sectionY} 0}.head{max-width:780px;margin-bottom:32px}${t.alineacion === "centrado" ? ".head{margin-inline:auto;text-align:center}.head .lead{margin-inline:auto}" : ""}.lines{list-style:none;margin:0;padding:0;display:grid;gap:10px}.lines li{position:relative;padding-left:26px}.lines li:before{content:"✓";position:absolute;left:0;top:0;color:var(--accent);font-weight:900}.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:14px}.strip article{padding:20px 22px;background:var(--surface);border:${forma.borde};border-radius:${forma.radio};font-weight:650;line-height:1.45}.strip article:before{content:"✓";display:block;color:var(--accent);font-weight:900;margin-bottom:8px}.cierre{text-align:center;max-width:760px;margin:auto;padding:clamp(28px,5vw,52px);background:linear-gradient(135deg,var(--surface),color-mix(in srgb,var(--accent) 10%,var(--surface)));border:${forma.borde};border-radius:calc(${forma.radio} + 8px);box-shadow:${forma.sombra}}.cierre .lead{margin-inline:auto}.cierre .btn{margin-top:22px}.offer--solo,.feature-row--solo{grid-template-columns:1fr}.offer--solo .offer-main{max-width:760px;margin:auto}.feature-row--solo .feature-copy{max-width:760px;margin:auto}.head h2{font-family:${tipo.display};font-size:clamp(2rem,4vw,3.65rem);line-height:1.04;letter-spacing:${tipo.espaciadoTitulo};margin:0 0 16px}.bento{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:16px}.bento-card{min-height:170px;padding:26px;background:var(--surface);border:${forma.borde};border-radius:${forma.radio};box-shadow:${forma.sombra}}.bento-card strong{display:block;margin:8px 0;font-size:1.08rem}.num{font-size:.72rem;color:var(--accent);font-weight:900;letter-spacing:.12em}.feature-row{display:grid;grid-template-columns:1fr 1fr;gap:36px;align-items:center}.feature-row:nth-child(even) .feature-media{order:2}.feature-media figure{margin:0}.feature-media img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:${forma.radio};display:block}.feature-copy ul{padding-left:20px}.gallery{display:grid;grid-template-columns:2fr 1fr 1fr;grid-auto-rows:230px;gap:12px}.gallery img{width:100%;height:100%;object-fit:cover;border-radius:${forma.radio};display:block}.gallery img:first-child{grid-row:span 2}.faq{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.faq details{background:var(--surface);border:${forma.borde};border-radius:${forma.radio};padding:20px}.faq summary{cursor:pointer;font-weight:800}.offer{display:grid;grid-template-columns:1.1fr .9fr;gap:22px}.offer-main,.offer-side,.checkout{background:var(--surface);border:${forma.borde};border-radius:calc(${forma.radio} + 8px);box-shadow:${forma.sombra}}.offer-main{padding:clamp(28px,5vw,48px);background:linear-gradient(135deg,var(--surface),color-mix(in srgb,var(--accent) 8%,var(--surface)))}.offer-side{padding:18px}.offer-side figure{margin:0;height:100%}.offer-side img{width:100%;height:100%;min-height:300px;object-fit:cover;border-radius:${forma.radio}}.offer-price{font-size:clamp(2.3rem,5vw,4.7rem);line-height:1;margin:14px 0 26px}.checkout{padding:clamp(26px,5vw,52px)}.checkout-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.field{display:flex;flex-direction:column;gap:7px}.field--full{grid-column:1/-1}.field label{font-size:.84rem;font-weight:800}.field input,.field select{width:100%;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--bg);color:var(--text);font:inherit}.summary{padding:16px;border-radius:16px;background:color-mix(in srgb,var(--accent) 8%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 25%,var(--line));margin:18px 0}.footer{padding:54px 0 112px;border-top:1px solid var(--line);color:var(--muted)}.sticky{display:none}.coupon{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px;align-items:center}.coupon input{flex:1;min-width:180px;padding:13px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg);color:var(--text);font:inherit}.coupon .tiny{flex-basis:100%;margin:0}
-@media(max-width:820px){.hero{grid-template-columns:1fr;min-height:auto;padding-top:44px}.hero-media{order:-1}.hero-media img{max-height:520px}.feature-row,.offer{grid-template-columns:1fr}.feature-row:nth-child(even) .feature-media{order:0}.faq,.checkout-grid{grid-template-columns:1fr}.field--full{grid-column:auto}.gallery{grid-template-columns:1fr 1fr;grid-auto-rows:190px}.gallery img:first-child{grid-column:span 2;grid-row:auto}.top .btn{display:none}.sticky{display:flex;position:fixed;z-index:50;left:12px;right:12px;bottom:12px;padding:8px;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(16px);border:1px solid var(--line);border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,.18)}.sticky .btn{width:100%}.footer{padding-bottom:124px}}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--text);font-family:${tipo.texto};font-size:clamp(16px,1.05vw,18px);line-height:${tipo.interlineado};-webkit-font-smoothing:antialiased}a{color:inherit;text-decoration:none}.shell{width:min(100%,calc(var(--content) + 2 * var(--pad)));margin:0 auto;padding-inline:var(--pad)}.narrow{max-width:860px}.top{position:sticky;top:0;z-index:30;background:color-mix(in srgb,var(--bg) 90%,transparent);backdrop-filter:blur(16px);border-bottom:1px solid color-mix(in srgb,var(--line) 65%,transparent)}.top__in{width:min(100%,calc(var(--content) + 2 * var(--pad)));margin:auto;padding:12px var(--pad);display:flex;align-items:center;justify-content:space-between;gap:16px}.brand{font-weight:800;letter-spacing:-.02em}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:13px 21px;border-radius:${forma.radio};font-weight:800;transition:transform .2s ease,box-shadow .2s ease,background .2s ease}.btn:hover{transform:translateY(-2px)}.btn--primary{background:var(--accent);color:var(--on-accent);box-shadow:0 12px 28px color-mix(in srgb,var(--accent) 24%,transparent)}.btn--soft{background:var(--surface);border:${forma.borde}}.hero{padding:${sectionY} 0 44px;display:grid;grid-template-columns:minmax(0,1.04fr) minmax(320px,.96fr);gap:clamp(28px,5vw,72px);align-items:center;min-height:72vh}.hero--center{display:block;max-width:1040px;margin:auto;text-align:center}.hero--center .hero-copy .actions{justify-content:center}.hero--center .hero-media{margin-top:40px}.hero--center .hero-media:before{inset:10% 4% -4% 4%}.hero-copy{text-align:${t.alineacion === "centrado" ? "center" : "left"}}.hero--center .hero-copy{text-align:center}.eyebrow{margin:0 0 12px;color:var(--accent);font-size:.7rem;font-weight:900;text-transform:uppercase;letter-spacing:.15em}.hero h1{font-family:${tipo.display};font-size:clamp(2.4rem,5.6vw,4.8rem);font-weight:${tipo.pesoDisplay};line-height:1.01;letter-spacing:${tipo.espaciadoTitulo};margin:0 0 20px}.lead{font-size:clamp(1.05rem,1.55vw,1.28rem);color:var(--muted);max-width:62ch}.hero-copy .actions{display:flex;flex-wrap:wrap;gap:12px;margin-top:28px}.hero-price,.offer-price{font-weight:900;letter-spacing:-.04em}.hero-price{font-size:clamp(1.35rem,2.2vw,1.8rem);margin-top:18px}.hero-media{position:relative}.hero-media:before{content:"";position:absolute;inset:8% -7% -7% 9%;border-radius:36px;background:color-mix(in srgb,var(--accent) 11%,transparent);z-index:-1}.hero-media figure{margin:0}.hero-media img{display:block;width:100%;max-height:690px;object-fit:cover;border-radius:${forma.radio};box-shadow:${forma.sombra}}.trust{display:flex;flex-wrap:wrap;gap:10px;padding:18px 0;border-top:${forma.borde};border-bottom:${forma.borde}}.trust span svg{width:15px;height:15px;flex:none}.trust span{display:inline-flex;align-items:center;gap:7px}.buybox-meta li svg{width:15px;height:15px;flex:none;position:absolute;left:0;top:2px}.buybox-meta li{padding-left:24px}.trust span{padding:8px 12px;border-radius:999px;background:var(--surface);border:${forma.borde};font-size:.82rem;font-weight:750}.sec{padding:${sectionY} 0}.head{max-width:780px;margin-bottom:32px}${t.alineacion === "centrado" ? ".head{margin-inline:auto;text-align:center}.head .lead{margin-inline:auto}" : ""}.lines{list-style:none;margin:0;padding:0;display:grid;gap:10px}.lines li{position:relative;padding-left:26px}.lines li:before{content:"✓";position:absolute;left:0;top:0;color:var(--accent);font-weight:900}.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:14px}.strip article{padding:20px 22px;background:var(--surface);border:${forma.borde};border-radius:${forma.radio};font-weight:650;line-height:1.45}.strip article:before{content:"✓";display:block;color:var(--accent);font-weight:900;margin-bottom:8px}.cierre{text-align:center;max-width:760px;margin:auto;padding:clamp(28px,5vw,52px);background:linear-gradient(135deg,var(--surface),color-mix(in srgb,var(--accent) 10%,var(--surface)));border:${forma.borde};border-radius:calc(${forma.radio} + 8px);box-shadow:${forma.sombra}}.cierre .lead{margin-inline:auto}.cierre .btn{margin-top:22px}.offer--solo,.feature-row--solo{grid-template-columns:1fr}.offer--solo .offer-main{max-width:760px;margin:auto}.feature-row--solo .feature-copy{max-width:760px;margin:auto}.head h2{font-family:${tipo.display};font-size:clamp(2rem,4vw,3.65rem);line-height:1.04;letter-spacing:${tipo.espaciadoTitulo};margin:0 0 16px}.bento{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,230px),1fr));gap:16px}.bento-card{min-height:170px;padding:26px;background:var(--surface);border:${forma.borde};border-radius:${forma.radio};box-shadow:${forma.sombra}}.bento-card strong{display:block;margin:8px 0;font-size:1.08rem}.num{font-size:.72rem;color:var(--accent);font-weight:900;letter-spacing:.12em}.feature-row{display:grid;grid-template-columns:1fr 1fr;gap:36px;align-items:center}.feature-row:nth-child(even) .feature-media{order:2}.feature-media figure{margin:0}.feature-media img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:${forma.radio};display:block}.feature-copy ul{padding-left:20px}.gallery{display:grid;grid-template-columns:2fr 1fr 1fr;grid-auto-rows:230px;gap:12px}.gallery img{width:100%;height:100%;object-fit:cover;border-radius:${forma.radio};display:block}.gallery img:first-child{grid-row:span 2}.faq{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.faq details{background:var(--surface);border:${forma.borde};border-radius:${forma.radio};padding:20px}.faq summary{cursor:pointer;font-weight:800}.offer{display:grid;grid-template-columns:1.1fr .9fr;gap:22px}.offer-main,.offer-side,.checkout{background:var(--surface);border:${forma.borde};border-radius:calc(${forma.radio} + 8px);box-shadow:${forma.sombra}}.offer-main{padding:clamp(28px,5vw,48px);background:linear-gradient(135deg,var(--surface),color-mix(in srgb,var(--accent) 8%,var(--surface)))}.offer-side{padding:18px}.offer-side figure{margin:0;height:100%}.offer-side img{width:100%;height:100%;min-height:300px;object-fit:cover;border-radius:${forma.radio}}.offer-price{font-size:clamp(2.3rem,5vw,4.7rem);line-height:1;margin:14px 0 26px}.checkout{padding:clamp(26px,5vw,52px)}.checkout-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.field{display:flex;flex-direction:column;gap:7px}.field--full{grid-column:1/-1}.field label{font-size:.84rem;font-weight:800}.field input,.field select{width:100%;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--bg);color:var(--text);font:inherit}.summary{padding:16px;border-radius:16px;background:color-mix(in srgb,var(--accent) 8%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 25%,var(--line));margin:18px 0}.topbar{background:var(--text);color:var(--bg);font-size:.8rem;font-weight:700}.topbar-in{width:min(100%,calc(var(--content) + 2 * var(--pad)));margin:auto;padding:9px var(--pad);display:flex;justify-content:center;gap:26px;flex-wrap:wrap;text-align:center}.topbar-in span{white-space:nowrap}
+.hg-track{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;border-radius:var(--radius);scrollbar-width:none}.hg-track::-webkit-scrollbar{display:none}.hg-slide{flex:0 0 100%;scroll-snap-align:center;scroll-snap-stop:always}.hg-slide img{display:block;width:100%;max-height:690px;object-fit:cover;border-radius:var(--radius);box-shadow:var(--shadow)}.hg{position:relative}.hg-dots{display:flex;gap:6px;position:absolute;bottom:14px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.35);padding:6px 9px;border-radius:999px}.hg-dots i{width:6px;height:6px;border-radius:999px;background:rgba(255,255,255,.55)}.hg-dots i.on{width:18px;background:#fff}
+.photoband{margin-inline:calc(50% - 50vw);width:100vw}.photoband figure{margin:0;position:relative}.photoband img{display:block;width:100%;max-height:72vh;object-fit:cover}.photoband figcaption{position:absolute;left:0;right:0;bottom:0;padding:40px 20px 18px;background:linear-gradient(transparent,rgba(0,0,0,.62));color:#fff;font-weight:700}
+.footer{padding:54px 0 112px;border-top:1px solid var(--line);color:var(--muted)}.sticky{display:none}.coupon{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px;align-items:center}.coupon input{flex:1;min-width:180px;padding:13px 14px;border:1px solid var(--line);border-radius:var(--radius);background:var(--bg);color:var(--text);font:inherit}.coupon .tiny{flex-basis:100%;margin:0}
+.hero--stack{display:block;text-align:center;max-width:1000px;margin:auto;min-height:auto}.hero--stack .hero-copy .actions{justify-content:center}.hero--stack .hero-media{max-width:900px;margin:36px auto 0}.hero--stack .lead{margin-inline:auto}
+.hero--bleed{position:relative;isolation:isolate;overflow:clip;min-height:88vh;align-items:end;padding-bottom:56px}.hero--bleed .hero-bg{position:absolute;inset:0;z-index:-1}.hero--bleed .hero-bg img{width:100%;height:100%;object-fit:cover}.hero--bleed .hero-card{max-width:640px;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(18px);border:1px solid var(--line);border-radius:24px;padding:clamp(24px,4vw,44px);box-shadow:0 30px 80px rgba(0,0,0,.25)}
+.hero--buybox{grid-template-columns:1.05fr .95fr}.buybox{background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:clamp(22px,3.4vw,36px);box-shadow:var(--shadow);align-self:start;position:sticky;top:76px}.buybox .eyebrow{margin-bottom:8px}.buybox h1{font-size:clamp(1.7rem,3vw,2.5rem);margin:0 0 10px}.buybox-price{font-size:clamp(2rem,4.4vw,3.2rem);font-weight:900;letter-spacing:-.03em;margin:12px 0 18px}.buybox .btn{width:100%}.buybox-meta{list-style:none;margin:18px 0 0;padding:16px 0 0;border-top:1px solid var(--line);display:grid;gap:8px;font-size:.9rem;color:var(--muted)}.buybox-meta li{padding-left:24px;position:relative}.buybox-meta li:before{content:"✓";position:absolute;left:0;color:var(--accent);font-weight:900}
+.hero--offerfirst .hero-price{font-size:clamp(2rem,5vw,3.4rem);margin:6px 0 16px}.hero--offerfirst .actions{margin-top:18px}.hero--offerfirst h1{margin-top:20px}
+.hero--edito{grid-template-columns:1fr 1fr;align-items:start}.hero--edito .hero-copy{border-top:3px solid var(--text);padding-top:20px}.hero--edito .hero-media img{aspect-ratio:3/4;max-height:680px}
+.offer--split{grid-template-columns:1fr 1fr}.offer-sidecol{display:grid;gap:16px;align-content:start}.offer-sidecol .offer-price{margin:0}.offer--minimal{display:block;max-width:760px;margin:auto;text-align:center}.offer--minimal .offer-main{padding:clamp(28px,5vw,48px)}.offer--minimal .actions{justify-content:center;display:flex;gap:12px;flex-wrap:wrap;margin-top:22px}
+.bento--numbered{display:grid;gap:0;border-top:2px solid var(--text)}.bento--numbered article{display:grid;grid-template-columns:72px 1fr;gap:18px;align-items:baseline;padding:22px 4px;border-bottom:1px solid var(--line)}.bento--numbered .num{font-size:clamp(1.8rem,3.4vw,2.6rem);font-weight:900}.bento--numbered strong{font-size:1.1rem}
+.bento--checklist{display:grid;gap:10px;max-width:720px}.bento--checklist article{display:flex;gap:14px;align-items:flex-start;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 20px}.bento--checklist .num{display:none}.bento--checklist strong{font-weight:650}.bento--checklist article:before{content:"✓";color:var(--accent);font-weight:900;font-size:1.2rem}
+@media(max-width:820px){.hero{grid-template-columns:1fr;min-height:auto;padding-top:44px}.hero--bleed{min-height:auto}.hero--buybox{grid-template-columns:1fr}.buybox{position:static}.hero--edito{grid-template-columns:1fr}.offer--split{grid-template-columns:1fr}.bento--numbered article{grid-template-columns:52px 1fr}.hero-media{order:-1}.hero-media img{max-height:520px}.feature-row,.offer{grid-template-columns:1fr}.feature-row:nth-child(even) .feature-media{order:0}.faq,.checkout-grid{grid-template-columns:1fr}.field--full{grid-column:auto}.gallery{grid-template-columns:1fr 1fr;grid-auto-rows:190px}.gallery img:first-child{grid-column:span 2;grid-row:auto}.top .btn{display:none}.topbar-in{gap:12px;font-size:.74rem}.sticky{display:flex;position:fixed;z-index:50;left:12px;right:12px;bottom:12px;padding:8px;background:color-mix(in srgb,var(--bg) 92%,transparent);backdrop-filter:blur(16px);border:1px solid var(--line);border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,.18)}.sticky .btn{width:100%}.footer{padding-bottom:124px}}
 @media(max-width:520px){.gallery{grid-template-columns:1fr}.gallery img:first-child{grid-column:auto}.hero-copy .actions{display:grid}.hero-copy .actions .btn{width:100%}.hero h1{font-size:clamp(2.5rem,12vw,4.1rem)}.sec{padding:56px 0}}
 @media(prefers-reduced-motion:no-preference){.hero-media img{animation:landingFloat 7s ease-in-out infinite}@keyframes landingFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.btn{transition:none}.hero-media img{animation:none}}
@@ -184,7 +214,19 @@ function cssFamilia(familia: string): string {
   if (familia === "premium") return CSS_PREMIUM;
   if (familia === "respuesta-directa") return CSS_RESPUESTA_DIRECTA;
   if (familia === "ecommerce") return CSS_ECOMMERCE;
-  if (familia === "oscura" || familia === "electronica") return CSS_OSCURA;
+  if (familia === "oscura") return CSS_OSCURA;
+  if (familia === "electronica") return CSS_ELECTRONICA;
+  if (familia === "minimal") return CSS_MINIMAL;
+  if (familia === "editorial") return CSS_EDITORIAL;
+  if (familia === "belleza") return CSS_BELLEZA;
+  if (familia === "fitness") return CSS_FITNESS;
+  if (familia === "educacion") return CSS_EDUCACION;
+  if (familia === "tecnologia") return CSS_TECNOLOGIA;
+  if (familia === "familiar") return CSS_FAMILIAR;
+  if (familia === "creativa") return CSS_CREATIVA;
+  if (familia === "suplemento") return CSS_SUPLEMENTO;
+  if (familia === "gourmet") return CSS_GOURMET;
+  if (familia === "dropshipping") return CSS_DROPSHIPPING;
   return "";
 }
 
@@ -201,6 +243,7 @@ function cssFamilia(familia: string): string {
  *   · entradas animadas (appear / appear-zoom) respetando reduced-motion
  */
 const CSS_LAUNCH = `
+/*f:launch*/
 .top{background:color-mix(in srgb,var(--bg) 35%,transparent);backdrop-filter:blur(18px);border-bottom:1px solid color-mix(in srgb,#fff 6%,transparent)}
 .btn{border-radius:10px;font-weight:600;min-height:44px}
 .btn--primary{background:linear-gradient(180deg,var(--accent),color-mix(in srgb,var(--accent) 72%,#000));color:var(--on-accent);box-shadow:inset 0 1px 0 color-mix(in srgb,#fff 25%,transparent),0 0 0 1px color-mix(in srgb,var(--accent) 55%,transparent),0 12px 28px color-mix(in srgb,var(--accent) 28%,transparent)}
@@ -254,6 +297,7 @@ html,body{overflow-x:clip}
  * botón pastilla con transición lenta.
  */
 const CSS_PREMIUM = `
+/*f:premium*/
 .top{background:color-mix(in srgb,var(--bg) 94%,transparent);backdrop-filter:blur(14px);border-bottom:1px solid var(--line)}
 .brand{font-family:'Playfair Display',Georgia,serif;font-weight:600;letter-spacing:.01em;font-size:1.05rem}
 .btn{border-radius:999px;min-height:48px;padding:14px 28px;font-weight:600;letter-spacing:.02em;transition:all .3s ease}
@@ -302,6 +346,7 @@ const CSS_PREMIUM = `
  * mayúsculas, tarjetas con borde grueso y la oferta en color de marca.
  */
 const CSS_RESPUESTA_DIRECTA = `
+/*f:respuesta-directa*/
 .top{background:var(--bg);border-bottom:2px solid var(--text)}
 .brand{font-family:'Archivo',Impact,sans-serif;font-weight:800;letter-spacing:-.02em;text-transform:uppercase}
 .btn{border-radius:8px;min-height:56px;padding:16px 24px;font-weight:800;text-transform:uppercase;letter-spacing:.02em;border:2px solid var(--text);box-shadow:4px 4px 0 var(--text)}
@@ -347,6 +392,7 @@ const CSS_RESPUESTA_DIRECTA = `
  * columnas con la foto al costado y botón con sombra de marca.
  */
 const CSS_ECOMMERCE = `
+/*f:ecommerce*/
 .top{background:var(--bg);border-bottom:1px solid var(--line)}
 .brand{font-weight:800;letter-spacing:-.02em}
 .btn{border-radius:10px;min-height:48px;font-weight:700;padding:13px 24px}
@@ -393,6 +439,7 @@ const CSS_ECOMMERCE = `
  * borde que se enciende al pasar el mouse.
  */
 const CSS_OSCURA = `
+/*f:oscura*/
 .top{background:color-mix(in srgb,var(--bg) 70%,transparent);backdrop-filter:blur(18px);border-bottom:1px solid var(--line)}
 .brand{font-weight:700;letter-spacing:-.02em}
 .btn{border-radius:10px;min-height:46px;font-weight:600}
@@ -441,10 +488,342 @@ function rotulo(type: string | null | undefined): string {
 }
 
 function renderBenefits(section: SeccionParaRenderizar): string {
+  return renderBenefitsVariante("cards", section);
+}
+const ICONOS_CONFIANZA: Array<[RegExp, string]> = [
+  [/env[ií]o|domicilio|despacho|transportadora/i, "M3 7h11v9H3zM14 10h4l3 3v3h-7zM7 18a2 2 0 1 0 0 .01M17.5 18a2 2 0 1 0 0 .01"],
+  [/pago|contra ?entrega|efectivo|nequi|tarjeta/i, "M2.5 6h19v12h-19zM12 12a2.6 2.6 0 1 0 0 .01M6 9v.01M18 15v.01"],
+  [/garant|devoluci|segur|proteg|confi/i, "M12 3l8 3v6c0 4.6-3.4 8.3-8 9-4.6-.7-8-4.4-8-9V6zM8.5 12l2.5 2.5 4.5-5"],
+  [/soporte|ayuda|whatsapp|acompa/i, "M4 5h16v11H9l-5 4zM8 9h8M8 12.5h5"],
+  [/calidad|original|premium|f[aá]brica/i, "M12 2l2.6 6.2 6.7.5-5.1 4.4 1.6 6.5L12 16.4 6.2 19.6l1.6-6.5L2.7 8.7l6.7-.5z"],
+  [/llega|tiempo|plazo|d[ií]as|horas|tarda|env[ií]o/i, "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2"],
+];
+function iconoPara(texto: string): string {
+  const d = ICONOS_CONFIANZA.find(([re]) => re.test(texto))?.[1];
+  if (!d) return "✓";
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${d}"/></svg>`;
+}
+
+/** Galería del hero: carrusel sin JS (scroll-snap + anclas). Sin fotos extra, una sola figura. */
+let hgId = 0;
+function heroGallery(fotos: string[], alt: string): string {
+  const unicas = [...new Set(fotos.filter(Boolean))].slice(0, 5);
+  if (unicas.length < 2) return figure(unicas[0] || "", alt, "media-frame", "eager");
+  const id = `hg${++hgId}`;
+  return `<div class="hg"><div class="hg-track" id="${id}">${unicas.map((f, i) => `<div class="hg-slide"><img src="${esc(f)}" alt="${esc(alt)} · foto ${i + 1}" ${i === 0 ? 'loading="eager"' : 'loading="lazy"'} decoding="async"></div>`).join("")}</div><div class="hg-dots" aria-hidden="true">${unicas.map((_, i) => `<i class="${i === 0 ? "on" : ""}"></i>`).join("")}</div></div><script>(function(){var t=document.getElementById("${id}");if(!t)return;var d=t.parentElement.querySelectorAll(".hg-dots i");t.addEventListener("scroll",function(){var i=Math.round(t.scrollLeft/t.clientWidth);d.forEach(function(x,k){x.classList.toggle("on",k===i)})},{passive:true})})();</script>`;
+}
+
+/** Banda de foto a sangre con pie: usa UNA foto del presupuesto (distribución). */
+function renderPhotoBand(foto: string, caption: string): string {
+  if (!foto) return "";
+  return `<div class="photoband"><figure><img src="${esc(foto)}" alt="${esc(caption || "Detalle del producto")}" loading="lazy" decoding="async">${caption ? `<figcaption>${esc(caption)}</figcaption>` : ""}</figure></div>`;
+}
+
+function renderBenefitsVariante(v: BeneficiosV, section: SeccionParaRenderizar): string {
   const rows = items(section.body);
   if (!rows.length && !section.subtitle) return "";
-  return `<div class="head"><p class="eyebrow">${rotulo(section.type)}</p><h2>${esc(section.title || "Lo que cambia para ti")}</h2>${section.subtitle ? `<p class="lead">${esc(acotar(section.subtitle, 240))}</p>` : ""}</div><div class="bento">${rows.map((row, i) => `<article class="bento-card"><span class="num">${String(i + 1).padStart(2, "0")}</span><strong>${esc(row)}</strong></article>`).join("")}</div>`;
+  const head = `<div class="head"><p class="eyebrow">${rotulo(section.type)}</p><h2>${esc(section.title || "Lo que cambia para ti")}</h2>${section.subtitle ? `<p class="lead">${esc(acotar(section.subtitle, 240))}</p>` : ""}</div>`;
+  if (v === "numbered") return `${head}<div class="bento--numbered">${rows.map((row, i) => `<article><span class="num">${String(i + 1).padStart(2, "0")}</span><strong>${esc(row)}</strong></article>`).join("")}</div>`;
+  if (v === "checklist") return `${head}<div class="bento--checklist">${rows.map((row) => `<article><span class="num">✓</span><strong>${esc(row)}</strong></article>`).join("")}</div>`;
+  return `${head}<div class="bento">${rows.map((row, i) => `<article class="bento-card"><span class="num">${String(i + 1).padStart(2, "0")}</span><strong>${esc(row)}</strong></article>`).join("")}</div>`;
 }
+
+
+/**
+ * Familia "minimal": la página que no estorba. Una columna, líneas finas,
+ * cero sombras, CTA subrayado que no compite con el producto. Conversión por
+ * ausencia de fricción: un solo camino visual hacia el botón.
+ */
+const CSS_MINIMAL = `
+/*f:minimal*/
+.top{background:var(--bg);backdrop-filter:none;border-bottom:1px solid var(--line)}
+.btn{border-radius:0;min-height:44px;font-weight:600}
+.btn--primary{background:var(--text);color:var(--bg);box-shadow:none}
+.btn--soft{background:transparent;border:0;text-decoration:underline;text-underline-offset:6px;padding-inline:4px}
+.hero{display:block;max-width:720px;margin:auto;min-height:auto}
+.hero-media{order:-1;margin-bottom:28px}.hero-media:before{display:none}
+.hero-media img{border-radius:0;box-shadow:none;max-height:560px}
+.hero h1{font-size:clamp(2rem,4.6vw,3.2rem);font-weight:600}
+.eyebrow{text-transform:none;letter-spacing:0;color:var(--muted)}
+.trust{border:0;gap:18px;padding:14px 0}.trust span{background:transparent;border:0;border-radius:0;padding:0;font-weight:600}
+.sec{border-top:1px solid var(--line)}
+.strip,.bento{grid-template-columns:1fr;gap:0}
+.strip article,.bento-card{background:transparent;border:0;border-top:1px solid var(--line);border-radius:0;box-shadow:none;padding:22px 0}
+.feature-row{grid-template-columns:1fr;gap:20px}
+.offer{grid-template-columns:1fr}.offer-main{background:var(--bg);border:1px solid var(--text);border-radius:0;box-shadow:none}
+.faq{grid-template-columns:1fr}.faq details{background:transparent;border:0;border-top:1px solid var(--line);border-radius:0;padding:18px 0}
+.cierre{background:transparent;border:1px solid var(--text);border-radius:0;box-shadow:none}
+.sticky{border-radius:0;left:0;right:0;bottom:0;border:0;border-top:1px solid var(--line)}
+`;
+
+/**
+ * Familia "editorial": se lee como revista. Reglas finas, números de
+ * sección, citas grandes, fotos verticales con pie. La prueba social va en
+ * grande (cita editorial) justo donde el lector duda: antes de la oferta.
+ */
+const CSS_EDITORIAL = `
+/*f:editorial*/
+.head{border-top:2px solid var(--text);padding-top:18px}
+.head h2{font-size:clamp(1.9rem,3.6vw,3rem)}
+.hero{grid-template-columns:1fr 1fr;align-items:start}
+.hero-media img{aspect-ratio:3/4;max-height:640px;border-radius:2px}
+.hero h1{font-size:clamp(2.4rem,5vw,4.2rem);text-wrap:balance}
+.eyebrow{font-family:var(--font-texto,var(--text));letter-spacing:.22em}
+.lead{font-size:clamp(1.1rem,1.6vw,1.35rem)}
+.bento{grid-template-columns:1fr 1fr}.bento-card{background:transparent;border:0;border-top:2px solid var(--text);border-radius:0;box-shadow:none;padding:22px 4px}
+.num{font-size:1rem}
+.strip article{background:transparent;box-shadow:none}
+.feature-row{gap:clamp(28px,5vw,72px)}
+.gallery{grid-template-columns:1fr 1fr 1fr;grid-auto-rows:260px}
+.offer{grid-template-columns:1fr 1fr}.offer-main{background:var(--surface);box-shadow:none}
+.faq details{background:transparent;box-shadow:none}
+.cierre{background:var(--text);color:var(--bg);border-radius:2px}
+.cierre .lead{color:var(--bg)}
+.btn--primary{background:var(--accent)}
+@media(max-width:820px){.hero{grid-template-columns:1fr}.gallery{grid-template-columns:1fr 1fr}}
+`;
+
+/**
+ * Familia "belleza": aspiracional y suave. Baño de color rubor, pastillas,
+ * tarjetas flotantes sin bordes, tipografía ligera. El CTA respira rodeado
+ * de aire: se toca sin pensar.
+ */
+const CSS_BELLEZA = `
+/*f:belleza*/
+.hero{position:relative;isolation:isolate}
+.hero:before{content:"";position:absolute;inset:-40px -8% auto -8%;height:78%;background:radial-gradient(60% 60% at 50% 30%,color-mix(in srgb,var(--accent) 16%,transparent),transparent 70%);z-index:-1;pointer-events:none}
+.hero-media:before{display:none}
+.hero-media img{border-radius:28px;box-shadow:0 30px 70px color-mix(in srgb,var(--accent) 22%,transparent)}
+.hero h1{font-weight:400;letter-spacing:.01em;text-wrap:balance}
+.btn{border-radius:999px;min-height:52px;padding:15px 34px;font-weight:700}
+.btn--primary{box-shadow:0 16px 36px color-mix(in srgb,var(--accent) 38%,transparent)}
+.trust{border:0;justify-content:center}.trust span{border:0;border-radius:999px;background:color-mix(in srgb,var(--accent) 10%,var(--surface));font-weight:600}
+.bento-card,.strip article,.faq details{border:0;border-radius:22px;box-shadow:0 14px 40px color-mix(in srgb,var(--accent) 12%,transparent)}
+.offer-main{border:0;border-radius:28px;background:linear-gradient(160deg,var(--surface),color-mix(in srgb,var(--accent) 12%,var(--surface)));box-shadow:0 24px 60px color-mix(in srgb,var(--accent) 18%,transparent)}
+.offer-price{color:var(--accent)}
+.cierre{border:0;border-radius:32px;background:linear-gradient(160deg,color-mix(in srgb,var(--accent) 14%,var(--surface)),var(--surface))}
+.gallery img{border-radius:22px}
+`;
+
+/**
+ * Familia "fitness": grito, no susurro. Mayúsculas condensadas, reglas
+ * gruesas, fotos a sangre, CTA en bloque rojo. Conversión por energía:
+ * precio y botón siempre a la vista, prueba en tarjetas oscuras.
+ */
+const CSS_FITNESS = `
+/*f:fitness*/
+.hero{grid-template-columns:1fr 1.1fr;min-height:80vh}
+.hero-media{order:-1}.hero-media:before{display:none}
+.hero-media img{border-radius:4px;max-height:640px}
+.hero h1{text-transform:uppercase;line-height:.95;letter-spacing:-.035em}
+.eyebrow{background:var(--text);color:var(--bg);padding:6px 12px;border-radius:4px;letter-spacing:.12em}
+.btn{border-radius:4px;min-height:56px;font-weight:900;text-transform:uppercase;letter-spacing:.04em}
+.btn--primary{box-shadow:0 10px 0 color-mix(in srgb,var(--accent) 45%,#000)}
+.btn--primary:active{transform:translateY(6px);box-shadow:none}
+.trust{border-top:3px solid var(--text);border-bottom:3px solid var(--text)}
+.trust span{border-radius:4px;font-weight:900;text-transform:uppercase;font-size:.75rem}
+.bento-card,.strip article{border-radius:4px;border:2px solid var(--text);box-shadow:5px 5px 0 var(--text)}
+.offer-main{border:3px solid var(--text);border-radius:6px;background:var(--text);color:var(--bg)}
+.offer-main .lead{color:var(--bg)}
+.offer-price{color:var(--accent)}
+.checkout{border:2px solid var(--text);border-radius:6px}
+.sticky .btn{border-radius:6px}
+@media(max-width:820px){.hero{grid-template-columns:1fr;min-height:auto}}
+`;
+
+
+/**
+ * Familia "educacion": confianza de academia. Contenido estructurado como
+ * programa: módulos numerados, tarjetas con filo de acento, oferta clara con
+ * lo que incluye. El CTA sólido aparece después de cada prueba.
+ */
+const CSS_EDUCACION = `
+/*f:educacion*/
+.hero{grid-template-columns:1.05fr .95fr}
+.hero-media img{border-radius:12px}
+.head{max-width:860px}
+.bento{grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))}
+.bento-card{border-left:5px solid var(--accent);border-radius:12px}
+.num{font-size:1.4rem;font-weight:900}
+.strip{grid-template-columns:1fr 1fr}.strip article{border-radius:12px}
+.feature-row{gap:28px}.feature-media img{aspect-ratio:16/10}
+.offer{grid-template-columns:1.05fr .95fr}.offer-main{border-radius:16px}
+.summary{border-radius:12px}
+.faq details{border-radius:12px}.faq details[open]{border-color:var(--accent)}
+.checkout{border-radius:16px}
+.btn{min-height:50px;font-weight:800}
+.trust span{font-weight:700}
+@media(max-width:820px){.strip{grid-template-columns:1fr}}
+`;
+
+/**
+ * Familia "tecnologia": precisión de instrumento. Grilla visible, tarjetas de
+ * vidrio sobrio, números protagonistas, hero centrado con el producto como
+ * pieza de museo. Nada grita: todo mide.
+ */
+const CSS_TECNOLOGIA = `
+/*f:tecnologia*/
+.hero{display:block;text-align:center;min-height:auto;max-width:960px;margin:auto}
+.hero-copy .actions{justify-content:center}
+.hero-media{margin-top:44px;max-width:880px;margin-inline:auto}
+.hero-media:before{inset:6% -4% -6% 4%;border-radius:24px}
+.hero-media img{border:1px solid var(--line)}
+.top{border-bottom:1px solid var(--line)}
+.bento{grid-template-columns:repeat(auto-fit,minmax(min(100%,250px),1fr))}
+.bento-card{background:linear-gradient(180deg,var(--surface),color-mix(in srgb,var(--surface) 60%,var(--bg)));border-radius:16px;font-variant-numeric:tabular-nums}
+.num{font-variant-numeric:tabular-nums;letter-spacing:.1em}
+.strip article{border-radius:16px;font-variant-numeric:tabular-nums}
+.offer{grid-template-columns:1fr 1fr;align-items:stretch}
+.offer-main,.offer-side,.checkout{border-radius:18px}
+.gallery{grid-auto-rows:200px}
+.faq{grid-template-columns:1fr 1fr}
+@media(max-width:820px){.faq{grid-template-columns:1fr}}
+`;
+
+/**
+ * Familia "familiar": calidez de sobremesa. Formas redondas, sin bordes
+ * duros, sombra tibia, CTA pastilla que invita. La oferta se lee como una
+ * recomendación, no como un contrato.
+ */
+const CSS_FAMILIAR = `
+/*f:familiar*/
+.hero{grid-template-columns:1fr 1fr;align-items:center}
+.hero-media:before{border-radius:48px;background:color-mix(in srgb,var(--accent) 14%,transparent)}
+.hero-media img{border-radius:36px}
+.hero h1{text-wrap:balance}
+.btn{border-radius:999px;min-height:52px;padding:15px 32px}
+.btn--primary{box-shadow:0 14px 30px color-mix(in srgb,var(--accent) 32%,transparent)}
+.trust{border:0}.trust span{border:0;border-radius:999px;background:var(--surface);box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 10%,transparent)}
+.bento-card,.strip article,.faq details{border:0;border-radius:24px;background:var(--surface);box-shadow:0 10px 30px color-mix(in srgb,var(--text) 6%,transparent)}
+.offer-main{border:0;border-radius:28px}
+.offer-side img{border-radius:24px}
+.cierre{border:0;border-radius:32px;background:linear-gradient(160deg,var(--surface),color-mix(in srgb,var(--accent) 10%,var(--surface)))}
+.gallery img{border-radius:24px}
+@media(max-width:820px){.hero{grid-template-columns:1fr}}
+`;
+
+/**
+ * Familia "creativa": neobrutalismo que vende. Bordes gruesos, sombras duras,
+ * tipografía enorme, composición alterna. Cada sección es un cartel: imposible
+ * scrollear sin mirar el precio y el botón.
+ */
+const CSS_CREATIVA = `
+/*f:creativa*/
+.top{border-bottom:3px solid var(--text)}
+.hero{align-items:start}
+.hero h1{font-size:clamp(2.8rem,7vw,5.6rem);line-height:.95}
+.hero-media img{border:3px solid var(--text);border-radius:18px;box-shadow:8px 8px 0 var(--text)}
+.hero-media:before{display:none}
+.eyebrow{background:var(--surface);border:2px solid var(--text);border-radius:999px;padding:6px 14px;color:var(--text);box-shadow:3px 3px 0 var(--text)}
+.btn{border:2px solid var(--text);border-radius:14px;box-shadow:4px 4px 0 var(--text);font-weight:900}
+.btn:active{transform:translate(2px,2px);box-shadow:2px 2px 0 var(--text)}
+.btn--primary{background:var(--accent)}
+.bento-card,.strip article,.faq details,.offer-main,.checkout{border:2px solid var(--text);border-radius:18px;box-shadow:6px 6px 0 var(--text)}
+.offer-side img{border:3px solid var(--text);border-radius:18px}
+.trust{border-top:3px solid var(--text);border-bottom:3px solid var(--text)}
+.trust span{border:2px solid var(--text);border-radius:999px;font-weight:800}
+.cierre{border:3px solid var(--text);border-radius:24px;box-shadow:8px 8px 0 var(--text)}
+`;
+
+
+/**
+ * Familia "suplemento": laboratorio + naturaleza. Blanco clínico, verde de
+ * confianza, tarjetas de ingredientes con check, franja de sellos. El precio
+ * y la garantía se leen antes que cualquier párrafo.
+ */
+const CSS_SUPLEMENTO = `
+/*f:suplemento*/
+.hero{grid-template-columns:1fr 1fr}
+.hero-media:before{background:color-mix(in srgb,var(--accent) 14%,transparent);border-radius:40px}
+.hero-media img{border-radius:28px}
+.eyebrow{background:color-mix(in srgb,var(--accent) 12%,transparent);border-radius:999px;padding:6px 14px;color:var(--accent);text-transform:none;letter-spacing:.02em;font-weight:800}
+.btn{border-radius:999px;min-height:52px}
+.btn--primary{box-shadow:0 14px 32px color-mix(in srgb,var(--accent) 36%,transparent)}
+.trust{border:0}.trust span{border-radius:999px;font-weight:700}
+.strip{grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr))}
+.strip article{border-radius:20px;background:var(--surface)}
+.strip article:before{font-size:1.3rem}
+.bento-card{border-radius:20px}
+.offer-main{border-radius:24px;border:2px solid color-mix(in srgb,var(--accent) 35%,var(--line))}
+.offer-price{color:var(--accent)}
+.faq details{border-radius:16px}
+.cierre{border-radius:28px}
+@media(max-width:820px){.hero{grid-template-columns:1fr}}
+`;
+
+/**
+ * Familia "gourmet": que dé hambre. Foto a sangre que manda, serif cálida,
+ * aire generoso, oferta como carta de restaurante. El CTA pastilla color
+ * cacao sobre crema: se ve a tres metros.
+ */
+const CSS_GOURMET = `
+/*f:gourmet*/
+.hero{grid-template-columns:1fr 1.15fr;min-height:78vh}
+.hero-media{order:2}.hero-media:before{display:none}
+.hero-media img{border-radius:4px 28px 28px 28px;max-height:720px}
+.hero h1{font-weight:700;text-wrap:balance}
+.lead{font-size:clamp(1.1rem,1.6vw,1.35rem)}
+.btn{border-radius:999px;min-height:54px;padding:16px 38px;font-weight:800}
+.trust{border:0;justify-content:center}.trust span{background:transparent;border:1px solid var(--line);border-radius:999px}
+.gallery{grid-template-columns:1fr 1fr;grid-auto-rows:280px}
+.gallery img{border-radius:20px}
+.gallery img:first-child{grid-column:auto;grid-row:span 2}
+.bento-card,.strip article{border-radius:22px}
+.offer-main{border-radius:26px;background:linear-gradient(165deg,var(--surface),color-mix(in srgb,var(--accent) 9%,var(--surface)))}
+.offer-price{font-size:clamp(2.6rem,5.4vw,5rem)}
+.cierre{border-radius:30px}
+@media(max-width:820px){.hero{grid-template-columns:1fr;min-height:auto}.hero-media{order:-1}.gallery{grid-template-columns:1fr}.gallery img:first-child{grid-row:auto}}
+`;
+
+/**
+ * Familia "electronica": ficha técnica con neón. Azul noche, cyan luminoso,
+ * bento de especificaciones, producto flotando con halo eléctrico. La oferta
+ * oscura hace que el precio en cyan sea lo más brillante de la página
+ * después del CTA.
+ */
+const CSS_ELECTRONICA = `
+/*f:electronica*/
+.hero{position:relative;isolation:isolate}
+.hero:before{content:"";position:absolute;left:50%;top:-6%;width:70%;height:64%;transform:translateX(-50%);background:radial-gradient(closest-side,color-mix(in srgb,var(--accent) 26%,transparent),transparent 72%);filter:blur(52px);z-index:-1;pointer-events:none}
+.hero-media img{border:1px solid color-mix(in srgb,var(--accent) 40%,var(--line));box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 25%,transparent),0 24px 70px color-mix(in srgb,var(--accent) 20%,transparent)}
+.hero h1{text-wrap:balance}
+.eyebrow{color:var(--accent);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);border-radius:6px;padding:6px 12px;background:color-mix(in srgb,var(--accent) 8%,transparent)}
+.btn{border-radius:10px;min-height:50px;font-weight:800}
+.btn--primary{box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 60%,transparent),0 12px 34px color-mix(in srgb,var(--accent) 35%,transparent)}
+.bento-card{background:linear-gradient(180deg,color-mix(in srgb,var(--surface) 85%,transparent),color-mix(in srgb,var(--surface) 55%,transparent));border:1px solid color-mix(in srgb,var(--accent) 18%,var(--line));border-radius:14px;font-variant-numeric:tabular-nums}
+.num{letter-spacing:.14em}
+.strip article{border-radius:14px;border:1px solid color-mix(in srgb,var(--accent) 18%,var(--line))}
+.offer-main{border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line));border-radius:18px;background:linear-gradient(160deg,var(--surface),color-mix(in srgb,var(--accent) 8%,var(--surface)))}
+.offer-price{color:var(--accent);text-shadow:0 0 32px color-mix(in srgb,var(--accent) 45%,transparent)}
+.trust{border-color:color-mix(in srgb,var(--accent) 20%,var(--line))}
+.faq details{border-radius:12px}
+.cierre{border:1px solid color-mix(in srgb,var(--accent) 30%,var(--line));border-radius:20px}
+`;
+
+/**
+ * Familia "dropshipping": emoción contraentrega. Degradado vivo en el hero,
+ * producto flotando con halo, CTA pastilla con degradado imposible de no
+ * ver, oferta compacta con precio gigante. Ritmo rápido: vender en el primer
+ * scroll, probar abajo.
+ */
+const CSS_DROPSHIPPING = `
+/*f:dropshipping*/
+.hero{position:relative;isolation:isolate;overflow:clip;border-radius:0 0 32px 32px;background:linear-gradient(165deg,color-mix(in srgb,var(--accent) 22%,var(--bg)),var(--bg) 62%)}
+.hero-media img{border-radius:24px;border:3px solid color-mix(in srgb,#fff 55%,transparent);box-shadow:0 30px 70px color-mix(in srgb,var(--accent) 35%,transparent)}
+.hero-media:before{background:color-mix(in srgb,var(--accent) 30%,transparent);filter:blur(30px)}
+.hero h1{font-size:clamp(2.2rem,5.4vw,4.2rem);text-wrap:balance}
+.hero-price{font-size:clamp(1.6rem,3vw,2.2rem)}
+.eyebrow{background:var(--text);color:var(--bg);border-radius:999px;padding:7px 16px;letter-spacing:.06em}
+.btn{border-radius:999px;min-height:56px;padding:16px 36px;font-weight:900;font-size:1.05rem}
+.btn--primary{background:linear-gradient(180deg,color-mix(in srgb,var(--accent) 85%,#fff),var(--accent));box-shadow:0 16px 40px color-mix(in srgb,var(--accent) 45%,transparent)}
+.trust{border:0;justify-content:center}.trust span{border-radius:999px;font-weight:800;background:var(--surface)}
+.bento-card,.strip article{border-radius:20px}
+.offer-main{border:0;border-radius:26px;background:linear-gradient(160deg,var(--text),color-mix(in srgb,var(--text) 78%,var(--accent)));color:var(--bg)}
+.offer-main .lead{color:var(--bg)}
+.offer-price{color:var(--bg)}
+.checkout{border-radius:24px}
+.sticky .btn{border-radius:16px}
+`;
 
 function renderFeature(section: SeccionParaRenderizar, producto: ProductoParaRenderizar | null | undefined, idx: number, foto: string): string {
   const src = foto;
@@ -471,8 +850,20 @@ function renderCierre(section: SeccionParaRenderizar, destino: string): string {
  * presupuesto de fotos; sin foto libre, la tarjeta va sola y centrada.
  */
 function renderOferta(section: SeccionParaRenderizar, producto: ProductoParaRenderizar | null | undefined, destino: string, foto: string, heroTitle: string): string {
+  return renderOfertaVariante("card", section, producto, destino, foto, heroTitle);
+}
+function renderOfertaVariante(v: OfertaV, section: SeccionParaRenderizar, producto: ProductoParaRenderizar | null | undefined, destino: string, foto: string, heroTitle: string): string {
   const price = precio(producto);
   const src = foto;
+  if (v === "minimal") {
+    const subtitle = section.subtitle && !esSoloPrecio(section.subtitle) ? `<p class="lead">${esc(acotar(section.subtitle, 240))}</p>` : "";
+    return `<div class="shell offer--minimal"><div class="offer-main"><p class="eyebrow">${rotulo(section.type)}</p><h2>${esc(section.title || "La oferta")}</h2>${subtitle}${price ? `<div class="offer-price">${esc(price)}</div>` : ""}${cuerpo(section.body, { sinPrecio: !!price })}<div class="actions">${section.cta ? btn(section.cta, destino) : ""}</div></div></div>`;
+  }
+  if (v === "split") {
+    const subtitle = section.subtitle && !esSoloPrecio(section.subtitle) ? `<p class="lead">${esc(acotar(section.subtitle, 240))}</p>` : "";
+    const side = `<div class="offer-sidecol">${price ? `<div class="offer-price">${esc(price)}</div>` : ""}${section.cta ? btn(section.cta, destino) : ""}${src ? figure(src, producto?.name || heroTitle) : ""}</div>`;
+    return `<div class="shell offer offer--split"><div class="offer-main"><p class="eyebrow">${rotulo(section.type)}</p><h2>${esc(section.title || "La oferta")}</h2>${subtitle}${cuerpo(section.body, { sinPrecio: !!price })}</div>${side}</div>`;
+  }
   const subtitle = section.subtitle && !esSoloPrecio(section.subtitle) ? `<p class="lead">${esc(acotar(section.subtitle, 240))}</p>` : "";
   const main = `<div class="offer-main"><p class="eyebrow">${rotulo(section.type)}</p><h2>${esc(section.title || "La oferta")}</h2>${subtitle}${price ? `<div class="offer-price">${esc(price)}</div>` : ""}${cuerpo(section.body, { sinPrecio: !!price })}${section.cta ? btn(section.cta, destino) : ""}</div>`;
   const side = src ? `<div class="offer-side">${figure(src, producto?.name || heroTitle)}</div>` : "";
@@ -503,13 +894,25 @@ function renderGallery(section: SeccionParaRenderizar, producto: ProductoParaRen
   return `<div class="head"><p class="eyebrow">Galería</p><h2>${esc(section.title || "Míralo de cerca")}</h2>${section.subtitle ? `<p class="lead">${esc(section.subtitle)}</p>` : ""}</div><div class="gallery">${urls.map((url, i) => `<img src="${esc(url)}" alt="${esc(producto?.name || "Producto")} · vista ${i + 1}" loading="lazy" decoding="async">`).join("")}</div>`;
 }
 
-function renderCheckout(cierre: CierreDeLanding, producto: ProductoParaRenderizar | null | undefined, negocio: NegocioParaRenderizar | null | undefined): string {
+/**
+ * Selector de transportadora del formulario (30-09-2026): con ciudad y
+ * departamento escritos, pregunta a /envio qué transportadoras de Dropi pueden
+ * llevar ESTE producto allá y deja elegir. Sin precios de envío (regla del
+ * dueño); si el cliente no elige, el despacho usa la más económica. Si no hay
+ * cotización posible el campo no aparece y el pedido sigue igual.
+ */
+export const SCRIPT_TRANSPORTADORA = "(function(){var f=document.querySelector('.checkout-form');if(!f||!/\\/pedido$/.test(f.getAttribute('action')||''))return;var box=f.querySelector('.envio-transportadora');if(!box)return;var c=f.querySelector('[name=ciudad]'),d=f.querySelector('[name=departamento]'),ult='';function q(){var ci=(c.value||'').trim(),de=(d.value||'').trim();if(ci.length<3||de.length<3)return;var k=ci+'|'+de;if(k===ult)return;ult=k;fetch(f.getAttribute('action').replace(/\\/pedido$/,'/envio')+'?ciudad='+encodeURIComponent(ci)+'&departamento='+encodeURIComponent(de)).then(function(r){return r.json()}).then(function(j){if(k!==ult)return;if(!j||!j.ok){box.hidden=true;box.innerHTML='';return;}var t=j.transportadoras||[];var h='';if(t.length){h='<label>Transportadora</label><select name=\"transportadora\"><option value=\"\">La más económica (recomendada)</option>'+t.map(function(n){var e=String(n).replace(/[&<>\"]/g,'');return '<option value=\"'+e+'\">'+e+'</option>'}).join('')+'</select>';}if(j.aceptaContraentrega===false)h+='<p class=\"tiny\">A esta ciudad no hay pago contraentrega: te contactamos para el pago.</p>';if(!t.length&&j.mensaje)h+='<p class=\"tiny\">'+String(j.mensaje).replace(/[&<>]/g,'')+'</p>';box.innerHTML=h;box.hidden=!h;}).catch(function(){});}c.addEventListener('change',q);d.addEventListener('change',q);})();";
+
+/** Departamento + ciudad (lista completa de Dropi si el negocio la tiene). Ver geo-colombia.ts. */
+export const SCRIPT_CIUDADES = SCRIPT_GEO;
+
+export function renderCheckout(cierre: CierreDeLanding, producto: ProductoParaRenderizar | null | undefined, negocio: NegocioParaRenderizar | null | undefined): string {
   const wa = whatsapp(producto, negocio);
   const price = precio(producto);
   if (cierre.tipo === "contraentrega" && cierre.accion) {
     const opciones = (producto?.opciones || []).filter((o) => o?.nombre && Array.isArray(o.valores) && o.valores.length);
     const optionFields = opciones.map((o) => `<div class="field"><label>${esc(o.nombre)}${o.obligatoria ? " *" : ""}</label><select name="opcion_${esc(o.nombre)}" ${o.obligatoria ? "required" : ""}><option value="">Seleccionar…</option>${o.valores.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("")}</select></div>`).join("");
-    return `<div class="checkout" id="pedido"><div class="head"><p class="eyebrow">Compra directa</p><h2>Pedilo desde aquí</h2><p class="lead">Completá los datos de entrega. El precio y las opciones se validan con los datos reales del producto.</p></div><div class="summary"><strong>${esc(producto?.name || "Producto")}</strong>${price ? `<div class="offer-price">${esc(price)}</div>` : ""}<div class="tiny">Pago según las condiciones de entrega del negocio.</div></div><form class="checkout-form" method="post" action="${esc(cierre.accion)}"><div class="checkout-grid">${optionFields}<div class="field"><label>Cantidad *</label><input name="cantidad" type="number" min="1" max="10" value="1" required></div><div class="field"><label>Nombre y apellido *</label><input name="nombre" autocomplete="name" required></div><div class="field"><label>Celular *</label><input name="telefono" inputmode="tel" autocomplete="tel" required></div><div class="field"><label>Cédula *</label><input name="documento" inputmode="numeric" autocomplete="off" required></div><div class="field field--full"><label>Dirección completa *</label><input name="direccion" autocomplete="street-address" required></div><div class="field"><label>Barrio</label><input name="barrio"></div><div class="field"><label>Ciudad *</label><input name="ciudad" autocomplete="address-level2" required></div><div class="field"><label>Departamento *</label><input name="departamento" autocomplete="address-level1" required></div><div class="field field--full"><label>Referencia</label><input name="referencia"></div><div class="field field--full"><label>Cupón de descuento</label><input name="cupon" autocomplete="off" placeholder="Opcional"></div></div><button class="btn btn--primary" type="submit" style="width:100%;margin-top:18px">Pedir ahora y pagar al recibir</button><p class="tiny checkout-status" aria-live="polite"></p></form>${wa ? `<p class="tiny">¿Preferís escribir? <a href="${esc(wa)}" style="color:var(--accent);font-weight:800">WhatsApp</a></p>` : ""}</div><script>(function(){var f=document.querySelector('.checkout-form');if(!f)return;f.addEventListener('submit',async function(e){e.preventDefault();var b=f.querySelector('button'),s=f.querySelector('.checkout-status');b.disabled=true;s.textContent='Registrando tu pedido…';var d={};new FormData(f).forEach(function(v,k){d[k]=v});try{var r=await fetch(f.action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});var j=await r.json();if(j.ok){if(j.gracias){window.location.href=j.gracias;return;}f.innerHTML='<div class="summary"><strong>✅ ¡Felicidades! Tu pedido quedó registrado</strong><p>Pronto estaremos en contacto para confirmar la entrega.</p></div>';}else{throw new Error(j.error||'No se pudo registrar');}}catch(x){s.textContent=x.message||'No se pudo registrar';b.disabled=false;}})})();</script>`;
+    return `<div class="checkout" id="pedido"><div class="head"><p class="eyebrow">Compra directa</p><h2>Pídelo desde aquí</h2><p class="lead">Completa los datos de entrega. El precio y las opciones se validan con los datos reales del producto.</p></div><div class="summary"><strong>${esc(producto?.name || "Producto")}</strong>${price ? `<div class="offer-price">${esc(price)}</div>` : ""}<div class="tiny">Pago según las condiciones de entrega del negocio.</div></div><form class="checkout-form" method="post" action="${esc(cierre.accion)}"><div class="checkout-grid">${optionFields}<div class="field"><label>Cantidad *</label><input name="cantidad" type="number" min="1" max="10" value="1" required></div><div class="field"><label>Nombre y apellido *</label><input name="nombre" autocomplete="name" required></div><div class="field"><label>Celular *</label><input name="telefono" inputmode="tel" autocomplete="tel" required></div>${/^(co|col|colombia)?$/i.test(String((cierre as any).pais || "")) ? "" : `<div class="field"><label>Documento *</label><input name="documento" inputmode="numeric" autocomplete="off" required></div>`}<div class="field field--full"><label>Dirección completa *</label><input name="direccion" autocomplete="street-address" required></div><div class="field"><label>Barrio</label><input name="barrio"></div><div class="field"><label>Departamento *</label><select name="departamento" autocomplete="address-level1" required><option value="">Selecciona…</option>${DEPARTAMENTOS_CO.map((d) => `<option>${esc(d)}</option>`).join("")}</select></div><div class="field"><label>Ciudad *</label><input name="ciudad" list="ciudades-datalist" autocomplete="address-level2" required placeholder="Elige departamento primero"><datalist id="ciudades-datalist"></datalist></div><div class="field field--full envio-transportadora" hidden></div><div class="field field--full"><label>Referencia</label><input name="referencia"></div><div class="field field--full"><label>Cupón de descuento</label><input name="cupon" autocomplete="off" placeholder="Opcional"></div></div><button class="btn btn--primary" type="submit" style="width:100%;margin-top:18px">Pedir ahora y pagar al recibir</button><p class="tiny checkout-status" aria-live="polite"></p></form>${wa ? `<p class="tiny">¿Prefieres escribir? <a href="${esc(wa)}" style="color:var(--accent);font-weight:800">WhatsApp</a></p>` : ""}</div><script>${SCRIPT_TRANSPORTADORA}</script><script>${SCRIPT_CIUDADES}</script><script>(function(){var f=document.querySelector('.checkout-form');if(!f)return;f.addEventListener('submit',async function(e){e.preventDefault();var b=f.querySelector('button'),s=f.querySelector('.checkout-status');b.disabled=true;s.textContent='Registrando tu pedido…';var d={};new FormData(f).forEach(function(v,k){d[k]=v});try{var r=await fetch(f.action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});var j=await r.json();if(j.ok){if(j.gracias){window.location.href=j.gracias;return;}f.innerHTML='<div class="summary"><strong>✅ ¡Felicidades! Tu pedido quedó registrado</strong><p>Pronto estaremos en contacto para confirmar la entrega.</p></div>';}else{throw new Error(j.error||'No se pudo registrar');}}catch(x){s.textContent=x.message||'No se pudo registrar';b.disabled=false;}})})();</script>`;
   }
   if (cierre.tipo === "pago") {
     const actions = [cierre.mercadopago ? btn("Pagar con MercadoPago", cierre.mercadopago) : "", cierre.paypal ? btn("Pagar con PayPal", cierre.paypal, "soft") : "", wa ? btn("Comprar por WhatsApp", wa, "soft") : ""].filter(Boolean).join("");
@@ -536,7 +939,86 @@ export function tituloLegible(t: string): string {
   return bajo.charAt(0).toUpperCase() + bajo.slice(1);
 }
 
+/**
+ * Variantes estructurales por familia (2026-09-28): el molde (orden de
+ * secciones y hechos del producto) no cambia; lo que cambia es el ESQUELETO
+ * de hero/oferta/beneficios. `section.layout` manda; si no viene, manda la
+ * familia. Así dos landings de familias distintas son dos diseños distintos,
+ * no la misma plantilla repintada.
+ */
+type HeroV = "split" | "stack" | "bleed" | "buybox" | "offer-first" | "editorial";
+type OfertaV = "card" | "split" | "minimal";
+type BeneficiosV = "cards" | "numbered" | "checklist";
+
+const HERO_POR_FAMILIA: Record<string, HeroV> = {
+  premium: "stack", launch: "stack", tecnologia: "stack", gourmet: "stack", oscura: "stack",
+  "respuesta-directa": "offer-first",
+  dropshipping: "buybox", ecommerce: "buybox", electronica: "buybox", suplemento: "buybox",
+  belleza: "bleed", fitness: "bleed", creativa: "bleed", familiar: "bleed",
+  editorial: "editorial", minimal: "split", educacion: "split",
+};
+const HERO_ALIAS: Record<string, HeroV> = {
+  hero_offer: "offer-first", hero_product_focus: "buybox", hero_gradient_product: "buybox",
+  hero_center: "stack", hero_left: "split", hero_split: "split", hero_full_visual: "bleed",
+  hero_editorial: "editorial", hero_dark: "stack",
+  split: "split", stack: "stack", bleed: "bleed", buybox: "buybox", "offer-first": "offer-first", editorial: "editorial",
+};
+const OFERTA_POR_FAMILIA: Record<string, OfertaV> = {
+  editorial: "split", educacion: "split", tecnologia: "split", minimal: "minimal",
+};
+const OFERTA_ALIAS: Record<string, OfertaV> = {
+  offer_minimal: "minimal", offer_split: "split", offer_product: "split",
+  offer_urgency: "card", offer_card: "card", offer_dark: "card",
+  card: "card", split: "split", minimal: "minimal",
+};
+const BENEFICIOS_POR_FAMILIA: Record<string, BeneficiosV> = {
+  fitness: "numbered", educacion: "numbered", editorial: "numbered",
+  minimal: "checklist", suplemento: "checklist",
+};
+const BENEFICIOS_ALIAS: Record<string, BeneficiosV> = {
+  benefits_numbered: "numbered", benefits_icon_grid: "cards", benefits_cards: "cards",
+  benefits_editorial: "numbered", benefits_split: "checklist", benefits_visual: "cards",
+  cards: "cards", numbered: "numbered", checklist: "checklist",
+};
+
+function heroDe(familia: string, layout?: string | null): HeroV {
+  const l = HERO_ALIAS[String(layout || "").toLowerCase()];
+  if (l) return l;
+  return HERO_POR_FAMILIA[familia] || "split";
+}
+function ofertaDe(familia: string, layout?: string | null): OfertaV {
+  const l = OFERTA_ALIAS[String(layout || "").toLowerCase()];
+  if (l) return l;
+  return OFERTA_POR_FAMILIA[familia] || "card";
+}
+function beneficiosDe(familia: string, layout?: string | null): BeneficiosV {
+  const l = BENEFICIOS_ALIAS[String(layout || "").toLowerCase()];
+  if (l) return l;
+  return BENEFICIOS_POR_FAMILIA[familia] || "cards";
+}
+
+function renderHeroVariante(hv: HeroV, c: { heroTitle: string; heroSubtitle: string; heroCta: string; destino: string; wa: string; heroImage: string; heroGaleria: string[]; producto: ProductoParaRenderizar | null; fisico: boolean; tokens: any; trust: string[] }): string {
+  const ojo = c.fisico ? "Compra directa" : "Acceso digital";
+  const copy = `<p class="eyebrow">${ojo}</p><h1>${esc(c.heroTitle)}</h1>${c.heroSubtitle ? `<p class="lead">${esc(c.heroSubtitle)}</p>` : ""}`;
+  const price = precio(c.producto) ? `<div class="hero-price">${esc(precio(c.producto))}</div>` : "";
+  const actions = `<div class="actions">${btn(c.heroCta, c.destino)}${c.wa ? btn("Resolver dudas", c.wa, "soft") : ""}</div>`;
+  const media = `<div class="hero-media">${heroGallery(c.heroGaleria && c.heroGaleria.length ? c.heroGaleria : (c.heroImage ? [c.heroImage] : []), c.producto?.name || c.heroTitle)}</div>`;
+  if (hv === "stack") return `<section class="shell hero hero--stack"><div class="hero-copy">${copy}${price}${actions}</div>${media}</section>`;
+  if (hv === "bleed" && c.heroImage) return `<section class="shell hero hero--bleed"><div class="hero-bg"><img src="${esc(c.heroImage)}" alt="${esc(c.producto?.name || c.heroTitle)}" loading="eager" decoding="async"></div><div class="hero-card">${copy}${price}${actions}</div></section>`;
+  if (hv === "buybox") {
+    const meta = c.trust.slice(0, 3).map((x) => `<li>${esc(String(x || "").replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\uFE0F\s]+/u, "").trim())}</li>`).join("");
+    const buyboxPrice = precio(c.producto) ? `<div class="buybox-price">${esc(precio(c.producto))}</div>` : "";
+    const panel = `<div class="buybox"><p class="eyebrow">${ojo}</p><h2>${esc(c.heroTitle)}</h2>${c.heroSubtitle ? `<p class="lead">${esc(c.heroSubtitle)}</p>` : ""}${buyboxPrice}${btn(c.heroCta, c.destino)}${c.wa ? `<p class="tiny" style="margin:12px 0 0"><a href="${esc(c.wa)}" style="color:var(--accent);font-weight:800">Resolver dudas por WhatsApp</a></p>` : ""}${meta ? `<ul class="buybox-meta">${meta}</ul>` : ""}</div>`;
+    return `<section class="shell hero hero--buybox"><div class="hero-media">${heroGallery(c.heroGaleria && c.heroGaleria.length ? c.heroGaleria : (c.heroImage ? [c.heroImage] : []), c.producto?.name || c.heroTitle)}</div>${panel}</section>`;
+  }
+  if (hv === "offer-first") return `<section class="shell hero hero--offerfirst"><div class="hero-copy"><p class="eyebrow">${ojo}</p>${price}${actions}<h1>${esc(c.heroTitle)}</h1>${c.heroSubtitle ? `<p class="lead">${esc(c.heroSubtitle)}</p>` : ""}</div>${media}</section>`;
+  if (hv === "editorial") return `<section class="shell hero hero--edito"><div class="hero-copy">${copy}${price}${actions}</div>${media}</section>`;
+  const center = c.tokens.alineacion === "centrado" ? " hero--center" : "";
+  return `<section class="shell hero${center}"><div class="hero-copy">${copy}${price}${actions}</div>${media}</section>`;
+}
+
 export function renderizarLanding(opts: OpcionesDeRender): string {
+  if (opts.modo === "imagenes") return renderizarLandingImagenes(opts);
   const familia = String(opts.familia || "ecommerce");
   const tokens = tokensDe(familia);
   const producto = opts.producto || null;
@@ -552,21 +1034,33 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
   const destino = opts.cierre ? "#pedido" : (urlSegura(producto?.paymentLink) || wa || "#pedido");
   const heroTitle = tituloLegible(String(hero.title || producto?.name || ""));
   // Un hero es una promesa, no la ficha entera: se acota como el resto.
-  const heroSubtitle = acotar(String(hero.subtitle || producto?.description || "").replace(/\s+/g, " "), 260);
+  const heroSubtitle = cortarFrase(String(hero.subtitle || producto?.description || ""), 220);
   const heroCta = String(hero.cta || (fisico ? "Pedir ahora" : "Comprar ahora"));
   const trust = (negocio?.confianza || []).filter(Boolean).slice(0, 5);
+  const todasFotos = [...new Set((producto?.images || []).map(safeImage).filter(Boolean))].filter(Boolean);
+  const heroExtras = todasFotos.filter((f) => f !== heroImage);
+  // El hero muestra la principal + 1 extra (2 si hay 5+): el resto sigue
+  // abajo (oferta, banda, galería). Con 1 foto no hay galería.
+  // El bleed muestra UNA foto de fondo: no reserva extras (se perderían).
+  const hv0 = heroDe(familia, (hero as any).layout);
+  const nExtra = hv0 === "bleed" ? 0 : (todasFotos.length >= 5 ? 2 : (todasFotos.length >= 2 ? 1 : 0));
+  const heroGaleria = heroImage ? [heroImage, ...heroExtras.slice(0, nExtra)] : [];
+  const enHero = new Set(heroGaleria);
+  const fotosLibres = todasFotos.filter((f) => !enHero.has(f));
   let featureIndex = 0;
 
   const header = `<header class="top"><div class="top__in"><span class="brand">${esc(negocio?.nombre || opts.nombre || producto?.name || "")}</span>${btn(heroCta, destino)}</div></header>`;
-  const heroHtml = `<section class="shell hero ${tokens.alineacion === "centrado" ? "hero--center" : ""}"><div class="hero-copy"><p class="eyebrow">${fisico ? "Compra directa" : "Acceso digital"}</p><h1>${esc(heroTitle)}</h1>${heroSubtitle ? `<p class="lead">${esc(heroSubtitle)}</p>` : ""}${precio(producto) ? `<div class="hero-price">${esc(precio(producto))}</div>` : ""}<div class="actions">${btn(heroCta, destino)}${wa ? btn("Resolver dudas", wa, "soft") : ""}</div></div><div class="hero-media">${figure(heroImage, producto?.name || heroTitle, "media-frame", "eager")}</div></section>`;
-  const trustHtml = trust.length ? `<section class="shell"><div class="trust">${trust.map((x) => `<span>✓ ${esc(x)}</span>`).join("")}</div></section>` : "";
+  const hv = heroDe(familia, (hero as any).layout);
+  const heroHtml = renderHeroVariante(hv, { heroTitle, heroSubtitle, heroCta, destino, wa, heroImage, heroGaleria, producto, fisico, tokens, trust });
+  const sinEmoji = (x: string) => String(x || "").replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\uFE0F\s]+/u, "").trim();
+  const trustHtml = trust.length ? `<section class="shell"><div class="trust">${trust.map((x) => `<span>${iconoPara(x)} ${esc(sinEmoji(x))}</span>`).join("")}</div></section>` : "";
+  const topbarHtml = trust.length >= 2 ? `<div class="topbar"><div class="topbar-in">${trust.slice(0, 3).map((x) => `<span>${iconoPara(x)} ${esc(sinEmoji(x))}</span>`).join("")}</div></div>` : "";
 
   // ── Presupuesto de fotos ─────────────────────────────────────────────
   // Cada foto lateral se usa UNA vez y nunca la del hero: antes "rotaban"
   // en círculo, así que con 1-2 fotos la misma imagen salía en el hero, la
   // oferta, el envío y el cierre (visto el 14-09-2026). Sin foto libre, el
   // bloque se dibuja sin foto; repetirla no le suma nada al que compra.
-  const fotosLibres = [...new Set((producto?.images || []).map(safeImage).filter(Boolean))].filter((f) => f !== heroImage);
   const usadas = new Set<string>();
   const tomarFoto = () => {
     const f = fotosLibres.shift() || "";
@@ -596,11 +1090,15 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
     if (vacia && !type.includes("gallery")) return "";
     if (type.includes("faq")) return `<section class="sec"><div class="shell narrow">${renderFaq(section)}</div></section>`;
     if (type.includes("gallery") || type.includes("visual")) { const marca = `@@GALERIA:${idx}@@`; galerias.set(marca, section); return marca; }
-    if (type.includes("benefit") || type.includes("feature")) return `<section class="sec"><div class="shell">${renderBenefits(section)}</div></section>`;
+    if (type.includes("benefit") || type.includes("feature")) return `<section class="sec"><div class="shell">${renderBenefitsVariante(beneficiosDe(familia, (section as any).layout), section)}</div></section>`;
     if (["how-it-works", "how_it_works", "steps", "como-funciona", "comparison", "before-after"].some((k) => type.includes(k))) return `<section class="sec"><div class="shell">${renderFeature(section, producto, featureIndex++, fotoPara(section))}</div></section>`;
     if (type.includes("logistic")) return `<section class="sec"><div class="shell">${renderLogistica(section)}</div></section>`;
+    if (["photo-band", "photoband", "foto-banda", "fullbleed", "full-bleed"].some((k) => type.includes(k))) { const f = fotoPara(section); const h = renderPhotoBand(f, String(section.subtitle || section.title || "")); if (h) return h; return ""; }
     if (type === "cta" || type.endsWith("-cta") || type.includes("cierre")) return `<section class="sec"><div class="shell">${renderCierre(section, destino)}</div></section>`;
-    if (["offer", "authority", "bundle", "guarantee"].some((k) => type.includes(k))) return `<section class="sec">${renderOferta(section, producto, destino, fotoPara(section), heroTitle)}</section>`;
+    if (["offer", "authority", "bundle", "guarantee"].some((k) => type.includes(k))) {
+      const ov = ofertaDe(familia, (section as any).layout);
+      return `<section class="sec">${renderOfertaVariante(ov, section, producto, destino, ov === "minimal" ? "" : fotoPara(section), heroTitle)}</section>`;
+    }
     return `<section class="sec"><div class="shell narrow"><div class="head"><p class="eyebrow">${rotulo(type)}</p><h2>${esc(section.title || "Más información")}</h2>${section.subtitle ? `<p class="lead">${esc(acotar(section.subtitle, 240))}</p>` : ""}${cuerpo(section.body)}</div></div></section>`;
   });
   // Una sola galería por página, con lo que quedó libre; las demás marcas
@@ -622,5 +1120,5 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
   const sticky = destino ? `<div class="sticky">${btn(heroCta + (precio(producto) ? ` · ${precio(producto)}` : ""), destino)}</div>` : "";
   const description = esc(String(producto?.description || heroSubtitle || heroTitle).replace(/\s+/g, " ").slice(0, 155));
 
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(opts.nombre || heroTitle || "Landing")}</title><meta name="description" content="${description}"><meta property="og:title" content="${esc(opts.nombre || heroTitle || "Landing")}"><meta property="og:description" content="${description}">${heroImage ? `<meta property="og:image" content="${esc(heroImage)}">` : ""}<meta name="color-scheme" content="${tokens.fondos === "oscuro" ? "dark" : "light"}"><style>${cssBase(familia)}</style></head><body>${header}<main>${heroHtml}${trustHtml}${sectionHtml}${checkoutHtml}</main>${footer}${sticky}</body></html>`;
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(opts.nombre || heroTitle || "Landing")}</title><meta name="description" content="${description}"><meta property="og:title" content="${esc(opts.nombre || heroTitle || "Landing")}"><meta property="og:description" content="${description}">${heroImage ? `<meta property="og:image" content="${esc(heroImage)}">` : ""}<meta name="color-scheme" content="${tokens.fondos === "oscuro" ? "dark" : "light"}"><style>${cssBase(familia)}</style></head><body>${topbarHtml}${header}<main>${heroHtml}${trustHtml}${sectionHtml}${checkoutHtml}</main>${footer}${sticky}</body></html>`;
 }

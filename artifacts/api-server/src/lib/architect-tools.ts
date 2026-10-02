@@ -143,12 +143,15 @@ export class ArchitectTools {
       changes.image = "Sin imagen disponible";
     }
 
+    // Antes se le escribían a todo producto sin características estas cuatro
+    // por defecto: "Acceso permanente", "Contenido actualizable", "Soporte
+    // técnico", "Descargas ilimitadas". Nadie las verificó, y la ficha se las
+    // prometía a cada cliente (chat de prueba, 30-09-2026: cuatro cursos de
+    // diseño con los mismos cuatro puntos). Lo que no está cargado no se
+    // afirma: se avisa que falta, y lo completa el dueño.
     const features = product.features as string[] | null;
     if (!features || features.length === 0) {
-      await db.update(products).set({
-        features: ["Acceso permanente", "Contenido actualizable", "Soporte técnico", "Descargas ilimitadas"],
-      }).where(eq(products.id, productId));
-      changes.features = "Agregadas por defecto";
+      changes.features = "Sin características: cárgalas en el producto (no se inventan)";
     }
 
     return { productId, name: product.name, changes };
@@ -227,7 +230,8 @@ export class ArchitectTools {
       features: data.features || [],
       highlight: data.highlight || "",
       isActive: data.isActive !== false,
-      tenantId: data.tenantId || 1,
+      // Sin negocio explícito no se crea (antes: al negocio 1, el del dueño).
+      tenantId: (() => { const t = Number(data.tenantId); if (!t) throw new Error("createProduct: falta tenantId"); return t; })(),
     } as any).returning();
 
     return { id: newProduct.id, name: newProduct.name, kind: newProduct.kind };

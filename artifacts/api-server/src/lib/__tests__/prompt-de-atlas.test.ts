@@ -43,8 +43,14 @@ describe("el prompt de Atlas entra en el límite del proveedor", () => {
     //
     // Esta prueba deja el número a la vista para que nadie vuelva a suponer
     // que con recortar basta.
+    //
+    // Techo 5500 → 6150 el 01-10-2026: medido 5.949 SIN cambios (el techo ya
+    // estaba roto por deriva previa, no por lo nuevo) y 6.112 con las
+    // herramientas del día (audiencias fb_* ×4, metodo_de_venta,
+    // oferta_2x_sugerir, integraciones_* ×4: +163). La conclusión no cambia:
+    // sigue sin entrar en Groq con system + catálogo + historial.
     const tokens = TOKENS(buildToolsDoc("hazme una campaña en facebook"));
-    expect(tokens).toBeLessThan(5500);
+    expect(tokens).toBeLessThan(6150);
     expect(tokens).toBeGreaterThan(3000);
   });
 

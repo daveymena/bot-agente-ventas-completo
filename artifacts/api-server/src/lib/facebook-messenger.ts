@@ -4,6 +4,7 @@ import { eq, desc } from "drizzle-orm";
 import { runAgentReply } from "./agent";
 import { toEmojiStyle } from "./conversation-engine";
 import { tenantManager, type TenantContext } from "./tenantManager";
+import { respaldoEnvFacebook } from "./tenant-facebook-credentials";
 import { createHmac } from "crypto";
 
 import { FB_GRAPH_BASE } from "./meta-api-version";
@@ -29,11 +30,12 @@ export class FacebookMessengerService {
     pageId: string;
   } {
     const fb = this.tenant.facebook || {};
+    const env = respaldoEnvFacebook(this.tenant.id); // .env = cuenta del dueño: solo para él
     return {
-      pageAccessToken: fb.accessToken || fb.messengerPageToken || process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN || "",
+      pageAccessToken: fb.accessToken || fb.messengerPageToken || env(process.env.FB_ACCESS_TOKEN || process.env.FB_MESSENGER_PAGE_TOKEN),
       appSecret: fb.appSecret || process.env.FB_APP_SECRET || "",
       appId: fb.appId || process.env.FB_APP_ID || "",
-      pageId: fb.pageId || process.env.FB_PAGE_ID || "",
+      pageId: fb.pageId || env(process.env.FB_PAGE_ID),
     };
   }
 

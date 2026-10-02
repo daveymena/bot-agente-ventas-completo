@@ -62,8 +62,10 @@ describe("el cierre depende del modelo del producto", () => {
   it("físico: formulario contraentrega que POSTea al pedido, y WhatsApp como alternativa", () => {
     const html = renderizarLanding({ ...base, cierre: { tipo: "contraentrega", accion: "/api/landing-publica/faja-x/pedido", pais: "CO", pago: "contraentrega" } });
     expect(html).toMatch(/<form class="pedido" method="post" action="\/api\/landing-publica\/faja-x\/pedido"/);
-    for (const campo of ["nombre", "telefono", "documento", "direccion", "ciudad", "departamento", "referencia"]) expect(html).toMatch(new RegExp(`name="${campo}"`));
-    expect(html).toMatch(/Cédula/);
+    for (const campo of ["nombre", "telefono", "direccion", "ciudad", "departamento", "referencia"]) expect(html).toMatch(new RegExp(`name="${campo}"`));
+    // En Colombia no se pide la cédula (regla del dueño, 24-09-2026).
+    expect(html).not.toMatch(/name="documento"/);
+    expect(html).not.toMatch(/Cédula/);
     expect(html).toMatch(/wa\.me\/573042748687\?text=/);
     // todos los CTA de la página apuntan al bloque de pedido
     expect(html).toMatch(/<header class="top">.*href="#pedido"/s);
@@ -97,5 +99,29 @@ describe("movimiento sin dejar nada invisible", () => {
     expect(html).toMatch(/IntersectionObserver/);
     // El HTML NO trae data-reveal de fábrica: lo pone el script.
     expect(html).not.toMatch(/<section[^>]*data-reveal/);
+  });
+});
+
+describe("tallas en el formulario de la landing", () => {
+  it("con opciones obligatorias, el formulario trae el selector que el servidor exige", async () => {
+    const { renderizarLanding } = await import("../renderer");
+    const html = renderizarLanding({
+      contenido: {} as any,
+      producto: { name: "Corrector", price: 45000, currency: "COP", opciones: [{ nombre: "Talla", valores: ["S", "M"], obligatoria: true }] } as any,
+      cierre: { tipo: "contraentrega", accion: "/api/l/x/pedido", pais: "CO" } as any,
+    } as any);
+    expect(html).toMatch(/<select name="opcion_Talla" required>/);
+    expect(html).toMatch(/<option>M<\/option>/);
+  });
+});
+
+describe("landing de HTML fijo sin talla (corrector #56, 26-09-2026)", () => {
+  it("inyecta el selector de talla y la cédula deja de ser obligatoria", async () => {
+    const { formularioConOpciones } = await import("../renderer");
+    const html = `<form class="f" action="/api/landing-publica/x/pedido" method="post"><input name="nombre" required><input name="documento" required></form>`;
+    const out = formularioConOpciones(html, { opciones: [{ nombre: "Talla", valores: ["S", "M"], obligatoria: true }] } as any);
+    expect(out).toMatch(/<form[^>]*pedido[^>]*>\n<label>Talla<select name="opcion_Talla" required>/);
+    expect(out).toMatch(/<input name="documento">/);
+    expect(out).toMatch(/<input name="nombre" required>/);
   });
 });

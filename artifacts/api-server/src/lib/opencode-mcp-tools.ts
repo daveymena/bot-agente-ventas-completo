@@ -132,6 +132,49 @@ const TOOL_SCHEMAS: Record<string, object> = {
     required: ["query"],
     additionalProperties: false,
   },
+  // ── Inteligencia estilo DropKiller + estimación previa ───────────────────
+  // Esquemas explícitos (no el genérico): son de lectura y Atlas las llama
+  // con lo que leyó del pedido; sin esquema llegaban `{}` vacíos.
+  fb_estimar: {
+    type: "object",
+    properties: {
+      productId: { type: "number", description: "Id del producto del catálogo (opcional)" },
+      objetivo: { type: "string", description: "mensajes, ventas o trafico (requerido)" },
+      dailyBudget: { type: "number", description: "Presupuesto por día en COP (requerido)" },
+      dias: { type: "number", description: "Días de prueba, por defecto 3" },
+    },
+    required: ["objetivo", "dailyBudget"],
+    additionalProperties: false,
+  },
+  producto_ganador: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "Nicho o producto a evaluar en Dropi" },
+      conStock: { type: "boolean", description: "Solo con stock, por defecto true" },
+      limit: { type: "number", description: "Candidatos a puntuar, máx 12, por defecto 8" },
+    },
+    required: ["query"],
+    additionalProperties: false,
+  },
+  dropi_roi: {
+    type: "object",
+    properties: {
+      productId: { type: "number", description: "Id del catálogo (opcional)" },
+      dropiProductId: { type: "number", description: "Id en Dropi (opcional)" },
+      precio: { type: "number", description: "Para simular otro precio (opcional)" },
+      adsDiario: { type: "number", description: "Pauta por día, por defecto 20000" },
+      dias: { type: "number", description: "Días de prueba, por defecto 3" },
+    },
+    additionalProperties: false,
+  },
+  espiar_tienda: {
+    type: "object",
+    properties: {
+      url: { type: "string", description: "Dominio o link de la tienda Shopify a espiar" },
+    },
+    required: ["url"],
+    additionalProperties: false,
+  },
   deep_research: {
     type: "object",
     properties: {
@@ -161,6 +204,14 @@ const TOOL_SCHEMAS: Record<string, object> = {
   get_agent: { type: "object", properties: {}, additionalProperties: false },
   fb_radiografia_campana: { type: "object", properties: { campaignId: { type: "string" } }, additionalProperties: false },
   anuncio_datos_expertos: { type: "object", properties: { productId: { type: "number" }, objetivo: { type: "string" } }, required: ["productId"], additionalProperties: false },
+  // Un solo esquema chico para todo el método: los números son opcionales y
+  // solo se usan en costeo y métricas. Ver marketing-team/metodo-de-venta.ts.
+  metodo_de_venta: {
+    type: "object",
+    properties: { tema: { type: "string" }, costoProducto: { type: "number" }, cpaObjetivo: { type: "number" }, gasto: { type: "number" }, ventas: { type: "number" } },
+    required: ["tema"],
+  },
+  fb_audiencias: { type: "object", properties: {}, additionalProperties: false },
   agente_probar_chat: {
     type: "object",
     properties: {
@@ -191,6 +242,7 @@ const TOOL_SCHEMAS: Record<string, object> = {
   get_store: { type: "object", properties: {}, additionalProperties: false },
   payment_status: { type: "object", properties: {}, additionalProperties: false },
   fb_status: { type: "object", properties: {}, additionalProperties: false },
+  fb_ad_accounts: { type: "object", properties: {}, additionalProperties: false },
   fb_suggest_audience: {
     type: "object",
     properties: { productId: { type: "number" } },
@@ -358,10 +410,71 @@ const TOOL_SCHEMAS: Record<string, object> = {
   },
   dropi_status: { type: "object", properties: {}, additionalProperties: false },
   woocommerce_estado: { type: "object", properties: {}, additionalProperties: false },
+  integraciones_estado: { type: "object", properties: {}, additionalProperties: false },
   dropi_search_products: {
     type: "object",
     properties: { query: { type: "string" }, limit: { type: "number", description: "Por defecto 10" } },
     required: ["query"],
+    additionalProperties: false,
+  },
+  dropi_buscar: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "Qué buscar en el catálogo de Dropi" },
+      conStock: { type: "boolean", description: "Solo con stock" },
+      limit: { type: "number", description: "Máx 50, por defecto 20" },
+    },
+    required: ["query"],
+    additionalProperties: false,
+  },
+  dropi_con_ordenes: {
+    type: "object",
+    properties: {
+      query: { type: "string", description: "Nicho o producto (opcional)" },
+      limit: { type: "number", description: "Máx 50, por defecto 20" },
+    },
+    additionalProperties: false,
+  },
+  dropi_margen: {
+    type: "object",
+    properties: {
+      productId: { type: "number", description: "Id del catálogo (opcional)" },
+      dropiProductId: { type: "number", description: "Id en Dropi (opcional)" },
+      precio: { type: "number", description: "Para simular otro precio de venta (opcional)" },
+    },
+    additionalProperties: false,
+  },
+  dropi_pedidos: {
+    type: "object",
+    properties: { limit: { type: "number", description: "Máx 100, por defecto 20" } },
+    additionalProperties: false,
+  },
+  dropi_importar_lote_estado: { type: "object", properties: {}, additionalProperties: false },
+  dropi_cotizar_envio: {
+    type: "object",
+    properties: {
+      productId: { type: "number", description: "Id del producto en el catálogo" },
+      dropiProductId: { type: "number", description: "Id en Dropi, para cotizar sin importar" },
+      ciudad: { type: "string" },
+      departamento: { type: "string" },
+      precio: { type: "number", description: "Precio de venta unitario (opcional)" },
+      cantidad: { type: "number" },
+    },
+    required: ["ciudad"],
+    additionalProperties: false,
+  },
+  dropi_verificar_producto: {
+    type: "object",
+    properties: {
+      productId: { type: "number", description: "Id en esta tienda (opcional)" },
+      wooProductId: { type: "number", description: "Id en WooCommerce (opcional)" },
+    },
+    additionalProperties: false,
+  },
+  dropi_transportadoras_sondeo: {
+    type: "object",
+    properties: { ciudad: { type: "string" }, departamento: { type: "string" }, valor: { type: "number" } },
+    required: ["ciudad", "departamento"],
     additionalProperties: false,
   },
 };
@@ -384,7 +497,14 @@ const GENERIC_FALLBACK_SCHEMA = { type: "object", additionalProperties: true } a
 function valorLegible(v: any, max = 60): string {
   if (v === null || v === undefined) return String(v);
   const t = typeof v;
-  if (t === "string") return (v as string).replace(/\s+/g, " ").trim().slice(0, max) || "(vacío)";
+  // El "…" avisa que hubo corte: antes una URL recortada a mitad de nombre
+  // (.../2026/09/edite) parecía completa y el admin/modelo la copiaba tal
+  // cual → 404. Vivo el 2026-09-29 con el proveedor megacomputer.
+  if (t === "string") {
+    const s = (v as string).replace(/\s+/g, " ").trim();
+    if (!s) return "(vacío)";
+    return s.length > max ? s.slice(0, max) + "…" : s;
+  }
   if (t === "number" || t === "boolean") return String(v);
   try {
     const s = JSON.stringify(v);
@@ -470,7 +590,11 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
     case "update_product":
       return `Actualizar producto ${g.id ?? g.name ?? "?"}: ${Object.entries(g).filter(([k]) => k !== "id").map(([k, v]) => `${k}=${valorLegible(v)}`).join(", ")}`;
     case "create_product":
-      return `Crear producto "${g.name ?? "?"}" (${g.price ?? "?"} ${g.currency ?? ""})`;
+      // El admin aprueba a ciegas si no ve kind/categoría/imagen: el 2026-09-29
+      // cinco físicos quedaron como digitales, en categorías absurdas y SIN
+      // foto, porque el plan solo mostraba nombre y precio.
+      return `Crear producto "${g.name ?? "?"}" (${g.price ?? "?"} ${g.currency ?? ""})` +
+        ` — tipo: ${g.kind ?? "?"}, categoría: ${g.categoryId ?? g.category ?? "?"}${g.imageUrl ? "" : " — ⚠️ SIN imagen"}`;
     case "delete_product":
       return `⚠️ ELIMINAR producto ${g.id ?? "?"}`;
     case "create_category":
@@ -489,6 +613,16 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
    Se crea EN PAUSA, no gasta hasta que la actives`;
     case "fb_sync_catalog":
       return `Sincronizar catálogo de productos a Facebook`;
+    case "fb_estimar":
+      // Lectura pura: no crea nada ni gasta. Se muestra igual para que el
+      // admin vea QUÉ se va a averiguar antes de confirmar nada.
+      return `📊 Estimar alcance y costo (${g.objetivo ?? "?"}) con $${Number(g.dailyBudget || 0).toLocaleString("es-CO")}/día — solo consulta, no crea nada ni gasta`;
+    case "producto_ganador":
+      return `🎯 Radar de ganadores para "${g.query ?? "?"}": puntúa margen + stock + competencia (solo lee, no importa nada)`;
+    case "dropi_roi":
+      return `🧮 Calcular rentabilidad${g.productId ? ` del producto ${g.productId}` : ""}${g.dropiProductId ? ` (Dropi #${g.dropiProductId})` : ""} con pauta ${g.adsDiario || 20000}/día × ${g.dias || 3} días — solo matemática, no cambia nada`;
+    case "espiar_tienda":
+      return `🕵️ Leer el catálogo público de ${valorLegible(g.url ?? "", 80)} (solo lee, no toca nada)`;
     case "fb_page_publish":
       return `📢 PUBLICAR en el muro de la página de Facebook (público, gratis) el producto ${g.productId ?? "?"} — visible de inmediato para todos`;
     case "crear_anuncio":
@@ -520,7 +654,9 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
         g.dailyBudget ? `\n   💰 Presupuesto: $${Number(g.dailyBudget).toLocaleString("es-CO")}/día` : "",
       ].filter(Boolean).join("");
     case "set_product_image":
-      return `Asignar imagen al producto ${g.productId ?? "?"} (se hospeda permanente): ${valorLegible(g.imageUrl ?? "")}`;
+      // La URL va COMPLETA (200, no 60): recortada a mitad de nombre parecía
+      // válida y se aprobaba rota → 404 al guardarla. Vivo el 2026-09-29.
+      return `Asignar imagen al producto ${g.productId ?? "?"} (se hospeda permanente): ${valorLegible(g.imageUrl ?? "", 200)}`;
     case "set_product_video":
       // El admin tiene que ver el ENLACE entero antes de aprobar. Es lo
       // único que va a ver el cliente: si está mal, se entera el cliente.
@@ -553,6 +689,8 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
    NO gasta: queda pausado hasta que lo actives`;
     case "fb_delete_campaign":
       return `🗑️ BORRAR de Facebook la campaña ${g.campaignId ?? "?"} — se van también sus conjuntos y anuncios. IRREVERSIBLE, no hay papelera${g.borrarAunqueTengaGasto === true ? ", y se pierde su historial de resultados" : ""}`;
+    case "fb_set_ad_account":
+      return `🔁 Cambiar la cuenta publicitaria activa a ${g.adAccountId ?? "?"} — los anuncios nuevos se crean ahí. No gasta`;
     case "fb_pause_campaign":
       return `⏸️ Pausar la campaña ${g.campaignId ?? "?"} de Facebook — deja de gastar`;
     case "programar_accion":
@@ -714,6 +852,7 @@ async function proposeAction(
     // (ver ENCADENADO abajo: draftId puede ser "auto" si en el MISMO plan ya
     // se propuso el fb_ad_draft que lo va a crear)
     fb_pause_campaign: ["campaignId"],
+    fb_set_ad_account: ["adAccountId"],
     fb_resume_campaign: ["campaignId"],
     fb_delete_campaign: ["campaignId"],
     // Faltaba, y es la que más importa de las tres: REDIRIGIR manda acá todo
@@ -1153,14 +1292,23 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     //
     // Acá viaja solo cuando de verdad se está pidiendo ver algo antes de
     // gastar: "mostrame la estrategia", "qué propondrías", "antes de invertir".
-    patron: /propuesta|propon|estrategia|[aá]ngulo|antes de (gastar|invertir|pagar|publicar|crear)|mostr[aá](me)?|ense[ñn][aá](me)?|c[oó]mo lo ver[ií]as|qu[eé] har[ií]as/i,
-    herramientas: ["propuesta_campana", "list_products", "anuncio_datos_expertos"],
+    // `fb_estimar` vive acá por lo mismo: alcance y costo se preguntan ANTES
+    // de publicar ("¿cuánto me va a costar?", "¿a cuántos llega?"), nunca en
+    // el pedido de crear a secas.
+    patron: /propuesta|propon|estrategia|[aá]ngulo|antes de (gastar|invertir|pagar|publicar|crear)|mostr[aá](me)?|ense[ñn][aá](me)?|c[oó]mo lo ver[ií]as|qu[eé] har[ií]as|cu[aá]nto (cuesta|vale|sale|cobra|gasta)|alcance|a cu[aá]ntos (llega|les llega)|estimaci[oó]n/i,
+    herramientas: ["propuesta_campana", "fb_estimar", "list_products", "anuncio_datos_expertos", "metodo_de_venta"],
+  },
+  {
+    // Cuenta publicitaria y su moneda (30-09-2026): "no detecta mi cuenta COP".
+    // Grupo propio y chico para no encarecer el pedido de crear anuncio.
+    patron: /cuentas? (publicitaria|de anuncios)|ad ?account|\bact_?\d|moneda|\bcop\b|\busd\b|d[oó]lares/i,
+    herramientas: ["fb_ad_accounts", "fb_status"],
   },
   {
     // Dónde se caen los clientes: sin esto Atlas proponía más anuncios con
     // 0 ventas cerradas (25-09-2026).
     patron: /embudo|d[oó]nde se (caen|pierden|quedan)|por qu[eé] no (vend|compr|cierr)|no (vendo|compran|cierra)|ventas|clientes/i,
-    herramientas: ["embudo_de_ventas", "marketing_attribution", "list_recent_conversations"],
+    herramientas: ["embudo_de_ventas", "marketing_attribution", "list_recent_conversations", "metodo_de_venta"],
   },
   {
     // ── Anuncios: ANALIZAR ───────────────────────────────────────────────
@@ -1168,7 +1316,14 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // Un "¿cómo va mi campaña de Facebook?" matchea los dos grupos y recibe la
     // unión, que es lo correcto: ahí sí hacen falta las dos mitades.
     patron: /m[eé]trica|rendimiento|resultado|c[oó]mo va|c[oó]mo est[aá]|gast|roas|cpa|cpc|conversion|analiz|diagn[oó]stic|atribuci|aprendiz|optimiz|competencia|competidor|estructura|configur|armad|replic|como (las|los) (que|activ)|en pausa|pausad/i,
-    herramientas: ["fb_campaign_metrics", "fb_list_adsets", "fb_agent_logs", "fb_ad_library", "embudo_de_ventas", "marketing_attribution", "marketing_diagnostico", "marketing_aprendizajes", "ad_brief", "fb_radiografia_campana"],
+    herramientas: ["fb_campaign_metrics", "fb_list_adsets", "fb_agent_logs", "fb_ad_library", "embudo_de_ventas", "marketing_attribution", "marketing_diagnostico", "marketing_aprendizajes", "ad_brief", "fb_radiografia_campana", "metodo_de_venta"],
+  },
+  {
+    // El método de venta (curso condensado el 01-10-2026): cómo pautar,
+    // costear, armar la página o hacer creativos. Viaja solo cuando se pide
+    // ESO, para no sumarle tokens al pedido de crear un anuncio.
+    patron: /c[oó]mo (pauto|pautar|vendo|vender|costeo|costear|hago (un |los )?creativ)|m[eé]todo de venta|costeo|costear|precio de venta|punto de equilibrio|devoluci|producto ganador|winner|testeo|probar (un )?producto|landing|p[aá]gina de venta|gancho|hook|ugc/i,
+    herramientas: ["metodo_de_venta"],
   },
   {
     patron: /whatsapp|wasap|conversaci|chat|mensaje|cliente|lead/i,
@@ -1188,10 +1343,12 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     herramientas: ["codigo_leer", "codigo_buscar", "codigo_listar", "git_estado", "tests_correr"],
   },
   {
-    // "busc"/"búsqueda" y "competidor" faltaban: pedirle literalmente que
-    // buscara algo no matcheaba este grupo. Ver el comentario del NÚCLEO.
-    patron: /investig|averigu|indag|research|busc|b[uú]squeda|tendencia|competencia|competidor|mercado|benchmark|qu[eé] funciona/i,
-    herramientas: ["fb_ad_library", "web_search", "web_fetch"],
+    // "busc"/"búsqueda" ya NO activan este grupo (29-09-2026): "buscá en Dropi
+    // X" o "buscá el producto 12" le cargaban la Biblioteca de Anuncios a un
+    // pedido interno. Buscar en la web no lo necesita: web_search y web_fetch
+    // viajan siempre en el NÚCLEO.
+    patron: /investig|averigu|indag|research|tendencia|competencia|competidor|mercado|benchmark|qu[eé] funciona|shopify|espi(ar|a|o|ando)/i,
+    herramientas: ["fb_ad_library", "web_search", "web_fetch", "espiar_tienda"],
   },
   {
     patron: /precio|cobr|pago|vender|venta|ingreso|factur|suscrip/i,
@@ -1202,8 +1359,13 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     herramientas: ["generate_image", "search_product_images", "web_scrape_images"],
   },
   {
-    patron: /dropi|proveedor|dropshipping|transportadora|flete|cotiz|stock|woo\s?commerce|wordpress|dropify|pedidos? (llega|recib)|descripci[oó]n|ficha/i,
-    herramientas: ["dropi_status", "dropi_search_products", "woocommerce_estado", "dropi_transportadoras_sondeo", "producto_ficha_desde_imagenes_ver", "producto_ficha_desde_imagenes_guardar"],
+    // Las herramientas DIRECTAS (token de integración del negocio). Hasta el
+    // 29-09-2026 este grupo mandaba solo `dropi_status` + `dropi_search_products`,
+    // las del puente viejo: Atlas nunca veía dropi_buscar/margen/pedidos y en
+    // los 3 turnos de Dropi de ese día contestó "el catálogo directo rechaza el
+    // token" (el error del puente) con el directo respondiendo.
+    patron: /dropi|proveedor|dropshipping|transportadora|flete|cotiz|stock|woo\s?commerce|wordpress|dropify|pedidos? (llega|recib)|descripci[oó]n|ficha|ganador|radar|potencial|qu[eé] (vender|importar|producto)|rentab|roi|equilibrio|vale la pena|m[aá]s vendid|shopify|mercado\s?libre|meli|falabella|aliexpress|tienda externa/i,
+    herramientas: ["dropi_status", "dropi_buscar", "dropi_con_ordenes", "dropi_margen", "dropi_pedidos", "dropi_verificar_producto", "dropi_importar_lote_estado", "dropi_cotizar_envio", "woocommerce_estado", "integraciones_estado", "dropi_transportadoras_sondeo", "producto_ficha_desde_imagenes_ver", "producto_ficha_desde_imagenes_guardar", "producto_ganador", "dropi_roi"],
   },
   {
     patron: /copy|texto|redact|descripci|t[ií]tulo/i,
@@ -1497,10 +1659,12 @@ const FAMILIAS_DE_CONSULTA: Array<{ tema: string; herramientas: string[] }> = [
   { tema: "Catalogo y tienda", herramientas: ["list_products", "list_categories", "get_store", "search_product_images", "optimize_price", "optimize_copy"] },
   { tema: "Ventas y clientes", herramientas: ["embudo_de_ventas", "dashboard_summary", "list_recent_conversations", "list_pending_transfers", "list_duplicate_contacts", "predict_customer", "analyze_channel_performance"] },
   { tema: "WhatsApp y agente", herramientas: ["whatsapp_status", "get_agent", "configurar_mi_agente", "get_settings", "agente_inspectar", "agente_configurar", "agente_perfil_negocio", "agente_conocimiento", "agente_mensaje", "agente_probar_chat", "agente_disenar", "agente_probar_borrador", "vendedor_diagnosticar", "vendedor_motor_ver", "vendedor_probar"] },
-  { tema: "Facebook Ads", herramientas: ["objetivos_de_campana", "fb_permisos_formularios", "fb_status", "fb_list_campaigns", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics", "fb_why_not_delivering", "fb_page_can_post", "fb_page_preview", "fb_suggest_audience", "fb_pixel_status", "fb_ad_library", "fb_agent_logs", "que_hago_con_la_campana", "ad_brief"] },
+  { tema: "Facebook Ads", herramientas: ["objetivos_de_campana", "fb_permisos_formularios", "fb_status", "fb_ad_accounts", "fb_list_campaigns", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics", "fb_why_not_delivering", "fb_page_can_post", "fb_page_preview", "fb_suggest_audience", "fb_pixel_status", "fb_ad_library", "fb_agent_logs", "que_hago_con_la_campana", "ad_brief"] },
   { tema: "Marketing y contenido", herramientas: ["marketing_diagnostico", "marketing_aprendizajes", "marketing_attribution", "plan_de_contenido", "generate_image", "web_scrape_images"] },
   { tema: "Investigacion", herramientas: ["web_search", "web_fetch", "deep_research", "research_start", "research_check"] },
-  { tema: "Entregas", herramientas: ["dropi_status", "dropi_search_products", "woocommerce_estado", "terabox_list_folder", "verificar_link_entrega", "payment_status"] },
+  // Dropi: las DIRECTAS (token del negocio), no las del puente viejo. El resto
+  // (margen, pedidos, radar) llega con el grupo de Dropi al nombrarlo.
+  { tema: "Entregas y Dropi", herramientas: ["dropi_status", "dropi_buscar", "dropi_con_ordenes", "terabox_list_folder", "verificar_link_entrega", "payment_status"] },
   { tema: "Sistema", herramientas: ["analyze_system", "system_diagnose", "automatizacion_estado", "negocio_que_falta", "plataforma_info", "test_ai_models", "reason_business_decision"] },
 ];
 

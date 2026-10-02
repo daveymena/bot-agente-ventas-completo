@@ -44,6 +44,8 @@ export type SeccionFicha =
   | "video"
   /** La ficha entera. Solo cuando de verdad corresponde. */
   | "completa"
+  /** Más fotos del producto (las que faltan, sin repetir). No es maqueta de texto. */
+  | "fotos"
   /**
    * Ninguna sección: el cliente dijo "sí"/"dale" a una pregunta del bot que
    * NO ofrecía nada de la ficha ("¿arrancás desde cero o ya tenés base?").

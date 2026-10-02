@@ -54,6 +54,15 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
     if (!encontrada) return res.status(404).send("<!doctype html><meta charset=utf-8><title>No encontrada</title><p style=\"font-family:system-ui;padding:40px\">Esta página no existe o todavía no está publicada.</p>");
     const { row, producto } = encontrada;
     const tenantId = row.tenantId;
+    // Medición: píxel de Meta + visitas/pedidos propios (ver lib/landing/monitor.ts).
+    const { snippetDeMedicion, conMedicion } = await import("../lib/landing/monitor");
+    let pixelId: string | null = null;
+    try {
+      const { FacebookService } = await import("../lib/facebook");
+      const t = await tenantManager.getTenantById(tenantId);
+      pixelId = new FacebookService(t || undefined).pixelId || null;
+    } catch { pixelId = null; }
+    const medir = (html: string) => conMedicion(html, snippetDeMedicion({ slug: row.slug, pixelId, producto: producto as any }));
 
     // Si la landing tiene HTML dinámico generado por OpenCode, servirlo directo.
     if ((row as any).html) {
@@ -61,9 +70,10 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
       res.setHeader("Cache-Control", "public, max-age=60");
       // La misma foto bajo varias URLs (local, WordPress, CloudFront) no sale dos veces.
       const { htmlConFotosUnicas, guardadorDeMetadata } = await import("../lib/fotos-de-producto");
-      const { conFormularioQueResponde, conIconosSeguros } = await import("../lib/landing/sanear-html");
+      const { conFormularioQueResponde, sinRotulosInternos, conIconosSeguros } = await import("../lib/landing/sanear-html");
+      const { formularioConOpciones } = await import("../lib/landing/renderer");
       const base = producto ? await htmlConFotosUnicas((row as any).html, producto, { guardar: guardadorDeMetadata(producto.id) }) : (row as any).html;
-      return res.send(conFormularioQueResponde(conIconosSeguros(base)));
+      return res.send(medir(conFormularioQueResponde(formularioConOpciones(sinRotulosInternos(conIconosSeguros(base)).html, producto as any))));
     }
 
     const { htmlDeCopia } = await import("../lib/landing/clonar-html");
@@ -72,7 +82,7 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.setHeader("Cache-Control", "public, max-age=60");
       const { conIconosSeguros } = await import("../lib/landing/sanear-html");
-      return res.send(conIconosSeguros(copia));
+      return res.send(medir(conIconosSeguros(copia)));
     }
 
     const { renderizarLanding } = await import("../lib/landing/renderer-v3");
@@ -105,13 +115,105 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
       },
       negocio,
       cierre,
+      // Landing de imágenes (lib/landing/plan-imagenes.ts): paneles, ofertas
+      // del dueño y sellos de las condiciones reales del negocio.
+      modo: (row.design as any)?.modo ?? null,
+      ofertas: (row.design as any)?.ofertas ?? null,
+      sellos: (await import("../lib/landing/plan-imagenes")).sellosDelNegocio(c),
     });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "public, max-age=60");
-    return res.send(html);
+    return res.send(medir(html));
   } catch (e: any) {
     logger.error({ err: e?.message }, "[LandingPublica] error renderizando");
     return res.status(500).send("Error");
+  }
+});
+
+/** Beacon de la página: visita e inicio del pedido. Público, sin datos personales. */
+const ultimoEventoPorIp = new Map<string, number>();
+landingPublicaRouter.post("/api/landing-publica/:slug/evento", async (req: Request, res: Response) => {
+  try {
+    const tipo = String(req.body?.tipo || "");
+    if (tipo !== "visita" && tipo !== "inicio_pedido") return res.status(204).end();
+    // Freno barato contra recargas en bucle: un evento del mismo tipo por IP cada 20 s.
+    const clave = `${req.ip}|${req.params.slug}|${tipo}`;
+    const ahora = Date.now();
+    if ((ultimoEventoPorIp.get(clave) || 0) > ahora - 20_000) return res.status(204).end();
+    ultimoEventoPorIp.set(clave, ahora);
+    if (ultimoEventoPorIp.size > 5000) ultimoEventoPorIp.clear();
+    const encontrada = await landingPorSlug(String(req.params.slug || ""));
+    if (!encontrada) return res.status(204).end();
+    const { registrarEventoLanding } = await import("../lib/landing/monitor");
+    await registrarEventoLanding(encontrada.row.tenantId, encontrada.row.slug, tipo, String(req.body?.detalle || "").slice(0, 120));
+    return res.status(204).end();
+  } catch {
+    return res.status(204).end();
+  }
+});
+
+/**
+ * GET /api/landing-publica/:slug/envio?ciudad=&departamento=
+ * Transportadoras de Dropi que pueden llevar el producto de la landing a esa
+ * ciudad, de la más económica a la más cara. Solo NOMBRES: el flete no se le
+ * muestra al cliente (regla del dueño). Caché de 10 min por ciudad para que un
+ * formulario público no martille la API de Dropi.
+ */
+/**
+ * GET /api/landing-publica/:slug/geo — departamentos y TODAS sus ciudades
+ * según Dropi, para que el cliente elija de una lista (sin errores de
+ * escritura) y el nombre coincida con el que Dropi valida. Sin Dropi:
+ * { ok: false } y el formulario se queda con la lista de respaldo.
+ */
+const cacheGeo = new Map<number, { t: number; body: any }>();
+landingPublicaRouter.get("/api/landing-publica/:slug/geo", async (req: Request, res: Response) => {
+  try {
+    const encontrada = await landingPorSlug(String(req.params.slug || ""));
+    if (!encontrada) return res.status(404).json({ ok: false });
+    const tenantId = encontrada.row.tenantId;
+    const hit = cacheGeo.get(tenantId);
+    if (hit && Date.now() - hit.t < 12 * 3600_000) return res.json(hit.body);
+    const { geografiaDeDropi } = await import("../lib/dropi-cotizador");
+    const departamentos = await geografiaDeDropi(tenantId);
+    const body = departamentos ? { ok: true, departamentos } : { ok: false };
+    // Un fallo de Dropi se reintenta en 10 minutos, no en 12 horas.
+    cacheGeo.set(tenantId, { t: departamentos ? Date.now() : Date.now() - 12 * 3600_000 + 10 * 60_000, body });
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    return res.json(body);
+  } catch (e: any) {
+    logger.warn({ err: e?.message }, "[LandingPublica] no se pudo armar la geografía");
+    return res.json({ ok: false });
+  }
+});
+
+const cacheEnvio = new Map<string, { t: number; body: any }>();
+landingPublicaRouter.get("/api/landing-publica/:slug/envio", async (req: Request, res: Response) => {
+  try {
+    const encontrada = await landingPorSlug(String(req.params.slug || ""));
+    if (!encontrada || !encontrada.producto) return res.status(404).json({ ok: false, error: "Landing no encontrada" });
+    const ciudad = String(req.query.ciudad || "").replace(/\s+/g, " ").trim().slice(0, 60);
+    const departamento = String(req.query.departamento || "").replace(/\s+/g, " ").trim().slice(0, 60);
+    if (ciudad.length < 3) return res.status(400).json({ ok: false, error: "Falta la ciudad" });
+    const clave = `${encontrada.row.id}|${ciudad.toLowerCase()}|${departamento.toLowerCase()}`;
+    const hit = cacheEnvio.get(clave);
+    if (hit && Date.now() - hit.t < 10 * 60_000) return res.json(hit.body);
+    const { cotizarProductoDelCatalogo } = await import("../lib/dropi-cotizador");
+    const r = await cotizarProductoDelCatalogo(encontrada.row.tenantId, encontrada.producto.id, { ciudad, departamento: departamento || null });
+    const body = r.ok
+      ? {
+          ok: true,
+          ciudad: r.ciudad?.nombre || ciudad,
+          aceptaContraentrega: r.ciudad?.aceptaContraentrega ?? null,
+          transportadoras: (r.transportadoras || []).filter((t) => t.disponible).slice(0, 4).map((t) => t.transportadora),
+          mensaje: (r.transportadoras || []).some((t) => t.disponible) ? "" : "Coordinamos la transportadora contigo al confirmar.",
+        }
+      : { ok: false };
+    if (cacheEnvio.size > 2000) cacheEnvio.clear();
+    cacheEnvio.set(clave, { t: Date.now(), body });
+    return res.json(body);
+  } catch (e: any) {
+    logger.warn({ err: e?.message }, "[LandingPublica] no se pudo cotizar el envío");
+    return res.json({ ok: false });
   }
 });
 
@@ -120,6 +222,19 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
     const encontrada = await landingPorSlug(String(req.params.slug || ""));
     if (!encontrada || !encontrada.producto) return res.status(404).json({ ok: false, error: "Landing no encontrada" });
     const { row, producto } = encontrada;
+    {
+      // Todo lo que responde este endpoint queda medido: un pedido o un
+      // rechazo con su motivo (antes los rechazos solo iban al logger).
+      const { registrarEventoLanding } = await import("../lib/landing/monitor");
+      const json = res.json.bind(res);
+      (res as any).json = (body: any) => {
+        if (body && typeof body === "object") {
+          if (body.ok && !body.repetido) void registrarEventoLanding(row.tenantId, row.slug, "pedido", body.registrado ? "registrado" : "sin registrar en Dropi/Woo");
+          else if (body.ok === false) void registrarEventoLanding(row.tenantId, row.slug, "rechazo", String(body.error || res.statusCode));
+        }
+        return json(body);
+      };
+    }
     if (modeloDelProducto(producto as any) !== "fisico") return res.status(400).json({ ok: false, error: "Este producto no se pide por formulario" });
 
     const b = req.body || {};
@@ -134,10 +249,9 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
       departamento: limpio(b.departamento, 60),
       notas: limpio(b.referencia, 120),
     };
-    const faltan = (["nombre", "telefono", "documento", "direccion", "ciudad", "departamento"] as const).filter((k) => !datos[k]);
+    const faltan = (["nombre", "telefono", "direccion", "ciudad", "departamento"] as const).filter((k) => !datos[k]);
     if (faltan.length) return res.status(400).json({ ok: false, error: `Faltan: ${faltan.join(", ")}` });
     if (datos.telefono.length < 10) return res.status(400).json({ ok: false, error: "El celular no parece válido" });
-    if (datos.documento.length < 6) return res.status(400).json({ ok: false, error: "El documento no parece válido" });
 
     const opcionesDefinidas = Array.isArray((producto as any).opciones) ? (producto as any).opciones : [];
     const opciones: Record<string, string> = {};
@@ -145,7 +259,7 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
       const nombre = limpio(o?.nombre, 60);
       if (!nombre) continue;
       const raw = limpio(b[`opcion_${nombre}`], 80);
-      if (o?.obligatoria && !raw) return res.status(400).json({ ok: false, error: `Seleccioná ${nombre}` });
+      if (o?.obligatoria && !raw) return res.status(400).json({ ok: false, error: `Selecciona ${nombre}` });
       if (raw) {
         const permitidos = Array.isArray(o?.valores) ? o.valores.map((x: unknown) => limpio(x, 80)) : [];
         if (permitidos.length && !permitidos.includes(raw)) return res.status(400).json({ ok: false, error: `Valor no válido para ${nombre}` });
@@ -159,13 +273,26 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
     const zona = ds.verificarZona(datos, c.pais);
     if (!zona.ok) return res.status(400).json({ ok: false, error: `Revisá la ciudad y el departamento: ${zona.motivo}` });
 
-    const cantidad = Math.max(1, Math.min(10, Number(b.cantidad) || 1));
-    const detalleOpciones = Object.entries(opciones).map(([k, v]) => `${k}: ${v}`).join(" · ");
+    let cantidad = Math.max(1, Math.min(10, Number(b.cantidad) || 1));
+    let detalleOpciones = Object.entries(opciones).map(([k, v]) => `${k}: ${v}`).join(" · ");
 
     // Cupón: dato real del negocio. Si viene un código, se valida, se descuenta
     // del precio y se consume un uso. Si no aplica, el pedido sigue al precio
     // normal y el motivo queda en las notas.
     let unitPrice = Number(producto.price) || 0;
+
+    // Ofertas de la landing de imágenes ("2 unidades por $49.900"): las define
+    // el DUEÑO y viven en la landing; el cliente solo manda cuál eligió. Sin
+    // esto la página mostraba un precio y el pedido cobraba precio × cantidad.
+    const ofertasLanding = Array.isArray((row.design as any)?.ofertas) ? ((row.design as any).ofertas as Array<{ nombre: string; cantidad: number; precio: number }>) : [];
+    if (ofertasLanding.length) {
+      const o = ofertasLanding[Math.max(0, Math.min(ofertasLanding.length - 1, Number(b.oferta) || 0))];
+      if (o && Number(o.precio) > 0 && Number(o.cantidad) > 0) {
+        cantidad = Math.max(1, Math.min(10, Math.round(Number(o.cantidad))));
+        unitPrice = Number(o.precio) / cantidad;
+        detalleOpciones = [detalleOpciones, `Oferta: ${o.nombre}`].filter(Boolean).join(" · ");
+      }
+    }
     let cuponNota = "";
     const codigoCupon = String(b.cupon || "").trim().toUpperCase().replace(/\s+/g, "");
     if (codigoCupon) {
@@ -219,6 +346,30 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
     });
     const notas = [detalleOpciones, cuponNota, datos.notas, `Pedido desde la landing ${row.slug}`].filter(Boolean).join(" · ");
     pedido = (await ds.guardarDatos(pedido.id, { ...datos, notas })) || pedido;
+    // Talla/color elegidos: antes iban SOLO en las notas y el despacho a Dropi
+    // mandaba la variación por defecto. Guardados como variante, el despacho
+    // los resuelve a la variación exacta (varianteParaDespacho).
+    const varianteElegida = Object.values(opciones).join(" ").trim();
+    if (varianteElegida) {
+      await ds.guardarVarianteDelPedido(pedido.id, varianteElegida);
+      pedido.variante = varianteElegida;
+    }
+    // Transportadora elegida en el formulario: solo si Dropi la conoce (id
+    // real); si no, el despacho elige la disponible más económica.
+    const transportadoraElegida = limpio(b.transportadora, 80);
+    if (transportadoraElegida) {
+      try {
+        const { transportadoraConId } = await import("../lib/dropi-cotizador");
+        const t = await transportadoraConId(row.tenantId, transportadoraElegida);
+        if (t) {
+          await ds.guardarTransportadoraDelPedido(pedido.id, t);
+          pedido.transportadora = t.nombre;
+          pedido.transportadoraId = t.id;
+        }
+      } catch (e: any) {
+        logger.warn({ err: e?.message }, "[LandingPublica] no se pudo asociar la transportadora elegida");
+      }
+    }
     await ds.marcarEstado(pedido.id, "confirmado");
     pedido.estado = "confirmado";
     const r = await ds.despacharPedido(pedido);
@@ -228,9 +379,9 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
       {
         const texto = [
           `🛒 *Pedido nuevo desde la landing* (${row.name})`,
-          `📦 ${producto.name} × ${cantidad} · $${Number(producto.price || 0).toLocaleString("es-CO")}`,
+          `📦 ${producto.name} × ${cantidad} · total $${Math.round(unitPrice * cantidad).toLocaleString("es-CO")}`,
           detalleOpciones ? `🎨 ${detalleOpciones}` : "",
-          `👤 ${datos.nombre} · 📱 ${datos.telefono} · 🪪 ${datos.documento}`,
+          `👤 ${datos.nombre} · 📱 ${datos.telefono}${datos.documento ? ` · 🪪 ${datos.documento}` : ""}`,
           `🏠 ${datos.direccion}${datos.barrio ? `, ${datos.barrio}` : ""} — ${datos.ciudad}, ${datos.departamento}`,
           datos.notas ? `📍 ${datos.notas}` : "",
           r.ok

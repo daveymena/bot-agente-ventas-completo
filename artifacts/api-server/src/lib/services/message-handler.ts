@@ -221,6 +221,31 @@ export class MessageHandler {
             logger.error({ err }, '[MessageHandler] No se pudo adjuntar adContext a lead existente');
           }
         }
+
+        // ── CAPI LEAD (Fase 0 del paquete Meta) ──────────────────────────
+        // El contacto llegó desde un anuncio: avisarle a Meta con un evento
+        // Lead server-to-server para que las campañas de mensajes aprendan
+        // con conversaciones reales, no con clics. Fire-and-forget: si el
+        // tenant no tiene píxel/token, o Meta rechaza, solo se pierde la
+        // señal de analítica -- el mensaje sigue su curso normal.
+        try {
+          const { tenantManager } = await import("../tenantManager");
+          const tenant = await tenantManager.getTenantById(tenantIdNum).catch(() => null);
+          const pixelId = tenant?.facebook?.pixelId;
+          const accessToken = tenant?.facebook?.accessToken;
+          if (pixelId && accessToken) {
+            const { sendLeadEvent } = await import("../meta-conversions-api");
+            sendLeadEvent({
+              pixelId,
+              accessToken,
+              customerPhone: phone,
+              adId: params.anuncio.anuncioId,
+              adTitle: params.anuncio.titulo,
+            }).catch(() => {});
+          }
+        } catch (err) {
+          logger.warn({ err }, "[MessageHandler] No se pudo enviar el Lead a Meta (sigue el flujo normal)");
+        }
       }
 
       // dbNow(): en Postgres lastMessageAt exige un objeto Date, no un

@@ -44,6 +44,7 @@
 import { randomUUID, createHash } from "node:crypto";
 import WebSocket from "ws";
 import { logger } from "./logger";
+import { hablarColombiano } from "./hablar-colombiano";
 
 const TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4";
 const WSS = `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=${TOKEN}`;
@@ -123,6 +124,15 @@ export function generoDeNombre(nombre: string): "mujer" | "hombre" | null {
   if (/a$/.test(primero)) return "mujer";
   if (/[orlsnzd]$/.test(primero)) return "hombre";
   return null;
+}
+
+/** Las únicas voces que se usan: colombianas. Otra cualquiera cae a la de por defecto. */
+export const VOCES_COLOMBIANAS = new Set([VOZ_POR_DEFECTO, VOZ_HOMBRE]);
+export function vozColombiana(voz?: string | null): string {
+  const v = String(voz || "").trim();
+  if (VOCES_COLOMBIANAS.has(v)) return v;
+  // "es-MX-JorgeNeural" (hombre) → Gonzalo; cualquier otra → Salomé.
+  return /jorge|gonzalo|alvaro|tomas|dario|gerardo|lorenzo|federico|andres|mateo|male/i.test(v) ? VOZ_HOMBRE : VOZ_POR_DEFECTO;
 }
 
 /** Voz según el género del cliente. Null (desconocido) cae a mujer. */
@@ -287,7 +297,15 @@ export function recortarParaHablar(texto: string): string {
  * llevaría puesta la respuesta escrita, que es lo que de verdad importa.
  */
 export async function hablar(texto: string, voz = VOZ_POR_DEFECTO, rate = "+8%"): Promise<Buffer | null> {
-  const limpio = recortarParaHablar(paraLeerEnVoz(texto));
+  // Pedido del dueño (30-09-2026): "habla en voces de otros países, necesitamos
+  // que hable colombiano". Dos causas, las dos se cierran ACÁ, por donde pasa
+  // todo audio (WhatsApp, Atlas, video de anuncio, pruebas):
+  //  1. Las PALABRAS: Atlas y el guion del video escriben en voseo ("contame",
+  //     "escribinos") y la voz colombiana lo leía tal cual → sonaba argentino.
+  //  2. La VOZ: WHATSAPP_AUDIO_VOICE o el cuerpo de una prueba podían pedir
+  //     cualquier voz de Edge (es-MX, es-AR...). Solo quedan las de es-CO.
+  voz = vozColombiana(voz);
+  const limpio = recortarParaHablar(paraLeerEnVoz(hablarColombiano(texto)));
   if (!limpio) return null;
 
   return new Promise<Buffer | null>((resolve) => {

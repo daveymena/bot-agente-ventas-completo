@@ -17,6 +17,7 @@ import telegramRouter from "./routes/telegram";
 import subscriptionWebhooksRouter from "./routes/subscription-webhooks";
 import activationRouter from "./routes/activation";
 import aiCatalogRouter from "./routes/ai-catalog";
+import { integracionesRouter, integracionesWebhooksRouter } from "./routes/integraciones";
 import { logger } from "./lib/logger";
 import { securityShield } from "./lib/security-shield";
 import { imageUrlFixer } from "./lib/image-url-fixer";
@@ -485,6 +486,16 @@ app.get("/videos/anuncios/:filename", (req, res) => {
   return res.sendFile(filePath);
 });
 
+// Fotos y clips del fabricante (lib/activos-fabricante.ts) y GIFs que arma Atlas.
+app.get("/media/fabricante/:filename", async (req, res) => {
+  const { ARCHIVO_FABRICANTE } = await import("./lib/activos-fabricante");
+  const filename = req.params.filename;
+  if (path.basename(filename) !== filename || !ARCHIVO_FABRICANTE.test(filename)) return res.status(404).end();
+  const filePath = path.resolve(IMAGES_DIR, "fabricante", filename);
+  if (!existsSync(filePath)) return res.status(404).json({ message: "Archivo no disponible" });
+  return res.sendFile(filePath);
+});
+
 // Servir imágenes de productos desde el volumen persistente primero
 app.get("/images/products/:filename", (req, res, next) => {
   const filename = req.params.filename;
@@ -602,7 +613,21 @@ const publicRoutes = [
   // arriba. Sin esto, resolveTenant() exigiría una cookie de sesión que
   // OpenCode nunca va a tener.
   "/internal/mcp",
-  "/landing-studio",
+  // Webhooks de integraciones (Shopify orders/create con HMAC sobre
+  // req.rawBody, notificaciones orders_v2 de Mercado Libre, callback OAuth de
+  // ML): los llaman las plataformas, sin sesión. Cada handler verifica la
+  // firma y resuelve el tenant por tienda/seller guardado (01-10-2026).
+  "/integraciones/webhooks",
+  // Formulario de la landing pública (/l/:slug): pedido, cupón, evento y
+  // transportadoras. Lo usa el VISITANTE del anuncio, sin sesión; cada ruta
+  // resuelve el negocio por el slug de la landing publicada. Faltaba en esta
+  // lista y el pedido le daba 401 a todo cliente real (30-09-2026): solo
+  // funcionaba al probarlo con la sesión del dueño abierta.
+  "/landing-publica",
+  // "/landing-studio" ya NO es pública (29-09-2026): sin sesión, cualquiera
+  // podía reescribir la landing de cualquier negocio (/design, /chat con otro
+  // landingId) y gastar los proveedores de IA del negocio 1. El panel la
+  // llama desde el mismo dominio, con la cookie de sesión.
 ];
 
 const isPublicRoute = (path: string) => {
@@ -928,6 +953,11 @@ app.use("/api/activation", activationRouter);
 // los trae no existía. Un archivo de rutas sin montar es código muerto que
 // parece funcionalidad.
 app.use("/api/ai", aiCatalogRouter);
+// Integraciones (Shopify, AliExpress, Mercado Libre, Falabella): el router
+// con sesión va acá; los webhooks son PÚBLICOS (firma HMAC, resuelven el
+// tenant sin sesión) y van en `publicRoutes` abajo.
+app.use("/api/integraciones", integracionesRouter);
+app.use("/api/integraciones/webhooks", integracionesWebhooksRouter);
 app.use("/api", router);
 
 // Short URL redirect: /p/:productId → /tienda/:slug/producto/:productId

@@ -23,6 +23,7 @@ import {
   BarChart3,
   MessageSquareText,
   GraduationCap,
+  Plug,
 } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent } from "./ui/sidebar";
 import { Badge as UiBadge } from "@/components/ui/badge";
@@ -59,6 +60,7 @@ export function AppSidebar() {
       { label: "Monitor WA", href: "/whatsapp-monitor", icon: Activity },
       { label: "Administrador", href: "/admin/tenants", icon: Crown },
     ] : []),
+    { label: "Integraciones", href: "/integraciones", icon: Plug },
     { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
     { label: "Dropi", href: "/dropi", icon: Truck },
     { label: "Atlas VentasPro", href: "/code-agent", icon: Wand2 },
@@ -66,6 +68,7 @@ export function AppSidebar() {
     { label: "Facebook", href: "/facebook", icon: Facebook },
     { label: "Marketing", href: "/marketing", icon: Megaphone },
     { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate },
+    { label: "Landing de imágenes", href: "/landing-imagenes", icon: LayoutTemplate },
     { label: "Configuración", href: "/settings", icon: Settings },
     { label: "Diagnóstico", href: "/diagnostico", icon: Activity },
     // Oculto del menú 29-09-2026: duplicado de "Probar vendedor" (línea de arriba).

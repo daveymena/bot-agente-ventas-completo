@@ -35,6 +35,21 @@ import { modelosDe } from "./modelos-por-tarea";
  */
 const VISION_DE_RESERVA = { proveedor: "deepseek", modelo: "deepseek-v4-flash-vision-exp" };
 
+/**
+ * Opciones extra por proveedor para TODA llamada de visión.
+ *
+ * DeepSeek razona antes de contestar y, con imágenes difíciles (un comprobante
+ * real), se gastaba el presupuesto entero pensando y devolvía `content` vacío;
+ * subir `max_tokens` no lo arreglaba (ver leer-comprobante.ts). Medido el
+ * 01-10-2026 con dos fotos de producto: sin opciones → vacío en 4,9 s; con el
+ * razonamiento apagado → respuesta correcta en 1,7 s. Por eso va acá y no en
+ * cada archivo: el respaldo de visión solo sirve si TODOS los que lo llaman
+ * lo apagan.
+ */
+export function opcionesDeVision(proveedor: string): Record<string, unknown> {
+  return proveedor === "deepseek" ? { thinking: { type: "disabled" } } : {};
+}
+
 /** Modelos con vision, en orden. "proveedor|modelo" separados por coma. */
 export function modelosDeVision(): Array<{ proveedor: string; modelo: string }> {
   const configurados = String(process.env.VISION_MODELS || "")
@@ -172,16 +187,18 @@ export async function transcribirAudio(audio: Buffer, mime = "audio/ogg"): Promi
  * Devuelve null si ningun modelo pudo verla -- explicitamente null, para que
  * quien llama sepa que NO hay informacion en vez de recibir una invencion.
  */
-export async function describirImagen(imagen: Buffer, mime = "image/jpeg"): Promise<string | null> {
+export async function describirImagen(imagen: Buffer, mime = "image/jpeg", pregunta?: string): Promise<string | null> {
   const b64 = imagen.toString("base64");
   // El prompt le pide CAUTELA, no precisión. Un modelo de visión que afirma
   // montos y fechas es justo el que termina describiendo un Excel como "un
   // comprobante de transferencia con valor, fecha y banco" (caso real
   // 2026-09-05). Para detectar un comprobante alcanza con saber el TIPO de
   // imagen; los datos exactos los confirma una persona, no un modelo.
+  const foco = String(pregunta || "").trim().slice(0, 300);
   const instruccion =
     "Describí en 1-2 frases, en español, QUÉ TIPO de imagen es esta "
     + "(por ejemplo: comprobante de pago, hoja de cálculo de Excel, captura de pantalla, foto de un producto, etc.). "
+    + (foco ? `Enfocate en responder esto del admin: "${foco}". ` : "")
     + "NO afirmes montos, fechas, nombres de bancos ni números salvo que los leas con total claridad. "
     + "Si no estás seguro de qué es, decí 'no está claro'. No inventes nada que no se vea con claridad.";
 
@@ -206,6 +223,7 @@ export async function describirImagen(imagen: Buffer, mime = "image/jpeg"): Prom
         body: JSON.stringify({
           model: modelo,
           max_tokens: 500,
+          ...opcionesDeVision(proveedor),
           messages: [{
             role: "user",
             content: [

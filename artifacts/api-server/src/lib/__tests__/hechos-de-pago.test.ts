@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mediosDePago, loQuePidio, renderMediosDePago, noManejamosEse } from "../hechos-de-pago";
+import { mediosDePago, loQuePidio, renderMediosDePago, noManejamosEse, respuestaMedioNoDisponible } from "../hechos-de-pago";
 
 /** Un negocio con las tres formas: pasarela, PayPal y DOS transferencias. */
 const LINKS = {
@@ -79,6 +79,20 @@ describe("Lo que NO está configurado no se puede ofrecer", () => {
     expect(r.pedidos).toEqual([]);
     expect(r.noConfigurado).toBe("daviplata");
     expect(noManejamosEse(r.noConfigurado!, SOLO_NEQUI)).toMatch(/Nequi/);
+  });
+
+  // Chat de prueba (30-09-2026), curso de Excel: "¿cómo pago? ¿tienen nequi?"
+  // → "Por Nequi no manejo pagos 🙏 Pero sí por PayPal. ¿Cuál te queda
+  // mejor?" — sin el enlace, y "cuál" con una sola opción. El cliente preguntó
+  // CÓMO pagar y se quedó sin cómo.
+  it("pide un medio que no hay: se dice Y se entregan los datos del que sí hay", () => {
+    const SOLO_PAYPAL = mediosDePago({ dynamicLinks: { paypal: { shortUrl: "https://ventasproia.com/p/Ci9Nb9" } }, aceptaPagosLocales: true, esColombia: true });
+    const r = loQuePidio("y como pago? tienen nequi?", SOLO_PAYPAL);
+    const texto = respuestaMedioNoDisponible(r.noConfigurado!, SOLO_PAYPAL, "$20.000 COP");
+    expect(texto).toMatch(/Nequi no/i);
+    expect(texto).toMatch(/Ci9Nb9/);
+    expect(texto).toMatch(/\$20\.000/);
+    expect(texto).not.toMatch(/¿Cuál te queda mejor\?/);
   });
 
   it("el modelo no puede inventarse un medio: si no está, no hay qué señalar", () => {

@@ -29,6 +29,9 @@ import {
   precioDado,
   productoPresentado,
   yaSeEnvio,
+  fotosPendientes,
+  fotosYaEnviadas,
+  registrarFotosEnviadas,
   registrarHechoEntregado,
   registrarHechoPedido,
   registrarIntencion,
@@ -39,6 +42,7 @@ import {
   type Oferta,
 } from "./estado-conversacion";
 import { datosQueFaltan, type GuionDelNegocio } from "./nicho";
+import { puntosDeLaFicha } from "./lo-que-dice-la-ficha";
 
 export interface Producto {
   id: number;
@@ -54,6 +58,12 @@ export interface Producto {
   disponible?: boolean;
   /** Stock REAL (`products.stock`, puede ser null = no configurado). */
   stock?: number | null;
+  /** Todas las fotos reales (la principal primero). Para "más fotos". */
+  fotos?: string[] | null;
+  /** Características (`products.features`), para razonar dudas sin maqueta. */
+  caracteristicas?: string[] | null;
+  /** Preguntas frecuentes curadas, para razonar dudas sin maqueta. */
+  preguntas?: Array<{ p: string; r: string }> | null;
 }
 
 /** Lo que el dueño cargó en `product_knowledge`. */
@@ -86,6 +96,11 @@ export type Parte =
       productId: number;
       /** `SeccionFicha` de ficha-parcial.ts: qué pedazo de la ficha va. */
       seccion: Seccion;
+      /**
+       * Con seccion "fotos": las URLs concretas a enviar (las que faltan,
+       * calculadas por `mostrar`). El render las manda como imágenes.
+       */
+      fotos?: string[];
       yaVioContenido?: boolean;
       sesionNueva?: boolean;
       videoYaEnviado?: boolean;
@@ -112,6 +127,7 @@ export type Seccion =
   | "entrega"
   | "video"
   | "completa"
+  | "fotos"
   | "ninguna";
 
 /** Efectos que el adaptador aplica DESPUÉS del turno. Mantienen las herramientas puras. */
@@ -190,12 +206,23 @@ export type ResultadoConfirmarPedido =
   | { estado: "error"; motivo: string };
 
 export interface ServicioDePedidos {
-  /** Abre (o retoma) el pedido de esta conversación y guarda los datos que llegaron. */
-  tomar(p: { producto: Producto; cantidad: number; datos: DatosDelPedido }): Promise<ResultadoTomarPedido>;
+  /**
+   * Abre (o retoma) el pedido de esta conversación y guarda los datos que llegaron.
+   * `variante` es lo que el cliente eligió (talla/color/modelo): se guarda
+   * aparte de `datos.notas` para que al despachar se pueda resolver la
+   * variación EXACTA de Dropi y no una cualquiera.
+   */
+  tomar(p: { producto: Producto; cantidad: number; datos: DatosDelPedido; variante?: string | null; transportadora?: { id?: number | null; nombre: string } | null }): Promise<ResultadoTomarPedido>;
   /** El cliente confirmó el resumen: se registra y se despacha. */
   confirmar(): Promise<ResultadoConfirmarPedido>;
   /** Seguimiento: el último pedido de esta conversación y lo que dice Dropi de él. */
   estado?(): Promise<{ hay: boolean; texto: string }>;
+  /**
+   * Transportadoras que llegan a la ciudad del cliente (si la tiene) o a la
+   * que se le pase. Nombres reales del proveedor: el bot ofrece la lista y el
+   * cliente elige; nunca se inventa una ni se muestra el flete.
+   */
+  transportadoras?(ciudad: string): Promise<{ ok: boolean; mensaje: string }>;
 }
 
 export interface ResultadoHerramienta {
@@ -311,21 +338,25 @@ export const definicionesDeHerramientas = [
     function: {
       name: "mostrar",
       description:
-        "Pega una MAQUETA visual (ficha, precio, medios de pago, entrega) debajo de tu texto. " +
+        "Pega una MAQUETA visual (ficha, precio, medios de pago, entrega, fotos) debajo de tu texto. " +
         "Tú redactá una frase natural para introducirla (ej. 'Este es el valor:') y el SISTEMA " +
-        "escribe los datos duros reales. NUNCA escribas los precios ni repitas los datos en tu texto.",
+        "escribe los datos duros reales. NUNCA escribas los precios ni repitas los datos en tu texto. " +
+        "Para PREGUNTAS y dudas NO uses esta herramienta: se responden con tus palabras razonando " +
+        "(tenés la ficha y los datos en el contexto); la maqueta es para mostrar, no para responder.",
       parameters: {
         type: "object",
         properties: {
           productoId: { type: "number" },
           seccion: {
             type: "string",
-            enum: ["completa", "info", "precio", "pago", "pago_transferencia", "pago_link", "entrega", "video", "tienda"],
+            enum: ["completa", "info", "precio", "pago", "pago_transferencia", "pago_link", "entrega", "video", "tienda", "fotos"],
             description:
               "completa = ficha entera (solo si nunca la vio); info = qué es y qué incluye; " +
               "precio = el valor; pago = todos los medios; pago_transferencia = solo cuentas; " +
               "pago_link = solo tarjeta/enlace; entrega = cómo y cuándo llega; video = video de muestra; " +
-              "tienda = enlace para verlo en la tienda.",
+              "tienda = enlace para verlo en la tienda; " +
+              "fotos = MÁS FOTOS del producto (cuando pide 'más fotos', 'otra foto', 'fotos reales'): " +
+              "el SISTEMA manda las que todavía no vio, sin repetir, hasta 3 por vez.",
           },
           reenviar: {
             type: "boolean",
@@ -450,6 +481,27 @@ export const definicionesDeHerramientas = [
           ciudad: { type: "string" },
           departamento: { type: "string", description: "Departamento (o estado/provincia). Si solo dijo la ciudad, déjalo vacío." },
           notas: { type: "string", description: "Punto de referencia u otra indicación de entrega." },
+          variante: { type: "string", description: "Talla/color/modelo que eligió el cliente (ej. \"M\"). Pásala SIEMPRE que la haya dicho." },
+          transportadora: { type: "string", description: "Transportadora que eligió el cliente (ej. \"SERVIENTREGA\"), SOLO si la eligió él después de ver la lista de consultar_transportadoras. Si no eligió, déjala vacía: nunca inventes una." },
+        },
+        required: [],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "consultar_transportadoras",
+      description:
+        "Consulta en Dropi si enviamos a la ciudad del cliente, si acepta contraentrega y qué transportadoras hay. " +
+        "Úsala cuando el cliente pregunte qué empresa lleva el envío o quiera elegir una. Repetí SOLO lo que diga la " +
+        "respuesta: si trae una lista, ofrecé las 2 o 3 primeras en ese orden; si dice que la asigna Dropi, decilo así. " +
+        "El flete NUNCA se le muestra al cliente. Si el cliente elige una, pasa su nombre en tomar_pedido(transportadora=…). " +
+        "Si la ciudad no está en cobertura, pedí que confirme cómo se escribe; nunca inventes empresas.",
+      parameters: {
+        type: "object",
+        properties: {
+          ciudad: { type: "string", description: "Ciudad de entrega. Si no la pasás se usa la que ya dio el cliente." },
         },
         required: [],
       },
@@ -611,27 +663,43 @@ export function puntuarCoincidencias(consulta: string, catalogo: Producto[], lim
     .split(/[^a-z0-9ñ]+/)
     .filter((w) => w.length > 2);
 
-  const textos = disponibles.map((p) => N(`${p.name} ${p.description || ""} ${p.categoria || ""} ${(p.opciones || []).join(" ")}`));
+  const nombres = disponibles.map((p) => N(p.name).trim());
+  const descripciones = disponibles.map((p) => N(p.description || ""));
+  const categorias = disponibles.map((p) => N(p.categoria || ""));
+  const opciones = disponibles.map((p) => N((p.opciones || []).join(" ")));
+  const textos = disponibles.map((_, i) => `${nombres[i]} ${descripciones[i]} ${categorias[i]} ${opciones[i]}`);
+  const consultaNormalizada = N(consulta).replace(/[^a-z0-9ñ]+/g, " ").replace(/\s+/g, " ").trim();
 
   const peso = (w: string) => {
-    const enCuantos = textos.filter((t) => t.includes(w)).length;
+    // Importante: contar también coincidencias con un typo. Antes la búsqueda
+    // encontraba "ciberseuridad" dentro de "ciberseguridad", pero peso() daba
+    // cero porque volvía a exigir coincidencia EXACTA; 19 productos reales
+    // quedaban fuera por una sola letra.
+    const enCuantos = textos.filter((t) => incluyeConTypo(t, w)).length;
     if (enCuantos === 0) return 0;
     const frecuencia = enCuantos / Math.max(1, disponibles.length);
-    // Palabra "de categoría": aparece en AL MENOS DOS TERCIOS del catálogo y no
-    // distingue. El umbral era 0.5, pero tumbaba búsquedas válidas en catálogos
-    // chicos: 3 taladros en una tienda de 5 productos (60%) se leían como
-    // "categoría" y el bot decía "no manejo taladros" a un producto que sí
-    // estaba (22-09). "Curso" en un catálogo de cursos (2 de 3 = 66%) sigue
-    // cayendo porque no distingue cuál curso quiere el cliente.
     if (disponibles.length >= 3 && enCuantos * 3 >= disponibles.length * 2) return 0;
-    return Math.log(1 / frecuencia);
+    return Math.max(0.1, Math.log(1 / frecuencia));
   };
 
   return disponibles
-    .map((p, i) => ({
-      p,
-      puntos: palabras.reduce((n, w) => n + (incluyeConTypo(textos[i], w) ? peso(w) : 0), 0),
-    }))
+    .map((p, i) => {
+      // El nombre es la identidad del producto. Antes descripción/opciones
+      // pesaban igual: buscar el nombre exacto "MARKETING DIGITAL" devolvía
+      // primero Ecommerce porque su descripción mencionaba esas palabras.
+      const exacto = nombres[i] === consultaNormalizada ? 10_000 : 0;
+      const nombreDentro = !exacto && (nombres[i].includes(consultaNormalizada) || consultaNormalizada.includes(nombres[i])) ? 500 : 0;
+      const puntos = palabras.reduce((total, w) => {
+        const base = peso(w);
+        if (!base) return total;
+        if (incluyeConTypo(nombres[i], w)) return total + base * 8;
+        if (incluyeConTypo(categorias[i], w)) return total + base * 2;
+        if (incluyeConTypo(opciones[i], w)) return total + base;
+        if (incluyeConTypo(descripciones[i], w)) return total + base * 0.5;
+        return total;
+      }, exacto + nombreDentro);
+      return { p, puntos };
+    })
     .filter((x) => x.puntos > 0)
     .sort((a, b) => b.puntos - a.puntos)
     .slice(0, limite);
@@ -749,7 +817,16 @@ export const ejecutores: Record<string, Ejecutor> = {
     const p = ctx.catalogo.find((x) => x.id === idNumerico);
     if (!p) return { ok: false, mensaje: `No existe el producto #${idNumerico}. Busca en el catálogo primero.` };
 
-    const sec = String(seccion || "completa") as Seccion;
+    let sec = String(seccion || "completa") as Seccion;
+    // ── Físico sin precio dado: "info" es "completa" ───────────────────────
+    //
+    // Conversaciones reales 265–268 y 270 (25/26-09-2026): el cliente llega
+    // del anuncio con "Quiero más información", el modelo elige "info" (sin
+    // precio) y cierra con "¿Te cuento cuánto vale?". Tiene que escribir otra
+    // vez solo para saber el precio, y casi nadie lo hace: se van. La regla
+    // del dueño (25-09) es ficha completa de una; el prompt lo pedía y el
+    // modelo igual elegía "info", así que lo decide la herramienta.
+    if (sec === "info" && String(p.kind || "") === "physical" && !precioDado(ctx.estado, p.id)) sec = "completa";
     const yaVio = yaSeEnvio(ctx.estado, p.id, sec);
 
     // La regla que antes era una instrucción en el prompt (y que el modelo se
@@ -787,6 +864,40 @@ export const ejecutores: Record<string, Ejecutor> = {
       return { ok: false, mensaje: `${p.name} no tiene video cargado. Sigue sin ofrecerle video.` };
     }
 
+    // ── Más fotos: las que faltan, nunca repetidas ───────────────────────
+    // "Mándame más fotos / otra foto / fotos reales": no es la ficha de
+    // nuevo (esa ya la vio con su foto principal), son las vistas que
+    // todavía no le llegaron. Se calcula contra lo registrado, no contra
+    // lo que el modelo cree que mandó.
+    if (sec === "fotos") {
+      const todas = Array.isArray(p.fotos) ? p.fotos : [];
+      const pendientes = fotosPendientes(todas, fotosYaEnviadas(ctx.estado, p.id));
+      if (!pendientes.length) {
+        return {
+          ok: false,
+          mensaje:
+            todas.length === 0
+              ? `${p.name} no tiene más fotos cargadas (solo la de la ficha). Dilo con tus palabras y no prometas fotos que no hay.`
+              : `Ya vio todas las fotos de ${p.name} (${todas.length}). Dilo con tus palabras y no mandes nada de nuevo.`,
+        };
+      }
+      const lote = pendientes.slice(0, 3);
+      ctx.partes.push({ kind: "card", productId: p.id, seccion: "fotos", fotos: lote, mensajeDelCliente: ctx.mensajeDelCliente });
+      registrarFotosEnviadas(ctx.estado, p.id, lote);
+      registrarHechoEntregado(ctx.estado, `fotos de ${p.name}`);
+      marcarPaso(ctx.estado, `mostrar_fotos_${p.id}`);
+      if (ctx.estado.productoEnFoco !== p.id) ctx.estado.productoEnFoco = p.id;
+      return {
+        ok: true,
+        mensaje:
+          `Salen ${lote.length} foto(s) nuevas de ${p.name}, las que todavía no había visto. ` +
+          `Tu texto: UNA frase corta presentándolas (ej. "Te mando otras vistas:"). No describas lo que se ve en cada foto (no la ves vos) ni repitas la ficha. ` +
+          (pendientes.length > lote.length
+            ? `Todavía quedan ${pendientes.length - lote.length} por mostrar: si pide más, volvé a llamar a mostrar(seccion="fotos").`
+            : `Eran las últimas: si pide más, dile con tus palabras que ya vio todas.`),
+      };
+    }
+
     const yaVioElContenido = productoPresentado(ctx.estado, p.id);
     ctx.partes.push({
       kind: "card",
@@ -804,6 +915,14 @@ export const ejecutores: Record<string, Ejecutor> = {
 
     registrarEnvio(ctx.estado, p.id, sec);
     registrarVideoSiLaFichaLoLleva(ctx.estado, p, sec, yaVioElContenido);
+    // La foto principal viaja con la presentación (completa/info/entrega) la
+    // primera vez: se registra para que "más fotos" no la repita. La
+    // condición espeja la del render (`conFoto: !yaVioContenido ||
+    // sesionNueva` en whatsapp.ts): si la foto no sale, no se registra.
+    if ((sec === "completa" || sec === "info" || sec === "entrega") && (!yaVioElContenido || ctx.estado.turnos === 0)) {
+      const principal = Array.isArray(p.fotos) && p.fotos.length ? p.fotos[0] : null;
+      if (principal) registrarFotosEnviadas(ctx.estado, p.id, [principal]);
+    }
     registrarHechoEntregado(ctx.estado, `${sec} de ${p.name}`);
     marcarPaso(ctx.estado, `mostrar_${sec}_${p.id}`);
     if (ctx.estado.productoEnFoco !== p.id) {
@@ -831,6 +950,7 @@ export const ejecutores: Record<string, Ejecutor> = {
       entrega: `cómo se entrega ${p.name}`,
       video: `el video de ${p.name}`,
       tienda: `el enlace de la tienda de ${p.name}`,
+      fotos: `más fotos de ${p.name}`,
     };
     registrarOferta(ctx.estado, {
       tipo: tipoDeOferta(sec),
@@ -908,6 +1028,11 @@ export const ejecutores: Record<string, Ejecutor> = {
         sinCierre: prods.length > 1,
       });
       registrarEnvio(ctx.estado, p.id, "info");
+      // Cada opción sale con su foto principal: también cuenta como vista.
+      if (!yaVio || ctx.estado.turnos === 0) {
+        const principal = Array.isArray(p.fotos) && p.fotos.length ? p.fotos[0] : null;
+        if (principal) registrarFotosEnviadas(ctx.estado, p.id, [principal]);
+      }
       registrarVideoSiLaFichaLoLleva(ctx.estado, p, "info", yaVio);
     }
 
@@ -967,11 +1092,26 @@ export const ejecutores: Record<string, Ejecutor> = {
     }
 
     if (!mejor) {
+      // Antes: "No inventes: dile que lo confirmas con el equipo y le
+      // respondes". Nadie recibe esa pregunta (no hay aviso al dueño), así que
+      // la promesa no se cumplía nunca, y como es la última instrucción que lee
+      // el modelo, le ganaba a la regla de RAZONAR del prompt (chat de prueba,
+      // 30-09-2026: "¿graba si se va la luz?" → "te aviso por acá mismo").
+      // Ahora le llega lo que dice la ficha y la regla para razonar sin
+      // inventar. Ver __tests__/razonar-sin-respuesta-cargada.test.ts.
+      const producto = enFoco ? ctx.catalogo.find((p) => p.id === enFoco) : null;
+      const puntos = producto ? puntosDeLaFicha(producto) : [];
       return {
         ok: true,
         mensaje:
           `El dueño no cargó nada sobre "${pregunta}". ` +
-          `No inventes: dile que lo confirmas con el equipo y le respondes.`,
+          (puntos.length ? `Lo que dice la ficha de ${producto!.name}: ${puntos.join(" · ")}. ` : "") +
+          `Responde RAZONANDO: afirma lo que diga la ficha o los datos del negocio; lo que sepas de cómo funciona ` +
+          `este TIPO de producto dilo como criterio general ("en general, las cámaras que van conectadas…"), nunca ` +
+          `como una característica de este modelo. Si es una condición comercial (garantía, devolución, descuento, ` +
+          `stock, plazo) y no está cargada, no la afirmes. Si la respuesta depende de un dato que no tienes, dilo con ` +
+          `honestidad en una frase y sigue ayudando. No prometas que alguien del equipo le va a responder: nadie ` +
+          `recibe esa pregunta.`,
       };
     }
 
@@ -980,7 +1120,9 @@ export const ejecutores: Record<string, Ejecutor> = {
         ok: true,
         mensaje:
           `El dueño cargó que los clientes preguntan "${mejor.item.pregunta}" pero NO dejó respuesta. ` +
-          `Está marcado como sin dato: dile que lo confirmas. No inventes.`,
+          `Responde RAZONANDO con la ficha del producto y criterio general del tipo de producto (dicho como general, ` +
+          `no como característica de este modelo). Si es una condición comercial no cargada (garantía, plazo, descuento), ` +
+          `no la afirmes y sigue ayudando. No inventes, y no prometas que alguien le va a responder.`,
       };
     }
 
@@ -1061,7 +1203,7 @@ export const ejecutores: Record<string, Ejecutor> = {
       // en su texto ("¿Te lo enviamos?" con que cerró su último mensaje).
       const preguntoEnElTexto = /env[ií]|pedido|llev[aá]s|llevas|compr|separ|apart|lo quer[eé]s|lo quieres|te animas|te animás/i.test(ctx.estado.ultimaPreguntaAgente || "");
       const preguntoAntes = (preguntado?.productoId === p.id && ctx.estado.turnos > preguntado.turno) || preguntoEnElTexto;
-      const respondioAlaPregunta = preguntoAntes && !esDudaONegativa(ctx.mensajeDelCliente);
+      const respondioAlaPregunta = preguntoAntes && esConfirmacionBreve(ctx.mensajeDelCliente);
       if (respondioAlaPregunta || diceQueCompra(ctx.mensajeDelCliente)) {
         ctx.estado.compraConfirmada = p.id;
       } else {
@@ -1093,8 +1235,38 @@ export const ejecutores: Record<string, Ejecutor> = {
         }
       }
     }
+    // ── La talla viaja con el pedido ─────────────────────────────────────
+    // Simulación del 26-09-2026: "…Medellín, 3001234567, talla M" y el
+    // resumen salió sin talla. En dropshipping eso es despachar una talla
+    // cualquiera. Se guarda en el estado (sobrevive entre turnos) y va en las
+    // notas del pedido, que es lo que ven el resumen y quien despacha.
+    // Si el modelo no la pasó pero el cliente la escribió ("…, talla M"), se
+    // reconoce contra las opciones REALES del producto, no contra una lista
+    // de palabras: preguntarle otra vez lo que ya dijo es peor que no preguntar.
+    const palabrasDelCliente = String(ctx.mensajeDelCliente || "")
+      .toLowerCase()
+      .split(/[^\p{L}\p{N}]+/u)
+      .filter(Boolean);
+    const enElMensaje = (p.opciones ?? []).find((o) => palabrasDelCliente.includes(o.toLowerCase().trim()));
+    const varianteDicha =
+      String(args?.variante ?? "").trim() || String(ctx.estado.datos?.variante ?? "").trim() || (enElMensaje ?? "");
+    if (varianteDicha) {
+      ctx.estado.datos.variante = varianteDicha.slice(0, 120);
+      datos.notas = [`Talla/variante: ${ctx.estado.datos.variante}`, datos.notas].filter(Boolean).join(" · ");
+    }
     const cantidad = Math.max(1, Math.min(20, Number(args?.cantidad) || 1));
-    const r = await ctx.pedidos.tomar({ producto: p, cantidad, datos });
+    // La transportadora solo cuenta si la ELIGIÓ el cliente (nunca se inventa:
+    // dueño, 25-09-2026). Con el nombre alcanza: quien despacha resuelve el id
+    // contra las que Dropi lista para esa ciudad.
+    const transportadoraElegida = String(args?.transportadora ?? "").trim().slice(0, 120);
+    if (transportadoraElegida) ctx.estado.datos.transportadora = transportadoraElegida;
+    const r = await ctx.pedidos.tomar({
+      producto: p,
+      cantidad,
+      datos,
+      variante: varianteDicha || null,
+      transportadora: transportadoraElegida ? { nombre: transportadoraElegida } : null,
+    });
 
     ctx.estado.productoEnFoco = p.id;
     if (ctx.estado.compra === "ninguno" || ctx.estado.compra === "interes" || ctx.estado.compra === "producto_definido" || ctx.estado.compra === "precio_dado") {
@@ -1132,6 +1304,18 @@ export const ejecutores: Record<string, Ejecutor> = {
         ctx.estado.accionPendiente = "confirmar_zona";
         return { ok: true, mensaje: `Los datos están, pero la zona no verifica: ${r.motivo}. Pídele que confirme la ciudad y el departamento. No registres nada.` };
       case "listo":
+        // Tiene tallas/modelos y el cliente no dijo cuál: se pregunta ANTES
+        // del resumen. Confirmar un pedido sin talla es despachar a ciegas.
+        if (!varianteDicha && (p.opciones?.length ?? 0) > 0) {
+          ctx.estado.pedidoPorConfirmarEnTurno = null;
+          ctx.estado.accionPendiente = "pedir_datos_envio";
+          return {
+            ok: true,
+            mensaje:
+              `Datos de envío completos, pero falta la talla/variante de ${p.name} (opciones: ${p.opciones!.join(", ")}). ` +
+              `Pregúntale SOLO cuál quiere, en una línea, y cuando conteste vuelve a llamar tomar_pedido con variante. No mandes resumen todavía.`,
+          };
+        }
         // El resumen sale en el mismo turno en que llegan los datos, y el "sí"
         // que confirma tiene que llegar en un mensaje POSTERIOR: por eso se
         // marca el turno (confirmar_pedido rechaza un sí del mismo turno).
@@ -1285,13 +1469,17 @@ export const ejecutores: Record<string, Ejecutor> = {
           `No afirmes que existe: di que lo confirmas.`,
       };
     }
+    // Lo digital no se agota: no hay "existencias" que revisar.
+    if (p.stock == null && /^(digital|curso|ebook|software)$/i.test(String(p.kind || ""))) {
+      return { ok: true, mensaje: `${p.name} es digital: está disponible siempre, no tiene límite de unidades. Dilo con seguridad.` };
+    }
     if (p.stock == null) {
       det.stockEstado = "sin_dato";
       return {
         ok: true,
         mensaje:
-          `${p.name} no tiene inventario configurado. No afirmes stock ni disponibilidad: ` +
-          `di que revisas existencias y confirmas.`,
+          `${p.name} no tiene inventario configurado. No afirmes una cantidad. Si pregunta si hay, di que se ` +
+          `puede pedir y que la disponibilidad se valida al registrar el pedido; no prometas escribirle después.`,
       };
     }
     det.stock = p.stock;
@@ -1306,6 +1494,26 @@ export const ejecutores: Record<string, Ejecutor> = {
     det.stockEstado = "disponible";
     marcarPaso(ctx.estado, `stock_${p.id}`);
     return { ok: true, mensaje: `${p.name}: ${p.stock} unidad(es) en inventario. Puedes ofrecerlo.` };
+  },
+
+  async consultar_transportadoras(ctx, { ciudad }) {
+    if (!ctx.pedidos?.transportadoras) {
+      return { ok: false, mensaje: "Este negocio no tiene pedidos automáticos, así que no puedo listar transportadoras reales. No inventes ninguna empresa: dile que el envío lo coordina el equipo y, si el cliente insiste, usa escalar_a_humano." };
+    }
+    const destino = String(ciudad ?? "").trim() || String((ctx.estado.datos as any)?.ciudad ?? "").trim();
+    if (!destino) {
+      return { ok: false, mensaje: "Falta la ciudad de entrega: sin ciudad no sé qué transportadoras llegan. Pídesela al cliente en UNA pregunta corta y volvé a llamar." };
+    }
+    const r = await ctx.pedidos.transportadoras(destino);
+    if (!r.ok) return r;
+    return {
+      ok: true,
+      mensaje:
+        `${r.mensaje} ` +
+        `Mostrá SOLO los nombres, ordenados de la más económica a la más cara, y ofrecé 2 o 3. ` +
+        `NUNCA muestres el flete ni ningún precio de envío (dueño: el flete no se muestra). ` +
+        `Si el cliente elige una, pasá su nombre exacto en tomar_pedido(transportadora=…); si no elige, no insistas.`,
+    };
   },
 
   registrar_caso(ctx, { tipo, necesidad, alcance, cuando, problema, objetivo }) {
@@ -1373,17 +1581,63 @@ function tipoDeOferta(seccion: Seccion): Oferta["tipo"] {
 }
 
 /**
+ * Una respuesta corta afirmativa solo adquiere sentido porque existe una
+ * pregunta pendiente del agente. Se evalúa por mensaje COMPLETO: "sí" confirma
+ * "¿te lo enviamos?", pero "sí, ¿cuánto demora?" es una pregunta y no autoriza
+ * un pedido. Incluye errores coloquiales frecuentes sin convertir cualquier
+ * texto no negativo en un sí.
+ */
+export function esConfirmacionBreve(mensaje: string): boolean {
+  const t = String(mensaje || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[¡!.,;:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!t || t.includes("?") || esDudaONegativa(t)) return false;
+  return /^(si+|s+|sip|sep|dale|listo|de una|ok|okay|okey|oki|va|bueno|claro|hagale|hagamole|perfecto|confirmo)$/.test(t);
+}
+
+/**
  * ¿El cliente dice, con sus palabras, que COMPRA? Solo frases explícitas:
  * "me interesa", "me gusta", "este" NO cuentan (pedido del dueño 25-09-2026).
  */
+const AFIRMA_COMPRA = /\b(lo|la|los|las) (quiero|kiero|qiero|queiro|compro|pido|llevo)\b|\b(quiero|kiero|qiero|queiro) (uno|una|dos|tres|\d+|comprar|pedir|ordenar|hacer el pedido|realizar el pedido|encargar|confirmar el pedido)\b|\b(realizar|realizo|hacer|confirmar)( el)? pedido\b|\bme (lo|la) llevo\b|\bme (lo|la|los|las) (llevo|env[ií]as?|mand[aá]s?)\b|\b(env[ií]a|mand[aá])(me)?(lo|la|los|las)\b|\bhagamos el pedido\b|\bh[aá]gamelo\b|\bpedido\b.*\bconfirm/i;
+
+/**
+ * Una pregunta sobre CÓMO comprar es una señal de compra, no una duda.
+ *
+ * Chat de prueba (30-09-2026): "Listo, la quiero. ¿Cómo hago el pedido?" →
+ * el vendedor contestó "¿Te gustaría que hagamos el pedido de una vez?". El
+ * signo de pregunta bastaba para que todo el mensaje contara como duda, y el
+ * pedido nunca se abría.
+ */
+const PREGUNTA_COMO_COMPRAR = /\bc[oó]mo (hago|hacemos|realizo|se hace|puedo hacer|es)( el| mi)? (pedido|compra)\b|\bc[oó]mo (lo|la|los|las) (pido|compro|encargo|pago)\b|\bc[oó]mo (te |les )?(pago|se paga)\b|\bd[oó]nde (hago|realizo|dejo) (el |mi )?pedido\b/i;
+
+const NEGATIVA_O_APLAZA = /^\s*no\b|\bno (gracias|todav[ií]a|por ahora|s[eé])\b|\b(lo voy a pensar|lo pienso|despu[eé]s|m[aá]s tarde|luego te|d[eé]jame (ver|pensar)|todav[ií]a no)\b/i;
+
 export function diceQueCompra(mensaje: string): boolean {
-  const t = String(mensaje || "").toLowerCase();
-  if (esDudaONegativa(t)) return false;
-  return /\b(lo|la|los|las) (quiero|compro|pido|llevo)\b|\bquiero (uno|una|dos|tres|\d+)\b|\bme (lo|la) llevo\b|\bquiero (comprar|pedir|ordenar|hacer el pedido|encargar)|\bme (lo|la|los|las) (llevo|env[ií]as?|mand[aá]s?)\b|\b(env[ií]a|mand[aá])(me)?(lo|la|los|las)\b|\bhagamos el pedido\b|\bh[aá]gamelo\b|\bpedido\b.*\bconfirm/i.test(t);
+  const t = String(mensaje || "").toLowerCase().trim();
+  if (!t || NEGATIVA_O_APLAZA.test(t)) return false;
+  // Frase por frase: "la quiero" afirma; "¿cómo hago el pedido?" también. Una
+  // pregunta de otra cosa ("¿la tienen en negro?") es una duda real y manda:
+  // primero se responde, después se cierra.
+  const frases = t.split(/(?=¿)|(?<=[.!?\n])\s+/).map((f) => f.trim()).filter(Boolean);
+  let compra = false;
+  for (const f of frases) {
+    if (f.includes("?") || f.startsWith("¿")) {
+      if (!PREGUNTA_COMO_COMPRAR.test(f)) return false;
+      compra = true;
+    } else if (AFIRMA_COMPRA.test(f)) {
+      compra = true;
+    }
+  }
+  return compra;
 }
 
 /** Una duda o un no: no es un sí aunque venga después de "¿te lo enviamos?". */
 export function esDudaONegativa(mensaje: string): boolean {
   const t = String(mensaje || "").toLowerCase().trim();
-  return /\?|^\s*no\b|\bno (gracias|todav[ií]a|por ahora|s[eé])\b|\b(lo voy a pensar|lo pienso|despu[eé]s|m[aá]s tarde|luego te|d[eé]jame (ver|pensar)|todav[ií]a no)\b/i.test(t);
+  return t.includes("?") || NEGATIVA_O_APLAZA.test(t);
 }

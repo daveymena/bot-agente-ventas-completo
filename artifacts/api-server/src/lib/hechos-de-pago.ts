@@ -205,5 +205,27 @@ export function noManejamosEse(pedido: string, medios: MedioDePago[]): string {
     nombres.length === 1
       ? nombres[0]
       : `${nombres.slice(0, -1).join(", ")} y ${nombres[nombres.length - 1]}`;
-  return `Por ${pedido} no manejo pagos 🙏 Pero sí por ${lista}. ¿Cuál te queda mejor?`;
+  return nombres.length === 1
+    ? `Por ${pedido} no manejo pagos 🙏 Pero sí por ${lista}:`
+    : `Por ${pedido} no manejo pagos 🙏 Pero sí por ${lista}. ¿Cuál te queda mejor?`;
+}
+
+/**
+ * La respuesta completa cuando pidió un medio que no hay: se dice que ese no,
+ * y en el MISMO mensaje van los datos de los que sí hay.
+ *
+ * Chat de prueba (30-09-2026): "¿cómo pago? ¿tienen nequi?" → "Por Nequi no
+ * manejo pagos 🙏 Pero sí por PayPal. ¿Cuál te queda mejor?", sin enlace. El
+ * cliente preguntó CÓMO pagar y se quedó sin cómo, con una pregunta más de
+ * por medio (y "cuál" con una sola opción).
+ */
+export function respuestaMedioNoDisponible(
+  pedido: string,
+  medios: MedioDePago[],
+  precioTexto: string,
+  cierre?: string,
+): string {
+  const aviso = noManejamosEse(pedido, medios);
+  if (!medios.length) return aviso;
+  return `${aviso}\n\n${renderMediosDePago(medios, precioTexto, cierre)}`;
 }

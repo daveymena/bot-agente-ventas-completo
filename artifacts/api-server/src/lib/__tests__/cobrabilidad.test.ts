@@ -3,7 +3,7 @@ import { evaluarCobrabilidad, enlaceDePagoValido, resumenDeCobrabilidad, evaluar
 import type { CredencialesDePago } from "../tenant-payment-credentials";
 
 const SIN_NADA: CredencialesDePago = {
-  mercadopago: { accessToken: "", enabled: false },
+  mercadopago: { accessToken: "", enabled: false, webhookSecret: "" },
   paypal: { clientId: "", clientSecret: "", mode: "live", enabled: false },
   transfer: { enabled: false, accounts: [] },
   propias: true,
@@ -11,7 +11,7 @@ const SIN_NADA: CredencialesDePago = {
 
 const CON_MP: CredencialesDePago = {
   ...SIN_NADA,
-  mercadopago: { accessToken: "APP_USR-xxx", enabled: true },
+  mercadopago: { accessToken: "APP_USR-xxx", enabled: true, webhookSecret: "" },
 };
 
 const digital = { id: 1, name: "Curso de Piano", kind: "digital", price: "60000" };

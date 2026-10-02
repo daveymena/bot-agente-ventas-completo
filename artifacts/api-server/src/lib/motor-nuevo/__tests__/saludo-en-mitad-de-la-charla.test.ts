@@ -64,7 +64,16 @@ describe("el mismo emoji al final de cada mensaje", () => {
       { role: "agent" as const, content: "Entiendo. El acceso es de por vida. 🎹", createdAt: new Date() },
       { role: "customer" as const, content: "y si no me gusta?", createdAt: new Date() },
     ];
-    const r = await responder({ llm, estado: estadoInicial(1), historial, catalogo: piano, conocimiento: [], guion: guion(), voz: VOZ });
+    // La garantía va CARGADA en este negocio a propósito: lo que se mide acá
+    // es el emoji repetido, y sin cargarla el guardián de
+    // `condiciones-sin-respaldo.ts` se llevaría la frase entera (con razón:
+    // prometer 7 días que nadie definió es el defecto del 27-09-2026).
+    const conGarantia = guionDelNegocio({
+      catalogo: piano,
+      negocio: { nombre: "T", garantia: { dias: 7, descripcion: "7 días de garantía" } },
+      medios: [{ etiqueta: "Nequi", tipo: "transferencia" }],
+    });
+    const r = await responder({ llm, estado: estadoInicial(1), historial, catalogo: piano, conocimiento: [], guion: conGarantia, voz: VOZ });
     // Sin el 🎹 repetido (y en tú: el servidor traduce el voseo).
     expect((r.partes[0] as any).content).toMatch(/7 días de garantía\. ¿Te anim[aá]s a probarlo\?$/);
   });

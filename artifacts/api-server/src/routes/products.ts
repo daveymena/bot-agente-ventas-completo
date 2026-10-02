@@ -110,7 +110,10 @@ router.get("/", async (req: TenantRequest, res, next) => {
       .where(eq(products.tenantId, tenantId))
       .orderBy(desc(products.createdAt));
     
-    return res.json(ListProductsResponse.parse(rows.map(serialize)));
+    // El esquema generado no trae `opciones` (talla/color) y zod lo descartaba:
+    // el editor del panel nunca veía las opciones cargadas (30-09-2026).
+    const lista = ListProductsResponse.parse(rows.map(serialize)) as any[];
+    return res.json(lista.map((p, i) => ({ ...p, opciones: (rows[i] as any).opciones ?? null })));
   } catch (e) {
     return next(e);
   }
@@ -277,8 +280,12 @@ router.post("/:id/video-desde-terabox", async (req: TenantRequest, res, next) =>
 
     // 1. El enlace directo, que dura horas.
     const { default: TeraBoxApp } = await import("terabox-api");
-    const ndus = (process.env.TERABOX_NDUS || "").trim();
-    if (!ndus) return res.status(400).json({ message: "TERABOX_NDUS no configurado" });
+    // TERABOX_NDUS es la sesión de la cuenta de Terabox del DUEÑO del
+    // servidor: con una ruta cualquiera, otro negocio podía sacar enlaces de
+    // descarga de SUS archivos (29-09-2026). Solo el negocio dueño la usa.
+    const { envSoloDelDueno } = await import("../lib/respaldo-del-dueno");
+    const ndus = envSoloDelDueno(tenantId, process.env.TERABOX_NDUS).trim();
+    if (!ndus) return res.status(400).json({ message: "Terabox no está configurado para este negocio" });
     const tb = new TeraBoxApp(ndus);
     const meta: any = await (tb as any).getFileMeta([ruta]);
     const dlink = meta?.info?.[0]?.dlink;
@@ -409,9 +416,29 @@ router.patch("/:id", async (req: TenantRequest, res, next) => {
       req.body.price = String(req.body.price);
     }
     if (req.body?.metadata && typeof req.body.metadata === "object") req.body.metadata = JSON.stringify(req.body.metadata);
+    // ── Opciones (talla, color…) ──────────────────────────────────────────
+    // La columna existía y el vendedor la leía, pero NADA la escribía: el
+    // esquema generado no la trae y zod la descartaba. Caso real 26-09-2026:
+    // corrector con tallas S–XL solo en la imagen → pedidos sin talla.
+    let opciones: unknown = undefined;
+    if (req.body && "opciones" in req.body) {
+      const crudas = req.body.opciones;
+      delete req.body.opciones;
+      if (crudas === null) opciones = null;
+      else if (Array.isArray(crudas)) {
+        opciones = crudas
+          .map((o: any) => ({
+            nombre: String(o?.nombre ?? "").trim().slice(0, 40),
+            valores: (Array.isArray(o?.valores) ? o.valores : []).map((v: any) => String(v).trim().slice(0, 40)).filter(Boolean).slice(0, 30),
+            obligatoria: o?.obligatoria !== false,
+          }))
+          .filter((o: any) => o.nombre && o.valores.length);
+      } else return res.status(400).json({ message: "opciones debe ser una lista de { nombre, valores[], obligatoria }" });
+    }
     const body = UpdateProductBody.parse(req.body);
 
     const update: Record<string, unknown> = { ...body };
+    if (opciones !== undefined) update.opciones = opciones;
     if (body.price !== undefined) update.price = String(body.price);
     if ((body as any).metadata !== undefined) {
       const meta = await materializarGaleria((body as any).metadata, id);

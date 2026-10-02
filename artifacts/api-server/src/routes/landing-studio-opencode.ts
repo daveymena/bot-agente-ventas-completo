@@ -18,7 +18,7 @@
 import { Router } from "express";
 import { logger } from "../lib/logger";
 import { db, landingPages, products } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { fotosDelProducto, videosDelProducto } from "../lib/fotos-de-producto";
 import { contextoLanding, recordarLanding } from "../lib/landing/memoria";
 import { tokensDe } from "../lib/landing/design-system";
@@ -781,6 +781,120 @@ ${checkout}${instruccionDeFamilia(familia, Number(product?.id) || 0)}`;
 }
 
 /**
+ * Landing PRO: textos del modelo (JSON) + plantilla fija (renderer-pro.ts).
+ * Si el modelo falla, la plantilla se llena con los datos del producto.
+ */
+async function generarLandingPro(a: {
+  product: any;
+  tipo: ProductType;
+  tenantId: number;
+  usaAgentePropio: boolean;
+  config: ReturnType<typeof opencodeConfig> | null;
+  pago: DatosDePago;
+  estilo?: "pro" | "clinico";
+  timeoutMs?: number;
+}): Promise<{ html: string; tipo: ProductType; familia?: string; familiaPorque?: string; quitado?: string[]; proveedor?: string }> {
+  const { product, tipo, tenantId } = a;
+  // Qué es y cómo cierra: físico contraentrega (Dropi) → formulario; físico
+  // con pago en línea o digital → botones de pago; servicio → WhatsApp.
+  const tipoPro: "fisico" | "digital" | "servicio" = tipo === "dropshipping" || tipo === "fisico" ? "fisico" : tipo === "servicio" ? "servicio" : "digital";
+  const hayEnlaces = !!(a.pago.mercadopago || a.pago.paypal);
+  const modo: "contraentrega" | "pago" | "whatsapp" = tipo === "dropshipping" ? "contraentrega" : tipo === "servicio" ? "whatsapp" : hayEnlaces || tipo === "fisico" ? "pago" : "whatsapp";
+  const { sistemaContenidoPro, pedidoContenidoPro, contenidoDesdeRespuesta, respuestaProValida } = await import("../lib/landing/contenido-pro");
+  const { renderizarLandingPro } = await import("../lib/landing/renderer-pro");
+  const { garantiaDelProducto, testimoniosDelProducto } = await import("../lib/landing/plantillas");
+  const { redactarConProveedores, htmlDesdeRespuesta } = await import("../lib/landing/agente-landing");
+
+  let ctx: any = null;
+  try { const { getBusinessContext } = await import("../lib/business-context"); ctx = await getBusinessContext(tenantId); } catch { /* sin contexto */ }
+  const garantia = garantiaDelProducto(product) || ctx?.garantia?.descripcion || null;
+  const plazoEntrega = ctx?.entrega?.plazo || null;
+  const whatsapp = a.pago.whatsapp || null;
+  const datos = {
+    name: String(product?.name || "Producto"),
+    description: product?.description ?? null,
+    features: Array.isArray(product?.features) ? product.features.map(String) : [],
+    price: product?.price ?? null,
+    category: product?.category ?? null,
+  };
+
+  let crudo = "";
+  let proveedor: string | undefined;
+  try {
+    const system = sistemaContenidoPro(tipoPro);
+    const user = pedidoContenidoPro(datos, { garantia, plazoEntrega, tipo: tipoPro });
+    const r: { text: string; error?: string; proveedor?: string } = a.usaAgentePropio
+      ? await redactarConProveedores({
+          tenantId, system, user, timeoutMs: a.timeoutMs ?? 90_000, maxTokens: 3000, tarea: "landing-pro",
+          // El validador por defecto exige <html>: con él TODA respuesta JSON se
+          // descartaba y la landing salía con el texto de respaldo (landings
+          // 16 y 20 en producción, "plantilla (sin modelo)", 30-09-2026).
+          validar: respuestaProValida,
+        })
+      : a.config
+        ? await conCandado(async () => {
+            const sessionId = await createSession(a.config!.host, a.config!.authHeader);
+            return await sendMessage(a.config!.host, a.config!.authHeader, sessionId, { system, text: user, timeoutMs: a.timeoutMs ?? 45_000 });
+          })
+        : { text: "", error: "sin proveedor" };
+    crudo = r.error ? "" : String(r.text || "");
+    proveedor = r.proveedor;
+  } catch { /* se arma con los datos del producto */ }
+
+  let opciones: any[] = [];
+  try { const o = typeof product?.opciones === "string" ? JSON.parse(product.opciones) : product?.opciones; opciones = Array.isArray(o) ? o : []; } catch { /* sin opciones */ }
+  const unicas = (product as any)?.__fotosUnicas;
+  const fotos: string[] = (Array.isArray(unicas) && unicas.length ? unicas : [product?.imageUrl, ...(Array.isArray(product?.images) ? product.images : [])]).filter(Boolean).map(String);
+  // Fotos y clips del fabricante (AliExpress, comprobados por visión) que el dueño APROBÓ.
+  const { activosAprobados } = await import("../lib/activos-fabricante");
+  const fabricante = activosAprobados(product?.metadata);
+  for (const f of fabricante.fotos) if (!fotos.includes(f)) fotos.push(f);
+  let nombreNegocio = "";
+  try { const { tenantManager } = await import("../lib/tenantManager"); const t: any = await tenantManager.getTenantById(tenantId); nombreNegocio = String(t?.brandName || t?.name || ""); } catch { /* sin nombre */ }
+
+  // La MODERNA es el estándar (01-10-2026, el dueño: 'la idea es que generen landings profesionales');
+  // el estilo 'clínico' (azul y blanco) sigue saliendo de la plantilla PRO.
+  const { renderizarLandingModerna } = await import("../lib/landing/renderer-moderno");
+  // Contraentrega (dropshipping): la product page que VENDE en etapa de prueba
+  // (modelo Momo Today, ver lib/landing/renderer-cod.ts). Las demás, la moderna.
+  const { renderizarLandingCod } = await import("../lib/landing/renderer-cod");
+  const { videoDeProducto } = await import("../lib/video-de-producto");
+  const video = videoDeProducto(product?.metadata);
+  // "Enviamos con…" desde el cotizador de Dropi (idea del dueño 01-10-2026):
+  // las transportadoras que maneja la cuenta, sin inventar. Si no hay token
+  // o Dropi no lista, la línea simplemente no sale (ver renderer-cod).
+  let transportadoras: string[] = [];
+  if (modo === "contraentrega") {
+    try {
+      const { tokenDropiDelTenant, transportadorasGenerales } = await import("../lib/dropi-directo");
+      const token = await tokenDropiDelTenant(tenantId);
+      if (token) transportadoras = await transportadorasGenerales(token);
+    } catch { /* sin transportadoras: la línea no sale */ }
+  }
+  const renderizar = a.estilo === "clinico"
+    ? renderizarLandingPro
+    : modo === "contraentrega"
+      ? (o: any) => renderizarLandingCod({ ...o, caracteristicas: datos.features, videos: fabricante.clips.length ? fabricante.clips : /\.(mp4|webm)(\?|$)/i.test(video) ? [video] : [], transportadoras })
+      : renderizarLandingModerna;
+  const html = renderizar({
+    contenido: contenidoDesdeRespuesta(crudo, datos, tipoPro),
+    producto: { id: product?.id, name: datos.name, price: Number(product?.price) || 0, categoria: datos.category, opciones },
+    fotos,
+    negocio: { nombre: nombreNegocio, whatsapp },
+    accion: "__FORM_ACTION__",
+    modo,
+    tipo: tipoPro,
+    enlaces: { mercadopago: a.pago.mercadopago, paypal: a.pago.paypal },
+    estilo: a.estilo === "clinico" ? "clinico" : "pro",
+    plazoEntrega,
+    garantia,
+    testimonios: testimoniosDelProducto(product),
+  });
+  const r = htmlDesdeRespuesta(html);
+  return { html: r.html, tipo, familiaPorque: `plantilla PRO ${a.estilo === "clinico" ? "estilo clínico" : "neutra"} (${tipoPro}, ${modo})`, quitado: r.quitado, proveedor: crudo ? proveedor : "plantilla (sin modelo)" };
+}
+
+/**
  * Genera una landing PROFESIONAL con OpenCode (agentes especializados por tipo).
  *
  * Es el camino "premium": a diferencia del generador por plantillas (que arma
@@ -799,7 +913,13 @@ export async function generarLandingConOpenCode(opts: {
   timeoutMs?: number;
   /** Bitácora de la landing en edición: lo que ya se le pidió antes (ver agente-landing.ts). */
   bitacora?: string;
-}): Promise<{ html: string; tipo: ProductType; error?: string; familia?: string; familiaPorque?: string; quitado?: string[]; proveedor?: string }> {
+  /** true = HTML libre del modelo (sin la plantilla PRO). */
+  htmlLibre?: boolean;
+  /** Variante de la plantilla PRO: "pro" (neutra) o "clinico" (azul/blanco). */
+  estilo?: "pro" | "clinico";
+  /** Slug ya asignado (landings nuevas por vía familia: el cierre lo necesita). */
+  slug?: string | null;
+}): Promise<{ html: string; tipo: ProductType; error?: string; familia?: string; familiaPorque?: string; quitado?: string[]; proveedor?: string; sections?: any[]; design?: any; strategy?: any }> {
   const { product, instruction } = opts;
   const tenantIdDelProducto = Number(product?.tenantId) || 1;
   // El agente propio (DeepSeek/Groq del negocio) va primero; el puente de
@@ -848,14 +968,85 @@ export async function generarLandingConOpenCode(opts: {
   try {
     const { getBusinessContext } = await import("../lib/business-context");
     const ctx: any = await getBusinessContext(tenantIdDelProducto);
-    tieneGarantia = !!ctx?.garantia?.descripcion;
+    const { garantiaDelProducto, testimoniosDelProducto } = await import("../lib/landing/plantillas");
+    // La garantía del PRODUCTO (ej. la de 30 días del proveedor de Dropi) manda
+    // sobre la del negocio; sin ninguna de las dos, no se menciona.
+    const garantia = garantiaDelProducto(product) || ctx?.garantia?.descripcion || "";
+    tieneGarantia = !!garantia;
+    const testimonios = testimoniosDelProducto(product);
     hechosDelNegocio =
       "\n\nHECHOS DEL NEGOCIO (lo único que podés prometer):" +
       `\n- Entrega: ${ctx?.entrega ? `${ctx.entrega.metodo} — ${ctx.entrega.plazo}` : "NO definida: no prometas plazos ni 'envío gratis'"}` +
-      `\n- Garantía: ${tieneGarantia ? ctx.garantia.descripcion : "NO definida: NO menciones garantía, devolución ni reembolso en ninguna parte"}` +
-      "\n- Duraciones, cantidades de uso ('20-30 min al día'), testimonios con nombre y cifras: solo si vienen en los datos del producto.";
+      `\n- Garantía: ${tieneGarantia ? garantia : "NO definida: NO menciones garantía, devolución ni reembolso en ninguna parte"}` +
+      (testimonios.length
+        ? `\n- TESTIMONIOS REALES (usalos TEXTUALES, con nombre y ciudad, en tarjetas; no agregues ni cambies ninguno):\n${testimonios.map((t) => `  • ${t.nombre}${t.ciudad ? ` (${t.ciudad})` : ""}: "${t.texto}"`).join("\n")}`
+        : "\n- Testimonios: NO hay. No pongas sección de testimonios, reseñas, estrellas ni calificaciones.") +
+      "\n- Duraciones, cantidades de uso ('20-30 min al día') y cifras: solo si vienen en los datos del producto.";
   } catch { /* sin contexto: el saneador igual actúa */ }
   const system = `${getSystemPrompt(tipo)}\n\n${REGLAS_DEL_AGENTE_DE_LANDINGS}${hechosDelNegocio}`;
+
+  // ── Vía FAMILIA (las 17 mandan, 2026-10-02) ─────────────────────────────
+  // Familia explícita en una landing NUEVA: molde (plantilla → secciones →
+  // copy) + renderer-v3 con skins y esqueletos por familia. Se guardan
+  // secciones (el editor las edita) y el HTML sale del renderer, no del
+  // modelo. Sin familia explícita: sigue el camino PRO/moderno/COD de abajo.
+  const { esFamilia, elegirFamilia } = await import("../lib/landing/design-system");
+  // "Automática" (sin familia explícita): se sugiere por el producto, como en
+  // /generate. El tipo catálogo ("ecommerce", varios productos) y el HTML
+  // libre siguen su camino de siempre: el molde es de UN producto.
+  let familiaV3: string | null = esFamilia(opts.familia) ? String(opts.familia) : null;
+  if (!familiaV3 && !existingHtml && !(opts as any).htmlLibre && tipo !== "ecommerce") {
+    try {
+      familiaV3 = elegirFamilia({ nombre: product?.name, categoria: product?.category, descripcion: product?.description, tipo: product?.kind, precio: Number(product?.price) || null }).familia;
+    } catch { familiaV3 = null; }
+  }
+  if (familiaV3 && !existingHtml && !(opts as any).htmlLibre && tipo !== "ecommerce") {
+    try {
+      const { generarLandingLocal } = await import("./landing-pages-ai");
+      const g = await generarLandingLocal({ tenantId: tenantIdDelProducto, product, contexto: instruction, familia: familiaV3 });
+      const { renderizarLanding } = await import("../lib/landing/renderer-v3");
+      const { negocioParaRender } = await import("../lib/landing/negocio-para-render");
+      const { modeloDelProducto, CONDICIONES_DE_RESPALDO } = await import("../lib/modelo-de-negocio");
+      const { getBusinessContext } = await import("../lib/business-context");
+      const { fotosUnicasDelProducto, guardadorDeMetadata } = await import("../lib/fotos-de-producto");
+      const { enlacesDePagoLocal } = await import("./landing-pages");
+      const negocio = await negocioParaRender(tenantIdDelProducto, product);
+      const modelo = modeloDelProducto(product as any);
+      const ctx = await getBusinessContext(tenantIdDelProducto).catch(() => null);
+      const c = ctx?.condiciones ?? CONDICIONES_DE_RESPALDO;
+      const slug = String(opts.slug || "");
+      const cierre = modelo === "fisico"
+        ? { tipo: "contraentrega" as const, accion: slug ? `/api/landing-publica/${encodeURIComponent(slug)}/pedido` : "", pais: c.pais, pago: c.envio.pago }
+        : modelo === "digital"
+          ? { tipo: "pago" as const, accion: slug ? `/api/landing-publica/${encodeURIComponent(slug)}/cupon` : "", mercadopago: (await enlacesDePagoLocal(tenantIdDelProducto, product)).mercadopago, paypal: (await enlacesDePagoLocal(tenantIdDelProducto, product)).paypal }
+          : { tipo: "whatsapp" as const };
+      const html = renderizarLanding({
+        nombre: g.name,
+        secciones: g.sections as any,
+        familia: (g.design as any)?.familia ?? familiaV3,
+        producto: {
+          name: product.name, description: product.description, imageUrl: product.imageUrl,
+          images: await fotosUnicasDelProducto(product, product?.id ? { guardar: guardadorDeMetadata(Number(product.id)) } : undefined).catch(() => [product.imageUrl].filter(Boolean)),
+          price: product.price, currency: product.currency, paymentLink: product.paymentLink,
+          whatsapp: negocio.whatsapp,
+          opciones: Array.isArray(product.opciones) ? product.opciones : (typeof product.opciones === "string" ? (() => { try { return JSON.parse(product.opciones); } catch { return null; } })() : null),
+        },
+        negocio,
+        cierre: cierre as any,
+      });
+      return { html, tipo, familia: (g.design as any)?.familia, familiaPorque: `molde + familia ${(g.design as any)?.familia} (${(g as any)?.plantilla?.nombre || tipo})`, proveedor: `molde+ia (${(g as any)?.generatedBy || "ai"})`, sections: g.sections as any, design: g.design as any, strategy: (g as any)?.strategy };
+    } catch (e: any) {
+      return { html: "", tipo, error: `La vía de familias falló: ${e?.message || e}` };
+    }
+  }
+
+  // ── Landing PRO (plantilla elegida por el dueño, 30-09-2026) ────────────
+  // Dropshipping NUEVA: el modelo escribe solo los textos (JSON) y la
+  // plantilla pone el diseño móvil. Las ediciones siguen por HTML libre.
+  // Todos los tipos menos "tienda" (catálogo de varios productos).
+  if (tipo !== "ecommerce" && !existingHtml && !opts.htmlLibre) {
+    return await generarLandingPro({ product, tipo, tenantId: tenantIdDelProducto, usaAgentePropio, config, pago, estilo: opts.estilo, timeoutMs: opts.timeoutMs });
+  }
 
   let result: { text: string; error?: string; proveedor?: string };
   if (usaAgentePropio) {
@@ -890,9 +1081,17 @@ export async function generarLandingConOpenCode(opts: {
 // ENDPOINTS
 // ═══════════════════════════════════════════════════════════════════════════
 
+// El negocio SIEMPRE sale de la sesión (29-09-2026). Antes el router era
+// público, buscaba productos y landings solo por id y, sin producto, usaba el
+// negocio 1: cualquiera reescribía landings ajenas con los proveedores de IA
+// del dueño. Productos y landings se filtran por este negocio.
+const negocioDe = (req: any): number => Number(req.tenant?.id) || 0;
+
 // ── POST /api/landing-studio/test ──────────────────────────────────────────
 router.post("/test", async (req, res) => {
   try {
+    const tenantId = negocioDe(req);
+    if (!tenantId) return res.status(401).json({ message: "Iniciá sesión" });
     const { message, productId } = req.body as { message?: string; productId?: number };
     if (!message?.trim()) return res.status(400).json({ message: "Falta el mensaje" });
 
@@ -901,14 +1100,14 @@ router.post("/test", async (req, res) => {
 
     let product: any = null;
     if (productId) {
-      const rows = await db.select().from(products).where(eq(products.id, productId));
+      const rows = await db.select().from(products).where(and(eq(products.id, productId), eq(products.tenantId, tenantId)));
       product = rows[0] || null;
     }
 
     const tipo = product ? detectarTipo(product) : "digital";
     const paleta = product ? await paletaDelProducto(product) : undefined;
     const pago = product ? await datosDePagoDelProducto(product) : undefined;
-    const memoria = await contextoLanding(product?.tenantId || 1, { productId: product?.id, tipo });
+    const memoria = await contextoLanding(tenantId, { productId: product?.id, tipo });
     let userPrompt = product
       ? buildUserPrompt(product, tipo, null, message, paleta, pago)
       : `INSTRUCCION: ${message}`;
@@ -946,10 +1145,12 @@ router.post("/test", async (req, res) => {
 // que la landing publicada refleje el cambio sin regenerar con IA.
 router.post("/design", async (req, res) => {
   try {
+    const tenantId = negocioDe(req);
+    if (!tenantId) return res.status(401).json({ message: "Iniciá sesión" });
     const { landingId, diseno } = req.body as { landingId?: number; diseno?: Diseno };
     if (!landingId) return res.status(400).json({ message: "Falta landingId" });
 
-    const rows = await db.select().from(landingPages).where(eq(landingPages.id, landingId));
+    const rows = await db.select().from(landingPages).where(and(eq(landingPages.id, landingId), eq(landingPages.tenantId, tenantId)));
     const landing = rows[0];
     if (!landing) return res.status(404).json({ message: "Landing no encontrada" });
 
@@ -961,7 +1162,7 @@ router.post("/design", async (req, res) => {
     const htmlBase = landing.html || "";
     const htmlFinal = inyectarDisenoEnHtml(htmlBase, nuevo);
 
-    await db.update(landingPages).set({ design: nuevo, html: htmlFinal, updatedAt: new Date() }).where(eq(landingPages.id, landingId));
+    await db.update(landingPages).set({ design: nuevo, html: htmlFinal, updatedAt: new Date() }).where(and(eq(landingPages.id, landingId), eq(landingPages.tenantId, tenantId)));
     return res.json({ ok: true, design: nuevo, html: htmlFinal });
   } catch (e: any) {
     logger.error({ err: e?.message }, "[LandingStudio/design] error");
@@ -972,8 +1173,10 @@ router.post("/design", async (req, res) => {
 // ── POST /api/landing-studio/chat ──────────────────────────────────────────
 router.post("/chat", async (req, res) => {
   try {
-    const { message, landingId, productId, diseno, familia } = req.body as {
-      message?: string; landingId?: number; productId?: number; diseno?: Diseno; familia?: string | null;
+    const tenantId = negocioDe(req);
+    if (!tenantId) return res.status(401).json({ message: "Iniciá sesión" });
+    const { message, landingId, productId, diseno, familia, estilo } = req.body as {
+      message?: string; landingId?: number; productId?: number; diseno?: Diseno; familia?: string | null; estilo?: string | null;
     };
     if (!message?.trim()) return res.status(400).json({ message: "Falta el mensaje" });
 
@@ -988,7 +1191,7 @@ router.post("/chat", async (req, res) => {
     let product: any = null;
     if (productId) {
       try {
-        const rows = await db.select().from(products).where(eq(products.id, productId));
+        const rows = await db.select().from(products).where(and(eq(products.id, productId), eq(products.tenantId, tenantId)));
         product = rows[0] || null;
       } catch (dbErr: any) {
         logger.error({ err: dbErr?.message }, "[LandingStudio] Error consultando producto");
@@ -999,8 +1202,9 @@ router.post("/chat", async (req, res) => {
     let existingLanding: any = null;
     if (landingId) {
       try {
-        const rows = await db.select().from(landingPages).where(eq(landingPages.id, landingId));
+        const rows = await db.select().from(landingPages).where(and(eq(landingPages.id, landingId), eq(landingPages.tenantId, tenantId)));
         existingLanding = rows[0] || null;
+        if (!existingLanding) return res.status(404).json({ message: "Landing no encontrada" });
         existingHtml = existingLanding?.html || null;
       } catch (dbErr: any) {
         logger.error({ err: dbErr?.message }, "[LandingStudio] Error consultando landing");
@@ -1009,7 +1213,7 @@ router.post("/chat", async (req, res) => {
     // Editando una landing sin elegir producto: el producto es el de la landing.
     if (!product && existingLanding?.productId) {
       try {
-        const rows = await db.select().from(products).where(eq(products.id, Number(existingLanding.productId)));
+        const rows = await db.select().from(products).where(and(eq(products.id, Number(existingLanding.productId)), eq(products.tenantId, tenantId)));
         product = rows[0] || null;
       } catch { /* sigue sin producto */ }
     }
@@ -1025,6 +1229,14 @@ router.post("/chat", async (req, res) => {
     const designGuardado: any = { ...disenoFinal, ...(familiaElegida ? { familia: familiaElegida } : {}) };
 
     const { bitacoraDe, textoDeBitacora, anotarEnBitacora } = await import("../lib/landing/agente-landing");
+    // La vía de familias hornea el cierre (formulario/links) con el slug: para
+    // landings nuevas se reserva acá, antes de generar.
+    let slugPrevio = "";
+    if (!landingId) {
+      slugPrevio = (product?.name || "landing")
+        .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
+        .slice(0, 60) + "-" + Date.now().toString(36);
+    }
     const startTime = Date.now();
     const r = await generarLandingConOpenCode({
       product,
@@ -1034,6 +1246,8 @@ router.post("/chat", async (req, res) => {
       existingHtml,
       diseno: disenoFinal,
       familia: familiaElegida,
+      estilo: estilo === "clinico" ? "clinico" : "pro",
+      slug: slugPrevio || undefined,
       timeoutMs: 120_000,
       bitacora: existingLanding ? textoDeBitacora(bitacoraDe(existingLanding)) : "",
     });
@@ -1052,18 +1266,18 @@ router.post("/chat", async (req, res) => {
       await db.update(landingPages).set({ html, design: designGuardado, updatedAt: new Date() }).where(eq(landingPages.id, landingId));
       savedLandingId = landingId;
     } else {
-      slug = (product?.name || "landing")
+      slug = slugPrevio || ((product?.name || "landing")
         .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")
-        .slice(0, 60) + "-" + Date.now().toString(36);
+        .slice(0, 60) + "-" + Date.now().toString(36));
       const inserted = await db.insert(landingPages).values({
-        tenantId: existingLanding?.tenantId || product?.tenantId || 1,
+        tenantId: tenantId,
         productId: productId || null,
         name: `Landing · ${product?.name || "Sin nombre"}`,
         slug,
         status: "draft",
-        strategy: { tipo, detectedAt: new Date().toISOString() },
-        sections: [],
-        design: designGuardado,
+        strategy: (r as any).strategy || { tipo, detectedAt: new Date().toISOString() },
+        sections: (r as any).sections || [],
+        design: (r as any).design || designGuardado,
         source: productId ? { type: "product", productId } : {},
         html,
       }).returning({ id: landingPages.id });
@@ -1083,7 +1297,7 @@ router.post("/chat", async (req, res) => {
 
     // Guardar en memoria para que la próxima generación no arranque de cero.
     await recordarLanding({
-      tenantId: existingLanding?.tenantId || product?.tenantId || 1,
+      tenantId: tenantId,
       productId: product?.id ?? productId ?? null,
       productName: product?.name || null,
       tipo,

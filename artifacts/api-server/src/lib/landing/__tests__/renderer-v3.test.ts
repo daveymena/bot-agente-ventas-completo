@@ -51,7 +51,8 @@ describe("renderer-v3", () => {
     expect(html).toContain('value="Negro"');
     expect(html).toContain('name="opcion_Color"');
     expect(html).toContain('name="cantidad"');
-    expect(html).toContain('name="documento"');
+    // En Colombia no se pide la cédula (regla del dueño, 24-09-2026).
+    expect(html).not.toContain('name="documento"');
   });
 
   it("los CTA van al checkout cuando existe un cierre", () => {
@@ -64,6 +65,28 @@ describe("renderer-v3", () => {
       cierre: { tipo: "contraentrega", accion: "/pedido" },
     });
     expect(html).toContain('href="#pedido"');
+  });
+
+  it("departamento es <select> y ciudad usa datalist filtrado (30-09-2026)", () => {
+    const html = renderizarLanding({
+      nombre: "Demo",
+      familia: "ecommerce",
+      producto: product,
+      negocio: { modelo: "dropshipping" },
+      secciones: sections,
+      cierre: { tipo: "contraentrega", accion: "/pedido" },
+    });
+    // Departamento: select con las 33 opciones de Colombia, no texto libre.
+    expect(html).toContain('name="departamento"');
+    expect(html).toMatch(/<select name="departamento"[^>]*>[\s\S]*?<option>Antioquia<\/option>/);
+    // Ciudad: input con datalist (acepta municipios fuera de la lista).
+    expect(html).toContain('list="ciudades-datalist"');
+    expect(html).toContain('<datalist id="ciudades-datalist">');
+    // El script que llena el datalist al cambiar el departamento.
+    expect(html).toContain("ciudades-datalist");
+    expect(html).toContain("M[d.value]");
+    // No debe quedar un input de texto plano para departamento.
+    expect(html).not.toMatch(/<input name="departamento"/);
   });
 
   it("digital conserva el cierre de pago y no muestra formulario de dirección", () => {

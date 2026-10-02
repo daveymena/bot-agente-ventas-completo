@@ -193,6 +193,31 @@ el modelo leía solo lo que falta y decía "déjame confirmarlo" sin llamar a
 `consultar_conocimiento` (0 de 3); con los temas anunciados, 3 de 3. Esto
 afectaba también a WhatsApp, no solo al chat de prueba.
 
+## Lo que la ficha dice, el vendedor lo sabe (30-09-2026)
+
+Pruebas en `/probar-vendedor` con clientes activo, pasivo y furioso sobre
+productos de dropshipping. Cuatro fallas, cada una arreglada en su fuente:
+
+- **Envío y pago.** La ficha imprime "Llega en 3 a 5 días hábiles · Pagas
+  contraentrega" con `condiciones` (whatsapp.ts), pero el guion (`nicho.ts`) no
+  las leía y *prohibía* dar plazos: "¿cuánto demora a Pasto?" → "déjame
+  confirmarlo". Ahora `despachoDe()` las pasa como hecho, solo para lo que se
+  despacha. El adaptador pasaba `pagoEnvio`/`costoEnvio`, campos que no
+  existen: la contraentrega nunca entraba como medio de pago.
+  `__tests__/condiciones-de-la-ficha.test.ts`.
+- **Preguntas sin respuesta cargada.** `consultar_conocimiento` devolvía "dile
+  que lo confirmas con el equipo y le respondes" — nadie recibe esa pregunta,
+  la promesa no se cumplía nunca. Ahora devuelve lo que dice la ficha y la
+  regla para razonar (criterio general dicho como general; condiciones
+  comerciales, solo si están cargadas). `__tests__/razonar-sin-respuesta-cargada.test.ts`.
+- **"La quiero. ¿Cómo hago el pedido?"** El "?" bastaba para tomarlo como duda
+  y el pedido no se abría. Una pregunta sobre CÓMO comprar ahora es compra; una
+  duda de otra cosa sigue mandando. `__tests__/comprension-corta-contextual.test.ts`.
+- **"ok" del cliente pasivo.** Tras la ficha de información (sin precio) el
+  vendedor volvía a preguntar "¿te cuento cuánto vale?". Si salió la ficha de
+  info y el precio no, el "ok/sí/dale" trae el precio (se lee del estado).
+  `__tests__/ok-al-precio-ofrecido.test.ts`.
+
 ## Lo que se retira cuando el v2 quede prendido para todos
 
 Marcado en el código con `RETIRAR CON EL V1`. Hoy siguen vivos y son el camino

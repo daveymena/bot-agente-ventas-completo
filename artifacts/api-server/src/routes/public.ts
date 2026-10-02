@@ -13,6 +13,8 @@ import { encryptSecret } from "../lib/credentials-vault";
 import { credencialesDe } from "../lib/tenant-payment-credentials";
 import { rateLimitPublico } from "../middleware/rateLimitPublico";
 import { FB_GRAPH_BASE } from "../lib/meta-api-version";
+import { respaldoEnvFacebook } from "../lib/tenant-facebook-credentials";
+import { lineaDeProducto } from "../lib/taxonomia";
 
 /**
  * Resuelve el número de WhatsApp asociado a la app (vía QR conectado).
@@ -22,13 +24,16 @@ import { FB_GRAPH_BASE } from "../lib/meta-api-version";
  * Píxel de Meta del tenant. Sale de su metadata (cada tienda mide en SU píxel);
  * el .env queda como respaldo para la instalación propia.
  */
-function resolvePixelId(tenant?: { metadata?: unknown }): string | null {
+function resolvePixelId(tenant?: { id?: number; metadata?: unknown }): string | null {
+  // El píxel del .env es el del DUEÑO del servidor: medir la landing de otro
+  // negocio en él le mezcla las conversiones (29-09-2026).
+  const env = respaldoEnvFacebook(tenant?.id);
   try {
     const raw = tenant?.metadata;
     const meta: any = raw ? (typeof raw === "string" ? JSON.parse(raw) : raw) : {};
-    return meta?.facebook?.pixelId || process.env.FB_PIXEL_ID || null;
+    return meta?.facebook?.pixelId || env(process.env.FB_PIXEL_ID) || null;
   } catch {
-    return process.env.FB_PIXEL_ID || null;
+    return env(process.env.FB_PIXEL_ID) || null;
   }
 }
 
@@ -43,7 +48,10 @@ function resolveWhatsAppPhone(tenant?: { id?: number; contactPhone?: string | nu
     if (wa?.phone && /^\d+$/.test(wa.phone)) return wa.phone;
   }
   if (tenant?.contactPhone) return tenant.contactPhone.replace(/\D/g, "");
-  const admin = process.env.ADMIN_PHONE;
+  // ADMIN_PHONE es el WhatsApp del DUEÑO del servidor: la tienda de otro
+  // negocio sin número mandaba a SUS clientes a ese teléfono (29-09-2026).
+  const esDuenoDelServidor = !tenant?.id || tenant.id === tenantManager.getDefaultTenant().id;
+  const admin = esDuenoDelServidor ? process.env.ADMIN_PHONE : "";
   if (admin) return admin.replace(/\D/g, "");
   return null;
 }
@@ -104,10 +112,17 @@ router.get("/products/:slug", async (req, res, next) => {
       image: p.imageUrl,
       category: p.category ?? "General",
       kind: p.kind,
+      // digital | dropshipping | fisico | servicio: la tienda separa por
+      // esto para no mezclar un curso con un producto que se despacha.
+      linea: lineaDeProducto(p),
       currency: p.currency,
       sku: p.sku,
       features: p.features,
       paymentLink: p.paymentLink,
+      // Talla/color/modelo: la tienda pinta selectores con esto y el
+      // checkout los envía como opcion_<nombre> (mismo contrato que la
+      // landing y que landing-publica.ts valida).
+      opciones: p.opciones,
       // Nunca exponer el enlace de entrega en un catálogo público: equivale a
       // regalar el producto digital sin una compra verificada.
     }));
@@ -193,6 +208,7 @@ router.get("/product/:slug/:productId", async (req, res, next) => {
         kind: p.kind,
         sku: p.sku,
         features: p.features,
+        opciones: p.opciones,
       },
       related: related
         .filter((r: any) => r.id !== p.id)
@@ -361,6 +377,7 @@ router.post("/fb-connect", rateLimitPublico(10, 10 * 60 * 1000, "fb-connect"), a
       connectedAt: new Date().toISOString(),
     };
 
+    let cuentasVistas: Array<{ id: string; nombre: string; moneda: string; activa: boolean }> = [];
     // ── Cuenta publicitaria: se detecta sola ────────────────────────────
     // Sin esto el "conectá con Facebook" quedaba a mitad de camino: el
     // negocio terminaba con su página y sus tokens, pero SIN cuenta
@@ -371,14 +388,14 @@ router.post("/fb-connect", rateLimitPublico(10, 10 * 60 * 1000, "fb-connect"), a
     // ya funcione todo. El token de usuario que acabamos de obtener trae el
     // scope ads_management, así que la cuenta se puede preguntar acá mismo.
     try {
-      const cuentasRes = await fetch(
-        `${graph}/me/adaccounts?fields=id,account_id,name,account_status,currency&limit=25&access_token=${encodeURIComponent(longLivedUserToken)}`,
-        { signal: AbortSignal.timeout(15000) },
-      );
-      const cuentas: any = await cuentasRes.json();
-      const lista: any[] = cuentas?.data || [];
-      // account_status 1 = activa. Si hay varias se toma la primera activa;
-      // el admin puede cambiarla después desde la pantalla de Facebook.
+      // Antes: solo `me/adaccounts` (limit 25) y "la primera activa", sin
+      // mirar moneda ni el Business Manager. Caso real 30-09-2026: quedó una
+      // cuenta USD y la COP del dueño ni aparecía. Ver meta-cuentas-publicitarias.ts.
+      const { listarCuentasAccesibles, elegirCuentaAlConectar } = await import("../lib/meta-cuentas-publicitarias");
+      const listado = await listarCuentasAccesibles(longLivedUserToken);
+      if (listado.avisos.length) logger.warn({ tenantId, avisos: listado.avisos }, "[FB-Connect] Lectura parcial de cuentas publicitarias");
+      const lista = listado.cuentas;
+      cuentasVistas = lista.map((c) => ({ id: c.id, nombre: c.nombre, moneda: c.moneda, activa: c.activa }));
       // ── LA CUENTA QUE YA ESTABA EN USO MANDA ────────────────────────
       //
       // Esto elegia "la primera activa" SIEMPRE, incluso al reconectar. Con
@@ -393,22 +410,19 @@ router.post("/fb-connect", rateLimitPublico(10, 10 * 60 * 1000, "fb-connect"), a
       //
       // Reconectar sirve para renovar el TOKEN; no es una orden de cambiar de
       // cuenta. Si ya habia una elegida y sigue estando disponible, se
-      // respeta: la eleccion del dueño vale mas que un orden de lista que
-      // decide Meta.
+      // respeta. Si no, gana la ACTIVA EN COP (la app razona en pesos).
       const yaElegida = String((meta.facebook as any)?.adAccountId || "");
-      const seguiaDisponible = yaElegida && lista.some((c) => String(c.account_id) === yaElegida);
-      const elegida = seguiaDisponible
-        ? lista.find((c) => String(c.account_id) === yaElegida)
-        : lista.find((c) => c.account_status === 1) || lista[0];
+      const seguiaDisponible = !!yaElegida && lista.some((c) => c.id === yaElegida);
+      const elegida = elegirCuentaAlConectar(lista, yaElegida, "COP");
       if (seguiaDisponible) {
         logger.info({ tenantId, adAccountId: yaElegida },
           "[FB-Connect] Se conserva la cuenta publicitaria que ya estaba en uso");
       }
-      if (elegida?.account_id) {
-        (meta.facebook as any).adAccountId = String(elegida.account_id);
-        (meta.facebook as any).adAccountName = elegida.name || "";
-        (meta.facebook as any).adAccountCurrency = elegida.currency || "";
-        logger.info({ tenantId, adAccountId: elegida.account_id, moneda: elegida.currency },
+      if (elegida?.id) {
+        (meta.facebook as any).adAccountId = elegida.id;
+        (meta.facebook as any).adAccountName = elegida.nombre || "";
+        (meta.facebook as any).adAccountCurrency = elegida.moneda || "";
+        logger.info({ tenantId, adAccountId: elegida.id, moneda: elegida.moneda },
           "[FB-Connect] Cuenta publicitaria detectada automáticamente");
       } else {
         logger.warn({ tenantId }, "[FB-Connect] El usuario no tiene ninguna cuenta publicitaria: va a poder publicar en la página, pero no crear anuncios pagos");
@@ -454,6 +468,8 @@ router.post("/fb-connect", rateLimitPublico(10, 10 * 60 * 1000, "fb-connect"), a
           }
         : null,
       puedeCrearAnuncios: !!(meta.facebook as any)?.adAccountId,
+      // Todas las que ve la conexión, para poder elegir otra sin ir a Meta.
+      cuentasPublicitarias: cuentasVistas,
     });
   } catch (err) {
     return next(err);
@@ -755,11 +771,14 @@ router.post("/checkout-cart/:slug", async (req, res, next) => {
     if (!tenant) return res.status(404).json({ message: "Tienda no encontrada" });
 
     // Cargar cada producto desde la BD y quedarnos con SU precio real
-    const lines: { product: typeof products.$inferSelect; quantity: number }[] = [];
+    const lines: { product: typeof products.$inferSelect; quantity: number; variante: string | null }[] = [];
     for (const raw of rawItems) {
       const productId = Number(raw?.productId);
       const quantity = Math.max(1, Math.min(99, Number(raw?.quantity) || 1));
       if (!Number.isFinite(productId)) continue;
+      // Talla/color que eligió en la tienda (ProductDetail). Antes llegaba y se
+      // ignoraba: el pedido salía a Dropi sin variante (30-09-2026).
+      const variante = String(raw?.variante ?? "").replace(/\s+/g, " ").trim().slice(0, 120) || null;
 
       const [product] = await db
         .select()
@@ -767,7 +786,7 @@ router.post("/checkout-cart/:slug", async (req, res, next) => {
         .where(and(eq(products.tenantId, tenant.id), eq(products.id, productId)))
         .limit(1);
 
-      if (product) lines.push({ product, quantity });
+      if (product) lines.push({ product, quantity, variante });
     }
 
     if (lines.length === 0) {
@@ -829,7 +848,8 @@ router.post("/checkout-cart/:slug", async (req, res, next) => {
       // una ficha, un pedido). Un carrito con varios físicos genera una fila
       // por línea, todas con los mismos datos de envío.
       const pedidos: { id: number; producto: string; wooOrderId?: number; error?: string }[] = [];
-      for (const { product, quantity } of lines) {
+      const { guardarVarianteDelPedido } = await import("../lib/dropshipping");
+      for (const { product, quantity, variante } of lines) {
         const pedido = await abrirPedido({
           tenantId: tenant.id,
           conversationId: null,
@@ -839,8 +859,12 @@ router.post("/checkout-cart/:slug", async (req, res, next) => {
           quantity,
           telefono: envio.telefono,
         });
-        const conDatos = await guardarDatos(pedido.id, envio);
-        const despacho = await despacharPedido(conDatos ?? pedido);
+        const conDatos = await guardarDatos(pedido.id, { ...envio, notas: [variante ? `Variante: ${variante}` : "", envio.notas || ""].filter(Boolean).join(" · ") || null });
+        if (variante) {
+          await guardarVarianteDelPedido(pedido.id, variante);
+          if (conDatos) conDatos.variante = variante;
+        }
+        const despacho = await despacharPedido(conDatos ?? { ...pedido, variante });
         if (!despacho.ok) {
           // El pedido YA quedó guardado con todos los datos del cliente: que
           // falle el envío a WooCommerce no puede perder la venta. Queda en la
@@ -1023,6 +1047,28 @@ router.post("/checkout-cart/:slug", async (req, res, next) => {
  * GET /api/public/whatsapp-info/:slug
  * Devuelve el número de WhatsApp conectado a la app (vía QR) o el fallback del tenant/ADMIN_PHONE.
  */
+/**
+ * GET /api/public/geo/:slug — departamentos y TODAS sus ciudades según Dropi
+ * (las mismas que valida el despacho), para los selectores del checkout de la
+ * tienda. Sin Dropi: { ok: false } y la tienda usa su lista de respaldo.
+ */
+const cacheGeoTienda = new Map<number, { t: number; body: any }>();
+router.get("/geo/:slug", async (req, res) => {
+  try {
+    const [tenant] = await db.select().from(tenants).where(eq(tenants.slug, String(req.params.slug || ""))).limit(1);
+    if (!tenant) return res.status(404).json({ ok: false });
+    const hit = cacheGeoTienda.get(tenant.id);
+    if (hit && Date.now() - hit.t < 12 * 3600_000) return res.json(hit.body);
+    const { geografiaDeDropi } = await import("../lib/dropi-cotizador");
+    const departamentos = await geografiaDeDropi(tenant.id);
+    const body = departamentos ? { ok: true, departamentos } : { ok: false };
+    cacheGeoTienda.set(tenant.id, { t: departamentos ? Date.now() : Date.now() - 12 * 3600_000 + 10 * 60_000, body });
+    return res.json(body);
+  } catch {
+    return res.json({ ok: false });
+  }
+});
+
 router.get("/whatsapp-info/:slug", async (req, res, next) => {
   try {
     const { slug } = req.params;

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { ZodError } from "zod";
 import { db, stores, store_categories, store_products, store_layouts, products, productCategories } from "@workspace/db";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Request, Response, NextFunction } from "express";
 import { imageUrlFixer } from "../lib/image-url-fixer";
 
@@ -99,9 +99,14 @@ router.get("/:slug/product/:productId", async (req: Request, res: Response, next
     const store = (req as any).store;
     // Mismo criterio que el catálogo: primero la tabla curada, y si ahí no
     // está (que es lo normal) se busca en el catálogo real del tenant.
-    let product = await db.select().from(store_products).where(eq(store_products.id, Number(productId))).then((r: any) => r[0]);
+    // Siempre de ESTA tienda y de SU negocio (29-09-2026): antes se buscaba
+    // solo por id, y /store/<tienda-A>/product/<id-de-B> mostraba (y dejaba
+    // comprar) el producto de otro negocio.
+    let product = await db.select().from(store_products)
+      .where(and(eq(store_products.id, Number(productId)), eq(store_products.storeId, store.id))).then((r: any) => r[0]);
     if (!product) {
-      product = await db.select().from(products).where(eq(products.id, Number(productId))).then((r: any) => r[0]);
+      product = await db.select().from(products)
+        .where(and(eq(products.id, Number(productId)), eq(products.tenantId, store.tenantId))).then((r: any) => r[0]);
     }
     if (!product) return res.status(404).json({ message: "Product not found" });
     if (product.tenantId !== store.tenantId && product.storeId !== store.id) return res.status(404).json({ message: "Product not found" });
@@ -194,11 +199,13 @@ router.post("/admin/fix-physical-images", async (req: Request, res: Response, ne
         if (meta.imageUrls && Array.isArray(meta.imageUrls) && meta.imageUrls.length > 0) {
           originalUrl = meta.imageUrls[0];
         } else if (meta.source === "dropi" && meta.dropiProductId) {
-          // Si no tiene imageUrls en metadata, intentar traer de Dropi
-          const { dropiGetProduct, dropiProductImages } = await import("../lib/dropi");
-          const dropiResult = await dropiGetProduct(meta.dropiProductId);
-          if (dropiResult.ok && dropiResult.data) {
-            const urls = dropiProductImages(dropiResult.data);
+          // Si no tiene imageUrls en metadata, se trae de Dropi con el token
+          // DEL NEGOCIO (antes: la sesión global del dueño del servidor).
+          const { tokenDropiDelTenant, detalleProductoDropi, fotosDe } = await import("../lib/dropi-directo");
+          const tokenDropi = await tokenDropiDelTenant(tenant.id);
+          const dropiResult = tokenDropi ? await detalleProductoDropi(tokenDropi, Number(meta.dropiProductId)) : null;
+          if (dropiResult?.ok && dropiResult.data) {
+            const urls = fotosDe(dropiResult.data);
             if (urls.length > 0) originalUrl = urls[0];
           }
         }

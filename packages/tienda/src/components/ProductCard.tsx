@@ -1,51 +1,29 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Heart, Download, Box } from 'lucide-react';
+import { Heart, Download, Box, ShoppingCart } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { useStore, Product } from '../store/useStore';
 import { useMoneda } from '@/lib/moneda';
 import { trackAddToCart, trackInitiateCheckout } from '../lib/pixel';
 
 /**
- * Tarjeta de producto con el look del kit de referencia (URBANisty).
+ * Tarjeta de producto con el look de la maqueta tech: borde suave, foto sobre
+ * fondo gris claro, nombre alineado a la izquierda y precio en negrita.
  *
- * Lo característico del kit: la tarjeta ENTERA va sobre lavanda (#EBEFFC), el
- * producto flota sin marco, y abajo van el nombre centrado, el precio y una
- * píldora púrpura de "agregar". Nada de bordes ni sombras duras.
+ * ── Lo que la maqueta muestra y acá NO se copia ──────────────────────────
+ * Badge "-20%" con precio tachado y estrellas de calificación. Ninguno de
+ * los dos existe en el catálogo: `Product` no tiene precio anterior ni
+ * valoraciones (ver store/useStore.ts). Inventarlos sería mostrarle al
+ * cliente un descuento y unas reseñas que no son ciertas.
  *
- * ── Dos datos del kit que NO se copian, a propósito ──────────────────────
- * El diseño muestra un badge "Sale!" con precio tachado y estrellas de
- * reseñas. Ninguno de los dos existe en el catálogo real: `Product` no tiene
- * precio anterior ni valoraciones (ver store/useStore.ts). Inventarlos sería
- * ponerle al cliente un descuento y unas reseñas que no son ciertas.
- *
- * En su lugar, ese espacio muestra el dato REAL que la tienda sí tiene y que
- * al comprador le importa: si el producto es digital (lo recibe al instante)
- * o físico (se lo envían). Las estrellas quedan vacías, igual que en el
- * propio kit para los productos sin reseñas.
- *
- * La lógica de compra se conserva tal cual estaba en Shop.tsx: físico va al
- * checkout (se paga contra entrega) y digital va directo a la pasarela.
+ * La lógica de compra no cambia: físico va al checkout (se paga contra
+ * entrega) y digital va directo a la pasarela.
  */
 
 const TIPO = {
   digital: { label: 'Digital', icon: Download },
   physical: { label: 'Físico', icon: Box },
 } as const;
-
-function Estrellas() {
-  // Vacías: no hay reseñas de verdad. El kit las dibuja igual en sus
-  // productos sin valorar, así que la maqueta no se rompe.
-  return (
-    <div className="flex items-center justify-center gap-0.5" aria-hidden="true">
-      {[0, 1, 2, 3, 4].map((i) => (
-        <svg key={i} viewBox="0 0 20 20" className="w-3 h-3 fill-[var(--mk-border)]">
-          <path d="M10 1.5l2.6 5.3 5.9.9-4.2 4.1 1 5.8-5.3-2.8-5.3 2.8 1-5.8L1.5 7.7l5.9-.9L10 1.5z" />
-        </svg>
-      ))}
-    </div>
-  );
-}
 
 export default function ProductCard({
   product,
@@ -56,7 +34,11 @@ export default function ProductCard({
   //
   // Por defecto true para no romper a quien la use sin el dato.
   mostrarTipo = true,
-}: { product: Product; slug: string; mostrarTipo?: boolean }) {
+  // Qué botones lleva. En la portada la maqueta usa tarjetas sin botón
+  // (ofertas) o con solo "Agregar al carrito" (destacados); el catálogo
+  // completo conserva "Comprar ahora", que lleva al digital directo a pagar.
+  acciones = 'ambas',
+}: { product: Product; slug: string; mostrarTipo?: boolean; acciones?: 'ambas' | 'carrito' | 'ninguna' }) {
   const { formatear } = useMoneda();
   const { addToCart, wishlist, toggleWishlist } = useStore();
   const navigate = useNavigate();
@@ -116,16 +98,13 @@ export default function ProductCard({
   };
 
   return (
-    <div className="group relative flex flex-col border border-[var(--mk-border)] bg-white transition-all duration-200 hover:border-[var(--store-primary)] hover:shadow-[0_6px_20px_rgba(0,0,0,0.10)]">
-      {/* Market pone acá un globo rojo de "Sale!" con el precio anterior
-          tachado. No se copia, y no por descuido: el catálogo no tiene campo
-          de precio anterior (ver store/useStore.ts), así que cada "Sale!"
-          sería un descuento inventado impreso en la tienda. Ese espacio lo usa
-          el dato REAL que sí cambia la decisión de compra --si lo recibe al
-          instante o se lo envían-- y solo cuando la tienda vende de los dos
-          tipos; si no, es una etiqueta repetida que solo tapa la foto. */}
+    <div className="group relative flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-3 transition-all duration-200 hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-[0_14px_32px_-16px_rgba(30,27,51,0.28)]">
+      {/* La maqueta pone acá un "-20%" rojo con precio tachado. No se copia:
+          el catálogo no tiene precio anterior (ver store/useStore.ts), así
+          que sería un descuento inventado. Ese lugar muestra el dato REAL
+          --digital o físico-- y solo cuando la tienda vende de los dos. */}
       {mostrarTipo && (
-        <span className="absolute top-0 left-0 z-10 inline-flex items-center gap-1 bg-[var(--store-primary)] px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-[var(--store-on-primary)]">
+        <span className="absolute left-5 top-5 z-10 inline-flex items-center gap-1 rounded-md bg-[var(--tech-violeta)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
           <TipoIcon className="h-3 w-3" />
           {tipo.label}
         </span>
@@ -134,19 +113,15 @@ export default function ProductCard({
       <button
         onClick={() => toggleWishlist(product.id)}
         aria-label={enDeseados ? 'Quitar de deseados' : 'Guardar en deseados'}
-        className="absolute top-2 right-2 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/90 text-[var(--mk-muted)] transition-colors hover:text-[var(--store-primary)]"
+        className="absolute right-5 top-5 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white text-slate-400 shadow-sm transition-colors hover:text-rose-500"
       >
-        <Heart className={`h-4 w-4 ${enDeseados ? 'fill-[var(--store-primary)] text-[var(--store-primary)]' : ''}`} />
+        <Heart className={`h-4 w-4 ${enDeseados ? 'fill-rose-500 text-rose-500' : ''}`} />
       </button>
 
-      {/* ── Alto FIJO, no `aspect-square` ─────────────────────────────────
-          Con la proporción cuadrada, la grilla real salía despareja: la foto
-          vertical de un curso empujaba su tarjeta 90px más abajo que la
-          horizontal de al lado, y las cuatro de la fila terminaban con el
-          nombre y el precio a distinta altura. Market usa un recuadro de alto
-          fijo justamente por eso -- el catálogo de un negocio real trae fotos
-          de cualquier proporción y la grilla tiene que absorberlas. */}
-      <Link to={detailHref} className="block h-[190px] w-full p-4 md:h-[215px]" aria-label={`Ver ${product.name}`}>
+      {/* Alto FIJO, no `aspect-square`: el catálogo real trae fotos de
+          cualquier proporción y con la cuadrada la grilla salía despareja
+          (nombre y precio a distinta altura en la misma fila). */}
+      <Link to={detailHref} className="flex h-[150px] w-full items-center justify-center rounded-xl bg-slate-50 p-3 md:h-[180px]" aria-label={`Ver ${product.name}`}>
         {product.image && !imgError ? (
           <img
             src={product.image}
@@ -160,49 +135,52 @@ export default function ProductCard({
                 setImgError(true);
               }
             }}
-            className="h-full w-full object-contain transition-transform duration-500 group-hover:scale-105"
+            className="h-full w-full object-contain mix-blend-multiply transition-transform duration-500 group-hover:scale-105"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center">
-            <TipoIcon className="h-10 w-10 text-[var(--mk-border)]" />
-          </div>
+          <TipoIcon className="h-10 w-10 text-slate-300" />
         )}
       </Link>
 
-      <div className="flex flex-1 flex-col border-t border-[var(--mk-border)] px-4 py-3 text-center">
+      <div className="flex flex-1 flex-col px-1 pt-3">
         <Link
           to={detailHref}
-          className="line-clamp-2 h-[2.4rem] overflow-hidden text-[13px] leading-[1.2rem] text-[var(--mk-ink)] hover:text-[var(--store-primary)]"
+          className="line-clamp-2 min-h-[2.5rem] text-[13px] font-medium leading-5 text-[var(--tech-tinta)] hover:text-[var(--tech-violeta)]"
         >
           {product.name}
         </Link>
 
-        <div className="mt-2">
-          <Estrellas />
-        </div>
+        <p className="mt-1.5 text-[16px] font-extrabold text-[var(--tech-tinta)]">{formatear(product.price)}</p>
 
-        <p className="mt-2 text-[17px] font-black text-[var(--store-primary)]">{formatear(product.price)}</p>
-
-        {/* Market revela estos botones al pasar el mouse. Se descartó: como el
-            hover solo cambia la OPACIDAD, el espacio queda reservado igual y
-            dejaba una banda muerta debajo de cada precio (visto en la captura
-            de las 84 fichas). Y en el teléfono no hay hover, que es por donde
-            entra casi todo el tráfico del bot. Van siempre visibles. */}
-        <div className="mt-3 flex flex-col gap-1.5">
+        {/* Botones siempre visibles (en el teléfono no hay hover, y por ahí
+            entra casi todo el tráfico del bot). */}
+        {acciones === 'carrito' && (
           <button
             onClick={agregar}
-            className="h-9 w-full bg-[var(--store-primary)] text-[11px] font-bold uppercase tracking-wide text-[var(--store-on-primary)] transition-colors hover:bg-[var(--store-primary-hover)]"
+            className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 text-[12px] font-semibold text-[var(--tech-tinta)] transition-colors hover:border-[var(--tech-violeta)] hover:bg-[var(--tech-violeta)] hover:text-white"
           >
-            Agregar al carrito
+            <ShoppingCart className="h-3.5 w-3.5" /> Agregar al carrito
           </button>
-          <button
-            onClick={comprarAhora}
-            disabled={buying}
-            className="h-8 w-full border border-[var(--mk-border)] text-[11px] font-semibold text-[var(--mk-ink)] transition-colors hover:border-[var(--store-primary)] hover:text-[var(--store-primary)] disabled:opacity-50"
-          >
-            {buying ? 'Abriendo pago…' : 'Comprar ahora'}
-          </button>
-        </div>
+        )}
+        {acciones === 'ambas' && (
+          <div className="mt-3 flex gap-2">
+            <button
+              onClick={comprarAhora}
+              disabled={buying}
+              className="h-9 flex-1 rounded-lg bg-[var(--tech-violeta)] text-[12px] font-bold text-white transition-colors hover:bg-[var(--tech-violeta-hover)] disabled:opacity-50"
+            >
+              {buying ? 'Abriendo pago…' : 'Comprar ahora'}
+            </button>
+            <button
+              onClick={agregar}
+              aria-label="Agregar al carrito"
+              title="Agregar al carrito"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-[var(--tech-tinta)] transition-colors hover:border-[var(--tech-violeta)] hover:text-[var(--tech-violeta)]"
+            >
+              <ShoppingCart className="h-4 w-4" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

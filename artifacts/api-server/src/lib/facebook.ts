@@ -198,6 +198,10 @@ export interface FbTargeting {
   genders?: number[];
   interests?: Array<{ id: string; name: string }>;
   customAudiences?: string[];
+  /** Audiencias propias EXCLUIDAS (ids de Meta). */
+  excludedCustomAudiences?: string[];
+  /** Advantage+ Audience explícito; sin definir, lo decide usarAdvantagePlus. */
+  advantagePlus?: boolean;
   placements?: {
     facebook?: string[];
     instagram?: string[];
@@ -310,6 +314,8 @@ const MONEDAS_SIN_DECIMALES = new Set(["COP", "CLP", "CRC", "HUF", "ISK", "IDR",
 
 export class FacebookService {
   private config: FacebookConfig;
+  /** El píxel del negocio (lo necesita la landing para medir compras). */
+  get pixelId(): string { return this.config?.pixelId || ""; }
   private tenant: TenantContext;
 
   constructor(tenant?: TenantContext) {
@@ -365,34 +371,59 @@ export class FacebookService {
    * conexion dice que eso "rompe la promesa del producto".
    */
   async listarCuentasPublicitarias(): Promise<{
-    cuentas: Array<{ id: string; nombre: string; moneda: string; activa: boolean; enUso: boolean }>;
+    cuentas: Array<{ id: string; nombre: string; moneda: string; activa: boolean; enUso: boolean; estado: number | null; empresa: { id: string; nombre: string } | null; origen: string }>;
+    avisos: string[];
     error: string | null;
   }> {
+    // Antes: solo `me/adaccounts` con limit 25 y sin paginar. Las cuentas del
+    // Business Manager no aparecian nunca (caso real 30-09-2026: el dueño veia
+    // solo la USD y no su cuenta COP). Ver meta-cuentas-publicitarias.ts.
     const token = this.config.userAccessToken || this.config.accessToken;
-    if (!token) return { cuentas: [], error: "Sin token de Facebook" };
-    try {
-      const res = await this.fbGet("me/adaccounts", {
-        fields: "account_id,name,account_status,currency",
-        limit: "25",
-      }, token);
-      const enUso = String(this.config.adAccountId || "");
-      return {
-        cuentas: (res.data || []).map((c: any) => ({
-          id: String(c.account_id),
-          nombre: c.name || `Cuenta ${c.account_id}`,
-          moneda: c.currency || "",
-          // 1 = activa. Las demas (deshabilitada, en revision, con deuda) no
-          // pueden entregar anuncios, y eso explica un cero mejor que nada.
-          activa: c.account_status === 1,
-          enUso: String(c.account_id) === enUso,
-        })),
-        error: null,
-      };
-    } catch (e: any) {
+    const { listarCuentasAccesibles } = await import("./meta-cuentas-publicitarias");
+    const r = await listarCuentasAccesibles(token);
+    const enUso = String(this.config.adAccountId || "");
+    return {
+      cuentas: r.cuentas.map((c) => ({
+        id: c.id,
+        nombre: c.nombre,
+        moneda: c.moneda,
+        activa: c.activa,
+        estado: c.estado,
+        empresa: c.empresa || null,
+        origen: c.origen,
+        enUso: c.id === enUso,
+      })),
+      avisos: r.avisos,
       // Devolver [] a secas haria que "no tenes cuentas" y "no pude preguntar"
       // fueran lo mismo. Ese error ya costo caro dos veces en este archivo.
-      return { cuentas: [], error: e?.message || "error consultando las cuentas" };
-    }
+      error: r.error,
+    };
+  }
+
+  /**
+   * Cambia la cuenta publicitaria activa del negocio, SOLO a una que ve su
+   * propio token. Si es COP pasa a ser tambien la autorizada (es una orden
+   * explicita del dueño). No crea ni gasta nada en Meta.
+   */
+  async cambiarCuentaPublicitaria(idPedido: unknown, por: string): Promise<{ ok: boolean; message: string; cuenta?: { id: string; nombre: string; moneda: string } }> {
+    const tenantId = Number((this.tenant as any)?.id) || 0;
+    if (!tenantId) return { ok: false, message: "No se sabe de qué negocio es la cuenta." };
+    const token = this.config.userAccessToken || this.config.accessToken;
+    if (!token) return { ok: false, message: "Facebook no está conectado en este negocio." };
+    const { listarCuentasAccesibles, validarCambioDeCuenta } = await import("./meta-cuentas-publicitarias");
+    const listado = await listarCuentasAccesibles(token);
+    if (listado.error) return { ok: false, message: `No se pudieron leer las cuentas de Meta: ${listado.error}` };
+    const v = validarCambioDeCuenta(listado.cuentas, idPedido);
+    if (!v.ok) return { ok: false, message: v.motivo };
+    const { cambiarCuentaActiva } = await import("./meta-cuenta-autorizada");
+    await cambiarCuentaActiva(tenantId, v.cuenta, por);
+    this.config.adAccountId = v.cuenta.id;
+    this.monedaCuenta = v.cuenta.moneda || null;
+    return {
+      ok: true,
+      message: `Cuenta publicitaria activa: ${v.cuenta.nombre} (${v.cuenta.id}, ${v.cuenta.moneda || "?"}).${v.aviso ? " " + v.aviso : ""}`,
+      cuenta: { id: v.cuenta.id, nombre: v.cuenta.nombre, moneda: v.cuenta.moneda },
+    };
   }
 
   /**
@@ -406,6 +437,22 @@ export class FacebookService {
    */
   tieneCuentaPublicitaria(): boolean {
     return !!this.config.adAccountId;
+  }
+
+  /**
+   * P0 §3.2 del doc de faltantes: la cuenta configurada tiene que ser la COP
+   * autorizada del negocio y estar activa en Meta, ANTES de crear o activar
+   * nada. Lo usan createAdForProduct (vía publishDraft y subirBorradorAMeta
+   * también pasan por ahí) y publishDraft de AdStrategist.
+   */
+  async validarCuentaParaPublicar(origen: string): Promise<import("./meta-cuenta-autorizada").VeredictoCuenta> {
+    const { validarCuentaPublicitaria } = await import("./meta-cuenta-autorizada");
+    return validarCuentaPublicitaria({
+      tenantId: Number((this.tenant as any)?.id) || 0,
+      adAccountId: this.config.adAccountId,
+      token: this.config.userAccessToken || this.config.accessToken,
+      origen,
+    });
   }
 
   /**
@@ -769,6 +816,41 @@ Responde SOLO con este JSON exacto:
       const [product] = await db.select().from(products).where(eq(products.id, productId)).limit(1);
       if (!product) throw new Error("Producto no encontrado");
 
+      // ── Intereses sin id → taxonomía real de Meta, ANTES de crear nada ──
+      // Un interés con id vacío o inventado Meta lo ignora en silencio: el
+      // anuncio sale con audiencia amplia mientras el panel muestra
+      // "intereses aplicados". Se resuelven acá y, si alguno no existe en
+      // Meta, se corta con los nombres exactos (sin campaña huérfana).
+      if (targeting?.interests?.some((x) => !String(x?.id || "").trim())) {
+        const sinId = targeting.interests.filter((x) => !String(x?.id || "").trim()).map((x) => String(x?.name || "").trim()).filter(Boolean);
+        // Uno por uno: Meta puede devolver otro nombre ("Yoga" → "Yoga (fitness)"),
+        // así que la única forma de saber CUÁL falló es preguntar por cada uno.
+        const resueltos: Array<{ id: string; name: string }> = [];
+        const faltan: string[] = [];
+        for (const nombre of sinId) {
+          const [r] = await resolveInterestIds(this.config.userAccessToken, [nombre]);
+          if (r?.id) resueltos.push(r); else faltan.push(nombre);
+        }
+        if (faltan.length) {
+          throw new Error(`Meta no reconoce estos intereses: ${faltan.join(", ")}. Cambialos por otros o quitalos; no se crea una audiencia amplia fingiendo que se aplicaron.`);
+        }
+        targeting = { ...targeting, interests: [...targeting.interests.filter((x) => String(x?.id || "").trim()), ...resueltos] };
+      }
+      const targetingResolved = targeting;
+
+      // ── Candado de cuenta autorizada (P0 §3.2) ─────────────────────────
+      // Sin esto se podía crear la campaña en una cuenta en otra moneda o
+      // deshabilitada, o en una cuenta que no es la del negocio. Se valida
+      // ANTES de tocar Meta: si bloquea, no queda nada a medias.
+      {
+        const vc = await this.validarCuentaParaPublicar("createAdForProduct");
+        if (!vc.ok) {
+          this.lastAdError = `Publicación bloqueada: ${vc.motivo}`;
+          logger.warn({ productId, motivo: vc.motivo }, "[Facebook] Publicación bloqueada por cuenta no autorizada");
+          return null;
+        }
+      }
+
       const { OBJETIVOS } = await import("./objetivos-campana");
       // El WhatsApp real del negocio, para las campanas de mensajes.
       // `tenant.whatsappNumber` NO existe en TenantContext: esto quedaba vacío
@@ -779,7 +861,10 @@ Responde SOLO con este JSON exacto:
         const { getWhatsAppForTenant } = await import("./whatsapp-factory");
         conectado = String(getWhatsAppForTenant(Number((this.tenant as any)?.id)).getStatus().phoneNumber || "");
       } catch { conectado = ""; }
-      const waDelNegocio = String(conectado || process.env.WHATSAPP_NUMBER || "").replace(/[^0-9]/g, "");
+      // WHATSAPP_NUMBER del .env es el del dueño del servidor: el anuncio de
+      // otro negocio con WhatsApp desconectado mandaba los clics a ese número.
+      const esDelDueno = Number((this.tenant as any)?.id) === tenantManager.getDefaultTenant().id;
+      const waDelNegocio = String(conectado || (esDelDueno ? process.env.WHATSAPP_NUMBER : "") || "").replace(/[^0-9]/g, "");
       const OBJ = OBJETIVOS[objetivo] || OBJETIVOS.ventas;
       // El destino web se resuelve ANTES de crear nada en Meta: si pidió la
       // landing y no está publicada, falla acá con el motivo, sin dejar una
@@ -819,6 +904,18 @@ Responde SOLO con este JSON exacto:
           logger.warn({ productId, motivo }, "[Facebook] El copy no corresponde al producto: se usa el del plan por modelo");
           adCopy = await this.generateAdCopy(product);
         }
+      }
+      // ── Pulido final: registro y coherencia ────────────────────────────
+      // Anuncios del corrector (24/25-09-2026) salieron con "¿Cuántas horas
+      // pasás…?", "Pagás al recibir", "Completá tus datos" a un público de
+      // Colombia, y con "Pago único" en un producto físico (frase de cursos).
+      // Suena a plantilla extranjera y le resta confianza a quien lo lee.
+      {
+        const { pulirCopyDeAnuncio } = await import("./anuncio-por-modelo");
+        adCopy = pulirCopyDeAnuncio(adCopy, {
+          esFisico: String((product as any).kind || "") === "physical",
+          pais: String((this.tenant as any)?.country || "CO"),
+        });
       }
 
       // Bug de capacidad: /{adAccount}/adimages requiere la capacidad
@@ -952,40 +1049,51 @@ Responde SOLO con este JSON exacto:
         paisDelNegocio = codigoDePais(ctxNeg?.condiciones?.pais || null);
       } catch { paisDelNegocio = "CO"; }
       const fbTargeting: Record<string, any> = {
-        geo_locations: targeting?.geoLocations?.countries
-          ? { countries: targeting.geoLocations.countries }
+        geo_locations: targetingResolved?.geoLocations?.countries
+          ? { countries: targetingResolved.geoLocations.countries }
           : { countries: [paisDelNegocio] },
-        age_min: targeting?.ageMin || 18,
-        age_max: targeting?.ageMax || 65,
+        age_min: targetingResolved?.ageMin || 18,
+        age_max: targetingResolved?.ageMax || 65,
       };
 
       // Ciudades específicas
-      if (targeting?.geoLocations?.cities && targeting.geoLocations.cities.length > 0) {
+      if (targetingResolved?.geoLocations?.cities && targetingResolved.geoLocations.cities.length > 0) {
         fbTargeting.geo_locations = {
           ...fbTargeting.geo_locations,
-          cities: targeting.geoLocations.cities.map(name => ({ key: name })),
+          cities: targetingResolved.geoLocations.cities.map(name => ({ key: name })),
         };
       }
 
       // Radio alrededor de ubicación
-      if (targeting?.geoLocations?.radius) {
+      if (targetingResolved?.geoLocations?.radius) {
         fbTargeting.geo_locations = {
           ...fbTargeting.geo_locations,
           location_types: ["home", "recent"],
-          radius: targeting.geoLocations.radius,
+          radius: targetingResolved.geoLocations.radius,
         };
       }
 
       // Géneros
-      if (targeting?.genders && targeting.genders.length > 0) {
-        fbTargeting.genders = targeting.genders;
+      if (targetingResolved?.genders && targetingResolved.genders.length > 0) {
+        fbTargeting.genders = targetingResolved.genders;
       }
 
       // Intereses
-      if (targeting?.interests && targeting.interests.length > 0) {
+      if (targetingResolved?.interests && targetingResolved.interests.length > 0) {
         fbTargeting.flexible_spec = [{
-          interests: targeting.interests.map(i => ({ id: i.id, name: i.name })),
+          interests: targetingResolved.interests.map(i => ({ id: i.id, name: i.name })),
         }];
+      }
+
+      // Audiencias propias (ids de Meta) y las excluidas.
+      if (targetingResolved?.customAudiences?.length) {
+        fbTargeting.custom_audiences = targetingResolved.customAudiences.map((id) => ({ id: String(id).trim() }));
+      }
+      if (targetingResolved?.excludedCustomAudiences?.length) {
+        fbTargeting.exclusions = {
+          ...(fbTargeting.exclusions || {}),
+          custom_audiences: targetingResolved.excludedCustomAudiences.map((id) => ({ id: String(id).trim() })),
+        };
       }
 
       // ── Ubicaciones (placements) ───────────────────────────────────────
@@ -1015,7 +1123,7 @@ Responde SOLO con este JSON exacto:
       // Si el admin SÍ pide ubicaciones, mandan las suyas: pidió algo concreto
       // y el sistema no se lo ensancha por su cuenta. Es la misma regla que
       // gobierna Advantage+ Audience (ver usarAdvantagePlus).
-      const placements = targeting?.placements;
+      const placements = targetingResolved?.placements;
       if (placements?.facebook || placements?.instagram || placements?.messenger) {
         fbTargeting.publisher_platforms = [];
         fbTargeting.facebook_positions = [];
@@ -1074,7 +1182,13 @@ Responde SOLO con este JSON exacto:
       // (intereses, género, o un rango de edad más angosto que el 18-65 por
       // defecto). Ahí manda él: pidió algo específico y el sistema no se lo
       // va a ensanchar por su cuenta. Sin pedido explícito, gana el algoritmo.
-      fbTargeting.targeting_automation = { advantage_audience: usarAdvantagePlus(targeting) ? 1 : 0 };
+      // Advantage+ explícito del admin manda; si no lo dijo, la regla de siempre.
+      fbTargeting.targeting_automation = {
+        advantage_audience:
+          targetingResolved?.advantagePlus !== undefined
+            ? targetingResolved.advantagePlus ? 1 : 0
+            : usarAdvantagePlus(targetingResolved) ? 1 : 0,
+      };
 
       // Conjunto de anuncios.
       // optimization_goal=CONVERSIONS SIN promoted_object es rechazado por

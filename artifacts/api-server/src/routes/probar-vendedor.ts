@@ -19,6 +19,8 @@ import {
   corregirComoCorresponde,
   corregirDato,
   corregirForma,
+  editarDato,
+  editarIndicacion,
   loQueSabeElVendedor,
 } from "../lib/correcciones-del-dueno";
 
@@ -229,6 +231,26 @@ router.delete("/indicacion/:indice", async (req: TenantRequest, res) => {
   const indice = Number(req.params.indice);
   if (!Number.isInteger(indice) || indice < 0) return res.status(400).json({ ok: false, mensaje: "índice inválido" });
   const r = await borrarIndicacion(tenantId, indice);
+  return res.status(r.ok ? 200 : 400).json(r);
+});
+
+/** PUT /api/probar-vendedor/dato/:id { respuesta } → editar respuesta del negocio. */
+router.put("/dato/:id", async (req: TenantRequest, res) => {
+  const tenantId = req.tenant?.id;
+  if (!tenantId) return res.status(401).json({ error: "Sin sesión" });
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ ok: false, mensaje: "id inválido" });
+  const r = await editarDato(tenantId, id, String(req.body?.respuesta ?? req.body?.texto ?? ""));
+  return res.status(r.ok ? 200 : 400).json(r);
+});
+
+/** PUT /api/probar-vendedor/indicacion/:indice { indicacion } → editar regla. */
+router.put("/indicacion/:indice", async (req: TenantRequest, res) => {
+  const tenantId = req.tenant?.id;
+  if (!tenantId) return res.status(401).json({ error: "Sin sesión" });
+  const indice = Number(req.params.indice);
+  if (!Number.isInteger(indice) || indice < 0) return res.status(400).json({ ok: false, mensaje: "índice inválido" });
+  const r = await editarIndicacion(tenantId, indice, String(req.body?.indicacion ?? req.body?.texto ?? ""));
   return res.status(r.ok ? 200 : 400).json(r);
 });
 

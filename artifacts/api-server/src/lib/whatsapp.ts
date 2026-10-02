@@ -9,7 +9,7 @@ import { videoDeProducto } from "./video-de-producto";
 import { leerFicha, repartirPuntos, PRESUPUESTO_PIE_DE_FOTO } from "./ficha-del-producto";
 import { hablarColombiano } from "./hablar-colombiano";
 import { etiquetaDeTransferencia } from "./conversation-engine";
-import { mediosDePago, loQuePidio, renderMediosDePago, noManejamosEse } from "./hechos-de-pago";
+import { mediosDePago, loQuePidio, renderMediosDePago, respuestaMedioNoDisponible } from "./hechos-de-pago";
 import { getOrCreateLanding, type MagicLandingResult } from "./landingforge-client";
 
 import path from "node:path";
@@ -629,7 +629,9 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
   // cuando el cliente no quiere ninguno de los métodos de arriba, y además
   // ahí ve el producto con su foto y su ficha completa. El enlace corto /p/<id>
   // redirige a la página real y ya trae vista previa con imagen al compartirse.
-  const urlTienda = `${(process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "")}/p/${p.id}`;
+  // Si el producto tiene landing PUBLICADA, va esa (ver destino-del-producto.ts).
+  const { enlaceParaVerElProducto } = await import("./landing/destino-del-producto");
+  const urlTienda = (await enlaceParaVerElProducto(p as any)).url;
   lines.push(variante([`🛒 *O comprá directo en la tienda:*`, `🛒 *También puedes comprarlo acá:*`, `🛒 *Directo desde la web:*`, `🛒 *Si prefieres, desde la tienda:*`], sem));
   lines.push(urlTienda);
   lines.push("");
@@ -882,6 +884,17 @@ export async function mensajesDeLaFicha(
   const seccion: SeccionFicha | null = part?.seccion ?? null;
 
   if (seccion) {
+    // "Más fotos": cada URL sale como imagen con pie corto. No pasa por
+    // construirSeccion: no hay maqueta que armar, son las fotos que el
+    // cliente todavía no vio (la herramienta ya filtró las repetidas).
+    if (seccion === "fotos") {
+      const lote = (Array.isArray(part?.fotos) ? part.fotos : []).map((u: any) => String(u || "").trim()).filter(Boolean);
+      if (!lote.length) return [{ texto: `De ${product.name} ya te mostré todas las fotos que tengo 📸` }];
+      return lote.map((url: string, i: number) => ({
+        imagen: url,
+        texto: i === 0 ? `Te mando otras vistas de ${product.name} 📸` : `${product.name} (${i + 1})`,
+      }));
+    }
     const { conFoto, mensajes } = await construirSeccion(
       product, seccion, dynamicLinks, semilla,
       // Lo decide el agente, que es el que tiene el historial.
@@ -969,7 +982,11 @@ export async function construirSeccion(
   // /tienda/:slug/producto/:id a propósito: el corto resuelve solo qué negocio
   // es (app.ts redirige), así que no hay que pasarle el slug hasta acá ni
   // arriesgar que quede viejo si el admin lo cambia.
-  const urlEnTienda = `${getAppUrl().replace(/\/$/, "")}/p/${p.id}`;
+  // Si el producto tiene landing PUBLICADA, el cliente ve esa y no la tienda
+  // (01-10-2026: el bot seguía mandando la página vieja). Ver destino-del-producto.ts.
+  const { enlaceParaVerElProducto } = await import("./landing/destino-del-producto");
+  const verProducto = await enlaceParaVerElProducto(p as any);
+  const urlEnTienda = verProducto.url;
   const corto = (m: any) => m?.shortUrl || m?.url || "";
 
   // ¿ESTE producto tiene video? Medido en produccion el 2026-08-29: NINGUNO de
@@ -1014,7 +1031,7 @@ export async function construirSeccion(
   if (seccion === "tienda") {
     return {
       conFoto: false,
-      mensajes: [`🛒 Míralo en la tienda, con fotos y todo el detalle:\n${urlEnTienda}`, cierre],
+      mensajes: [`🛒 Míralo ${verProducto.esLanding ? "acá" : "en la tienda"}, con fotos y todo el detalle:\n${urlEnTienda}`, cierre],
     };
   }
 
@@ -1127,7 +1144,7 @@ export async function construirSeccion(
     // traer Daviplata, no la primera cuenta que haya.
     const pedido = loQuePidio(String(mensajeDelCliente || ""), medios);
     if (pedido.noConfigurado) {
-      return { conFoto: false, mensajes: [noManejamosEse(pedido.noConfigurado, medios)] };
+      return { conFoto: false, mensajes: [respuestaMedioNoDisponible(pedido.noConfigurado, medios, mon.precioTexto, cierre)] };
     }
 
     let elegidos = pedido.pedidos;
@@ -1213,6 +1230,34 @@ export async function construirSeccion(
     // hacía dar vueltas ("¿Te cuento cuánto vale?") con alguien que ya vino
     // por ese producto.
     if (esFisico && seccion === "completa") {
+      // La presentación la redacta la IA con las indicaciones del dueño
+      // (ver lib/presentacion-de-producto.ts). Los datos duros los pone el
+      // sistema: la IA no puede inventar precio ni promesas de entrega.
+      // Si la IA falla, sale la ficha de siempre (fallback de abajo).
+      try {
+        const { presentacionDelProducto, burbujasDePresentacion } = await import("./presentacion-de-producto");
+        const textos = await presentacionDelProducto(p);
+        if (textos) {
+          const { fraseCostoEnvio, frasePagoEnvio } = await import("./modelo-de-negocio");
+          const c = await condicionesDelProducto(p);
+          const burbujas = burbujasDePresentacion(textos, {
+            nombre: p.name,
+            emoji: emojiTitulo,
+            precio: mon.precioTexto,
+            envio: `${fraseCostoEnvio(c)}. Llega en ${c.envio.plazo}.`,
+            pago: frasePagoEnvio(c),
+            tallas: null,
+            conCierre: !sinCierre,
+          });
+          for (const b of burbujas) mensajes.push(hablarColombiano(b));
+          if (urlVideo && !videoYaEnviado) {
+            mensajes.push(`🎬 Te dejo este video para que veas el contenido por dentro:\n${urlVideo}`);
+          }
+          return { conFoto: !yaVioContenido || sesionNueva, mensajes };
+        }
+      } catch {
+        // Fallback a la ficha fija de abajo.
+      }
       L.push("", `💰 *Precio: ${mon.precioTexto}*`);
       try {
         const { fraseCostoEnvio, frasePagoEnvio } = await import("./modelo-de-negocio");
@@ -3139,10 +3184,12 @@ export class WhatsAppManager {
       const { credencialesEmailDe } = await import("./tenant-email-credentials");
       const { enviarCorreoSimple } = await import("./email");
       const [t] = await db.select().from(tenants).where(eq(tenants.id, this.currentTenant.id)).limit(1);
+      // EMAIL_TO/EMAIL_FROM son del dueño del servidor: solo su respaldo.
+      const { envSoloDelDueno } = await import("./respaldo-del-dueno");
       const destinatario =
         String((t as any)?.email || "").trim() ||
-        String(process.env.EMAIL_TO || "").trim() ||
-        String(process.env.EMAIL_FROM || "").trim();
+        envSoloDelDueno(this.currentTenant.id, process.env.EMAIL_TO).trim() ||
+        envSoloDelDueno(this.currentTenant.id, process.env.EMAIL_FROM).trim();
       if (destinatario) {
         await enviarCorreoSimple(
           destinatario,

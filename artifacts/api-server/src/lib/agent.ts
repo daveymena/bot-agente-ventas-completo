@@ -120,7 +120,6 @@ import {
   getPaymentMethodResponse,
   getConfirmationResponse
 } from "./payment-confirmation";
-import { sendPurchaseEvent } from "./meta-conversions-api";
 import { getAgentType } from "./agent-router";
 import { 
   analyzeCustomerObjection, 
@@ -944,10 +943,16 @@ export async function runAgentReply(conversationId: number) {
       try {
         const { landingPages } = await import("@workspace/db");
         const filas = await db.select().from(landingPages).where(eq(landingPages.tenantId, convo.tenantId));
-        const publicadas = filas.filter((l: any) => l.status === "published" && l.publishedUrl);
+        // La MÁS RECIENTE primero: sin orden salía la primera de la tabla, o
+        // sea la landing vieja aunque hubiera una nueva del mismo producto.
+        const publicadas = filas
+          .filter((l: any) => l.status === "published" && l.publishedUrl)
+          .sort((a: any, b: any) => new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime());
         if (publicadas.length) {
           const nombre = String(memory.currentProductName || "").toLowerCase();
+          const focoId = Number(memory.currentProductId || 0);
           const elegida: any =
+            publicadas.find((l: any) => focoId && Number(l.productId) === focoId) ||
             publicadas.find((l: any) => nombre && String(l.name).toLowerCase().includes(nombre)) ||
             publicadas[0];
           const raw = `Acá está la página de *${String(elegida.name).trim()}*:\n${elegida.publishedUrl}`;
@@ -5239,27 +5244,12 @@ ${comoSeEntregaDeVerdad(prodFicha as any)}` : comoSeEntregaDeVerdad(prodFicha as
             .set({ paymentStatus: 'pending', paymentMethod: memory.paymentMethod || null, paymentAmount: pPrice })
             .where(eq(conversations.id, conversationId));
 
-          // Meta Conversions API: este era el hueco real -- el pixel del
-          // navegador (packages/tienda/src/lib/pixel.ts) manda ViewContent/
-          // AddToCart/InitiateCheckout, pero como la compra se confirma
-          // DENTRO de la conversación de WhatsApp (no en el checkout del
-          // navegador), nunca había un evento "Purchase" real yendo a Meta.
-          // Sin esto, el optimization_goal=OFFSITE_CONVERSIONS que ya arma
-          // ad-strategist.ts/facebook.ts para las campañas con pixel no
-          // tiene ninguna señal de conversión real de la que aprender, sin
-          // importar qué tan bien segmentada esté la campaña.
-          if (realTenant?.facebook?.pixelId && realTenant?.facebook?.accessToken) {
-            const [productRow] = await db.select({ currency: products.currency }).from(products).where(eq(products.id, pId)).limit(1);
-            sendPurchaseEvent({
-              pixelId: realTenant.facebook.pixelId,
-              accessToken: realTenant.facebook.accessToken,
-              value: Number(pPrice) || 0,
-              currency: productRow?.currency || "COP",
-              contentIds: [pId],
-              customerEmail,
-              customerPhone: customer?.contactPhone,
-            }).catch(() => {}); // sendPurchaseEvent ya loguea sus propios errores -- no debe romper el flujo de venta real
-          }
+          // SIN Purchase a Meta acá (2026-10-01): el pago está PENDIENTE, no
+          // verificado, y mandarlo contaminaba la optimización de las campañas
+          // (Meta aprendía de ventas que todavía no existían). El Purchase
+          // sale solo desde un pago real vía `avisarCompraRealAMeta`
+          // (lib/compra-verificada-meta.ts): webhooks de pasarela,
+          // aprobación del comprobante o confirm_transfer_payment.
         } catch (e) {
           console.log(`⚠️ No se pudo procesar confirmación de pago: ${(e as Error).message}`);
         }

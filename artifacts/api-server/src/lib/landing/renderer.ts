@@ -47,6 +47,8 @@
 
 import { tokensDe, type FamiliaVisual, type TokensDeDiseno } from "./design-system";
 
+import { DEPARTAMENTOS_CO, SCRIPT_GEO } from "../geo-colombia";
+
 export interface SeccionParaRenderizar {
   id: string;
   type: string;
@@ -196,6 +198,38 @@ function enlaceWhatsApp(p?: ProductoParaRenderizar | null, n?: NegocioParaRender
   return `https://wa.me/${wa}?text=${texto}`;
 }
 
+/**
+ * Talla/color/modelo: el servidor (landing-publica.ts) EXIGE las opciones
+ * obligatorias como `opcion_<nombre>`, pero el formulario nunca las pedía:
+ * con tallas cargadas, TODO pedido fallaba con "Selecciona Talla" (26-09-2026).
+ */
+export function selectoresDeOpciones(p: ProductoParaRenderizar | null | undefined): string {
+  const lista = Array.isArray((p as any)?.opciones) ? ((p as any).opciones as any[]) : [];
+  return lista
+    .filter((o) => o?.nombre && Array.isArray(o?.valores) && o.valores.length)
+    .map((o) => `<label>${esc(String(o.nombre))}<select name="opcion_${esc(String(o.nombre))}"${o.obligatoria === false ? "" : " required"}><option value="">Elige ${esc(String(o.nombre).toLowerCase())}…</option>${(o.valores as unknown[]).map((v) => `<option>${esc(String(v))}</option>`).join("")}</select></label>`)
+    .join("\n      ");
+}
+
+/**
+ * Lo mismo para una landing de HTML FIJO (generada aparte y guardada tal
+ * cual): si su formulario de pedido no trae las opciones, se inyectan al
+ * servirla. La del corrector (#56) pedía cédula y no tenía talla: con las
+ * tallas cargadas, el servidor rechazaba todos sus pedidos (26-09-2026).
+ * Además la cédula deja de ser obligatoria (en Colombia no se pide).
+ */
+export function formularioConOpciones(html: string, p: ProductoParaRenderizar | null | undefined): string {
+  if (!html || /name=["']opcion_/.test(html)) return quitarCedulaObligatoria(html);
+  const selects = selectoresDeOpciones(p);
+  if (!selects) return quitarCedulaObligatoria(html);
+  const conSelects = html.replace(/<form\b[^>]*\/pedido[^>]*>/i, (m) => `${m}\n${selects}`);
+  return quitarCedulaObligatoria(conSelects);
+}
+
+function quitarCedulaObligatoria(html: string): string {
+  return html.replace(/<input\b[^>]*name=["']documento["'][^>]*>/gi, (m) => m.replace(/\srequired(=["'][^"']*["'])?/i, ""));
+}
+
 /** El bloque de cierre, según el modelo. */
 function bloqueDeCierre(c: CierreDeLanding | null | undefined, p: ProductoParaRenderizar | null | undefined, n: NegocioParaRenderizar | null | undefined): string {
   if (!c) return "";
@@ -205,24 +239,25 @@ function bloqueDeCierre(c: CierreDeLanding | null | undefined, p: ProductoParaRe
   if (c.tipo === "contraentrega" && c.accion) {
     const campo = (name: string, label: string, extra = "") => `<label>${esc(label)}<input name="${name}" required ${extra}></label>`;
     return `<section class="sec sec--cierre" id="pedido"><div class="wrap narrow">
-    <div class="head"><p class="eyebrow">Pedido</p><h2>Pedí ${esc(p?.name || "tu producto")}${precioTxt ? ` por ${esc(precioTxt)}` : ""}</h2>
-    <p class="lead">${c.pago === "anticipado" ? "Te contactamos por WhatsApp para coordinar el pago y el envío." : "Pagás cuando lo recibís. Completá tus datos y lo despachamos."}</p></div>
+    <div class="head"><p class="eyebrow">Pedido</p><h2>Pide ${esc(p?.name || "tu producto")}${precioTxt ? ` por ${esc(precioTxt)}` : ""}</h2>
+    <p class="lead">${c.pago === "anticipado" ? "Te contactamos por WhatsApp para coordinar el pago y el envío." : "Pagas cuando lo recibes. Completa tus datos y lo despachamos."}</p></div>
     <form class="pedido" method="post" action="${esc(c.accion)}" data-json>
+      ${selectoresDeOpciones(p)}
       ${campo("nombre", "Nombre y apellido")}
       ${campo("telefono", "Celular", 'inputmode="tel"')}
-      ${campo("documento", esCol ? "Cédula" : "Documento de identidad", 'inputmode="numeric"')}
+      ${esCol ? "" : campo("documento", "Documento de identidad", 'inputmode="numeric"')}
       ${campo("direccion", "Dirección (calle, número, apto)")}
       <label>Barrio<input name="barrio"></label>
-      ${campo("ciudad", "Ciudad")}
-      ${campo("departamento", esCol ? "Departamento" : "Estado o provincia")}
+      ${esCol ? `<label>Departamento<select name="departamento" required><option value="">Selecciona\u2026</option>${DEPARTAMENTOS_CO.map((d) => `<option>${esc(d)}</option>`).join("")}</select></label>` : campo("departamento", "Estado o provincia")}
+      <label>Ciudad<input name="ciudad" list="ciudades-datalist" required placeholder="Elige departamento primero"><datalist id="ciudades-datalist"></datalist></label>
       <label>Punto de referencia<input name="referencia" placeholder="Frente a la panadería, al lado del parque…"></label>
       <button class="cta" type="submit">${c.pago === "anticipado" ? "Quiero pedirlo" : "Pedir y pagar al recibir"}</button>
       <p class="pedido__estado" aria-live="polite"></p>
-    </form>
-    ${wa ? `<p class="o-bien">¿Preferís pedirlo por chat? <a href="${esc(wa)}">Escribinos por WhatsApp</a></p>` : ""}
+    </form><script>${SCRIPT_GEO}</script>
+    ${wa ? `<p class="o-bien">¿Prefieres pedirlo por chat? <a href="${esc(wa)}">Escríbenos por WhatsApp</a></p>` : ""}
   </div></section>
   <script>
-  (function(){var f=document.querySelector('form.pedido');if(!f)return;f.addEventListener('submit',async function(e){e.preventDefault();var b=f.querySelector('button');var est=f.querySelector('.pedido__estado');b.disabled=true;est.textContent='Registrando tu pedido…';try{var d={};new FormData(f).forEach(function(v,k){d[k]=v});var r=await fetch(f.action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});var j=await r.json();if(j.ok){f.innerHTML='<p class="lead">✅ ¡Pedido recibido! Te contactamos por WhatsApp para confirmar el despacho. Llega en '+(j.plazo||'unos días')+'.</p>';}else{est.textContent=j.error||'No se pudo registrar. Intentá de nuevo o escribinos por WhatsApp.';b.disabled=false;}}catch(x){est.textContent='No se pudo registrar. Escribinos por WhatsApp.';b.disabled=false;}});})();
+  (function(){var f=document.querySelector('form.pedido');if(!f)return;f.addEventListener('submit',async function(e){e.preventDefault();var b=f.querySelector('button');var est=f.querySelector('.pedido__estado');b.disabled=true;est.textContent='Registrando tu pedido…';try{var d={};new FormData(f).forEach(function(v,k){d[k]=v});var r=await fetch(f.action,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(d)});var j=await r.json();if(j.ok){f.innerHTML='<p class="lead">✅ ¡Pedido recibido! Te contactamos por WhatsApp para confirmar el despacho. Llega en '+(j.plazo||'unos días')+'.</p>';}else{est.textContent=j.error||'No se pudo registrar. Intenta de nuevo o escríbenos por WhatsApp.';b.disabled=false;}}catch(x){est.textContent='No se pudo registrar. Escríbenos por WhatsApp.';b.disabled=false;}});})();
   </script>`;
   }
   if (c.tipo === "pago") {

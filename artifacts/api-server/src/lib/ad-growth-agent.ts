@@ -22,7 +22,7 @@
  *                  aplica solo cuando responde aprobando esa sugerencia.
  */
 import { db, adAgentLogs, tenants } from "@workspace/db";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { logger } from "./logger";
 import { getWhatsAppForTenant } from "./whatsapp-factory";
 import { isApproval, isRejection } from "./architect-store";
@@ -129,7 +129,10 @@ async function getAdminPhone(tenantId?: number | null): Promise<string | null> {
       logger.warn({ err, tenantId }, "[AdGrowthAgent] no se pudo leer el teléfono del negocio, se usa el del entorno");
     }
   }
-  return process.env.ADMIN_PHONE || null;
+  // Respaldo del .env SOLO para el dueño del servidor (ver respaldo-del-dueno.ts):
+  // las alertas de campañas de otro negocio no le llegan al dueño.
+  const { envSoloDelDueno } = await import("./respaldo-del-dueno");
+  return envSoloDelDueno(tenantId ?? tenantManager.getDefaultTenant().id, process.env.ADMIN_PHONE) || null;
 }
 
 async function logSuggestion(entry: {
@@ -589,19 +592,21 @@ async function applySuggestion(log: typeof adAgentLogs.$inferSelect): Promise<{ 
  * sugerencia del agente (y ya se manejó), false si no tiene nada que ver
  * y debe seguir el flujo normal del bot. */
 export async function handleAdminReply(phone: string, text: string): Promise<boolean> {
-  // Se acepta el telefono del ENTORNO o el de cualquier negocio: la sugerencia
-  // concreta se busca abajo y trae su propio tenantId, asi que un admin no
-  // puede aprobar la de otro por accidente -- solo responde a la suya.
-  const delEntorno = String(process.env.ADMIN_PHONE || "").replace(/[^0-9]/g, "");
+  // Qué negocios administra ESTE teléfono (29-09-2026). Antes bastaba con ser
+  // admin de CUALQUIER negocio, y la sugerencia se buscaba sin filtrar por
+  // negocio: un "sí" sin número aprobaba la más reciente de toda la
+  // plataforma y un "sí 123" aprobaba la de otro — cambios de presupuesto
+  // en los anuncios de un tercero. El ADMIN_PHONE del .env administra solo
+  // al negocio dueño del servidor.
   const quienEscribe = phone.replace(/[^0-9]/g, "");
-  let esAdmin = !!delEntorno && quienEscribe === delEntorno;
-  if (!esAdmin) {
-    try {
-      const filas = await db.select().from(tenants);
-      esAdmin = filas.some((t: any) => String(t.contactPhone || "").replace(/[^0-9]/g, "") === quienEscribe);
-    } catch { /* si no se puede leer, queda el chequeo del entorno */ }
-  }
-  if (!esAdmin) return false;
+  const misNegocios = new Set<number>();
+  try {
+    const filas = await db.select({ id: tenants.id, contactPhone: tenants.contactPhone }).from(tenants);
+    for (const t of filas as any[]) if (String(t.contactPhone || "").replace(/[^0-9]/g, "") === quienEscribe) misNegocios.add(Number(t.id));
+  } catch { /* abajo */ }
+  const delEntorno = String(process.env.ADMIN_PHONE || "").replace(/[^0-9]/g, "");
+  if (delEntorno && quienEscribe === delEntorno) misNegocios.add(tenantManager.getDefaultTenant().id);
+  if (!misNegocios.size) return false;
 
   const idMatch = text.match(/\b(\d+)\b/);
   const approved = isApproval(text);
@@ -611,11 +616,11 @@ export async function handleAdminReply(phone: string, text: string): Promise<boo
   let log;
   if (idMatch) {
     const id = parseInt(idMatch[1], 10);
-    [log] = await db.select().from(adAgentLogs).where(eq(adAgentLogs.id, id)).limit(1);
+    [log] = await db.select().from(adAgentLogs).where(and(eq(adAgentLogs.id, id), inArray(adAgentLogs.tenantId, [...misNegocios]))).limit(1);
   } else {
-    // Sin ID explícito: tomar la sugerencia pendiente más reciente.
+    // Sin ID explícito: la sugerencia pendiente más reciente DE SUS negocios.
     [log] = await db.select().from(adAgentLogs)
-      .where(eq(adAgentLogs.status, "suggested"))
+      .where(and(eq(adAgentLogs.status, "suggested"), inArray(adAgentLogs.tenantId, [...misNegocios])))
       .orderBy(desc(adAgentLogs.createdAt)).limit(1);
   }
   if (!log || log.status !== "suggested") return false;

@@ -33,6 +33,7 @@ import {
   ejecutores,
   puntuarCoincidencias,
   diceQueCompra,
+  esConfirmacionBreve,
   esDudaONegativa,
   type ContextoHerramientas,
   type Efecto,
@@ -45,6 +46,8 @@ import {
   volvioDespuesDe,
   abrirVisitaNueva,
   registrarHerramienta,
+  registrarEnvio,
+  yaSeEnvio,
   actualizarResumenDesdeEstado,
   apilarContexto,
   ordinalDeMensaje,
@@ -53,6 +56,8 @@ import {
   type RepositorioEstado,
 } from "./estado-conversacion";
 import { buscarContextoRelevante } from "./buscar-contexto";
+import { bloqueDeLaFichaEnFoco, puntosDeLaFicha } from "./lo-que-dice-la-ficha";
+import { sinCondicionesSinRespaldo, condicionesSinRespaldo } from "./condiciones-sin-respaldo";
 import { renderGuion, type GuionDelNegocio } from "./nicho";
 import { hablarColombiano } from "../hablar-colombiano";
 import type { ClienteLLM } from "./cliente-llm";
@@ -93,7 +98,7 @@ export function comoHablaElPais(pais: string | null | undefined): string {
   if (["CO", "COLOMBIA", ""].includes(p)) {
     return (
       "en español colombiano normal, cálido y directo: tutea (tú, quieres, tienes, puedes, mira). " +
-      "Nunca uses voseo (nada de \"quieres\", \"tienes\", \"mira\", \"confirmas\"). Si el cliente te trata de usted, respóndele de usted."
+      "Nunca uses voseo (nada de \"querés\", \"tenés\", \"mirá\", \"confirmás\"). Si el cliente te trata de usted, respóndele de usted."
     );
   }
   return "en el español de ese país, cálido y directo, tuteando. Nunca uses voseo. Si el cliente te trata de usted, respóndele de usted.";
@@ -203,7 +208,7 @@ muéstrale lo que sí hay.
 Si el cliente muestra intención de compra ("lo quiero", "cómo pago", "mándame el link", "me sirve", "listo", "dale", "de una"), CIERRA. Deja de dar explicaciones y no hagas más preguntas de descubrimiento. Si no tienes claro de qué producto habla, ubícalo antes con buscar_en_catalogo y enfocar_producto. Si todavía no le mostraste el precio de ese producto, manda primero mostrar(seccion="precio"). Después, según qué es: un producto FÍSICO con envío se cierra con tomar_pedido (el sistema le manda la lista de datos de envío), NO con los medios de pago; lo demás se cierra con mostrar(seccion="pago"). NUNCA pidas compromiso ("¿te lo llevas?", nombre, cédula, dirección) antes de haberle mostrado el precio: primero precio, después datos.
 La ficha de "info" termina ofreciendo "¿te cuento cuánto vale?". Si el cliente contesta "sí" (o "sí, cuánto vale", "qué vale", "dame el precio", "cuánto está"), eso es un pedido de precio: manda mostrar(seccion="precio") en el acto.
 
-CÓMO RESOLVÉS REFERENCIAS (sin releer texto viejo)
+CÓMO RESUELVES REFERENCIAS (sin releer texto viejo)
 "sí / no / ese / esa / el primero / el segundo / ese curso / lo quiero / dale / ok / mándame ese / cuánto vale? / qué vale? / cuánto cuesta? / precio / a cómo está? / y ese?" se resuelve con el bloque LO QUE YA PASÓ: mensaje actual primero, después tu última pregunta, producto en foco, producto anterior y última herramienta. Cualquier forma de preguntar el valor ("cuánto vale", "qué vale", "cuánto cuesta", "precio", "a cómo", "el valor") es pedido de precio del producto en foco: muestra mostrar(seccion="precio"). "Ese" después de ofrecer es lo último ofrecido. Si igual no está claro, pregunta cuál antes de mostrar nada.
 Si el mensaje empieza con [Responde citando este mensaje: "..."], el cliente te respondió señalando ESE mensaje: si es una ficha, su primera línea es el producto que eligió; enfócalo y sigue con ese, sin preguntar "¿cuál?".
 Cuando quede clara la intención o le hagas una pregunta, llama a anotar_contexto (no envía nada al cliente) para que el próximo turno no tenga que adivinar.
@@ -214,7 +219,7 @@ el sistema pega abajo de tu texto cuando usas las herramientas. Tú redactas la
 charla natural que las acompaña, pero NUNCA repitas el contenido de la maqueta
 en tu texto. Ejemplo: si usas mostrar(seccion="precio"), tu texto solo debe
 decir "Acá te dejo el valor:" y la herramienta hace el resto. Si una herramienta
-te dice que algo ya se envió, no lo repitas: retomá desde donde quedaron.
+te dice que algo ya se envió, no lo repitas: retoma desde donde quedaron.
 Para mostrar un producto necesitas su id: si no lo tienes, busca primero con
 buscar_en_catalogo usando lo que pidió el cliente y usa el id que devuelva.
 Nunca llames a mostrar con un id vacío o inventado.
@@ -232,11 +237,13 @@ Nunca digas que un pago está confirmado, verificado ni recibido. Eso lo
 determina una persona del equipo, y el sistema te avisa cuando pasó.
 
 CÓMO VENDÉS SEGÚN QUÉ ES (multimodelo, no todo es "producto-precio-pago")
-- Físico/dropshipping: producto → variante (consultar_disponibilidad, nunca inventes stock) → precio → cuando quiere comprarlo, tomar_pedido con los datos de envío que te dé (el sistema te dice qué falta y le manda el resumen) → cuando confirma el resumen, confirmar_pedido. El pedido existe SOLO cuando confirmar_pedido dice que se creó: antes de eso nunca digas "quedó anotado" ni "quedó registrado". La contraentrega solo si está configurada; si no, explica lo que sí hay. No sueltes "tenemos contraentrega" al saludar.
+- Físico/dropshipping: producto → variante (consultar_disponibilidad, nunca inventes stock) → precio → cuando quiere comprarlo, tomar_pedido con los datos de envío que te dé (el sistema te dice qué falta y le manda el resumen) → cuando confirma el resumen, confirmar_pedido. El pedido existe SOLO cuando confirmar_pedido dice que se creó: antes de eso nunca digas "quedó anotado" ni "quedó registrado". La contraentrega solo si está configurada; si no, explica lo que sí hay. No sueltes "tenemos contraentrega" al saludar. Si pregunta qué empresa lleva el envío o quiere elegirla: consultar_transportadoras (nombres reales para su ciudad, nunca inventes una ni muestres el flete); cuando elija, tomar_pedido(transportadora=…).
 - Servicio: necesidad → diagnóstico/alcance (registrar_caso tipo servicio) → disponibilidad → precio real o cotización (solicitar_cotizacion) → agenda (cuándo). No des precio cerrado si depende del modelo/visita.
 - Consultoría: problema → objetivo → contexto del negocio → alcance (registrar_caso tipo consultoria) → propuesta/cotización (solicitar_cotizacion). El valor depende del alcance: dilo y registra el caso, no inventes precio fijo.
-- Si cambia de servicio a producto (o al revés), cambiá el foco con enfocar_producto/registrar_caso y seguí: el contexto anterior queda apilado para "y la reparación?".
-- Garantía/devolución/tiempos: solo lo cargado por el dueño (consultar_conocimiento/guion). Si no está, di que lo confirmas. Nunca inventes testimonios, cifras de clientes ni plazos.
+- Si cambia de servicio a producto (o al revés), cambia el foco con enfocar_producto/registrar_caso y sigue: el contexto anterior queda apilado para "¿y la reparación?".
+- Garantía/devolución/tiempos/stock: solo lo cargado por el dueño (consultar_conocimiento/guion). Si no está, di que lo confirmas. Nunca inventes testimonios, cifras de clientes, plazos ni precios.
+- Preguntas del PRODUCTO (para qué sirve, cómo se usa, si le sirve para su caso, dudas puntuales): responde RAZONANDO con la ficha del producto + consultar_conocimiento + tu criterio. Como HECHO de este producto solo afirmas lo que dice la ficha; tu criterio va dicho como criterio ("para empezar te sirve", "en general…"), nunca como promesa del producto (mal: "tu teclado de 61 teclas te sirve para todo el curso" cuando la ficha no lo dice). No lances la maqueta completa si preguntó algo puntual: contesta eso y sigue. La maqueta es para mostrar precio/fotos/pago, no para responder preguntas.
+- Si pide más fotos ("otra foto", "fotos reales", "más imágenes"): mostrar(seccion="fotos"). El sistema manda las que todavía no vio, sin repetir; no describas lo que se ve en cada foto ni prometas fotos que no hay.
 
 ${renderGuion(guion)}
 
@@ -244,8 +251,17 @@ CATÁLOGO
 ${catalogoCompacto}${voz.instruccionesExtra ? `\n\nINDICACIONES DEL DUEÑO\n${voz.instruccionesExtra}` : ""}`;
 
   const temas = temasRespondidosPorElDueno(params.conocimiento, estado.productoEnFoco);
+  // La ficha del producto EN FOCO, con los datos que el servidor le muestra al
+  // cliente. Sin esto el modelo no ve la descripción de nada (el catálogo del
+  // prefijo es `#id · nombre · precio`) y termina desmintiendo su propia ficha:
+  // "el detalle exacto de los módulos te lo confirmo" dos mensajes después de
+  // haberlos listado (chat del dueño, 27-09-2026). Ver lo-que-dice-la-ficha.ts.
+  const fichaEnFoco =
+    estado.productoEnFoco != null
+      ? bloqueDeLaFichaEnFoco(catalogo.find((p) => p.id === estado.productoEnFoco))
+      : "";
   const delTurno = `LO QUE YA PASÓ EN ESTA CONVERSACIÓN
-${describirEstado(estado, params.nombrePorProducto)}${
+${describirEstado(estado, params.nombrePorProducto)}${fichaEnFoco ? `\n\n${fichaEnFoco}` : ""}${
     temas.length
       ? `\n\nRESPUESTAS QUE CARGÓ EL DUEÑO (valen aunque el tema figure en "NO TIENES ESTOS DATOS"; ` +
         `el texto exacto te lo da consultar_conocimiento): ${temas.join(" · ")}`
@@ -858,24 +874,54 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
     const focoAhora = estado.productoEnFoco;
     const esFisicoAhora = focoAhora != null && String(catalogo.find((p) => p.id === focoAhora)?.kind || "") === "physical";
     const confirmaCompra = diceQueCompra(mensajeDelCliente) ||
-      (/env[ií]|pedido|llev|compr|lo quieres/i.test(estado.ultimaPreguntaAgente || "") && /^\s*(s[ií]|dale|listo|claro|de una|ok|okey|va|bueno|perfecto)\b/i.test(mensajeDelCliente) && !esDudaONegativa(mensajeDelCliente));
+      (/env[ií]|pedido|llev|compr|lo quieres/i.test(estado.ultimaPreguntaAgente || "") && esConfirmacionBreve(mensajeDelCliente));
     if (esFisicoAhora && confirmaCompra && ctx.pedidos && !traza.some((t) => t.herramienta === "tomar_pedido") && estado.accionPendiente !== "confirmar_pedido") {
       try { await ejecutores.tomar_pedido(ctx, {}); } catch { /* sigue el texto */ }
     }
   }
 
-  // ── Preguntó el precio y el texto no lo dice ─────────────────────────────
+  // ── Preguntó el precio (o aceptó que se lo dijeran) y el texto no lo dice ─
   // Simulación: "Precio?" → "¿Te gustaría pedirlo?". Ya lo tenía en la ficha,
   // pero si lo pregunta de nuevo, se le dice (el dato lo pone el catálogo).
+  //
+  // Y el "ok" del cliente pasivo (chat de prueba, 30-09-2026): la ficha de
+  // información no trae el precio a propósito y queda ofreciéndolo; "ok" /
+  // "sí" / "dale" es aceptar esa oferta, y el modelo contestaba "¿Te gustaría
+  // que te cuente cuánto vale?" otra vez. Se decide por el ESTADO (salió la
+  // ficha de info y el precio todavía no), no leyendo el texto de la ficha.
   {
     const focoAhora = estado.productoEnFoco;
     const prod = focoAhora != null ? catalogo.find((p) => p.id === focoAhora) : null;
     const preguntaPrecio = /\b(cu[aá]nto (vale|cuesta|es|sale|queda)|precio|valor|a c[oó]mo)\b/i.test(mensajeDelCliente);
+    const aceptaPrecioOfrecido = !!prod && esConfirmacionBreve(mensajeDelCliente) &&
+      yaSeEnvio(estado, prod.id, "info") && !yaSeEnvio(estado, prod.id, "precio") && !yaSeEnvio(estado, prod.id, "completa");
     const yaLoDice = /\$\s?\d/.test(textoFinal) || ctx.partes.some((p: any) => p.kind === "card" && /precio|completa/.test(String(p.seccion)));
-    if (prod && preguntaPrecio && !yaLoDice && Number(prod.price) > 0) {
+    const OFRECE_PRECIO = /¿[^?¿]*(cu[aá]nto (vale|est[aá]|cuesta|sale)|el precio|el valor)[^?¿]*\?\s*(\p{Extended_Pictographic}️?)?/giu;
+    // Y la segunda oferta (curso de Excel, 30-09-2026): tras la ficha de info
+    // que ya ofreció el precio, el modelo cerraba otra vez con "¿Te cuento
+    // cuánto vale?". Una oferta ya hecha no se repite: se cumple.
+    // Si la ficha de info sale en ESTE turno, ella misma cierra ofreciendo el
+    // precio: el texto no la repite, y tampoco suelta la cifra (contradiría
+    // la pregunta de la ficha que viene justo debajo).
+    const infoEnEsteTurno = !!prod && ctx.partes.some((p: any) => p.kind === "card" && p.seccion === "info" && Number(p.productId) === prod.id);
+    if (infoEnEsteTurno && !preguntaPrecio) {
+      textoFinal = textoFinal.replace(OFRECE_PRECIO, "").trim();
+    }
+    const ofreceOtraVez = !!prod && !infoEnEsteTurno && !aceptaPrecioOfrecido && !preguntaPrecio &&
+      yaSeEnvio(estado, prod.id, "info") && !yaSeEnvio(estado, prod.id, "precio") && !yaSeEnvio(estado, prod.id, "completa") &&
+      new RegExp(OFRECE_PRECIO.source, "iu").test(textoFinal);
+    if (prod && (preguntaPrecio || aceptaPrecioOfrecido || ofreceOtraVez) && !yaLoDice && Number(prod.price) > 0) {
       const monto = `$${Number(prod.price).toLocaleString("es-CO")}`;
       const extra = String(prod.kind || "") === "physical" ? ", con envío incluido y pagas al recibir" : "";
-      textoFinal = `Está en ${monto}${extra}.${textoFinal ? `\n\n${textoFinal}` : ""}`;
+      if (ofreceOtraVez) {
+        // La respuesta a su duda va primero; el precio, donde estaba la oferta.
+        textoFinal = `${textoFinal.replace(OFRECE_PRECIO, "").trim()}\n\nEstá en ${monto}${extra}.`.trim();
+      } else {
+        // La pregunta que ofrecía el precio sobra: ya se está dando.
+        if (aceptaPrecioOfrecido) textoFinal = textoFinal.replace(OFRECE_PRECIO, "").trim();
+        textoFinal = `Está en ${monto}${extra}.${textoFinal ? `\n\n${textoFinal}` : ""}`;
+      }
+      registrarEnvio(estado, prod.id, "precio");
     }
   }
 
@@ -920,9 +966,13 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
         `IMPORTANTE: No pidas disculpas ni le hables de este error interno al usuario. NO puedes usar herramientas en este turno, responde solo con texto.`,
     };
     try {
+      // Reintento con razonamiento al máximo: si ya inventó una cifra una
+      // vez, reescribir bien es más importante que contestar rápido. El
+      // `effort` solo lo usa DeepSeek (el cliente lo filtra por proveedor).
       const reintento = await llm.crear({
         messages: [...messages, { role: "assistant", content: textoFinal }, aviso],
         temperature: 0.5,
+        effort: "high",
       });
       contar(reintento.uso);
       const nuevo = (reintento.content || "")
@@ -953,6 +1003,57 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
   // anterior ya incluía la pregunta de cierre, espero la respuesta del
   // cliente)." Es el modelo hablándose a sí mismo.
   textoFinal = quitarNotasInternas(textoFinal);
+
+  // ── La letra chica tampoco se inventa ────────────────────────────────────
+  //
+  // Chat del dueño (27-09-2026), "precio" del curso de piano: la maqueta puso
+  // el número correcto ($60.000, pago único) y ENCIMA el modelo escribió "el
+  // acceso te queda de por vida, con garantía de 7 días". Ninguna de las dos
+  // cosas está cargada en ese negocio.
+  //
+  // `montosInventados` cuida las cifras; esto cuida lo otro que un cliente
+  // puede reclamar después. Va acá, sobre el texto ya limpio y antes de
+  // armar las partes, para que no haya forma de esquivarlo: ni el reintento
+  // ni el modo plan pueden dejar la promesa afuera del filtro.
+  if (textoFinal) {
+    const enFoco = estado.productoEnFoco != null ? catalogo.find((p) => p.id === estado.productoEnFoco) : null;
+    const respaldo = {
+      producto: enFoco ?? null,
+      guion,
+      conocimiento: (params.conocimiento || [])
+        .filter((c) => c.productId == null || c.productId === estado.productoEnFoco)
+        .map((c) => c.respuesta),
+    };
+    const promesas = condicionesSinRespaldo(textoFinal, respaldo);
+    if (promesas.length) {
+      console.log(
+        `🛡️ [MOTOR] Prometía condiciones que nadie cargó (${promesas.map((p) => p.promesa).join(", ")}): se quita la frase`,
+      );
+      textoFinal = sinCondicionesSinRespaldo(textoFinal, respaldo);
+      // Si la promesa ERA todo el mensaje ("Sí, tienes 7 días de garantía")
+      // y no hay maqueta que lo acompañe, el cliente no puede quedarse sin
+      // respuesta: se le dice lo único honesto que hay para decir.
+      if (!textoFinal && !hayTarjetas()) {
+        // Antes: "te lo confirmo con el equipo y te escribo". Nadie recibe
+        // esa pregunta, así que la promesa no se cumplía (30-09-2026). Se dice
+        // la verdad y se sigue con lo que SÍ está en la ficha.
+        const puntos = enFoco ? puntosDeLaFicha(enFoco).slice(0, 2) : [];
+        textoFinal = puntos.length
+          ? `Eso puntual no lo tengo confirmado para prometértelo. Lo que sí te puedo asegurar: ${puntos.join("; ")}.`
+          : "Eso puntual no lo tengo confirmado para prometértelo, así que prefiero no decírtelo a medias. ¿Qué más te gustaría saber del producto?";
+      }
+    }
+  }
+
+  // ── La ficha ya trae el precio: no ofrecerlo en el texto ─────────────────
+  // Producción 26-09: "Te adjunto la información… ¿Te cuento cuánto vale?"
+  // encima de una ficha que ya decía el precio. Dos preguntas, una absurda.
+  if (ctx.partes.some((p: any) => p.kind === "card" && (p.seccion === "completa" || p.seccion === "precio"))) {
+    textoFinal = textoFinal
+      .replace(/¿[^?¿]*(cu[aá]nto (vale|est[aá]|cuesta|sale)|el precio|el valor)[^?¿]*\?\s*(\p{Extended_Pictographic}️?)?/giu, "")
+      .replace(/\n{3,}/g, "\n\n")
+      .trim();
+  }
 
   // ── El mismo emoji al final de cada mensaje ──────────────────────────────
   // Prueba en producción (25-09-2026): cinco respuestas seguidas terminadas
@@ -1008,6 +1109,19 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
   }
 
   estado.turnos += 1;
+  // La ficha completa (o de precio) de algo que se despacha sale DESPUÉS del
+  // texto y cierra con "¿Te lo enviamos?" / "¿Te tomo el pedido?" (whatsapp.ts):
+  // es lo último que el cliente ve. Chat de prueba desplegado (30-09-2026):
+  // "ok" a esa pregunta → "¿Te gustaría llevarla?", porque acá solo se guardaba
+  // la pregunta del texto del modelo.
+  const ultimaParte = partes[partes.length - 1];
+  const cierraConFichaDeEnvio = ultimaParte?.kind === "card" &&
+    /^(completa|precio)$/.test(String((ultimaParte as any).seccion || "")) &&
+    String(catalogo.find((p) => p.id === Number((ultimaParte as any).productId))?.kind || "") === "physical";
+  if (cierraConFichaDeEnvio) {
+    estado.ultimaPreguntaAgente = "¿Te lo enviamos? (así cierra la ficha que acaba de ver: un sí es tomar el pedido)";
+    estado.preguntaPendiente = estado.ultimaPreguntaAgente;
+  } else
   // FASE 2: la última pregunta del agente resuelve el próximo "sí/ese/dale".
   if (textoFinal && /\?\s*$/.test(textoFinal)) {
     estado.ultimaPreguntaAgente = textoFinal.slice(-300);

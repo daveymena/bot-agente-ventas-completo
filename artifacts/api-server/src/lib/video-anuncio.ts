@@ -21,6 +21,7 @@ import { mkdir, writeFile, rm, readFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
+import { hablarColombiano } from "./hablar-colombiano";
 import { db, products } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { logger } from "./logger";
@@ -96,7 +97,7 @@ function guionDeRespaldo(p: any, ficha: any, modelo: string): GuionDeVideo {
   const precio = `$${Number(p.price || 0).toLocaleString("es-CO")}`;
   const beneficio = String(ficha?.beneficioPrincipal || "").trim();
   const car = (Array.isArray(ficha?.caracteristicas) ? ficha.caracteristicas : (p.features || [])).map((c: string) => String(c).replace(/^[^\p{L}\p{N}]+/u, "").trim()).filter(Boolean);
-  const cta = modelo === "fisico" ? "Pedilo por WhatsApp, pagás al recibir" : "Escribinos por WhatsApp";
+  const cta = modelo === "fisico" ? "Pídelo por WhatsApp y pagas al recibir" : "Escríbenos por WhatsApp";
   return {
     precio, cta,
     escenas: [
@@ -129,13 +130,13 @@ export async function escribirGuion(tenantId: number, p: any, ficha: any, modelo
     if (r.text) {
       const j = JSON.parse(r.text.slice(r.text.indexOf("{"), r.text.lastIndexOf("}") + 1));
       const escenas: EscenaDeVideo[] = j.escenas.slice(0, 6).map((e: any) => ({
-        texto: String(e.texto || "").trim().slice(0, 70),
-        locucion: String(e.locucion || "").trim().slice(0, 220),
+        texto: hablarColombiano(String(e.texto || "").trim()).slice(0, 70),
+        locucion: hablarColombiano(String(e.locucion || "").trim()).slice(0, 220),
         visual: e.visual === "broll" ? "broll" : "producto",
         busqueda: e.busqueda ? String(e.busqueda).trim().slice(0, 60) : undefined,
         duracion: Math.min(6, Math.max(2.5, Number(e.duracion) || 3.5)),
       })).filter((e: EscenaDeVideo) => e.texto && e.locucion);
-      if (escenas.length >= 4) return { escenas, precio: String(j.precio || `$${Number(p.price || 0).toLocaleString("es-CO")}`), cta: String(j.cta || "Escribinos por WhatsApp"), autor: r.proveedor ? `${r.proveedor}/${r.modelo}` : undefined };
+      if (escenas.length >= 4) return { escenas, precio: String(j.precio || `$${Number(p.price || 0).toLocaleString("es-CO")}`), cta: hablarColombiano(String(j.cta || "Escríbenos por WhatsApp")), autor: r.proveedor ? `${r.proveedor}/${r.modelo}` : undefined };
     }
   } catch (e: any) {
     logger.warn({ err: e?.message }, "[VideoAnuncio] el guion por IA falló; se usa el de respaldo");

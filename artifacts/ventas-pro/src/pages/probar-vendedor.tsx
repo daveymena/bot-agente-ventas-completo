@@ -382,6 +382,9 @@ function DialogoCorregir(p: {
 }
 
 function PanelLoQueSabe({ sabe, alCambiar }: { sabe: LoQueSabe | null; alCambiar: () => void }) {
+  const [editInd, setEditInd] = useState<{ i: number; texto: string } | null>(null);
+  const [editDato, setEditDato] = useState<{ id: number; texto: string } | null>(null);
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
   const borrar = async (url: string) => {
     try {
       const r = await api<{ mensaje: string }>(url, { method: "DELETE" });
@@ -389,6 +392,42 @@ function PanelLoQueSabe({ sabe, alCambiar }: { sabe: LoQueSabe | null; alCambiar
       alCambiar();
     } catch (e: any) {
       toast.error(e.message);
+    }
+  };
+
+  const guardarInd = async () => {
+    if (!editInd || !editInd.texto.trim() || guardandoEdicion) return;
+    setGuardandoEdicion(true);
+    try {
+      const r = await api<{ mensaje: string }>(`/api/probar-vendedor/indicacion/${editInd.i}`, {
+        method: "PUT",
+        body: JSON.stringify({ indicacion: editInd.texto }),
+      });
+      toast.success(r.mensaje);
+      setEditInd(null);
+      alCambiar();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setGuardandoEdicion(false);
+    }
+  };
+
+  const guardarDato = async () => {
+    if (!editDato || !editDato.texto.trim() || guardandoEdicion) return;
+    setGuardandoEdicion(true);
+    try {
+      const r = await api<{ mensaje: string }>(`/api/probar-vendedor/dato/${editDato.id}`, {
+        method: "PUT",
+        body: JSON.stringify({ respuesta: editDato.texto }),
+      });
+      toast.success(r.mensaje);
+      setEditDato(null);
+      alCambiar();
+    } catch (e: any) {
+      toast.error(e.message);
+    } finally {
+      setGuardandoEdicion(false);
     }
   };
 
@@ -409,8 +448,23 @@ function PanelLoQueSabe({ sabe, alCambiar }: { sabe: LoQueSabe | null; alCambiar
           <ul className="space-y-1.5">
             {sabe.indicaciones.map((ind, i) => (
               <li key={i} className="group flex items-start gap-2 rounded-lg bg-slate-50 px-2.5 py-2 text-xs text-slate-700">
-                <span className="flex-1">{ind}</span>
-                <button onClick={() => borrar(`/api/probar-vendedor/indicacion/${i}`)} className="text-slate-400 hover:text-red-600" aria-label="Borrar"><Trash2 className="h-3.5 w-3.5" /></button>
+                {editInd?.i === i ? (
+                  <div className="flex-1">
+                    <Textarea value={editInd.texto} onChange={(e) => setEditInd({ i, texto: e.target.value })} rows={3} maxLength={500} className="text-xs" />
+                    <div className="mt-1.5 flex gap-1.5">
+                      <Button size="sm" className="h-7 text-xs" disabled={!editInd.texto.trim() || guardandoEdicion} onClick={guardarInd}>
+                        {guardandoEdicion && <Loader2 className="mr-1 h-3 w-3 animate-spin" />} Guardar
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditInd(null)}>Cancelar</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <span className="flex-1">{ind}</span>
+                    <button onClick={() => setEditInd({ i, texto: ind })} className="text-slate-400 hover:text-indigo-600" aria-label="Editar"><PencilLine className="h-3.5 w-3.5" /></button>
+                    <button onClick={() => borrar(`/api/probar-vendedor/indicacion/${i}`)} className="text-slate-400 hover:text-red-600" aria-label="Borrar"><Trash2 className="h-3.5 w-3.5" /></button>
+                  </>
+                )}
               </li>
             ))}
           </ul>
@@ -425,11 +479,27 @@ function PanelLoQueSabe({ sabe, alCambiar }: { sabe: LoQueSabe | null; alCambiar
           <ul className="space-y-1.5">
             {sabe.datos.map((d) => (
               <li key={d.id} className="flex items-start gap-2 rounded-lg bg-slate-50 px-2.5 py-2 text-xs">
-                <div className="flex-1 min-w-0">
-                  <p className="truncate text-slate-500">{d.pregunta}</p>
-                  <p className="text-slate-800">{d.respuesta || <i className="text-slate-400">sin respuesta: dirá que lo confirma</i>}</p>
-                </div>
-                <button onClick={() => borrar(`/api/probar-vendedor/dato/${d.id}`)} className="text-slate-400 hover:text-red-600" aria-label="Borrar"><Trash2 className="h-3.5 w-3.5" /></button>
+                {editDato?.id === d.id ? (
+                  <div className="flex-1">
+                    <p className="truncate text-slate-500">{d.pregunta}</p>
+                    <Textarea value={editDato.texto} onChange={(e) => setEditDato({ id: d.id, texto: e.target.value })} rows={3} maxLength={500} className="mt-1 text-xs" />
+                    <div className="mt-1.5 flex gap-1.5">
+                      <Button size="sm" className="h-7 text-xs" disabled={!editDato.texto.trim() || guardandoEdicion} onClick={guardarDato}>
+                        {guardandoEdicion && <Loader2 className="mr-1 h-3 w-3 animate-spin" />} Guardar
+                      </Button>
+                      <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setEditDato(null)}>Cancelar</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex-1 min-w-0">
+                      <p className="truncate text-slate-500">{d.pregunta}</p>
+                      <p className="text-slate-800">{d.respuesta || <i className="text-slate-400">sin respuesta: dirá que lo confirma</i>}</p>
+                    </div>
+                    <button onClick={() => setEditDato({ id: d.id, texto: d.respuesta || "" })} className="text-slate-400 hover:text-indigo-600" aria-label="Editar"><PencilLine className="h-3.5 w-3.5" /></button>
+                    <button onClick={() => borrar(`/api/probar-vendedor/dato/${d.id}`)} className="text-slate-400 hover:text-red-600" aria-label="Borrar"><Trash2 className="h-3.5 w-3.5" /></button>
+                  </>
+                )}
               </li>
             ))}
           </ul>

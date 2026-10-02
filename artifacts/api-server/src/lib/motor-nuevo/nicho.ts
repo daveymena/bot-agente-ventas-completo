@@ -65,11 +65,15 @@ export interface NegocioParaNicho {
   noPuede?: string[] | null;
   loQueDebeSaber?: string[] | null;
   modoCatalogo?: "digital" | "fisico" | "mixto" | null;
+  /**
+   * Las condiciones del negocio (`CondicionesDelNegocio` de
+   * modelo-de-negocio.ts): la MISMA fuente con la que la ficha le imprime al
+   * cliente "Llega en 3 a 5 días hábiles · Pagas contraentrega". Antes acá se
+   * esperaban `pagoEnvio`/`costoEnvio`, que no existen: llegaban vacíos.
+   */
   condiciones?: {
     pais?: string | null;
-    envio?: { plazo?: string | null; cobertura?: string | null } | null;
-    costoEnvio?: string | null;
-    pagoEnvio?: string | null;
+    envio?: { plazo?: string | null; cobertura?: string | null; pago?: string | null; costo?: string | null } | null;
     agenda?: string | null;
   } | null;
   negociaPrecio?: boolean;
@@ -317,6 +321,31 @@ export function vocabularioDe(forma: FormaDeVenta): Vocabulario {
  * dueño y el agente inventaba con total seguridad).
  * ──────────────────────────────────────────────────────────────────────────── */
 
+/**
+ * El despacho de lo físico, en frases listas para el guion, o null si no
+ * aplica (nada se despacha, o el negocio no tiene condiciones). Las frases
+ * son las mismas de la ficha (`fraseCostoEnvio`/`frasePagoEnvio`).
+ */
+function despachoDe(
+  negocio: NegocioParaNicho,
+  forma: FormaDeVenta,
+): { plazo: string; cobertura: string | null; costo: string; pago: string } | null {
+  if (forma !== "fisico" && forma !== "mixto") return null;
+  const envio = negocio.condiciones?.envio;
+  const plazo = String(envio?.plazo || "").trim();
+  if (!envio || !plazo) return null;
+  const costo = String(envio.costo || "").trim();
+  const pago = String(envio.pago || "").trim();
+  return {
+    plazo,
+    cobertura: String(envio.cobertura || "").trim() || null,
+    costo: !costo || costo === "incluido" ? "Envío incluido en el precio" : `Envío: ${costo}`,
+    pago: pago === "anticipado" ? "Se paga antes del despacho"
+      : pago === "ambos" ? "Puede pagar antes o contraentrega, como prefiera"
+        : "Paga contraentrega, cuando lo recibe",
+  };
+}
+
 export function hechosYProhibiciones(
   negocio: NegocioParaNicho,
   forma: FormaDeVenta,
@@ -326,9 +355,17 @@ export function hechosYProhibiciones(
   const sinConfirmar: string[] = [];
   const prohibiciones: string[] = [...(negocio.noPuede || [])];
 
+  // Cómo se despacha lo físico. Son los mismos datos que la ficha le imprime
+  // al cliente (whatsapp.ts, "🚚 Envío y pago"): si el vendedor no los tiene,
+  // termina diciendo "déjame confirmarlo" sobre algo que él mismo mandó
+  // (chat de prueba, 30-09-2026, "¿cuánto demora a Pasto?"). Solo aplican a
+  // lo que se despacha: un catálogo de cursos no habla de contraentrega.
+  const despacho = despachoDe(negocio, forma);
+
   if (negocio.nicho) hechos.push(`Rubro: ${negocio.nicho}`);
   if (negocio.descripcion) hechos.push(`Qué hace el negocio: ${negocio.descripcion}`);
   if (negocio.cobertura) hechos.push(`A dónde llega: ${negocio.cobertura}`);
+  else if (despacho?.cobertura) hechos.push(`A dónde llega lo que se despacha: ${despacho.cobertura}`);
   else sinConfirmar.push("a qué ciudades o zonas llega");
   if (negocio.horario) hechos.push(`Horario de atención: ${negocio.horario}`);
   else sinConfirmar.push("el horario de atención");
@@ -343,10 +380,32 @@ export function hechosYProhibiciones(
     prohibiciones.push(
       `No prometas otra forma de entrega que no sea "${negocio.entrega.metodo}" ni un plazo distinto de "${negocio.entrega.plazo}".`,
     );
+  } else if (despacho) {
+    const cuales = forma === "mixto" ? " (productos físicos)" : "";
+    hechos.push(
+      `Lo que se despacha${cuales}: ${despacho.costo}. Llega en ${despacho.plazo}. ${despacho.pago}. ` +
+        `Es lo mismo que dice la ficha que ya vio el cliente: respóndelo con seguridad.`,
+    );
+    prohibiciones.push(
+      `No prometas un plazo distinto de "${despacho.plazo}" ni otra forma de pagar el envío.`,
+    );
+  } else if (forma === "digital" || forma === "mixto") {
+    // Lo digital SÍ tiene entrega conocida aunque el dueño no la escriba: así
+    // funciona el sistema (verificacion-pago.ts). Pago verificado → el acceso
+    // sale en este mismo chat (y por correo si lo dejó). Sin esto el vendedor
+    // contestaba "lo consulto" a "¿cómo me llega el curso?" (30-09-2026).
+    hechos.push(
+      `Entrega de lo digital: el acceso se envía por este mismo chat de WhatsApp apenas el pago queda verificado ` +
+        `(y también al correo, si el cliente lo da). No hay envío físico.${forma === "mixto" ? " Lo físico: cómo y cuándo se despacha no está cargado." : ""}`,
+    );
+    prohibiciones.push(
+      "No prometas minutos exactos para la entrega del acceso: depende de que el pago quede verificado.",
+    );
+    if (forma === "mixto") sinConfirmar.push("cómo y cuánto tarda el despacho de lo físico");
   } else {
     sinConfirmar.push("cómo se entrega y cuánto tarda");
     prohibiciones.push(
-      "No prometas ninguna forma de entrega ni ningún plazo: el negocio no lo cargó. Si te preguntan, di que lo confirmas.",
+      "No prometas ninguna forma de entrega ni ningún plazo: el negocio no lo cargó. Si te preguntan, di con honestidad que ese dato no lo tienes publicado y sigue ayudando; no prometas escribirle después.",
     );
   }
 
@@ -356,7 +415,7 @@ export function hechosYProhibiciones(
   } else {
     sinConfirmar.push("si hay garantía o devolución");
     prohibiciones.push(
-      "No prometas garantía, devolución ni cambios: no hay ninguna cargada. Si pregunta, di que lo confirmas.",
+      "No prometas garantía, devolución ni cambios: no hay ninguna cargada. Si pregunta, di con honestidad que no hay una garantía publicada para este producto, sin prometer que alguien le escribe, y sigue con lo que sí incluye.",
     );
   }
 

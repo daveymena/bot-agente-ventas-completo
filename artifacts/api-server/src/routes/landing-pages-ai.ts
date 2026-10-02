@@ -18,7 +18,7 @@ import {
   type Casilla,
   type Plantilla,
 } from "../lib/landing/plantillas";
-import { elegirFamilia } from "../lib/landing/design-system";
+import { elegirFamilia, esFamilia } from "../lib/landing/design-system";
 import {
   getOrCreateLanding,
 } from "../lib/landingforge-client";
@@ -204,6 +204,8 @@ function normalizeStrategy(strategy: any, product: any, sourceAd: any) {
 export async function generarLandingLocal(opts: {
   tenantId: number; product: any; brandName?: string | null; plantillaId?: string | null;
   sourceAd?: any; language?: string; country?: string; objective?: string; contexto?: string;
+  /** Familia elegida por el admin: manda sobre la sugerida. */
+  familia?: string | null;
 }) {
   const { tenantId, product } = opts;
   const productId = Number(product.id);
@@ -300,7 +302,7 @@ Escribe en ${language} para ${country}.${bloquePublico}${opts.contexto ? `\n\n${
       categoria: (product as any)?.category, nombre: product.name, descripcion: product.description,
       tipo: product.kind, precio: Number(product.price),
     });
-    const design: any = { ...(result?.design || { tone: "direct-response premium", primary: "#111827", background: "#ffffff", radius: "14px" }), familia: (result?.design as any)?.familia || sugerida.familia };
+    const design: any = { ...(result?.design || { tone: "direct-response premium", primary: "#111827", background: "#ffffff", radius: "14px" }), familia: (opts.familia && esFamilia(opts.familia) ? opts.familia : null) || (result?.design as any)?.familia || sugerida.familia };
     // Para quién es el producto manda sobre el color (unisex → neutros,
     // mujer → femeninos, hombre → masculinos, niños → infantiles). Ya se
     // calculó arriba (paletaPublico) para el copy; acá solo se aplica.

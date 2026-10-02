@@ -14,6 +14,7 @@ import { HelpTourButton } from "@/components/HelpTourButton";
 import { useAutoTour } from "@/hooks/use-auto-tour";
 import { getHelpGuide } from "@/data/help-guides";
 import { describeError } from "@/lib/utils";
+import { urlLoginFacebook } from "@/lib/facebook-login";
 
 const HELP_GUIDE = getHelpGuide("facebook")!;
 
@@ -144,6 +145,18 @@ export default function FacebookAdsPage() {
   const [audience, setAudience] = useState<FbAudience | null>(null);
   const [budget, setBudget] = useState(5000);
   const [city, setCity] = useState("");
+  // Segmentación detallada (se resuelve contra Meta en el servidor; el anuncio queda PAUSED).
+  const [ageMin, setAgeMin] = useState(18);
+  const [ageMax, setAgeMax] = useState(65);
+  const [genero, setGenero] = useState<"todos" | "hombres" | "mujeres">("todos");
+  const [intereses, setIntereses] = useState("");
+  const [audienciasPropias, setAudienciasPropias] = useState("");
+  const [audienciasExcluidas, setAudienciasExcluidas] = useState("");
+  const [advantagePlus, setAdvantagePlus] = useState(true);
+  const [ubicacionesManuales, setUbicacionesManuales] = useState(false);
+  const [enFacebook, setEnFacebook] = useState(true);
+  const [enInstagram, setEnInstagram] = useState(true);
+  const [enMessenger, setEnMessenger] = useState(false);
   const [creating, setCreating] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -289,24 +302,10 @@ export default function FacebookAdsPage() {
   // FB_LOGIN_CONFIG_ID configurado. response_type=code (no `token`): el
   // código de un solo uso se canjea del lado del servidor, así el access
   // token real nunca pasa por la URL del navegador.
+  // Permisos y config_id en lib/facebook-login.ts (los comparte Integraciones).
   const startFacebookLogin = () => {
-    if (!fbAppConfig.appId) return;
-    const redirectUri = window.location.origin + window.location.pathname;
-    const configId = (fbAppConfig as any).loginConfigId;
-    const base = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(fbAppConfig.appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code`;
-    if (configId) {
-      window.open(`${base}&config_id=${encodeURIComponent(configId)}`, "_blank", "noopener,noreferrer");
-      return;
-    }
-    const scope = [
-      "pages_show_list", "pages_read_engagement", "pages_manage_posts",
-      "pages_manage_metadata", "pages_messaging", "ads_management", "catalog_management",
-      // Campañas de formulario (25-09-2026): crear el formulario y leer los
-      // leads. Con config_id (arriba) estos permisos van en la configuración
-      // de "Inicio de sesión para empresas" de la app en Meta, no acá.
-      "leads_retrieval", "pages_manage_ads",
-    ].join(",");
-    window.open(`${base}&scope=${encodeURIComponent(scope)}`, "_blank", "noopener,noreferrer");
+    const url = urlLoginFacebook(fbAppConfig, window.location.origin + window.location.pathname);
+    if (url) window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const loadData = async () => {
@@ -376,6 +375,12 @@ export default function FacebookAdsPage() {
       setResult(null);
       const res = await apiRequest(`/facebook/suggest-audience/${product.id}`);
       setAudience(res);
+      // La sugerencia llena los campos: el admin la ve y la ajusta antes de crear.
+      if (res?.targeting) {
+        if (res.targeting.ageMin) setAgeMin(res.targeting.ageMin);
+        if (res.targeting.ageMax) setAgeMax(res.targeting.ageMax);
+        if (Array.isArray(res.targeting.interests) && res.targeting.interests.length) setIntereses(res.targeting.interests.map((i: any) => i.name).join(", "));
+      }
     } catch (e: any) {
       toast({ title: "Error", description: describeError(e, "No se pudo sugerir una audiencia para este producto."), variant: "destructive" });
     }
@@ -386,9 +391,31 @@ export default function FacebookAdsPage() {
     try {
       setCreating(true);
       setResult(null);
+      const lista = (t: string) => t.split(",").map((x) => x.trim()).filter(Boolean);
+      const edad = (n: number) => Math.min(65, Math.max(18, Math.round(Number(n) || 18)));
+      const min = edad(ageMin);
+      const max = Math.max(min, edad(ageMax));
       const targeting: any = {};
-      if (city) targeting.geoLocations = { cities: [city.trim()], countries: ["CO"] };
-      if (audience) { targeting.ageMin = audience.targeting.ageMin; targeting.ageMax = audience.targeting.ageMax; }
+      const ciudades = lista(city);
+      if (ciudades.length) targeting.geoLocations = { cities: ciudades, countries: ["CO"] };
+      if (min !== 18) targeting.ageMin = min;
+      if (max !== 65) targeting.ageMax = max;
+      if (genero !== "todos") targeting.genders = genero === "hombres" ? [1] : [2];
+      // Los intereses viajan como nombre; el servidor los resuelve contra la taxonomía de Meta.
+      const nombresIntereses = lista(intereses);
+      if (nombresIntereses.length) targeting.interests = nombresIntereses.map((name) => ({ id: "", name }));
+      const propias = lista(audienciasPropias);
+      if (propias.length) targeting.customAudiences = propias;
+      const excluidas = lista(audienciasExcluidas);
+      if (excluidas.length) targeting.excludedCustomAudiences = excluidas;
+      targeting.advantagePlus = advantagePlus;
+      if (ubicacionesManuales) {
+        const placements: Record<string, string[]> = {};
+        if (enFacebook) placements.facebook = ["feed", "story", "marketplace"];
+        if (enInstagram) placements.instagram = ["stream", "story", "reels"];
+        if (enMessenger) placements.messenger = ["messenger_home"];
+        if (Object.keys(placements).length) targeting.placements = placements;
+      }
       const res = await apiRequest(`/facebook/create-ad/${selectedProduct.id}`, {
         method: "POST",
         body: JSON.stringify({ budget, targeting }),
@@ -733,6 +760,12 @@ export default function FacebookAdsPage() {
                   </CardContent>
                 </Card>
 
+                {connected && (
+                  <CuentaPublicitariaSelector
+                    onCambio={(id) => setConfig((c) => ({ ...c, adAccountId: id }))}
+                  />
+                )}
+
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2"><Settings2 className="h-5 w-5" /> Credenciales de Facebook (manual / avanzado)</CardTitle>
@@ -864,8 +897,32 @@ export default function FacebookAdsPage() {
                       <CardContent className="space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div><Label>Presupuesto diario (COP)</Label><Input type="number" value={budget} onChange={e => setBudget(Number(e.target.value))} min={1000} /></div>
-                          <div><Label>Ciudad objetivo</Label><Input value={city} onChange={e => setCity(e.target.value)} placeholder="Ej: Bogotá, Medellín" /></div>
+                          <div><Label>Ciudades (separadas por coma)</Label><Input value={city} onChange={e => setCity(e.target.value)} placeholder="Ej: Bogotá, Medellín" /></div>
+                          <div className="grid grid-cols-3 gap-2">
+                            <div><Label>Edad mín.</Label><Input type="number" min={18} max={65} value={ageMin} onChange={e => setAgeMin(Number(e.target.value))} /></div>
+                            <div><Label>Edad máx.</Label><Input type="number" min={18} max={65} value={ageMax} onChange={e => setAgeMax(Number(e.target.value))} /></div>
+                            <div><Label>Género</Label>
+                              <select className="h-10 w-full rounded-md border bg-background px-2 text-sm" value={genero} onChange={e => setGenero(e.target.value as any)}>
+                                <option value="todos">Todos</option><option value="hombres">Hombres</option><option value="mujeres">Mujeres</option>
+                              </select>
+                            </div>
+                          </div>
+                          <div><Label>Intereses (separados por coma)</Label><Input value={intereses} onChange={e => setIntereses(e.target.value)} placeholder="Ej: Fitness, Salud y bienestar" /></div>
+                          <div><Label>Audiencias propias (IDs, coma)</Label><Input value={audienciasPropias} onChange={e => setAudienciasPropias(e.target.value)} placeholder="Ej: 238475612345" /></div>
+                          <div className="md:col-span-2"><Label>Audiencias excluidas (IDs, coma)</Label><Input value={audienciasExcluidas} onChange={e => setAudienciasExcluidas(e.target.value)} placeholder="Ej: compradores de los últimos 30 días" /></div>
                         </div>
+                        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+                          <label className="flex items-center gap-2"><input type="checkbox" checked={advantagePlus} onChange={e => setAdvantagePlus(e.target.checked)} /> Advantage+ Audience (Meta amplía el público)</label>
+                          <label className="flex items-center gap-2"><input type="checkbox" checked={ubicacionesManuales} onChange={e => setUbicacionesManuales(e.target.checked)} /> Elegir ubicaciones a mano</label>
+                          {ubicacionesManuales ? (
+                            <>
+                              <label className="flex items-center gap-1"><input type="checkbox" checked={enFacebook} onChange={e => setEnFacebook(e.target.checked)} /> Facebook</label>
+                              <label className="flex items-center gap-1"><input type="checkbox" checked={enInstagram} onChange={e => setEnInstagram(e.target.checked)} /> Instagram</label>
+                              <label className="flex items-center gap-1"><input type="checkbox" checked={enMessenger} onChange={e => setEnMessenger(e.target.checked)} /> Messenger</label>
+                            </>
+                          ) : <span className="text-muted-foreground">Sin elegir, Meta reparte en todas (Advantage+ Placements).</span>}
+                        </div>
+                        <p className="text-xs text-muted-foreground">El anuncio se crea <b>PAUSADO</b>: esta pantalla prepara la campaña y no inicia ningún gasto. Los intereses se validan contra Meta; si alguno no existe, se avisa y no se crea nada.</p>
                         <Button onClick={createAd} disabled={creating} className="w-full">
                           {creating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Megaphone className="mr-2 h-4 w-4" />}
                           {creating ? "Creando..." : `Crear anuncio para ${selectedProduct.name}`}
@@ -1447,5 +1504,116 @@ export default function FacebookAdsPage() {
         </Dialog>
       </div>
     </Layout>
+  );
+}
+
+interface CuentaPub {
+  id: string;
+  nombre: string;
+  moneda: string;
+  activa: boolean;
+  enUso: boolean;
+  empresa?: { id: string; nombre: string } | null;
+}
+
+/**
+ * Elegir la cuenta publicitaria de ESTE negocio entre las que ve su conexión
+ * de Meta (propias + Business Manager), con moneda y estado.
+ *
+ * Caso real 30-09-2026: la app quedó en una cuenta USD, el candado de
+ * cuenta bloqueó la subida (solo se publica en COP), y el panel
+ * solo tenía un campo de texto escondido en "manual / avanzado" que además no
+ * actualizaba la cuenta autorizada. Esto lista y guarda de verdad.
+ */
+function CuentaPublicitariaSelector({ onCambio }: { onCambio: (id: string) => void }) {
+  const { toast } = useToast();
+  const [cuentas, setCuentas] = useState<CuentaPub[]>([]);
+  const [avisos, setAvisos] = useState<string[]>([]);
+  const [error, setError] = useState("");
+  const [cargando, setCargando] = useState(true);
+  const [elegida, setElegida] = useState("");
+  const [guardando, setGuardando] = useState(false);
+
+  const cargar = async () => {
+    setCargando(true);
+    try {
+      const j = await apiRequest("/facebook/adaccounts");
+      const lista: CuentaPub[] = j.cuentas || [];
+      setCuentas(lista);
+      setAvisos(j.avisos || []);
+      setError(j.error || "");
+      setElegida(lista.find((c) => c.enUso)?.id || "");
+    } catch (e: any) {
+      setError(e?.message || "No se pudieron leer las cuentas");
+    } finally {
+      setCargando(false);
+    }
+  };
+  useEffect(() => { cargar(); }, []);
+
+  const enUso = cuentas.find((c) => c.enUso);
+  const guardar = async () => {
+    if (!elegida || elegida === enUso?.id) return;
+    setGuardando(true);
+    try {
+      const r = await apiRequest("/facebook/adaccounts/activa", { method: "POST", body: JSON.stringify({ adAccountId: elegida }) });
+      toast({ title: "Cuenta publicitaria cambiada", description: r.message });
+      onCambio(elegida);
+      await cargar();
+    } catch (e: any) {
+      toast({ title: "No se pudo cambiar la cuenta", description: describeError(e, "No se pudo cambiar la cuenta publicitaria."), variant: "destructive" });
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><BarChart3 className="h-5 w-5" /> Cuenta publicitaria</CardTitle>
+        <CardDescription>
+          Dónde se crean tus anuncios. Solo se publica en una cuenta en pesos colombianos (COP).
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {cargando ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Consultando a Meta…</div>
+        ) : error ? (
+          <Alert variant="destructive"><XCircle className="h-4 w-4" /><AlertDescription className="break-words">No se pudieron leer tus cuentas: {error}</AlertDescription></Alert>
+        ) : cuentas.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Tu conexión de Facebook no ve ninguna cuenta publicitaria. Reconectá y, en la pantalla de Meta, tildá la cuenta que querés usar.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <Select value={elegida} onValueChange={setElegida}>
+              <SelectTrigger className="w-full sm:w-[420px]"><SelectValue placeholder="Elegí una cuenta" /></SelectTrigger>
+              <SelectContent>
+                {cuentas.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.nombre} · {c.moneda || "?"} · {c.id}{c.activa ? "" : " · no activa"}{c.enUso ? " · en uso" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button onClick={guardar} disabled={guardando || !elegida || elegida === enUso?.id} className="w-full sm:w-auto">
+              {guardando && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Usar esta cuenta
+            </Button>
+          </div>
+        )}
+        {enUso && enUso.moneda !== "COP" && (
+          <Alert variant="destructive">
+            <XCircle className="h-4 w-4" />
+            <AlertDescription>
+              La cuenta en uso está en {enUso.moneda || "otra moneda"}: los anuncios no se van a subir.
+              {cuentas.some((c) => c.moneda === "COP") ? " Elegí una cuenta en COP de la lista." : " No hay ninguna cuenta en COP visible: reconectá Facebook y tildá tu cuenta en COP."}
+            </AlertDescription>
+          </Alert>
+        )}
+        {avisos.length > 0 && (
+          <p className="text-xs text-muted-foreground break-words">{avisos.join(" ")}</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

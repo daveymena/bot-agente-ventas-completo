@@ -101,3 +101,46 @@ export function departamentoDeCiudad(ciudad: string): string | null {
     .replace(new RegExp('[\\u0300-\\u036f]', 'g'), '');
   return CIUDAD_A_DEPARTAMENTO[limpia] || null;
 }
+
+/**
+ * Ciudades principales por departamento, para el selector del checkout.
+ * No es la lista completa de Colombia (son ~1.100 municipios): son las
+ * ciudades donde realmente llegan las transportadoras de Dropi. Si el
+ * cliente está en un municipio pequeño, escribe el nombre y el campo lo
+ * acepta igual (el input tiene `list` = datalist con estas opciones).
+ */
+export const CIUDADES_POR_DEPARTAMENTO: Record<string, string[]> = {
+  'Amazonas': ['Leticia', 'Puerto Nariño'],
+  'Antioquia': ['Medellín', 'Bello', 'Itagüí', 'Envigado', 'Apartadó', 'Turbo', 'Poblado'],
+  'Arauca': ['Arauca', 'Tame'],
+  'Atlántico': ['Barranquilla', 'Soledad', 'Sabanalarga', 'Puerto Colombia'],
+  'Bogotá D.C.': ['Bogotá D.C.', 'Usaquén', 'Chapinero', 'Kennedy'],
+  'Bolívar': ['Cartagena', 'Barranquilla', 'Magangué', 'Turbaco'],
+  'Boyacá': ['Tunja', 'Duitama', 'Sogamoso', 'Chiquinquirá'],
+  'Caldas': ['Manizales', 'Villamaría', 'La Dorada'],
+  'Caquetá': ['Florencia', 'San Vicente del Caguán'],
+  'Casanare': ['Yopal', 'Aguazul'],
+  'Cauca': ['Popayán', 'Santander de Quilichao'],
+  'Cesar': ['Valledupar', 'Bosconia'],
+  'Chocó': ['Quibdó', 'Istmina'],
+  'Córdoba': ['Montería', 'Cereté', 'Sahagún'],
+  'Cundinamarca': ['Soacha', 'Zipaquirá', 'Facatativá', 'Fusagasugá', 'Chía', 'Cajicá', 'Villapinzón'],
+  'Guainía': ['Inírida'],
+  'Guaviare': ['San José del Guaviare'],
+  'Huila': ['Neiva', 'Pitalito', 'Garzón'],
+  'La Guajira': ['Riohacha', 'Maicao', 'Uribia'],
+  'Magdalena': ['Santa Marta', 'Ciénaga', 'Fundación'],
+  'Meta': ['Villavicencio', 'Acacías', 'Granada'],
+  'Nariño': ['Pasto', 'Tumaco', 'Ipiales'],
+  'Norte de Santander': ['Cúcuta', 'Ocaña', 'Pamplona'],
+  'Putumayo': ['Mocoa', 'Puerto Asís'],
+  'Quindío': ['Armenia', 'Calarcá', 'Montenegro'],
+  'Risaralda': ['Pereira', 'Dosquebradas', 'La Virginia'],
+  'San Andrés y Providencia': ['San Andrés'],
+  'Santander': ['Bucaramanga', 'Floridablanca', 'Girón', 'Barrancabermeja'],
+  'Sucre': ['Sincelejo', 'Corozal'],
+  'Tolima': ['Ibagué', 'Melgar', 'Espinal'],
+  'Valle del Cauca': ['Cali', 'Palmira', 'Buenaventura', 'Tuluá', 'Buga', 'Jamundí'],
+  'Vaupés': ['Mitú'],
+  'Vichada': ['Puerto Carreño'],
+};

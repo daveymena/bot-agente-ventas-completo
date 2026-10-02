@@ -225,6 +225,15 @@ const MIGRATIONS = [
   `ALTER TABLE dropshipping_orders ADD COLUMN IF NOT EXISTS dropi_estado TEXT`,
   `ALTER TABLE dropshipping_orders ADD COLUMN IF NOT EXISTS dropi_order_id TEXT`,
   `ALTER TABLE dropshipping_orders ADD COLUMN IF NOT EXISTS dropi_error TEXT`,
+  // Variante elegida (talla/color) y transportadora elegida por el cliente.
+  // La variante como TEXTO no alcanza: Dropi identifica la variación por su
+  // `variation_id`, y sin ese id se le pide al proveedor una prenda
+  // cualquiera. La transportadora es una elección del cliente, no un dato que
+  // rellene el sistema (dueño, 25-09-2026).
+  `ALTER TABLE dropshipping_orders ADD COLUMN IF NOT EXISTS variante TEXT`,
+  `ALTER TABLE dropshipping_orders ADD COLUMN IF NOT EXISTS dropi_variation_id INTEGER`,
+  `ALTER TABLE dropshipping_orders ADD COLUMN IF NOT EXISTS transportadora TEXT`,
+  `ALTER TABLE dropshipping_orders ADD COLUMN IF NOT EXISTS transportadora_id INTEGER`,
   `CREATE INDEX IF NOT EXISTS dropshipping_orders_estado_idx ON dropshipping_orders (tenant_id, estado)`,
   `CREATE TABLE IF NOT EXISTS remarketing_campaigns (
     id SERIAL PRIMARY KEY,

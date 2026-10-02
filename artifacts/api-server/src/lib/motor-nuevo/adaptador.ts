@@ -42,6 +42,7 @@ import { crearRepositorioDrizzle, type EstadoConversacion, type RepositorioEstad
 import type { ItemDeConocimiento, Producto, ServicioDePedidos } from "./herramientas";
 import { guionDelNegocio, type GuionDelNegocio, type NegocioParaNicho } from "./nicho";
 import { crearClienteLLM, armarCadena, type ClienteLLM } from "./cliente-llm";
+import { laSeccionMuestraContenido, resumenDeLaFicha } from "./lo-que-dice-la-ficha";
 import { responder, type Mensaje, type VozDelNegocio } from "./motor";
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -68,12 +69,65 @@ export async function cargarCatalogoDelNegocio(tenantId: number): Promise<Produc
       videoUrl = null;
     }
 
+    let meta: any = null;
+    try {
+      meta = typeof p.metadata === "string" ? JSON.parse(p.metadata) : p.metadata;
+    } catch {
+      meta = null;
+    }
+
+    // Todas las fotos reales (la principal primero): "más fotos" manda las
+    // que faltan sin repetir. Salen de la metadata que deja la importación
+    // (Dropi trae hasta 20); sin esto el vendedor solo conoce la principal.
+    let fotos: string[] | null = null;
+    try {
+      const crudas = meta?.imageUrls || meta?.imagenes || [];
+      const lista = [p.imageUrl, ...(Array.isArray(crudas) ? crudas : [])]
+        .map((u: any) => String(u || "").trim())
+        .filter(Boolean);
+      fotos = [...new Set(lista)];
+      if (!fotos.length) fotos = null;
+    } catch {
+      fotos = p.imageUrl ? [String(p.imageUrl)] : null;
+    }
+
+    // Características y preguntas frecuentes: con esto las dudas se
+    // responden RAZONANDO (datosParaRazonar), sin lanzar la maqueta.
+    let caracteristicas: string[] | null = null;
+    try {
+      const f = Array.isArray(p.features) ? p.features : p.features ? JSON.parse(String(p.features)) : null;
+      if (Array.isArray(f)) {
+        const l = f.map((x: any) => String(x || "").trim()).filter(Boolean);
+        caracteristicas = l.length ? l : null;
+      }
+    } catch {
+      caracteristicas = null;
+    }
+    let preguntas: Array<{ p: string; r: string }> | null = null;
+    try {
+      const faq = meta?.curado?.preguntasFrecuentes;
+      if (Array.isArray(faq)) {
+        const l = faq
+          .filter((x: any) => x?.p && x?.r)
+          .map((x: any) => ({ p: String(x.p).slice(0, 160), r: String(x.r).slice(0, 300) }));
+        preguntas = l.length ? l : null;
+      }
+    } catch {
+      preguntas = null;
+    }
+
     let opciones: string[] | null = null;
     try {
       const crudas = Array.isArray(p.opciones) ? p.opciones : p.opciones ? JSON.parse(String(p.opciones)) : null;
       if (Array.isArray(crudas)) {
+        // {nombre:"Talla", valores:["S","M"]} → "S", "M". Antes quedaba solo
+        // "Talla" y el vendedor no tenía contra qué preguntar ni validar.
         opciones = crudas
-          .map((o: any) => String(o?.nombre || o?.name || o?.valor || o?.value || o || "").trim())
+          .flatMap((o: any) =>
+            Array.isArray(o?.valores) && o.valores.length
+              ? o.valores.map((v: any) => String(v).trim())
+              : [String(o?.nombre || o?.name || o?.valor || o?.value || o || "").trim()],
+          )
           .filter(Boolean);
       }
     } catch {
@@ -81,7 +135,16 @@ export async function cargarCatalogoDelNegocio(tenantId: number): Promise<Produc
     }
 
     const precio = p.price != null && Number.isFinite(Number(p.price)) ? Number(p.price) : null;
-    const stock = p.stock != null && Number.isFinite(Number(p.stock)) ? Number(p.stock) : null;
+    // Los productos de Dropi guardan el stock en metadata.dropiStock (la
+    // importación no llena la columna): sin esto el vendedor creía que NINGÚN
+    // producto de Dropi tenía inventario y contestaba "reviso existencias y
+    // te confirmo" a todo (30-09-2026).
+    const stockCrudo = p.stock != null ? p.stock : meta?.dropiStock;
+    const stock = stockCrudo != null && stockCrudo !== "" && Number.isFinite(Number(stockCrudo)) ? Number(stockCrudo) : null;
+    // La garantía cargada en el producto (editor de producto) es un hecho que
+    // el vendedor puede decir, y el candado de letra chica la acepta.
+    const garantiaProducto = String(meta?.garantia || "").trim();
+    if (garantiaProducto) caracteristicas = [...(caracteristicas || []), `Garantía: ${garantiaProducto}`];
 
     return {
       id: p.id,
@@ -95,6 +158,9 @@ export async function cargarCatalogoDelNegocio(tenantId: number): Promise<Produc
       videoUrl,
       disponible: true,
       stock,
+      fotos,
+      caracteristicas,
+      preguntas,
     };
   });
 }
@@ -118,15 +184,13 @@ export async function cargarMediosDePago(tenantId: number): Promise<{ etiqueta: 
 export async function cargarGuion(tenantId: number, catalogo: Producto[], productoEnFoco?: number | null): Promise<GuionDelNegocio> {
   const ctx = await getBusinessContext(tenantId);
   const medios = await cargarMediosDePago(tenantId);
-  // FASE 4 contraentrega: vive en condiciones.pagoEnvio, no en PaymentGateway.
-  // Si el dueño la configuró, es un medio real y el cierre puede ofrecerlo.
-  try {
-    const pagoEnvio = String((ctx.condiciones as any)?.pagoEnvio || "");
-    if (/contra\s*entrega/i.test(pagoEnvio) && !medios.some((m) => /contra/i.test(m.etiqueta))) {
-      medios.push({ etiqueta: "Contraentrega", tipo: "transferencia" });
-    }
-  } catch {
-    /* no crítico */
+  // Contraentrega: vive en condiciones.envio.pago, no en PaymentGateway. Es
+  // un medio real para lo que se despacha y el cierre puede ofrecerlo. (Antes
+  // se leía `condiciones.pagoEnvio`, un campo que no existe: nunca entraba.)
+  const pagoDelEnvio = String(ctx.condiciones?.envio?.pago || "");
+  const hayDespachables = catalogo.some((p) => /^(physical|fisico|dropshipping)$/i.test(String((p as any).kind || "")));
+  if (hayDespachables && /contraentrega|ambos/.test(pagoDelEnvio) && !medios.some((m) => /contra/i.test(m.etiqueta))) {
+    medios.push({ etiqueta: "Contraentrega (productos físicos)", tipo: "transferencia" });
   }
 
   const negocio: NegocioParaNicho = {
@@ -144,13 +208,7 @@ export async function cargarGuion(tenantId: number, catalogo: Producto[], produc
     loQueDebeSaber: ctx.loQueDebeSaber,
     modoCatalogo: ctx.modoCatalogo,
     condiciones: ctx.condiciones
-      ? {
-          pais: (ctx.condiciones as any).pais ?? null,
-          envio: (ctx.condiciones as any).envio ?? null,
-          costoEnvio: (ctx.condiciones as any).costoEnvio ?? null,
-          pagoEnvio: (ctx.condiciones as any).pagoEnvio ?? null,
-          agenda: (ctx.condiciones as any).agenda ?? null,
-        }
+      ? { pais: ctx.condiciones.pais ?? null, envio: ctx.condiciones.envio ?? null, agenda: ctx.condiciones.agenda ?? null }
       : null,
     negociaPrecio: ctx.negociaPrecio,
   };
@@ -402,7 +460,7 @@ export function servicioDePedidos(p: {
   };
   const cond = p.condiciones;
   return {
-    async tomar({ producto, cantidad, datos }) {
+    async tomar({ producto, cantidad, datos, variante, transportadora }) {
       try {
         const ds = await import("../dropshipping");
         let pedido = await ds.pedidoEnCurso(p.conversationId);
@@ -430,6 +488,34 @@ export function servicioDePedidos(p: {
         // Un dato corregido después del resumen vuelve a pedir confirmación.
         if (pedido.estado === "por_confirmar" && Object.keys(datos).length) await ds.marcarEstado(pedido.id, "completo");
         pedido = (await ds.guardarDatos(pedido.id, nuevos)) || pedido;
+        // La variante y la transportadora van aparte: no son datos de envío
+        // (ver guardarVarianteDelPedido en dropshipping.ts).
+        if (variante) {
+          await ds.guardarVarianteDelPedido(pedido.id, variante);
+          pedido.variante = String(variante);
+        }
+        if (transportadora?.nombre) {
+          let id: number | null = transportadora.id ?? null;
+          if (id == null && pedido.ciudad) {
+            // El modelo pasa el NOMBRE que eligió el cliente; el id de Dropi
+            // se resuelve acá, contra las que llegan a su ciudad. Si no se
+            // resuelve, el nombre igual queda: se manda sin id solo si Dropi
+            // la acepta al despachar (y si la rechaza, el pedido sigue).
+            try {
+              const { tokenDropiDelTenant, transportadorasQueLlegan, normalizarCiudadParaDropi } = await import("../dropi-directo");
+              const token = await tokenDropiDelTenant(p.tenantId);
+              if (token) {
+                const r = await transportadorasQueLlegan(token, { ciudad: String(pedido.ciudad), departamento: String(pedido.departamento || "") });
+                const lista = r.ok ? r.data?.transportadoras || [] : [];
+                const busco = normalizarCiudadParaDropi(transportadora.nombre);
+                id = lista.find((t) => normalizarCiudadParaDropi(t.nombre) === busco)?.id ?? null;
+              }
+            } catch { /* el nombre igual queda guardado */ }
+          }
+          await ds.guardarTransportadoraDelPedido(pedido.id, { id, nombre: transportadora.nombre });
+          pedido.transportadora = String(transportadora.nombre);
+          pedido.transportadoraId = id;
+        }
 
         const faltan = ds.datosQueFaltan(pedido);
         if (faltan.length) {
@@ -473,6 +559,75 @@ export function servicioDePedidos(p: {
         };
       } catch (e: any) {
         return { hay: false, texto: `No se pudo consultar: ${e?.message || e}` };
+      }
+    },
+
+    async transportadoras(ciudad: string) {
+      try {
+        const { tokenDropiDelTenant, transportadorasQueLlegan } = await import("../dropi-directo");
+        const destino = String(ciudad || "").trim();
+        if (!destino) return { ok: false, mensaje: "Falta la ciudad." };
+        const token = await tokenDropiDelTenant(p.tenantId);
+        if (!token) {
+          return { ok: false, mensaje: "Este negocio no tiene el token de Dropi cargado: no puedo listar transportadoras reales. Dile que el envío lo coordina el equipo y no inventes empresas." };
+        }
+        // Con el pedido en curso se COTIZA el producto real hacia esa ciudad (el
+        // mismo cotizador que el panel de Dropi): solo las transportadoras que
+        // pueden hacer el envío, de la más económica a la más cara. El flete se
+        // queda en el sistema: al cliente no se le dice (regla del dueño).
+        try {
+          const ds = await import("../dropshipping");
+          const pedido = await ds.pedidoEnCurso(p.conversationId);
+          if (pedido?.productId) {
+            const { cotizarProductoDelCatalogo } = await import("../dropi-cotizador");
+            const cot = await cotizarProductoDelCatalogo(p.tenantId, pedido.productId, {
+              ciudad: destino, departamento: pedido.departamento || null, cantidad: pedido.quantity,
+              precioUnitario: Number(pedido.unitPrice) || null, variationId: pedido.dropiVariationId ?? null,
+              conRecaudo: !pedido.metodoPago || pedido.metodoPago === "contraentrega",
+            });
+            if (cot.ok) {
+              const disponibles = (cot.transportadoras || []).filter((t) => t.disponible).slice(0, 3);
+              if (!disponibles.length) {
+                return { ok: false, mensaje: `Para ${destino} ninguna transportadora de Dropi puede hacer este envío ahora. Dile que el equipo lo coordina y no prometas fecha.` };
+              }
+              return {
+                ok: true,
+                mensaje:
+                  `A ${destino} pueden enviarlo (de la más económica a la más cara):\n` +
+                  disponibles.map((t, i) => `${i + 1}) ${t.transportadora}`).join("\n") +
+                  `\nOfrecé estas en ese orden, sin mencionar precios de envío. Si elige una, pasala en tomar_pedido(transportadora=…); si no elige, se usa la más económica.`,
+              };
+            }
+          }
+        } catch (e: any) {
+          logger.warn({ err: e?.message, tenantId: p.tenantId }, "[MotorV2] no se pudo cotizar; se usa la cobertura general");
+        }
+        const r = await transportadorasQueLlegan(token, { ciudad: destino });
+        const lista = r.ok ? r.data?.transportadoras || [] : [];
+        if (!r.ok || !lista.length) {
+          return { ok: false, mensaje: `Dropi no devolvió transportadoras para ${destino}. Dile que el envío lo coordina el equipo y no inventes empresas.` };
+        }
+        // Sin filtro real por ciudad NO se le lista al cliente el catálogo entero
+        // de transportadoras de Dropi (eran 23, con empresas locales de otras
+        // ciudades): se le dice lo que sí es cierto de su ciudad (30-09-2026).
+        if (r.data?.fuente !== "cobertura") {
+          const c = r.data?.ciudad;
+          if (c && !c.cubierta) {
+            return { ok: false, mensaje: `Dropi no tiene a ${destino} en su cobertura. Pídele al cliente que confirme cómo se escribe su ciudad o municipio; no le ofrezcas transportadoras.` };
+          }
+          const contra = c?.aceptaContraentrega === false ? " Ojo: a esa ciudad NO hay contraentrega; el pago sería anticipado." : c?.aceptaContraentrega ? " Acepta pago contraentrega." : "";
+          return {
+            ok: true,
+            mensaje:
+              `Sí hacemos envíos a ${destino}${c?.trayecto ? ` (trayecto ${c.trayecto.toLowerCase()})` : ""}.${contra} ` +
+              `La transportadora la asigna Dropi al despachar según la ruta. Si el cliente prefiere una en particular, anótala en tomar_pedido(transportadora=…) y se intenta con esa; no le listes empresas ni prometas precios de envío.`,
+          };
+        }
+        const nombres = lista.map((t, i) => `${i + 1}) ${t.nombre}`).join("\n");
+        return { ok: true, mensaje: `A ${destino} llegan estas:\n${nombres}\n${r.data?.nota || ""}`.trim() };
+      } catch (e: any) {
+        logger.error({ err: e?.message, tenantId: p.tenantId }, "[MotorV2] no se pudieron listar transportadoras");
+        return { ok: false, mensaje: "No se pudo consultar las transportadoras ahora. Dile que el envío lo coordina el equipo y no inventes empresas." };
       }
     },
 
@@ -548,7 +703,7 @@ export function servicioDePedidosDePrueba(p: {
   return {
     pedido: () => pedido,
     servicio: {
-      async tomar({ producto, cantidad, datos }) {
+      async tomar({ producto, cantidad, datos, variante, transportadora }) {
         const ds = await import("../dropshipping");
         let heredados: Partial<import("../dropshipping").DatosDeEnvio> = {};
         if (pedido && pedido.productId !== producto.id) {
@@ -572,6 +727,11 @@ export function servicioDePedidosDePrueba(p: {
         }
         if (pedido.estado === "por_confirmar" && Object.keys(datos).length) pedido.estado = "completo";
         for (const [k, v] of Object.entries(nuevos)) if (v) (pedido as any)[k] = v;
+        if (variante) pedido.variante = String(variante);
+        if (transportadora?.nombre) {
+          pedido.transportadora = String(transportadora.nombre);
+          pedido.transportadoraId = transportadora.id ?? null;
+        }
 
         const faltan = ds.datosQueFaltan(pedido);
         if (faltan.length) {
@@ -582,6 +742,16 @@ export function servicioDePedidosDePrueba(p: {
         if (!zona.ok) return { estado: "zona", motivo: zona.motivo || "la zona no verifica" };
         pedido.estado = "por_confirmar";
         return { estado: "listo", resumen: ds.resumenDelPedido(pedido, cond) };
+      },
+
+      async transportadoras(ciudad: string) {
+        const destino = String(ciudad || "").trim() || "esa ciudad";
+        return {
+          ok: true,
+          mensaje:
+            `A ${destino} llegan estas:\n1) SERVIENTREGA\n2) ENVIA\n3) INTERRAPIDISIMO\n` +
+            `(prueba: lista fija, en producción sale de Dropi para la ciudad del cliente)`,
+        };
       },
 
       async confirmar() {
@@ -743,7 +913,39 @@ export async function responderComoVendedor(
     .join("\n\n")
     .trim();
   const cardProductIds = resultado.partes.filter((p) => p.kind === "card").map((p) => (p as any).productId);
-  const textoParaGuardar = texto || (cardProductIds.length ? `[ficha de ${cardProductIds.join(", ")}]` : "");
+  // ── Lo guardado tiene que decir QUÉ salió en la ficha ─────────────────────
+  //
+  // Conversación real 269 (26-09-2026): el cliente preguntó el precio, el
+  // modelo escribió "Acá te dejo el valor" y el precio salió en la ficha,
+  // que NO quedaba guardada. El dueño vio en el panel una frase sin número,
+  // creyó que el bot había fallado y escribió a mano "Vale 50.000" cuatro
+  // minutos después. Y el vendedor, en el turno siguiente, tampoco veía en su
+  // historial que ya había dado el precio.
+  //
+  // ── Y tiene que decir QUÉ DECÍA la ficha, no solo que salió ──────────────
+  //
+  // Chat del dueño (27-09-2026): la ficha del piano listó "19 módulos, 283
+  // clases, cerca de 19 horas" y dos mensajes después el bot contestó que el
+  // detalle de los módulos y las horas "lo confirmo con el equipo". En el
+  // historial solo había quedado `[ficha info de Curso de Piano]`: el modelo
+  // sabía que había mandado una ficha y no sabía qué decía, así que dudó de
+  // sus propios datos. Ahora se guarda también lo que el cliente leyó.
+  const marcasDeFicha = resultado.partes
+    .filter((p) => p.kind === "card")
+    .map((p) => {
+      const prod = catalogoCompleto.find((x) => x.id === (p as any).productId);
+      const sec = String((p as any).seccion || "completa");
+      const precio = prod?.price != null && Number(prod.price) > 0 ? ` — $${Number(prod.price).toLocaleString("es-CO")}` : "";
+      const conPrecio = sec === "precio" || sec === "completa" ? precio : "";
+      const marca = `[ficha ${sec} de ${prod?.name ?? (p as any).productId}${conPrecio}]`;
+      // Solo las secciones que muestran el contenido: el precio y las cuentas
+      // de pago ya quedan en la marca, y repetir la ficha entera en cada
+      // renglón del historial la infla sin agregar nada.
+      if (!prod || !laSeccionMuestraContenido(sec)) return marca;
+      const hechos = resumenDeLaFicha(prod);
+      return hechos ? `${marca}\nLo que le mostró: ${hechos}` : marca;
+    });
+  const textoParaGuardar = [texto, ...marcasDeFicha].filter(Boolean).join("\n\n");
 
   await saveAgentMessage(conversationId, textoParaGuardar || "…", ETAPA_A_STAGE[resultado.estado.etapa] as any, {
     intent: "motor_v2",

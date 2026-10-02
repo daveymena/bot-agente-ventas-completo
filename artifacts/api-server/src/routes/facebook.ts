@@ -12,6 +12,7 @@ import { whatsapp } from "../lib/whatsapp-singleton";
 import { logger } from "../lib/logger";
 import { encryptSecret, decryptSecret } from "../lib/credentials-vault";
 import { FB_GRAPH_BASE } from "../lib/meta-api-version";
+import { respaldoEnvFacebook } from "../lib/tenant-facebook-credentials";
 
 const router: IRouter = Router();
 
@@ -420,7 +421,7 @@ router.get("/page/can-post", async (req, res, next) => {
     const problema = await checkPostingPermission(tenant);
     return res.json({
       canPost: problema === null,
-      pageId: tenant?.facebook?.pageId || process.env.FB_PAGE_ID || null,
+      pageId: tenant?.facebook?.pageId || respaldoEnvFacebook(tenant?.id)(process.env.FB_PAGE_ID) || null,
       reason: problema,
     });
   } catch (e) { return next(e); }
@@ -814,8 +815,10 @@ router.post("/strategist/draft/:productId", async (req, res, next) => {
   try {
     const productId = parseInt(req.params.productId);
     const tenant = (req as any).tenant;
-    const adAccountId = tenant?.facebook?.adAccountId || process.env.FB_AD_ACCOUNT_ID || "";
-    const accessToken = tenant?.facebook?.userAccessToken || tenant?.facebook?.accessToken || process.env.FB_ACCESS_TOKEN || "";
+    // .env = cuenta publicitaria del dueño del servidor: solo para él.
+    const env = respaldoEnvFacebook(tenant?.id);
+    const adAccountId = tenant?.facebook?.adAccountId || env(process.env.FB_AD_ACCOUNT_ID);
+    const accessToken = tenant?.facebook?.userAccessToken || tenant?.facebook?.accessToken || env(process.env.FB_ACCESS_TOKEN);
     const { AdStrategist } = await import("../lib/ad-strategist");
     // Copy grounded en investigación real, opcional -- mismos campos que usa
     // el Arquitecto vía fb_ad_draft (ver ResearchGroundedCopy). Sin esto la
@@ -870,7 +873,9 @@ router.post("/strategist/draft-all", async (req, res, next) => {
 
 router.get("/strategist/strategy/:productId", async (req, res, next) => {
   try {
-    const [product] = await db.select().from(products).where(eq(products.id, parseInt(req.params.productId))).limit(1);
+    // Solo productos del negocio que pregunta (antes: cualquiera, por id).
+    const tenantId = Number((req as any).tenant?.id) || 0;
+    const [product] = await db.select().from(products).where(and(eq(products.id, parseInt(req.params.productId)), eq(products.tenantId, tenantId))).limit(1);
     if (!product) return res.status(404).json({ error: "Producto no encontrado" });
     const strategy = adStrategist.getStrategyForProduct(product);
     const copy = await adStrategist.generateAdCopy(strategy, product);
@@ -1069,6 +1074,24 @@ router.get("/adaccounts", async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+/**
+ * POST /api/facebook/adaccounts/activa  { adAccountId }
+ *
+ * Elegir la cuenta publicitaria desde el desplegable del panel. Solo acepta
+ * una cuenta que vea el token DE ESTE negocio (nunca el .env de la
+ * plataforma para otro negocio: FacebookService aplica respaldo-del-dueno).
+ * No crea ni gasta nada en Meta.
+ */
+router.post("/adaccounts/activa", async (req, res, next) => {
+  try {
+    const tenant = (req as any).tenant;
+    if (!Number(tenant?.id)) return res.status(401).json({ ok: false, message: "Tenant no autenticado" });
+    const { FacebookService } = await import("../lib/facebook");
+    const r = await new FacebookService(tenant).cambiarCuentaPublicitaria(req.body?.adAccountId, "panel");
+    return res.status(r.ok ? 200 : 422).json(r);
+  } catch (e) { return next(e); }
+});
+
 router.get("/validate", async (req, res, next) => {
   try {
     const tenant = (req as any).tenant;
@@ -1087,7 +1110,16 @@ router.post("/create-ad/:productId", async (req, res, next) => {
     if (!fbSvc.isConfigured()) {
       return res.status(422).json({ error: "Facebook no está conectado (falta el token de página). Configúralo en la pestaña Configuración." });
     }
-    const result = await fbSvc.createAdForProduct(productId, budget || 5000, startDate, targeting);
+    // Texto aprobado y objetivo: sin esto el panel publicaba un copy generado
+    // de nuevo (no el revisado) y siempre de "ventas" a la web.
+    const c = req.body?.copy;
+    const copyAprobado = c && typeof c.primaryText === "string" && c.primaryText.trim()
+      ? { primaryText: String(c.primaryText), headline: String(c.headline || ""), description: String(c.description || "") }
+      : undefined;
+    const { interpretarObjetivo } = await import("../lib/objetivos-campana");
+    const objetivo = interpretarObjetivo(String(req.body?.objetivo || "")) || "ventas";
+    const { leerPreferenciaWeb } = await import("../lib/landing/destino-del-producto");
+    const result = await fbSvc.createAdForProduct(productId, budget || 5000, startDate, targeting, copyAprobado, objetivo, undefined, leerPreferenciaWeb(req.body?.destinoWeb));
     if (!result) {
       return res.status(500).json({ error: fbSvc.lastAdError || "Facebook rechazó la creación del anuncio (revisa que la cuenta publicitaria y el ad account id sean correctos, y que la página tenga permisos de anuncios)." });
     }

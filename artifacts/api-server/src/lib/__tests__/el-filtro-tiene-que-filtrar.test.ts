@@ -260,6 +260,14 @@ describe("ningún tipo de pedido se pasa del presupuesto", () => {
   // (campañas de formulario de Meta: objetivos_de_campana,
   // fb_permisos_formularios, embudo_de_ventas) con las herramientas del Agent
   // Lab (agentlab_*), que son de cambio. Medido 3.632; techo real ~8000.
+  //
+  // 3660 → 3850 el 01-10-2026: port de la sesión 29-09 (metodo_de_venta como
+  // lectura + familia de audiencias fb_audiencias/fb_audiencia_web/
+  // fb_audiencia_clientes/fb_lookalike, que son de cambio). Medido 3.822 en
+  // "sin familia". Sigue por debajo de la mitad del techo real (~8000).
+  //
+  // 3850 → 3950 el mismo día: integraciones_estado (lectura + esquema) en el
+  // grupo de tienda externa. Medido 3.923. Mismo techo real (~8000).
   const PEDIDOS: Array<[string, string]> = [
     ["ventas del día", "cómo van las ventas hoy"],
     ["facturación", "cuánto facturé este mes"],
@@ -275,7 +283,25 @@ describe("ningún tipo de pedido se pasa del presupuesto", () => {
   for (const [nombre, pedido] of PEDIDOS) {
     it(`"${nombre}" entra en el minuto de Groq`, () => {
       const t = tokens(buildMcpToolRegistry(pedido));
-      expect(t, `"${pedido}" pesa ~${t} tokens`).toBeLessThan(3660);
+      expect(t, `"${pedido}" pesa ~${t} tokens`).toBeLessThan(3950);
     });
   }
+});
+
+describe("El método de venta viaja cuando se pide, y solo entonces (01-10-2026)", () => {
+  const nombres = (pedido: string) => buildMcpToolRegistry(pedido).map((t: any) => t.name);
+
+  it("está registrado como lectura", () => {
+    expect(READ_ONLY_TOOLS.has("metodo_de_venta")).toBe(true);
+  });
+
+  it("viaja cuando el admin pregunta cómo pautar, costear o por qué no vende", () => {
+    for (const p of ["¿cómo pauto este producto?", "cuál sería el precio de venta con devoluciones", "por qué no vendo nada", "qué estrategia propondrías"]) {
+      expect(nombres(p), p).toContain("metodo_de_venta");
+    }
+  });
+
+  it("no se cuela en un pedido que no tiene nada que ver", () => {
+    expect(nombres("cuántos productos tengo")).not.toContain("metodo_de_venta");
+  });
 });

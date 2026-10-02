@@ -183,7 +183,33 @@ export function sanearHtmlDeLanding(html: string): ResultadoSaneado {
     quitado.push(...r.quitado);
   }
   actual = sinContenedoresVacios(actual);
+  const r = sinRotulosInternos(actual);
+  actual = r.html;
+  quitado.push(...r.quitado);
   return { html: actual, quitado };
+}
+
+/**
+ * Rótulos de la METODOLOGÍA escritos como texto visible (30-09-2026): la
+ * landing publicada de la mochila con canguro mostraba "El problema" y "La
+ * solución" encima de los títulos, copiados tal cual de la estructura del
+ * prompt. Se quita el elemento corto cuyo texto entero es solo ese rótulo;
+ * un título que dice algo del producto ("Cargar todo por separado cansa") queda.
+ */
+const ROTULO_INTERNO = /^(?:paso\s*\d+\s*[:.-]?\s*)?(?:el |la |los |las )?(?:problema|soluci[oó]n|atenci[oó]n|inter[eé]s|deseo|acci[oó]n|agitaci[oó]n|beneficio(?:s)?|oferta|cierre|hero|cta|aida|pas)\s*[:.]?$/i;
+export function sinRotulosInternos(html: string): { html: string; quitado: string[] } {
+  const quitados: string[] = [];
+  const salida = String(html || "").replace(/<(p|span|div|small|h[1-6])\b([^>]*)>([^<]{1,40})<\/\1>/gi, (todo, tag: string, attrs: string, texto: string) => {
+    const t = texto.replace(/&nbsp;/g, " ").trim();
+    // Solo rótulos chicos: los h1/h2 con texto de este tipo también son el
+    // nombre de la sección, pero sin clase de rótulo podría ser un título
+    // real ("Oferta" como encabezado de precio): esos se dejan.
+    const esRotulo = /class=["'][^"']*(eyebrow|kicker|label|tag|pre-?title|overline|badge)[^"']*["']/i.test(attrs) || /^(p|span|small)$/i.test(tag);
+    if (!esRotulo || !ROTULO_INTERNO.test(t)) return todo;
+    quitados.push(t);
+    return "";
+  });
+  return { html: salida, quitado: quitados.length ? [`rótulos internos: ${quitados.join(", ")}`] : [] };
 }
 
 // ─── Contenedores vacíos y garantías sin definir ─────────────────────────────

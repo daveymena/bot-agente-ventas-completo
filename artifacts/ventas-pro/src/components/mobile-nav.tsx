@@ -1,5 +1,5 @@
 import { useLocation } from "wouter";
-import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store, Activity, Crown, Megaphone, HelpCircle, BadgeCheck, LayoutTemplate, LogOut , Truck, MessageSquareText, GraduationCap } from "lucide-react";
+import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store, Activity, Crown, Megaphone, HelpCircle, BadgeCheck, LayoutTemplate, LogOut , Truck, MessageSquareText, GraduationCap, Plug } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "@/App";
 
@@ -12,6 +12,7 @@ const mainNavItems = [
 
 const baseMoreItems = [
   { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate },
+    { label: "Landing de imágenes", href: "/landing-imagenes", icon: LayoutTemplate },
   { label: "Atlas VentasPro", href: "/code-agent", icon: Wand2, highlight: true },
   { label: "Marketing", href: "/marketing", icon: Megaphone },
   { label: "Facebook", href: "/facebook", icon: Facebook },
@@ -24,6 +25,7 @@ const baseMoreItems = [
   // { label: "Agent Lab", href: "/agent-lab", icon: FlaskConical },
   // { label: "Lab Dashboard", href: "/agent-lab-dashboard", icon: BarChart3 },
   { label: "WhatsApp", href: "/whatsapp", icon: Phone },
+  { label: "Integraciones", href: "/integraciones", icon: Plug },
   { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
   { label: "Dropi", href: "/dropi", icon: Truck },
   { label: "Personalización", href: "/branding", icon: Palette },

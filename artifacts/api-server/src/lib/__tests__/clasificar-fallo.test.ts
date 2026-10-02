@@ -209,3 +209,26 @@ describe("Modelo que la cuenta no puede usar", () => {
     expect(clasificarFallo("401 Model ling-3.0-flash-free is not supported").clase).not.toBe("sin_clave");
   });
 });
+
+/**
+ * Ollama Cloud sin sesión (medido 2026-10-01): los modelos `-cloud` del Ollama
+ * del VPS devuelven 401 en toda inferencia hasta `ollama signin`. Se apartan
+ * de una vez por 6 h (como toda credencial) pero ADEMÁS el resultado trae la
+ * pista con el comando exacto, para que el log diga qué hacer.
+ */
+describe("Ollama Cloud sin sesión", () => {
+  it.each([
+    "401 Unauthorized: you must sign in to use cloud models (ollama signin)",
+    "unauthorized: not signed in, run `ollama signin`",
+  ])("se aparta de una vez y trae la pista: %s", (e) => {
+    const r = clasificarFallo(e);
+    expect(r.clase).toBe("sin_clave");
+    expect(r.inmediato).toBe(true);
+    expect(r.cooldownMs).toBeGreaterThanOrEqual(60 * MINUTO);
+    expect(r.pista).toMatch(/ollama signin/);
+  });
+
+  it("no roba el caso de modelo no soportado (ese también trae 401)", () => {
+    expect(clasificarFallo("401 Model ling-3.0-flash-free is not supported").pista).toBeUndefined();
+  });
+});

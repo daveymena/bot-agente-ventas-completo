@@ -290,6 +290,16 @@ export interface Negocio {
  * `autor`: la autoridad del negocio es su marca. No hay una tabla de expertos,
  * pero `tenants.brandName` sí existe y es un dato real.
  */
+function pruebaSocial() {
+  const meta = (p: any): any => { const m = p?.metadata; if (!m) return {}; if (typeof m === "string") { try { return JSON.parse(m) || {}; } catch { return {}; } } return m; };
+  return {
+    garantiaDelProducto: (p: any): string => String(meta(p).garantia || "").trim(),
+    testimoniosDelProducto: (p: any): Array<{ nombre: string; ciudad?: string; texto: string }> =>
+      (Array.isArray(meta(p).testimonios) ? meta(p).testimonios : []).filter((t: any) => t && String(t.nombre || "").trim() && String(t.texto || "").trim()).slice(0, 3),
+  };
+}
+export const { garantiaDelProducto, testimoniosDelProducto } = pruebaSocial();
+
 export function hechosQueTiene(
   p: HechosDelProducto | null | undefined,
   negocio?: Negocio | null,
@@ -313,6 +323,10 @@ export function hechosQueTiene(
   const tipo = tipoDeProducto(p.kind);
   if (tipo === "fisico" || tipo === "dropshipping") hay.add("envio");
   if (lleno(negocio?.brandName)) hay.add("autor");
+  // Garantía y testimonios que el dueño cargó en el producto (metadata).
+  const { garantiaDelProducto, testimoniosDelProducto } = pruebaSocial();
+  if (testimoniosDelProducto(p).length) hay.add("testimonios");
+  if (garantiaDelProducto(p)) hay.add("garantia");
   return hay;
 }
 

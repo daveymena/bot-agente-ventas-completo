@@ -68,6 +68,21 @@ export function skinDeLaTienda(colorDelNegocio?: string | null): React.CSSProper
     '--store-orange': acento,
     '--store-blue': '#3357D9',
     '--store-green': '#5FB336',
+
+    // ── Tema TECH (portada estilo tienda de tecnología) ──────────────────
+    // Paleta FIJA del diseño, no del negocio: el violeta marino y el púrpura
+    // son la identidad de la maqueta (hero oscuro, botones morados, tarjetas
+    // blancas con acento naranja). Si se derivaran del color del dueño, la
+    // portada dejaría de parecerse al diseño en cada tienda.
+    '--tech-violeta': '#6D28E9',
+    '--tech-violeta-hover': '#5B21B6',
+    '--tech-marino': '#171431',
+    '--tech-marino-soft': '#221E45',
+    '--tech-naranja': '#F97316',
+    '--tech-naranja-hover': '#EA6A0A',
+    '--tech-fondo': '#F4F3FA',
+    '--tech-tinta': '#1E1B33',
+    '--tech-gris': '#6F6C8A',
   } as React.CSSProperties;
 }
 

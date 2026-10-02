@@ -61,6 +61,16 @@ export function datosParaRazonar(p: Producto, seccion: string, hechosDelNegocio:
   const precio = precioParaLeer(p);
   if (precio) lineas.push(`Precio: ${precio}`);
   if (p.description) lineas.push(`Descripción: ${String(p.description).replace(/\s+/g, " ").slice(0, 700)}`);
+  // Las características y las preguntas frecuentes curadas son LO que permite
+  // responder dudas ("¿qué incluye?", "¿sirve para…?") razonando, sin tener
+  // que lanzar la maqueta entera. Sin esto el modelo no tenía de dónde sacar
+  // la respuesta y mostraba la ficha aunque le hubieran hecho una pregunta.
+  if (p.caracteristicas?.length) lineas.push(`Características: ${p.caracteristicas.slice(0, 8).join(" · ")}`);
+  if (p.preguntas?.length) {
+    for (const f of p.preguntas.slice(0, 3)) {
+      if (f?.p && f?.r) lineas.push(`Pregunta frecuente — ${String(f.p).slice(0, 140)}: ${String(f.r).slice(0, 280)}`);
+    }
+  }
   if (p.opciones?.length) lineas.push(`Opciones: ${p.opciones.join(", ")}`);
   if (p.stock != null) lineas.push(`Stock: ${p.stock}`);
   const relevantes = hechosDelNegocio.filter((h) =>
@@ -77,7 +87,9 @@ export function instruccionDeDuda(p: Producto, seccion: string, hechosDelNegocio
     `NO se volvió a enviar la maqueta "${seccion}" de ${p.name}: ya la recibió. ` +
     `Si vuelve a preguntar es porque le quedó una DUDA. Identificá cuál es (lo que pregunta AHORA, no lo que ya leyó) ` +
     `y respóndela con tus palabras, razonando con estos datos reales, en 2-4 frases, sin copiar los renglones de la maqueta. ` +
-    `Si el dato para su duda no está acá, dilo con honestidad y ofrece averiguarlo: no inventes.\n\n` +
+    `Si el dato exacto no está acá, RAZONA: lo que sepas de cómo funciona este tipo de producto dilo como criterio ` +
+    `general ("en general, este tipo de…"), nunca como característica de este modelo; las condiciones comerciales ` +
+    `(garantía, plazo, descuento) no cargadas no se afirman: no inventes. No prometas "averiguarlo" ni que alguien le escribe.\n\n` +
     `DATOS:\n${datosParaRazonar(p, seccion, hechosDelNegocio)}`
   );
 }
@@ -115,6 +127,8 @@ export function fraseHablada(p: Producto, seccion: string): string {
       return `Te mandé un video para que lo veas en acción.`;
     case "tienda":
       return `Te dejé el enlace para verlo en la tienda.`;
+    case "fotos":
+      return `Te mandé más fotos para que lo veas mejor.`;
     default:
       return "";
   }

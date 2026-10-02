@@ -53,6 +53,8 @@ export function clasificarFallo(error?: string): {
   cooldownMs: number;
   /** Terminal: no hace falta un segundo fallo para apartarlo. */
   inmediato: boolean;
+  /** Pista accionable para el admin (solo en fallos que requieren mano humana). */
+  pista?: string;
 } {
   const e = String(error || "").toLowerCase();
 
@@ -148,6 +150,22 @@ export function clasificarFallo(error?: string): {
       return { clase: "modelo_caido", cooldownMs: 6 * HORA, inmediato: true };
     }
     return { clase: "modelo_caido", cooldownMs: 30 * 1000, inmediato: false };
+  }
+  // ── Ollama Cloud sin sesión (401) ────────────────────────────────────
+  // Medido el 2026-10-01 contra el Ollama del VPS (161.97.182.95:11434): los
+  // modelos `-cloud` listan bien en /api/tags pero TODA inferencia devuelve
+  // 401 hasta que alguien corra `ollama signin` en la consola del contenedor
+  // `ollama/ollama` en EasyPanel. Sin esta rama caería en el 401 genérico de
+  // abajo (mismo castigo, pero el log no diría QUÉ hay que hacer).
+  // Va DESPUÉS de "modelo no soportado" a propósito: ese también trae 401
+  // ("401 Model X is not supported") y es otra cosa (modelo_caido, no clave).
+  if (/\bsign-?in\b|not signed in|must sign in|signin required|consent required/.test(e)) {
+    return {
+      clase: "sin_clave",
+      cooldownMs: 6 * HORA,
+      inmediato: true,
+      pista: "Ollama Cloud sin sesión: correr `ollama signin` en la consola del contenedor ollama/ollama en EasyPanel (y cerrar el puerto público 11434).",
+    };
   }
   if (/no (api )?key|missing (api )?key|unauthorized|invalid api key|bad credentials|\b401\b/.test(e)) {
     return { clase: "sin_clave", cooldownMs: 6 * HORA, inmediato: true };
@@ -365,7 +383,7 @@ class OptimizedProviderRotation {
     const status = this.providers.get(provider);
     if (!status) return;
 
-    const { clase, cooldownMs, inmediato } = clasificarFallo(error);
+    const { clase, cooldownMs, inmediato, pista } = clasificarFallo(error);
 
     // Un modelo caído NO es un fallo del proveedor, así que ni siquiera le
     // cuenta: si contara, dos respuestas vacías del vision-exp bastarían para
@@ -390,10 +408,10 @@ class OptimizedProviderRotation {
       // los logs del contenedor no son accesibles por API --que es el caso de
       // este EasyPanel-- y el admin pregunta "¿por qué contesta raro?". Esto
       // es lo que le responde: hace 40 minutos que Groq está apartado.
-      registrarProveedorCastigado(provider, clase, cooldownMs, error);
+      registrarProveedorCastigado(provider, clase, cooldownMs, pista ? `${error} — ${pista}` : error);
       logger.warn(
-        { provider, clase, minutos: Math.round(cooldownMs / 60000), failureCount: status.failureCount, error },
-        "[OptimizedRotation] ⏸️  Proveedor apartado"
+        { provider, clase, minutos: Math.round(cooldownMs / 60000), failureCount: status.failureCount, error, pista },
+        "[OptimizedRotation] ⏸️  Proveedor apartado",
       );
     } else {
       logger.warn(

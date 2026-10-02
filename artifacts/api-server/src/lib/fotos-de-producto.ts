@@ -72,21 +72,51 @@ interface CacheFotosUnicas {
   equivalentes?: Record<string, string>;
 }
 
+// "v2": la comparación pasó a ser VISUAL; las cachés hechas con SHA-1 se recalculan.
 function firmaDe(urls: string[]): string {
-  return createHash("sha1").update(urls.join("|")).digest("hex").slice(0, 16);
+  return createHash("sha1").update(["v2", ...urls].join("|")).digest("hex").slice(0, 16);
 }
 
-async function hashDeImagen(url: string, timeoutMs: number): Promise<string | null> {
+/**
+ * Huella VISUAL (dHash de 64 bits) además del SHA-1 de los bytes.
+ *
+ * 30-09-2026: en la landing publicada de la mochila con canguro salía la
+ * misma foto dos veces: /images/products/167.jpg (copia local, recodificada a
+ * JPG) y la .webp original de Dropi. Bytes distintos → SHA-1 distinto → el
+ * filtro las dejaba pasar. La huella visual compara lo que se VE.
+ */
+async function hashDeImagen(url: string, timeoutMs: number): Promise<{ sha: string; visual: bigint | null } | null> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: "follow" });
     if (!res.ok) return null;
     const buf = Buffer.from(await res.arrayBuffer());
     if (!buf.length) return null;
-    return createHash("sha1").update(buf).digest("hex");
+    return { sha: createHash("sha1").update(buf).digest("hex"), visual: await huellaVisual(buf) };
   } catch {
     return null;
   }
 }
+
+/** dHash: 9×8 en gris, cada bit = ¿el píxel es más claro que el de su derecha? */
+export async function huellaVisual(buf: Buffer): Promise<bigint | null> {
+  try {
+    const sharp = (await import("sharp")).default;
+    const px = await sharp(buf).flatten({ background: "#ffffff" }).grayscale().resize(9, 8, { fit: "fill" }).raw().toBuffer();
+    let h = 0n;
+    for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) h = (h << 1n) | (px[y * 9 + x] > px[y * 9 + x + 1] ? 1n : 0n);
+    return h;
+  } catch {
+    return null;
+  }
+}
+
+/** Bits distintos entre dos huellas. ≤ 6 de 64 = la misma foto (otro formato o tamaño). */
+export function distanciaVisual(a: bigint, b: bigint): number {
+  let x = a ^ b, n = 0;
+  while (x) { n += Number(x & 1n); x >>= 1n; }
+  return n;
+}
+export const MISMA_FOTO_MAX_BITS = 6;
 
 /**
  * Las fotos del producto sin repetidas POR CONTENIDO, la principal primero.
@@ -109,14 +139,17 @@ export async function fotosUnicasDelProducto(
 
   const hashes = await Promise.all(urls.map((u) => hashDeImagen(u, opts.timeoutMs ?? 8000)));
   const canonicaPorHash = new Map<string, string>();
+  const vistas: Array<{ visual: bigint; url: string }> = [];
   const unicas: string[] = [];
   const equivalentes: Record<string, string> = {};
   urls.forEach((u, i) => {
     const h = hashes[i];
     if (!h) { unicas.push(u); return; }
-    const canonica = canonicaPorHash.get(h);
+    const canonica = canonicaPorHash.get(h.sha)
+      || (h.visual != null ? vistas.find((v) => distanciaVisual(v.visual, h.visual as bigint) <= MISMA_FOTO_MAX_BITS)?.url : undefined);
     if (canonica) { equivalentes[u] = canonica; return; }
-    canonicaPorHash.set(h, u);
+    canonicaPorHash.set(h.sha, u);
+    if (h.visual != null) vistas.push({ visual: h.visual, url: u });
     unicas.push(u);
   });
 

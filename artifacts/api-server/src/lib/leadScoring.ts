@@ -1,7 +1,7 @@
 import { eq, desc } from "drizzle-orm";
 import { db, conversations, messages, leads, settings as settingsTable } from "@workspace/db";
 import { logger } from "./logger";
-import { scheduleIntelligentFollowUp, getFollowUpMetrics, getDueFollowUps } from "./followUpScheduler";
+import { cancelarSeguimientosPendientes, scheduleIntelligentFollowUp, getFollowUpMetrics, getDueFollowUps } from "./followUpScheduler";
 
 // ─── AI client factory (injectable for testing) ──────────────────────────────
 
@@ -380,6 +380,10 @@ export class LeadScoringEngine {
 
       if (leadScore.nextFollowUp) {
         await this.scheduleFollowUp(conversationId, leadScore);
+      } else if (["converted", "lost"].includes(leadScore.stage)) {
+        // No dejar viva una recuperación de preventa después de que el cliente
+        // pagó/reportó pago o cerró explícitamente la oportunidad.
+        await cancelarSeguimientosPendientes(conversationId);
       }
 
       return leadScore;

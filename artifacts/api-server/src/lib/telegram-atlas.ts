@@ -23,6 +23,7 @@
 import { createHmac } from "node:crypto";
 import { db, tenants } from "@workspace/db";
 import { logger } from "./logger";
+import { describirImagen } from "./media-entrante";
 import { configTelegramDelTenant, enviarTelegram, type ConfigTelegram } from "./telegram";
 
 type Sondeo = { cfg: ConfigTelegram; offset: number; parar: boolean };
@@ -68,6 +69,54 @@ async function audioComoDataUrl(cfg: ConfigTelegram, fileId: string, mime: strin
   }
 }
 
+/** Foto → descripción con la misma cadena de visión del bot (Ollama local,
+ *  respaldo DeepSeek). Se manda como texto a Atlas: la puerta del operador
+ *  solo acepta prompt/audio, así que la imagen viaja ya leída. */
+async function fotoComoDescripcion(cfg: ConfigTelegram, fileId: string): Promise<string | null> {
+  try {
+    const r = await fetch(api(cfg.botToken, `getFile?file_id=${encodeURIComponent(fileId)}`), { signal: AbortSignal.timeout(10000) });
+    const j: any = await r.json().catch(() => ({}));
+    const ruta = j?.result?.file_path;
+    if (!ruta) return null;
+    const f = await fetch(`https://api.telegram.org/file/bot${cfg.botToken}/${ruta}`, { signal: AbortSignal.timeout(30000) });
+    const buf = Buffer.from(await f.arrayBuffer());
+    if (!buf.length) return null;
+    return await describirImagen(buf, "image/jpeg");
+  } catch (e: any) {
+    logger.warn({ err: e?.message }, "[TelegramAtlas] no se pudo leer la foto");
+    return null;
+  }
+}
+
+/** Documento (PDF/Excel/Word) → texto con el lector del servidor. Si es una
+ *  imagen mandada como archivo, se lee con visión. Límite 15MB como en el
+ *  endpoint /upload-document del panel. */
+async function documentoComoTexto(cfg: ConfigTelegram, doc: any): Promise<string | null> {
+  try {
+    const nombre = String(doc?.file_name || "documento");
+    const mime = String(doc?.mime_type || "");
+    const r = await fetch(api(cfg.botToken, `getFile?file_id=${encodeURIComponent(doc.file_id)}`), { signal: AbortSignal.timeout(10000) });
+    const j: any = await r.json().catch(() => ({}));
+    const ruta = j?.result?.file_path;
+    if (!ruta) return null;
+    const f = await fetch(`https://api.telegram.org/file/bot${cfg.botToken}/${ruta}`, { signal: AbortSignal.timeout(60000) });
+    const buf = Buffer.from(await f.arrayBuffer());
+    if (!buf.length || buf.length > 15 * 1024 * 1024) return null;
+    if (mime.startsWith("image/")) {
+      const vista = await describirImagen(buf, mime);
+      return vista ? `[Imagen recibida como archivo: ${vista}]` : null;
+    }
+    const { leerDocumento } = await import("./leer-documentos");
+    const leido = await leerDocumento(buf, nombre);
+    if (!leido?.ok) return null;
+    const texto = leido.texto.length > 30_000 ? leido.texto.slice(0, 30_000) : leido.texto;
+    return `[Documento "${nombre}" (${leido.tipo}):\n${texto}]`;
+  } catch (e: any) {
+    logger.warn({ err: e?.message }, "[TelegramAtlas] no se pudo leer el documento");
+    return null;
+  }
+}
+
 /** Manda el pedido a Atlas por la puerta normal y devuelve el texto para el chat. */
 export async function preguntarleAAtlas(tenantId: number, entrada: { prompt?: string; audio?: string; mimeAudio?: string }): Promise<string> {
   const cuerpo: any = { sessionId: "telegram", history: [] };
@@ -98,12 +147,14 @@ async function atenderMensaje(tenantId: number, s: Sondeo, m: any): Promise<void
   }
   const texto = String(m.text || m.caption || "").trim();
   if (/^\/start\b/.test(texto)) {
-    await enviarTelegram(s.cfg, "👋 Soy Atlas. Por acá podés pedirme lo mismo que en el panel: ventas, pedidos, Dropi, landings, anuncios, informes. También entiendo notas de voz.");
+    await enviarTelegram(s.cfg, "👋 Soy Atlas. Por acá podés pedirme lo mismo que en el panel: ventas, pedidos, Dropi, landings, anuncios, informes. Entiendo texto, notas de voz y fotos.");
     return;
   }
   const voz = m.voice || m.audio;
-  if (!texto && !voz) {
-    await enviarTelegram(s.cfg, "Por ahora leo texto y notas de voz. Fotos y archivos todavía no.");
+  const fotos = Array.isArray(m.photo) ? m.photo : [];
+  const documento = m.document || null;
+  if (!texto && !voz && !fotos.length && !documento) {
+    await enviarTelegram(s.cfg, "Por acá leo texto, notas de voz, fotos y documentos (PDF, Excel, Word).");
     return;
   }
   const escribiendo = setInterval(() => { void accionEscribiendo(s.cfg); }, 4500);
@@ -114,7 +165,23 @@ async function atenderMensaje(tenantId: number, s: Sondeo, m: any): Promise<void
       const audio = await audioComoDataUrl(s.cfg, voz.file_id, voz.mime_type || "audio/ogg");
       respuesta = audio ? await preguntarleAAtlas(tenantId, { audio, mimeAudio: voz.mime_type || "audio/ogg" }) : "No pude bajar la nota de voz. ¿Me lo escribís?";
     } else {
-      respuesta = await preguntarleAAtlas(tenantId, { prompt: texto });
+      let prompt = texto;
+      // La foto se lee ANTES con visión y viaja como texto: Atlas la "ve"
+      // aunque su puerta solo acepte prompt.
+      const mejorFoto = fotos.length ? fotos[fotos.length - 1] : null;
+      if (mejorFoto?.file_id) {
+        const vista = await fotoComoDescripcion(s.cfg, mejorFoto.file_id);
+        const pie = vista ? `[Foto recibida: ${vista}]` : "[Foto recibida pero no la pude ver bien]";
+        prompt = `${pie}${texto ? ` ${texto}` : ""}`;
+      }
+      // PDF/Excel/Word adjunto: se extrae el texto y viaja en el prompt.
+      // Es lo que permite pasar la lista mayorista sin copiarla a mano.
+      if (documento?.file_id) {
+        const contenido = await documentoComoTexto(s.cfg, documento);
+        if (contenido) prompt = `${contenido}${prompt ? `\n\n${prompt}` : ""}`;
+        else prompt = `${prompt}\n\n(No pude abrir el archivo adjunto, pedile que lo reenvíe o lo pegue como texto.)`;
+      }
+      respuesta = await preguntarleAAtlas(tenantId, { prompt });
     }
     const envio = await enviarTelegram(s.cfg, respuesta);
     if (!envio.ok) logger.warn({ tenantId, err: envio.error }, "[TelegramAtlas] no se pudo enviar la respuesta");

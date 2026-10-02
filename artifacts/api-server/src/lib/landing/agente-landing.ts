@@ -194,6 +194,16 @@ REGLAS DEL AGENTE DE LANDINGS (mandan sobre cualquier otra instrucción de forma
 5. No inventes datos del producto ni del negocio (garantías, plazos, cantidades, testimonios con nombre, cifras). Solo lo que viene en los datos.
 6. Conservá tal cual las URLs (imágenes, enlaces de pago, action del formulario) y los nombres de los campos del formulario.
 7. Respetá la BITÁCORA: lo que el admin ya pidió en esta landing sigue vigente aunque este pedido no lo mencione.
+8. Los nombres de las secciones del brief (HERO, PROBLEMA, SOLUCIÓN, BENEFICIOS, OFERTA, AIDA: Atención/Interés/Deseo/Acción) son INTERNOS: nunca aparecen como texto visible. Si una sección lleva un rótulo chico sobre el título, es una frase del producto ("¿Te suena familiar?", "Así se usa", "Lo que dicen"), no el nombre de la técnica.
+9. DISEÑO MÓVIL PRIMERO (casi todo el tráfico viene del anuncio en el celular). Diseñá a 375px y después ampliá:
+   - Portada: en móvil la FOTO del producto va PRIMERO, grande (proporción 4:5, esquinas de 24-32px, sombra suave), y debajo la etiqueta chica, el titular con 1-3 palabras resaltadas en degradado del color de marca, 3 viñetas con check y el botón a ancho completo. En escritorio, dos columnas (texto | foto).
+   - Fondos que se ALTERNAN para separar sin líneas: tono muy claro del color de marca → blanco → franja gris clarísima de confianza → blanco → sección OSCURA (pizarra/casi negro, texto blanco) para "cómo se usa" con pasos numerados en círculos → degradado claro para la oferta y el formulario.
+   - Franja de confianza en 2 columnas en móvil (4 en escritorio): pago al recibir, envío, compra segura (y garantía SOLO si el negocio la tiene).
+   - Tarjetas con esquinas de 24px, borde muy suave y sombra difusa; botones en píldora con degradado del color de marca y sombra de color.
+   - Oferta + formulario en una tarjeta blanca elevada; total a pagar visible justo encima del botón.
+   - Barra fija abajo SOLO en móvil con el botón de pedir.
+   - COLORES modernos, NEUTROS y para ambos sexos (salvo que el producto sea claramente de un público): base hueso/piedra (#FAFAF9, #F5F5F4), texto casi negro (#1C1917), sección oscura en pizarra o carbón (#0F172A / #1C1917), y UN acento sobrio tomado del producto o de la paleta del brief: verde salvia/teal (#0F766E), azul petróleo (#155E75), terracota (#C2410C) u oliva (#4D7C0F). Nada de rosa, violeta o azul bebé por defecto, ni neón. Máximo 3 colores más los neutros.
+   - Nunca inventes calificaciones, cantidad de reseñas, descuentos, "quedan N unidades" ni testimonios: si no vienen en los datos, esa pieza no va.
 `.trim();
 
 export interface EntradaDeBitacora {
