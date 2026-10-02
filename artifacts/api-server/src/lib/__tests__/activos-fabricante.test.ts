@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { candidatosDeBusqueda, vendidosDe, fotoGrande, esFotoDeGaleria, tramosParaClips, activosAprobados, ARCHIVO_FABRICANTE, veredictoEsSi, fotosDeReferencia, consultasDeBusqueda } from "../activos-fabricante";
+import { candidatosDeBusqueda, vendidosDe, fotoGrande, esFotoDeGaleria, tramosParaClips, activosAprobados, ARCHIVO_FABRICANTE, veredictoEsSi, fotosDeReferencia, consultasDeBusqueda, tipoDeArchivo, veredictoDeVideo } from "../activos-fabricante";
 
 /**
  * Activos del fabricante (AliExpress), 01-10-2026. Lo que se puede probar sin
@@ -93,5 +93,117 @@ describe("visión: DeepSeek con el razonamiento apagado en TODAS las llamadas", 
     expect(consultasDeBusqueda("mochila", "mochila")).toEqual(["mochila"]);
     expect(consultasDeBusqueda("mochila", null)).toEqual(["mochila"]);
     expect(consultasDeBusqueda("  ", "backpack")).toEqual(["backpack"]);
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * LO QUE SE BAJA HAY QUE MIRARLO (bug del 02-10-2026)
+ *
+ * `bajar()` solo miraba status y TAMAÑO: una respuesta de AliExpress con HTTP
+ * 200 y `text/html` (muro de login, captcha, redirección) pasaba el filtro y se
+ * guardaba como .mp4/.jpg. Eso llegaba a la landing como video dañado o imagen
+ * mala. Medido contra AliExpress real: una ficha devuelve 200 + 73 KB de HTML y
+ * el filtro viejo la aceptaba.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+const bytes = (...b: number[]) => Buffer.from(b);
+const relleno = (cabecera: number[] | string, n = 2048) => {
+  const c = typeof cabecera === "string" ? Buffer.from(cabecera, "binary") : bytes(...cabecera);
+  return Buffer.concat([c, Buffer.alloc(n)]);
+};
+const ftyp = (marca: string) => relleno([0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70, ...Buffer.from(marca, "ascii")]);
+
+describe("tipoDeArchivo: la firma manda, no la extensión de la URL", () => {
+  it("reconoce las imágenes que sirve AliExpress", () => {
+    expect(tipoDeArchivo(relleno([0xff, 0xd8, 0xff, 0xe0]))).toBe("imagen"); // JPEG
+    expect(tipoDeArchivo(relleno([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))).toBe("imagen"); // PNG
+    expect(tipoDeArchivo(relleno("RIFF\x00\x00\x00\x00WEBPVP8 "))).toBe("imagen"); // WEBP
+    expect(tipoDeArchivo(relleno("GIF89a"))).toBe("imagen"); // GIF
+    expect(tipoDeArchivo(ftyp("avif"))).toBe("imagen"); // AVIF (marca ftyp)
+  });
+
+  it("reconoce los videos, separándolos de AVIF aunque compartan `ftyp`", () => {
+    expect(tipoDeArchivo(ftyp("isom"))).toBe("video");
+    expect(tipoDeArchivo(ftyp("mp42"))).toBe("video");
+    expect(tipoDeArchivo(relleno([0x1a, 0x45, 0xdf, 0xa3]))).toBe("video"); // WebM/MKV
+  });
+
+  it("caza el HTML con 200: es lo que rompía todo", () => {
+    expect(tipoDeArchivo(Buffer.concat([Buffer.from("<!DOCTYPE html><html><body>captcha"), Buffer.alloc(3000)]))).toBe("html");
+    expect(tipoDeArchivo(Buffer.concat([Buffer.from("\n  <html lang=\"es\">"), Buffer.alloc(3000)]))).toBe("html");
+  });
+
+  it("lo que no es nada no pasa por archivo", () => {
+    expect(tipoDeArchivo(Buffer.alloc(0))).toBe("otro");
+    expect(tipoDeArchivo(Buffer.from("hola"))).toBe("otro");
+    expect(tipoDeArchivo(Buffer.alloc(5000, 0x41))).toBe("otro");
+  });
+});
+
+describe("fotoGrande: las tres formas de miniatura de AliExpress", () => {
+  it("por SUFIJO, en jpg y también en avif (que faltaba)", () => {
+    expect(fotoGrande("//ae-pic-a1.aliexpress-media.com/kf/Sabc.jpg_220x220q75.jpg_.avif")).toBe(
+      "https://ae-pic-a1.aliexpress-media.com/kf/Sabc.jpg",
+    );
+    expect(fotoGrande("https://x.aliexpress-media.com/kf/Sfoto.webp_960x960.webp")).toBe(
+      "https://x.aliexpress-media.com/kf/Sfoto.webp",
+    );
+  });
+
+  it("por RUTA: '/96x96.png' era el cuadradito que se bajaba tal cual", () => {
+    expect(fotoGrande("https://ae-pic-a1.aliexpress-media.com/kf/S75c9e889/96x96.png")).toBe(
+      "https://ae-pic-a1.aliexpress-media.com/kf/S75c9e889.png",
+    );
+  });
+
+  it("con la basura que trae el HTML (`)`, comillas, punto y coma)", () => {
+    expect(fotoGrande("https://ae-pic-a1.aliexpress-media.com/kf/S7f30/96x96.png)")).toBe(
+      "https://ae-pic-a1.aliexpress-media.com/kf/S7f30.png",
+    );
+    expect(fotoGrande('"https://x.aliexpress-media.com/kf/Sa.jpg"')).toBe("https://x.aliexpress-media.com/kf/Sa.jpg");
+  });
+
+  it("una foto que ya es grande no se toca", () => {
+    expect(fotoGrande("https://ae01.alicdn.com/kf/Hx.png?x=1")).toBe("https://ae01.alicdn.com/kf/Hx.png");
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+ * UN MP4 TRUNCADO PASA LA FIRMA Y NO SE PUEDE CORTAR
+ *
+ * La otra mitad de "videos dañados": la descarga se corta a la mitad (o el
+ * contenedor viene roto) y la cabecera está bien, así que los magic bytes no lo
+ * cazan. Sin esto, ffmpeg producía clips vacíos o con un solo cuadro.
+ * ═══════════════════════════════════════════════════════════════════════════ */
+
+describe("veredictoDeVideo: ¿el video se puede usar de verdad?", () => {
+  it("un video sano pasa, con su duración", () => {
+    const salida = JSON.stringify({ streams: [{ codec_type: "video" }], format: { duration: "18.42" } });
+    expect(veredictoDeVideo(salida)).toEqual({ ok: true, duracion: 18.42 });
+  });
+
+  it("sin pista de video no sirve (aunque el contenedor sea válido)", () => {
+    const salida = JSON.stringify({ streams: [{ codec_type: "audio" }], format: { duration: "30" } });
+    const r = veredictoDeVideo(salida);
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toMatch(/pista de video/);
+  });
+
+  it("truncado: sin duración legible se descarta (no se corta un clip vacío)", () => {
+    const sinDuracion = JSON.stringify({ streams: [{ codec_type: "video" }], format: {} });
+    expect(veredictoDeVideo(sinDuracion).ok).toBe(false);
+    const cero = JSON.stringify({ streams: [{ codec_type: "video" }], format: { duration: "0" } });
+    const r = veredictoDeVideo(cero);
+    expect(r.ok).toBe(false);
+    expect(r.motivo).toMatch(/duración ilegible/);
+  });
+
+  it("menos de un segundo no alcanza para un tramo de 3 s", () => {
+    expect(veredictoDeVideo(JSON.stringify({ streams: [{ codec_type: "video" }], format: { duration: "0.6" } })).ok).toBe(false);
+  });
+
+  it("lo que no es JSON no se toma por bueno", () => {
+    expect(veredictoDeVideo("").ok).toBe(false);
+    expect(veredictoDeVideo("ffprobe: error abriendo el archivo").ok).toBe(false);
   });
 });
