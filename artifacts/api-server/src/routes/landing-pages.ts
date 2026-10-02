@@ -226,7 +226,7 @@ router.post("/preview", async (req: TenantRequest, res, next) => {
   } catch (e) { return next(e); }
 });
 
-async function enlacesDePagoLocal(tenantId: number, producto: any): Promise<{ mercadopago?: string; paypal?: string }> {
+export async function enlacesDePagoLocal(tenantId: number, producto: any): Promise<{ mercadopago?: string; paypal?: string }> {
   try {
     const { PaymentGateway } = await import("../lib/payments");
     const { tenantManager } = await import("../lib/tenantManager");

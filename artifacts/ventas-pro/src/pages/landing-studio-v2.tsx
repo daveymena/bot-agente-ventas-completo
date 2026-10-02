@@ -63,7 +63,7 @@ Creo paginas de ventas profesionales con frameworks de alta conversion (AIDA, PA
 
 **Para empezar:**
 1. Selecciona un **producto** arriba
-2. Si querés, elegí un **estilo** (si no, se elige solo según el producto)
+2. Si querés, elegí un **estilo** de la lista (17 diseños; si no, se elige solo según el producto)
 3. Presiona **Generar** — o escribeme que quieres
 
 *"Crea una landing impactante para mi curso de piano"*`;
@@ -88,12 +88,9 @@ export default function LandingStudioV2() {
   const [landings, setLandings] = useState<Landing[]>([]);
   const [productId, setProductId] = useState<number | "">("");
   const [landingId, setLandingId] = useState<number | null>(null);
-  // "ecommerce" es el mismo respaldo que usa tokensDe() en el servidor: así el
-  // valor por defecto es explícito y coincide con lo que se renderiza.
-  const [familia, setFamilia] = useState<Familia>("ecommerce");
-  // Las landings nuevas salen de la plantilla PRO (30-09-2026): ya no se elige
-  // entre 16 "familias", solo entre dos estilos profesionales.
-  const [estilo, setEstilo] = useState<"pro" | "clinico">("pro");
+  // "": Automática (el servidor sugiere por el producto). Con familia elegida,
+  // Generar usa SÍ O SÍ ese diseño (molde + renderer-v3 con skins y esqueletos).
+  const [familia, setFamilia] = useState<Familia | "">("");
   const [previewMode, setPreviewMode] = useState<"desktop" | "mobile">("desktop");
   /**
    * Qué panel se ve cuando la pantalla es chica.
@@ -178,7 +175,7 @@ export default function LandingStudioV2() {
       const r = await fetch("/api/landing-studio/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, landingId: esNueva ? undefined : landingId, productId: pid, estilo }),
+        body: JSON.stringify({ message: text, landingId: esNueva ? undefined : landingId, productId: pid, familia: familia || null }),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -210,7 +207,7 @@ export default function LandingStudioV2() {
       setBusy(false);
       inputRef.current?.focus();
     }
-  }, [input, busy, productId, landingId, familia, estilo]);
+  }, [input, busy, productId, landingId, familia]);
 
   const exportar = useCallback(async () => {
     if (!previewHtml) { toast.info("Primero genera una landing."); return; }
@@ -355,7 +352,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
     if (!l) return;
     setLandingId(id);
     if (l.productId) setProductId(l.productId);
-    if ((l.design as any)?.familia) setFamilia((l.design as any).familia as Familia);
+    if ((l.design as any)?.familia) setFamilia((l.design as any).familia as Familia); else setFamilia("");
     setUrlPublica((l as any).status === "published" ? ((l as any).publishedUrl || null) : null);
     await cargarPreview(id, (l.design as any)?.familia as Familia);
     setMsgs(m => [...m, { role: "assistant", content: `Landing **"${l.name}"** cargada${(l as any).status === "published" ? ` — publicada en ${(l as any).publishedUrl}` : " (borrador)"}. ¿Qué querés modificar?` }]);
@@ -504,11 +501,15 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
           >
             <div className="px-3 py-2 border-b bg-muted/20 shrink-0 flex items-center gap-2">
               <span className="text-[11px] font-medium text-muted-foreground shrink-0">Estilo</span>
-              <span className="h-3 w-3 rounded-full shrink-0 border" style={{ backgroundColor: estilo === "clinico" ? "#1D4ED8" : "#0F766E" }} />
-              <select value={estilo} onChange={e => setEstilo(e.target.value as "pro" | "clinico")} disabled={busy || previewBusy}
-                className="h-7 flex-1 rounded-md border bg-background px-2 text-xs" title="Se aplica al crear una landing nueva">
-                <option value="pro">Profesional (neutro, móvil primero)</option>
-                <option value="clinico">Clínico (azul y blanco, botón verde)</option>
+              <span className="h-3 w-3 rounded-full shrink-0 border" style={{ backgroundColor: (FAMILIAS.find(f => f.value === familia)?.color) || "#8B5CF6" }} />
+              <select value={familia} onChange={e => {
+                  const v = e.target.value as Familia | "";
+                  if (!v || !landingId) { setFamilia(v); return; }
+                  void cambiarFamilia(v as Familia);
+                }} disabled={busy || previewBusy}
+                className="h-7 flex-1 rounded-md border bg-background px-2 text-xs" title="Manda en Generar y en la publicada: cada familia es un diseño distinto">
+                <option value="">✨ Automático (según el producto)</option>
+                {FAMILIAS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
               </select>
             </div>
             <div className="flex shrink-0 border-b bg-muted/20 p-1 gap-1">
@@ -584,7 +585,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                 {landingId ? `/api/landing-pages/${landingId}/render` : "preview - genera una landing para comenzar"}
               </div>
               <Badge variant="outline" className="text-[10px] border-slate-700 text-slate-400 hidden sm:flex">
-                {estilo === "clinico" ? "Clínico" : "Profesional"}
+{(FAMILIAS.find(f => f.value === familia)?.label) || "Automático"}
               </Badge>
             </div>
             <div className={`flex-1 overflow-auto flex ${previewMode === "mobile" ? "items-start justify-center py-8" : ""}`}>
