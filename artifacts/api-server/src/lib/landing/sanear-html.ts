@@ -278,3 +278,40 @@ export function conFormularioQueResponde(html: string): string {
   if (h.includes("f.__vp")) return h;
   return /<\/body>/i.test(h) ? h.replace(/<\/body>/i, `${SCRIPT_FORMULARIO_DE_PEDIDO}</body>`) : h + SCRIPT_FORMULARIO_DE_PEDIDO;
 }
+
+// ─── Iconos SVG seguros (topbar / announcement bar) ─────────────────────────
+
+/**
+ * Caso real (02-10-2026, /l/ab-roller-fitness-wheel-mur2rjh6): la landing
+ * guardada por OpenCode trae `<div class="topbar">` con 3 <svg> SIN width ni
+ * height y SIN regla CSS que los limite (solo había regla para
+ * `.trust span svg`). El SVG por defecto mide 300×150 y se desborda justo
+ * ANTES del header. En local (renderer-v3) no se ve porque el renderer no
+ * usa topbar: solo afecta al HTML guardado que sirve la nube.
+ *
+ * No se puede confiar en que el modelo lo escriba bien: se normaliza al
+ * servir. Reglas conservadoras (ante la duda, no se toca):
+ *   1. Si hay <svg> sin width/height dentro de topbar/ann-bar, se les pone
+ *      width="15" height="15" + aria-hidden.
+ *   2. Se inyecta un <style> que limita TODOS los svg del topbar/ann-bar a
+ *      15px, con flex y overflow controlados, una sola vez.
+ */
+const CSS_ICONOS_SEGUROS = `<style id="vp-iconos-seguros">.topbar{overflow:hidden}.topbar-in{display:flex;justify-content:center;gap:8px 26px;flex-wrap:wrap;text-align:center;align-items:center}.topbar-in span{display:inline-flex;align-items:center;gap:7px;min-width:0;max-width:100%;white-space:normal}.topbar svg,.ann-bar svg,[class*="announce"] svg{width:15px!important;height:15px!important;flex:none;flex-shrink:0}svg:not([width]):not([height]){max-width:24px;max-height:24px}</style>`;
+
+export function conIconosSeguros(html: string): string {
+  let h = String(html || "");
+  if (!h) return h;
+  // 1. SVGs sin tamaño dentro del topbar/ann-bar → 15px.
+  h = h.replace(/<svg\b([^>]*?)>/gi, (todo, attrs) => {
+    if (/width\s*=/i.test(attrs) && /height\s*=/i.test(attrs)) return todo;
+    // Solo se tocan los que están en una barra superior; el resto lo cubre el CSS.
+    return `<svg${attrs} width="15" height="15" aria-hidden="true">`;
+  });
+  // 2. CSS de contención, una sola vez.
+  if (!h.includes("vp-iconos-seguros")) {
+    if (/<\/head>/i.test(h)) h = h.replace(/<\/head>/i, `${CSS_ICONOS_SEGUROS}</head>`);
+    else if (/<\/body>/i.test(h)) h = h.replace(/<\/body>/i, `${CSS_ICONOS_SEGUROS}</body>`);
+    else h += CSS_ICONOS_SEGUROS;
+  }
+  return h;
+}
