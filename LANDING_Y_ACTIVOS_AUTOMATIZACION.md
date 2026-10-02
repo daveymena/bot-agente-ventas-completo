@@ -108,3 +108,40 @@ Cada paso deja su resultado guardado en el producto, para que landing, anuncio y
 - "Más de 450 unidades vendidas esta semana", "últimas unidades", precio tachado o garantía que no sean reales.
 - Usar tal cual el video, las fotos con marca o la landing de un competidor (la réplica de la app traduce las imágenes ajenas y las publica como propias).
 - Bloquear clic derecho "para que no te copien": el mismo autor muestra que se salta con una extensión. Si el contenido es propio, se protege con marca de agua.
+
+---
+
+# 7. ESTADO VERIFICADO EN CÓDIGO (2026-10-02)
+
+> Corrige las tablas de arriba, que quedaron viejas: varias cosas que figuran
+> como ❌ **ya están construidas y en uso**. Se verificó leyendo qué código se
+> consume de verdad (no comentarios) y corriendo las pruebas.
+
+| Pieza | Lo que decía el plan | Estado REAL | Evidencia |
+|---|---|---|---|
+| Datos inventados en landings | ❌ quitarlos | ✅ **hecho** | `__tests__/plantillas-sin-inventos.test.ts` (59 casos) en verde |
+| Purchase falso a Meta | ❌ quitarlo | ✅ **hecho** | `compra-verificada-meta.ts` + test: el Purchase sale SOLO de un pago verificado |
+| Píxel de Meta en la landing | ❌ falta | ✅ **hecho** | `landing-publica.ts:57` usa `landing/monitor.ts` (`PageView`, `ViewContent`, `InitiateCheckout`, `Purchase`) |
+| Sección de video en la landing | ❌ el renderer no tiene `<video>` | ✅ **hecho** | `renderer-cod.ts:158`; y `sanear-html.ts` borra el `<video>` sin fuente real (guardia anti-invento) |
+| Ofertas por cantidad (2×/3×) | ❌ | ✅ **hecho** | `ofertasValidas` en `landing/crear-landing-imagenes.ts` + "Elige tu oferta" en `renderer-v3/moderno/cod/imagenes/pro` |
+| Ángulos / buyer persona | ❌ (la idea #1 pendiente) | ✅ **hecho** | `construirBrief()` devuelve 3 ángulos; `ruta-guiada.ts` (cableado en `routes/operator-opencode.ts`) los ofrece paso a paso |
+| **GIFs desde video (ffmpeg)** | ❌ | ✅ **hecho (02-10)** | `lib/gifs-de-producto.ts` + 8 tests (args puros: el CI no tiene ffmpeg) |
+| **Campaña en un clic (panel)** | no estaba en el plan | ✅ **hecho (02-10)** | `lib/campana-un-clic.ts` + `routes/campana.ts` (`POST /api/campana/generar`) + botón en `facebook.tsx` |
+| Variantes A/B de landing | ❌ | 🟡 **parcial** | `routes/marketing.ts` ya tiene experimentos (hipótesis + variante + presupuesto + duración); falta la UI |
+| Referencias en 2-3 idiomas | amplía lo existente | 🟡 **parcial** | `fb_ad_library` busca por país; falta traducir el término y recorrer idiomas |
+| Infografía automática | ❌ | 🟡 **parcial (otro camino)** | `crear-landing-imagenes.ts` + `plan-imagenes.ts` generan paneles con IA; no es la compuesta con Chromium |
+| 3 ganchos distintos por video | 🟡 | ❌ | `video-anuncio.ts` hace un video por producto, no 3 ganchos |
+
+### Lo que sigue, en orden
+
+1. **Cablear los GIFs**: el módulo existe pero **nadie lo llama todavía**. Va en el
+   flujo de campaña (guardado en el producto) y en la landing.
+2. **Infografía compuesta con Chromium** (texto exacto, sin API paga), reusando el
+   patrón de `video-anuncio.ts`.
+3. **Variantes A/B**: UI sobre los experimentos que ya existen en `routes/marketing.ts`.
+4. **Referencias multi-idioma** en `fb_ad_library`.
+5. **3 ganchos distintos** por video.
+
+⚠️ **Regla que no cambia**: nada de la sección 6 se automatiza. Un activo sin
+dato real detrás se cae, no se rellena.
+
