@@ -284,6 +284,17 @@ export function getProviderConfigConClave(
           "Copilot-Integration-Id": "vscode-chat",
         },
       };
+    case "ollama_cloud": {
+      // La clave que el admin carga desde el panel (tenants.apiKeys) tiene
+      // que servir: antes caía al default null y la configuración no hacía
+      // nada. El modelo lo elige el admin o OLLAMA_CLOUD_MODEL.
+      if (!apiKey) return null;
+      return {
+        baseUrl: process.env.OLLAMA_CLOUD_URL || "https://ollama.com/v1",
+        apiKey,
+        model: model || process.env.OLLAMA_CLOUD_MODEL || "gemma3:27b",
+      };
+    }
     default:
       return null;
   }
@@ -374,7 +385,7 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
       return {
         baseUrl: process.env.OLLAMA_CLOUD_URL || "https://ollama.com/v1",
         apiKey: process.env.OLLAMA_CLOUD_API_KEY,
-        model: process.env.OLLAMA_CLOUD_MODEL || "gpt-oss:120b",
+        model: process.env.OLLAMA_CLOUD_MODEL || "gemma3:27b",
       };
 
     case "ollama_local":

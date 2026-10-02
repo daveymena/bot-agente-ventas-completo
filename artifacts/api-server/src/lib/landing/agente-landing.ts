@@ -40,13 +40,14 @@ import { sanearHtmlDeLanding } from "./sanear-html";
  * cada respuesta se valida (tiene que traer <html) y si no, se pasa al
  * siguiente. Los verificados del registro van antes que los "sin probar".
  *
- *   deepseek   → la clave paga del negocio (o la global), va primero
+ *   ollama     → Pro/local primero (2026-10-02, orden del dueño); sin clave se saltea solo
+ *   deepseek   → la clave paga del negocio (o la global), de respaldo
  *   opencode   → gratuitos de Zen, directo (sin puente ni sesión)
  *   groq / openrouter → gratuitos rápidos
  *   ollama_local → el Ollama del EasyPanel (OLLAMA_LOCAL_URL)
  *   ollama_cloud → ollama.com (OLLAMA_CLOUD_API_KEY)
  */
-const PROVEEDORES = ["ollama_cloud", "deepseek", "opencode", "groq", "openrouter", "ollama_local"] as const;
+const PROVEEDORES = ["ollama_local", "ollama_cloud", "deepseek", "opencode", "groq", "openrouter"] as const;
 /**
  * Orden "gratuitos primero" para trabajos que no ameritan gastar DeepSeek
  * (curar fichas de producto, clasificar, resumir). DeepSeek queda al final
@@ -54,7 +55,7 @@ const PROVEEDORES = ["ollama_cloud", "deepseek", "opencode", "groq", "openrouter
  * OpenCode y los demás free, para no gastar el de DeepSeek que es el del
  * sistema".
  */
-export const ORDEN_GRATUITOS_PRIMERO = ["opencode", "github_copilot_internal", "groq", "openrouter", "cerebras", "ollama_local", "ollama_cloud", "deepseek"] as const;
+export const ORDEN_GRATUITOS_PRIMERO = ["ollama_local", "ollama_cloud", "opencode", "github_copilot_internal", "groq", "openrouter", "cerebras", "deepseek"] as const;
 /** Cuántos modelos distintos se prueban por proveedor gratuito antes de pasar al siguiente. */
 const MODELOS_POR_PROVEEDOR = 2;
 

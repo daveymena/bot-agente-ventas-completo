@@ -35,6 +35,10 @@ export interface Candidato {
  * Los que ya están en la lista curada no se repiten.
  */
 export const PROVEEDORES_RAPIDOS = [
+  // Ollama PRIMERO (2026-10-02, orden del dueño: Pro/local gratis antes que
+  // todo). Si OpenCode no lo cataloga o no hay clave/URL, no cuesta nada:
+  // el descubrimiento lo saltea solo.
+  "ollama",
   // Groq PRIMERO. Medido contra produccion el 2026-08-28, con llamada real
   // proveedor por proveedor: es el unico que responde, y responde rapido
   // (openai/gpt-oss-120b en 442ms, qwen3.8-27b en 348ms).

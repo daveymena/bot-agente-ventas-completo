@@ -23,7 +23,7 @@ services:
 
       # ========== AI FALLBACK ==========
       AI_FALLBACK_ENABLED: "${AI_FALLBACK_ENABLED:-true}"
-      AI_FALLBACK_ORDER: "${AI_FALLBACK_ORDER:-opencode,groq,github,g4f}"
+      AI_FALLBACK_ORDER: "${AI_FALLBACK_ORDER:-ollama_cloud,opencode,groq,github,g4f}"
       # Autoevaluación curada: solo aplica una mejora gestionada, validada y reversible.
       AUTOREFLEXION_ENABLED: "${AUTOREFLEXION_ENABLED:-true}"
       OPENCODE_API_URL: "${OPENCODE_API_URL:-https://api.freemodel.dev/v1}"
@@ -40,7 +40,8 @@ services:
       OLLAMA_LOCAL_URL: "${OLLAMA_LOCAL_URL}"
       OLLAMA_LOCAL_MODEL: "${OLLAMA_LOCAL_MODEL:-hermes3:8b}"
       OLLAMA_CLOUD_API_KEY: "${OLLAMA_CLOUD_API_KEY}"
-      OLLAMA_CLOUD_MODEL: "${OLLAMA_CLOUD_MODEL:-gpt-oss:20b}"
+      OLLAMA_CLOUD_MODEL: "${OLLAMA_CLOUD_MODEL:-gemma3:27b}"
+      OLLAMA_IMAGE_MODEL: "${OLLAMA_IMAGE_MODEL:-x/z-image-turbo}"
       ATLAS_DIRECTO: "${ATLAS_DIRECTO:-false}"
       ATLAS_DIRECTO_URL: "${ATLAS_DIRECTO_URL}"
       ATLAS_DIRECTO_MODELO: "${ATLAS_DIRECTO_MODELO}"

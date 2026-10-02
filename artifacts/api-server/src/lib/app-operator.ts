@@ -2849,7 +2849,7 @@ export const TOOLS: ToolDef[] = [
       "Si dice que no pudo verla, decíselo al admin tal cual en vez de inventar lo que muestra. " +
       "PROHIBIDO afirmar montos, fechas o datos exactos que la herramienta no haya dicho con claridad.",
     args: '{ "url": string (req: la URL de la imagen tal como aparece en el chat, http(s) o /uploads/...), "pregunta"?: string (opcional: qué buscar en la imagen, ej "qué dice el error del pantallazo") }',
-    run: async (args) => {
+    run: async (args, ctx) => {
       const crudo = String(args?.url || "").trim();
       const pregunta = String(args?.pregunta || "").trim().slice(0, 300);
       if (!crudo) return { ok: false, summary: "Pasame la 'url' de la imagen (la que aparece en el chat como ![...](url))." };
@@ -2897,7 +2897,7 @@ export const TOOLS: ToolDef[] = [
         return { ok: false, summary: `No pude traer la imagen: ${String(e?.message || e).slice(0, 160)}` };
       }
       const { describirImagen, visionDisponible } = await import("./media-entrante");
-      const descripcion = await describirImagen(buffer!, mime, pregunta || undefined);
+      const descripcion = await describirImagen(buffer!, mime, pregunta || undefined, (ctx as any)?.tenantId);
       if (!descripcion) {
         const v = visionDisponible();
         if (!v.hay) return { ok: false, summary: "Visión no configurada en este servidor (ningún modelo con visión tiene clave). Avisale al admin que revise VISION_MODELS u OLLAMA_LOCAL_URL." };
@@ -4707,14 +4707,27 @@ ${explicarObjetivos()}` };
     name: "generate_image",
     description: "Generar una imagen con IA a partir de una descripción, en el tamaño correcto según el uso. Devuelve la URL para que el admin la revise ANTES de asignarla. NO la asigna sola.",
     args: '{ "prompt": string (req, descripción de la imagen), "purpose": "ad_feed"|"ad_story"|"card"|"square" (opcional, define el tamaño) }',
-    run: async (args) => {
+    run: async (args, ctx) => {
       if (!args.prompt) return { ok: false, summary: "Falta 'prompt' (descripción de la imagen)" };
       const sizes: Record<string, string> = {
         ad_feed: "1200x628", ad_story: "1080x1920", card: "1080x1080", square: "1080x1080",
       };
       const size = sizes[args.purpose as string] || "1080x1080";
+      // Ollama PRIMERO (Pro/local gratis): creativos para landings y anuncios
+      // sin gastar DALL-E. Si no hay servidor o modelo, cae sola a la cadena.
+      try {
+        const dataUrl = await generarImagenConOllama(String(args.prompt), (ctx as any)?.tenantId);
+        if (dataUrl) {
+          const { saveUploadedImage } = await import("./image-store");
+          const rel = await saveUploadedImage(dataUrl, "ia.png");
+          const url = rel || dataUrl;
+          return { ok: true, summary: `Imagen generada con Ollama (${size}). Revísala: ${url}`, data: { imageUrl: url, size, proveedor: "ollama" } };
+        }
+      } catch (e: any) {
+        logger.warn({ err: e?.message }, "[generate_image] Ollama falló, sigue la cadena");
+      }
       const url = await generateImageUrl(String(args.prompt), size);
-      if (!url) return { ok: false, summary: "No se pudo generar la imagen con ningún proveedor (DALL-E, G4F ni Pollinations respondieron)." };
+      if (!url) return { ok: false, summary: "No se pudo generar la imagen con ningún proveedor (Ollama, DALL-E, G4F ni Pollinations respondieron). Revisá OLLAMA_IMAGE_MODEL y que el servidor tenga un modelo x/imagegen." };
       return { ok: true, summary: `Imagen generada (${size}). Revísala: ${url}`, data: { imageUrl: url, size } };
     },
   },
@@ -9209,6 +9222,48 @@ ${r.texto}`, data: r.grupos };
  * Genera una imagen con el proveedor disponible: DALL-E (OpenAI) si hay key,
  * si no G4F (gratis) si está activo. Devuelve la URL o null si no hay generador.
  */
+/**
+ * Imagen con Ollama Pro (x/z-image-turbo o x/flux2-klein).
+ *
+ * Orden de resolución, igual que el resto de proveedores del sistema:
+ * 1. la clave del PROPIO cliente (panel → tenants.apiKeys, `ollama_cloud`);
+ * 2. OLLAMA_CLOUD_API_KEY del entorno;
+ * 3. daemon local (OLLAMA_LOCAL_URL, sin clave).
+ * Devuelve data: URL lista para mostrar/asignar, o null para seguir con
+ * DALL-E → G4F → Pollinations. Nunca lanza.
+ */
+export async function generarImagenConOllama(prompt: string, tenantId?: number): Promise<string | null> {
+  try {
+    let base = "";
+    let apiKey = "";
+    let model = "";
+    if (tenantId) {
+      try {
+        const { configDelTenant } = await import("./ai-keys-tenant");
+        const r = await configDelTenant(Number(tenantId), "ollama_cloud");
+        if (r?.config) {
+          base = String((r.config as any).baseUrl || "").replace(/\/+$/, "").replace(/\/v1$/, "");
+          apiKey = String((r.config as any).apiKey || "");
+          model = String((r.config as any).model || "");
+        }
+      } catch { /* cae al entorno */ }
+    }
+    if (!apiKey) apiKey = process.env.OLLAMA_CLOUD_API_KEY || "";
+    if (!model) model = process.env.OLLAMA_CLOUD_MODEL || "";
+    if (!base) base = String(process.env.OLLAMA_LOCAL_URL || "").replace(/\/+$/, "").replace(/\/v1$/, "");
+    if (!base) return null;
+    const { ollamaImageBase64 } = await import("@workspace/integrations-openai-ai-server");
+    const b64 = await ollamaImageBase64(prompt, {
+      base,
+      model: process.env.OLLAMA_IMAGE_MODEL || model || "x/z-image-turbo",
+      apiKey: apiKey || undefined,
+    });
+    return b64 ? `data:image/png;base64,${b64}` : null;
+  } catch {
+    return null;
+  }
+}
+
 async function generateImageUrl(prompt: string, size: string): Promise<string | null> {
   const openaiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
   if (openaiKey) {
