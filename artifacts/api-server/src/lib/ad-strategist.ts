@@ -1039,7 +1039,7 @@ export class AdStrategist {
     return `https://wa.me/${digitos}`;
   }
 
-  async createDraftAd(adAccountParam: string, accessTokenParam: string, productId: number, grounded?: ResearchGroundedCopy, manualImages?: string[], destino?: { tipo: "whatsapp"; numero: string }, presupuestoDiario?: number, opts: { subirSolo?: boolean } = {}): Promise<DraftAd> {
+  async createDraftAd(adAccountParam: string, accessTokenParam: string, productId: number, grounded?: ResearchGroundedCopy, manualImages?: string[], destino?: { tipo: "whatsapp"; numero: string }, presupuestoDiario?: number, opts: { subirSolo?: boolean; subirAhora?: boolean } = {}): Promise<DraftAd> {
     // Las credenciales se resuelven SIEMPRE acá, no se confía en las que
     // manda quien llama: los tres llamadores (la ruta HTTP, la herramienta
     // fb_ad_draft de Atlas y createDraftsForAllProducts) armaban su propio
@@ -1178,7 +1178,17 @@ export class AdStrategist {
     // real del 25-09-2026: Atlas pidió formulario, este paso lo subió solo
     // como tráfico a la landing y la subida pedida falló con "ese borrador ya
     // existe en Meta".
-    if (process.env.FB_CREATE_REAL_CAMPAIGNS !== "true" || !localDraft.id || opts.subirSolo === false) return localDraft;
+    // ── El borrador LOCAL es el default; subir no es un efecto del clic ──
+    //
+    // Reportado por el dueño (03-10-2026): "cuando le doy crear borrador de
+    // una los sube a Facebook, no espera que uno lo publique". El default era
+    // el contrario: si FB_CREATE_REAL_CAMPAIGNS=true, `createDraftAd` subía al
+    // mismo tiempo, y el botón del panel quedaba como quien YA autorizó la
+    // campaña -- sin que nadie la haya revisado. Ahora el que sube es quien
+    // lo pida EXPLÍCITO: `opts.subirAhora: true` (Atlas, el lanzamiento
+    // automático, el modal con publishNow) -- el panel nunca. La subida del
+    // panel vive en POST /strategist/draft/:id/upload, que ES el botón.
+    if (!localDraft.id || opts.subirSolo === false || opts.subirAhora !== true) return localDraft;
 
     if (!accessToken || !adAccount) {
       localDraft.errorDeMeta = "Para subirlo a Meta primero tenés que conectar tu cuenta de Facebook desde la sección Facebook del panel.";
@@ -1223,9 +1233,16 @@ export class AdStrategist {
 
     for (const p of activeProducts) {
       try {
-        const draft = await this.createDraftAd(adAccountId, accessToken, p.id);
+        // Queda LOCAL (sin subir): "Megapacks" dispara decenas de borradores de
+        // una -- subirlos todos a Meta en el mismo paso sería crear campañas
+        // REALES sin que nadie las revisó ni aprobó. Se revisan y se suben una
+        // por una desde la lista.
+        const draft = await this.createDraftAd(adAccountId, accessToken, p.id, undefined, undefined, undefined, undefined, { subirSolo: false });
         result.drafts.push(draft);
         if (draft.status === "created") result.created++;
+        // Un borrador LOCAL ES un éxito (está guardado y listo para revisar):
+        // antes contaba como "failed" y el panel decía errores que no eran.
+        else if (draft.id) result.created++;
         else result.failed++;
         // El placeholder de placehold.co es la señal de "este producto no
         // tiene foto real" -- son los anuncios que van a salir con una

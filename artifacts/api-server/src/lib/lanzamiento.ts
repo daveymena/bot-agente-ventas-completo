@@ -201,7 +201,7 @@ async function crearBorradorDeAnuncio(tenantId: number, productId: number, copie
     if (!fb.accessToken || !fb.adAccountId) return { draftId: null, estado: "omitido", nota: "Sin credenciales de Meta cargadas: el anuncio no se creó." };
     const { AdStrategist } = await import("./ad-strategist");
     const grounded = copies ? { primaryText: copies.meta.primaryText, headline: copies.meta.headlines[0], description: copies.meta.description } as any : undefined;
-    const draft = await new AdStrategist(tenant as any).createDraftAd(fb.adAccountId, fb.accessToken, productId, grounded, undefined, undefined, presupuesto || undefined);
+    const draft = await new AdStrategist(tenant as any).createDraftAd(fb.adAccountId, fb.accessToken, productId, grounded, undefined, undefined, presupuesto || undefined, { subirAhora: true });
     const draftId = Number((draft as any)?.id) || null;
     // Lo que PASÓ, no lo que se supone: con la creación real habilitada el
     // borrador ya sube a Meta acá, y antes igual se decía "se sube cuando lo apruebes".

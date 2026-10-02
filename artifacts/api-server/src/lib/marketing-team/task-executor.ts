@@ -244,7 +244,9 @@ async function aplicarAccion(tenantId: number, action: string, input: Record<str
       if (productId > 0) {
         const adAccountId = tenant.facebook?.adAccountId || "";
         const accessToken = tenant.facebook?.userAccessToken || tenant.facebook?.accessToken || "";
-        const draft = await strategist.createDraftAd(adAccountId, accessToken, productId);
+        // El A/B necesita la campaña EN META (pausada) para poder medirla:
+        // un borrador local no tiene gasto ni impresiones que comparar.
+        const draft = await strategist.createDraftAd(adAccountId, accessToken, productId, undefined, undefined, undefined, undefined, { subirAhora: true });
         const ok = !!draft?.id;
         return { ok, applied: ok, action, reason: ok ? `Borrador #${draft.id} creado (queda pausado/a revisar).` : "No se pudo crear el borrador.", detalle: { draftId: draft?.id ?? null, productId } };
       }
