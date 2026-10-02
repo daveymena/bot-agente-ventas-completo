@@ -2,15 +2,22 @@
  * CAMPAÑA EN UN CLIC — pruebas del encadenado
  * ==========================================
  *
- * El ejecutor se inyecta, así que esto prueba el ORDEN y las decisiones sin
- * base de datos, sin Meta y sin gastar un peso. Lo que fija:
+ * El ejecutor y el investigador se inyectan, así que esto prueba el ORDEN y las
+ * decisiones sin base de datos, sin Meta, sin Chromium y sin gastar un peso.
+ * Lo que fija:
+ *   · que la INVESTIGACIÓN corra antes del anuncio (es lo que separa "el copy
+ *     de Atlas" de "un anuncio por defecto");
  *   · que se llamen las herramientas correctas con los argumentos correctos;
- *   · que si el anuncio falla no se invente un borrador;
- *   · que la segmentación sea una sugerencia y no un requisito.
+ *   · que si algo falla no se invente un resultado.
  */
 
 import { describe, test, expect } from "vitest";
-import { generarCampana, type EjecutorDeAccion, type ResultadoHerramienta } from "../campana-un-clic";
+import {
+  generarCampana,
+  type EjecutorDeAccion,
+  type InvestigadorDeMercado,
+  type ResultadoHerramienta,
+} from "../campana-un-clic";
 
 /** Registra las llamadas y devuelve lo que se le pida por herramienta. */
 function ejecutorFalso(porHerramienta: Record<string, ResultadoHerramienta>) {
@@ -22,6 +29,16 @@ function ejecutorFalso(porHerramienta: Record<string, ResultadoHerramienta>) {
   return { ejecutar, llamadas };
 }
 
+/** Investigación falsa: deja constancia de que se pidió y con qué producto. */
+function investigadorFalso(r: { ok: boolean; texto?: string; motivo?: string } = { ok: true, texto: "Anuncios reales de la competencia…" }) {
+  const pedidos: string[] = [];
+  const investigar: InvestigadorDeMercado = async (producto) => {
+    pedidos.push(producto);
+    return r;
+  };
+  return { investigar, pedidos };
+}
+
 const ANUNCIO_OK: ResultadoHerramienta = {
   ok: true,
   summary: "✅ Anuncio creado para \"Corrector\" (id 7) — borrador 42",
@@ -29,13 +46,94 @@ const ANUNCIO_OK: ResultadoHerramienta = {
 };
 
 describe("generarCampana", () => {
+  test("INVESTIGA antes de escribir el anuncio (es lo que lo hace como Atlas)", async () => {
+    const { ejecutar, llamadas } = ejecutorFalso({ crear_anuncio: ANUNCIO_OK });
+    const { investigar, pedidos } = investigadorFalso();
+
+    const r = await generarCampana(1, { producto: "Corrector", dailyBudget: 20000 }, { ejecutar, investigar });
+
+    expect(r.ok).toBe(true);
+    expect(r.investigado).toBe(true);
+    expect(pedidos).toEqual(["Corrector"]);
+    expect(llamadas.map((l) => l.tool)).toEqual(["fb_suggest_audience", "crear_anuncio"]);
+    expect(r.resumen).toMatch(/investigación de mercado/i);
+  });
+
+  test("conSegmentacion:false solo saltea la sugerencia, NO la investigación", async () => {
+    const { ejecutar, llamadas } = ejecutorFalso({ crear_anuncio: ANUNCIO_OK });
+    const { investigar, pedidos } = investigadorFalso();
+
+    await generarCampana(1, { producto: "Corrector", dailyBudget: 20000, conSegmentacion: false }, { ejecutar, investigar });
+
+    expect(pedidos).toEqual(["Corrector"]);
+    expect(llamadas.map((l) => l.tool)).toEqual(["crear_anuncio"]);
+  });
+
+  test("conInvestigacion:false no investiga, y lo DICE en el resumen", async () => {
+    const { ejecutar } = ejecutorFalso({ crear_anuncio: ANUNCIO_OK });
+    const { investigar, pedidos } = investigadorFalso();
+
+    const r = await generarCampana(
+      1,
+      { producto: "Corrector", dailyBudget: 20000, conInvestigacion: false },
+      { ejecutar, investigar },
+    );
+
+    expect(pedidos).toEqual([]);
+    expect(r.investigado).toBe(false);
+    expect(r.resumen).toMatch(/Sin investigación/i);
+  });
+
+  test("si la investigación falla, el anuncio sale igual y se avisa", async () => {
+    const { ejecutar, llamadas } = ejecutorFalso({ crear_anuncio: ANUNCIO_OK });
+    const { investigar } = investigadorFalso({ ok: false, motivo: "la Biblioteca pidió login" });
+
+    const r = await generarCampana(1, { producto: "Corrector", dailyBudget: 20000 }, { ejecutar, investigar });
+
+    expect(r.ok).toBe(true);
+    expect(r.investigado).toBe(false);
+    // El anuncio NO se pierde por una investigación que no llegó.
+    expect(llamadas.map((l) => l.tool)).toContain("crear_anuncio");
+    const paso = r.pasos.find((p) => p.paso === "investigacion")!;
+    expect(paso.ok).toBe(false);
+    expect(paso.detalle).toMatch(/login/);
+  });
+
+  test("si la investigación revienta, no tumba el turno", async () => {
+    const { ejecutar } = ejecutorFalso({ crear_anuncio: ANUNCIO_OK });
+    const investigar: InvestigadorDeMercado = async () => { throw new Error("se cayó el navegador"); };
+
+    const r = await generarCampana(1, { producto: "Corrector", dailyBudget: 20000 }, { ejecutar, investigar });
+
+    expect(r.ok).toBe(true);
+    expect(r.investigado).toBe(false);
+    expect(r.pasos.find((p) => p.paso === "investigacion")!.detalle).toMatch(/navegador/);
+  });
+
+  test("la investigación va ANTES que la segmentación y el anuncio", async () => {
+    const orden: string[] = [];
+    const ejecutar: EjecutorDeAccion = async (tool) => {
+      orden.push(tool);
+      return tool === "crear_anuncio" ? ANUNCIO_OK : { ok: true, summary: "ok", data: {} };
+    };
+    const investigar: InvestigadorDeMercado = async () => {
+      orden.push("investigar");
+      return { ok: true, texto: "hallazgos" };
+    };
+
+    await generarCampana(1, { producto: "Corrector", dailyBudget: 20000 }, { ejecutar, investigar });
+
+    expect(orden).toEqual(["investigar", "fb_suggest_audience", "crear_anuncio"]);
+  });
+
   test("encadena segmentación y anuncio, y devuelve el borrador real", async () => {
     const { ejecutar, llamadas } = ejecutorFalso({
       fb_suggest_audience: { ok: true, summary: "Audiencia sugerida: mujeres 25-45", data: { edad: "25-45" } },
       crear_anuncio: ANUNCIO_OK,
     });
+    const { investigar } = investigadorFalso();
 
-    const r = await generarCampana(1, { producto: "Corrector", dailyBudget: 20000 }, { ejecutar });
+    const r = await generarCampana(1, { producto: "Corrector", dailyBudget: 20000 }, { ejecutar, investigar });
 
     expect(r.ok).toBe(true);
     expect(llamadas.map((l) => l.tool)).toEqual(["fb_suggest_audience", "crear_anuncio"]);
@@ -47,53 +145,55 @@ describe("generarCampana", () => {
 
   test("le pasa el producto y el presupuesto a crear_anuncio, y el objetivo al contexto", async () => {
     const { ejecutar, llamadas } = ejecutorFalso({ crear_anuncio: ANUNCIO_OK });
+    const { investigar } = investigadorFalso();
 
-    await generarCampana(3, { producto: "Cámara", dailyBudget: 15000, objetivo: "mensajes" }, { ejecutar });
+    await generarCampana(3, { producto: "Cámara", dailyBudget: 15000, objetivo: "mensajes" }, { ejecutar, investigar });
 
     const anuncio = llamadas.find((l) => l.tool === "crear_anuncio")!;
     expect(anuncio.args.producto).toBe("Cámara");
     expect(anuncio.args.dailyBudget).toBe(15000);
     expect(anuncio.args.objetivo).toBe("mensajes");
     expect(anuncio.ctx.tenantId).toBe(3);
-    // El objetivo también viaja en el contexto: es la red que ya existe para
-    // que el destino no dependa de que el modelo se acuerde.
     expect(anuncio.ctx.objetivoDelAdmin).toBe("mensajes");
   });
 
-  test("sin producto no llama a ninguna herramienta", async () => {
+  test("sin producto no llama a NADA (ni investiga)", async () => {
     const { ejecutar, llamadas } = ejecutorFalso({});
+    const { investigar, pedidos } = investigadorFalso();
 
-    const r = await generarCampana(1, { producto: "   ", dailyBudget: 20000 }, { ejecutar });
+    const r = await generarCampana(1, { producto: "   ", dailyBudget: 20000 }, { ejecutar, investigar });
 
     expect(r.ok).toBe(false);
     expect(llamadas.length).toBe(0);
+    expect(pedidos.length).toBe(0);
     expect(r.resumen).toMatch(/Falta el producto/);
   });
 
-  test("sin presupuesto no llama a ninguna herramienta (no se inventa plata)", async () => {
+  test("sin presupuesto no llama a NADA (no se inventa plata)", async () => {
     const { ejecutar, llamadas } = ejecutorFalso({});
+    const { investigar, pedidos } = investigadorFalso();
 
-    const r = await generarCampana(1, { producto: "Corrector", dailyBudget: 0 }, { ejecutar });
+    const r = await generarCampana(1, { producto: "Corrector", dailyBudget: 0 }, { ejecutar, investigar });
 
     expect(r.ok).toBe(false);
     expect(llamadas.length).toBe(0);
+    expect(pedidos.length).toBe(0);
     expect(r.resumen).toMatch(/presupuesto/i);
   });
 
   test("si el anuncio falla, se corta con el motivo y NO se inventa un borrador", async () => {
-    const { ejecutar, llamadas } = ejecutorFalso({
+    const { ejecutar } = ejecutorFalso({
       crear_anuncio: { ok: false, summary: "Este producto pierde plata por pedido: pausá y revisá el margen." },
     });
+    const { investigar } = investigadorFalso();
 
-    const r = await generarCampana(1, { producto: "Corrector", dailyBudget: 20000 }, { ejecutar });
+    const r = await generarCampana(1, { producto: "Corrector", dailyBudget: 20000 }, { ejecutar, investigar });
 
     expect(r.ok).toBe(false);
     expect(r.draftId).toBeNull();
     expect(r.copy).toBeNull();
     expect(r.resumen).toMatch(/pierde plata/);
-    // El paso quedó registrado con su motivo, para que el panel lo muestre.
     expect(r.pasos.find((p) => p.paso === "anuncio")?.ok).toBe(false);
-    expect(llamadas.map((l) => l.tool)).not.toContain("landing_crear");
   });
 
   test("si la segmentación falla, el anuncio sale igual (es sugerencia, no requisito)", async () => {
@@ -101,8 +201,9 @@ describe("generarCampana", () => {
       fb_suggest_audience: { ok: false, summary: "Meta no respondió" },
       crear_anuncio: ANUNCIO_OK,
     });
+    const { investigar } = investigadorFalso();
 
-    const r = await generarCampana(1, { producto: "Corrector", dailyBudget: 20000 }, { ejecutar });
+    const r = await generarCampana(1, { producto: "Corrector", dailyBudget: 20000 }, { ejecutar, investigar });
 
     expect(r.ok).toBe(true);
     expect(r.pasos.find((p) => p.paso === "segmentacion")?.ok).toBe(false);
@@ -110,23 +211,16 @@ describe("generarCampana", () => {
     expect(r.resumen).not.toMatch(/segmentación sugerida/);
   });
 
-  test("conSegmentacion:false no llama a fb_suggest_audience", async () => {
-    const { ejecutar, llamadas } = ejecutorFalso({ crear_anuncio: ANUNCIO_OK });
-
-    await generarCampana(1, { producto: "Corrector", dailyBudget: 20000, conSegmentacion: false }, { ejecutar });
-
-    expect(llamadas.map((l) => l.tool)).toEqual(["crear_anuncio"]);
-  });
-
   test("subirAMeta solo cuando se pide explícitamente", async () => {
     const { ejecutar, llamadas } = ejecutorFalso({ crear_anuncio: ANUNCIO_OK });
+    const { investigar } = investigadorFalso();
     const argsDelAnuncio = () => llamadas.find((l) => l.tool === "crear_anuncio")!.args;
 
-    await generarCampana(1, { producto: "Corrector", dailyBudget: 20000 }, { ejecutar });
+    await generarCampana(1, { producto: "Corrector", dailyBudget: 20000 }, { ejecutar, investigar });
     expect(argsDelAnuncio().subirAMeta).toBe(false);
 
     llamadas.length = 0;
-    const r = await generarCampana(1, { producto: "Corrector", dailyBudget: 20000, subirAMeta: true }, { ejecutar });
+    const r = await generarCampana(1, { producto: "Corrector", dailyBudget: 20000, subirAMeta: true }, { ejecutar, investigar });
     expect(argsDelAnuncio().subirAMeta).toBe(true);
     expect(r.resumen).toMatch(/EN PAUSA/);
   });

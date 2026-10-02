@@ -989,19 +989,53 @@ export default function FacebookAdsPage() {
                             {generandoCampana ? "Generando (busca, investiga y escribe)..." : `Generar campaña para ${selectedProduct.name}`}
                           </Button>
                           {campanaResult && (
-                            <div className="space-y-2 rounded bg-muted p-3 text-xs">
-                              <p className="font-semibold">{campanaResult.resumen}</p>
+                            <div className="space-y-3 rounded-md border bg-muted/40 p-3 text-xs">
+                              {/* Estado: lo primero es si el copy salió investigado o no.
+                                  Un anuncio sin investigación es honesto pero no detiene
+                                  a nadie: el admin tiene que poder verlo de un vistazo. */}
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className={`rounded-full px-2 py-0.5 font-medium ${campanaResult.investigado ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                                  {campanaResult.investigado ? "✓ Con investigación de mercado" : "⚠ Sin investigación"}
+                                </span>
+                                {campanaResult.draftId && (
+                                  <span className="rounded-full bg-background px-2 py-0.5 text-muted-foreground">
+                                    Borrador #{campanaResult.draftId}
+                                  </span>
+                                )}
+                              </div>
+
+                              <p className="font-semibold break-words">{campanaResult.resumen}</p>
+
                               {campanaResult.copy?.headline && (
-                                <p className="whitespace-pre-wrap break-words font-medium">{campanaResult.copy.headline}</p>
+                                <div className="rounded border bg-background p-2">
+                                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Titular</p>
+                                  <p className="font-medium whitespace-pre-wrap break-words">{campanaResult.copy.headline}</p>
+                                </div>
                               )}
                               {campanaResult.copy?.primaryText && (
-                                <p className="whitespace-pre-wrap break-words">{campanaResult.copy.primaryText}</p>
+                                <div className="rounded border bg-background p-2">
+                                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Texto del anuncio</p>
+                                  <p className="max-h-56 overflow-y-auto whitespace-pre-wrap break-words">{campanaResult.copy.primaryText}</p>
+                                </div>
                               )}
-                              {Array.isArray(campanaResult.pasos) && campanaResult.pasos.map((p: any, i: number) => (
-                                <p key={i} className={p.ok ? "text-green-600" : "text-amber-600"}>
-                                  {p.ok ? "✓" : "⚠"} {p.detalle}
+
+                              {Array.isArray(campanaResult.pasos) && campanaResult.pasos.length > 0 && (
+                                <div className="space-y-1">
+                                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Qué hizo, paso por paso</p>
+                                  {campanaResult.pasos.map((p: any, i: number) => (
+                                    <p key={i} className={p.ok ? "text-green-700" : "text-amber-700"}>
+                                      {p.ok ? "✓" : "⚠"} <span className="font-medium">{p.paso}</span>: {p.detalle}
+                                    </p>
+                                  ))}
+                                </div>
+                              )}
+
+                              {campanaResult.draftId && (
+                                <p className="text-muted-foreground">
+                                  Revisalo, cambiá el copy o las fotos, y publicalo desde la pestaña{" "}
+                                  <b>Borradores</b>.
                                 </p>
-                              ))}
+                              )}
                             </div>
                           )}
                         </div>

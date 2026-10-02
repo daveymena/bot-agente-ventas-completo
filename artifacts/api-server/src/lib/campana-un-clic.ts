@@ -39,10 +39,19 @@ export interface OpcionesDeCampana {
   subirAMeta?: boolean;
   /** Pedir la segmentación sugerida (solo lectura, no gasta ni toca Meta). */
   conSegmentacion?: boolean;
+  /**
+   * Investigar el mercado ANTES de escribir el copy. Por defecto SÍ.
+   *
+   * Es la diferencia entre el botón y Atlas: sin investigación el copy sale de
+   * los datos del producto y no de lo que funciona hoy. Medido el 2026-10-02:
+   * el mismo `crear_anuncio` devolvía un copy distinto desde el panel que desde
+   * el chat, porque el chat guardaba el resultado de la investigación.
+   */
+  conInvestigacion?: boolean;
 }
 
 export interface PasoDeCampana {
-  paso: "segmentacion" | "anuncio";
+  paso: "investigacion" | "segmentacion" | "anuncio";
   ok: boolean;
   /** En palabras del negocio: esto se muestra en el panel. */
   detalle: string;
@@ -56,6 +65,8 @@ export interface ResultadoCampana {
   productoId: number | null;
   draftId: number | null;
   copy: { headline?: string; primaryText?: string } | null;
+  /** Si el copy salió con investigación de mercado detrás. */
+  investigado: boolean;
 }
 
 /** Lo que devuelve una herramienta del operador. */
@@ -71,7 +82,42 @@ export interface ResultadoHerramienta {
  */
 export type EjecutorDeAccion = (tool: string, args: any, ctx: any) => Promise<ResultadoHerramienta>;
 
-export const PASOS_DE_CAMPANA = ["segmentacion", "anuncio"] as const;
+/**
+ * La investigación de mercado, inyectable: en producción entra por la misma
+ * puerta que usa Atlas (`investigacionRapida`) y se guarda como el
+ * `research_result` que `crear_anuncio` lee para el ángulo.
+ */
+export type InvestigadorDeMercado = (producto: string) => Promise<{ ok: boolean; texto?: string; motivo?: string }>;
+
+/**
+ * Investigación REAL del nicho, por la puerta de Atlas.
+ *
+ * `investigacionRapida` devuelve el texto pero **no lo persiste**, y
+ * `crear_anuncio` lee `research_result` de `architect_memory`. Por eso hacía
+ * falta guardarlo: sin eso, el mismo `crear_anuncio` escribe un anuncio sin
+ * investigación cuando lo dispara el panel (medido el 2026-10-02).
+ *
+ * Presupuesto acotado a 90 s: el request del panel no puede colgarse 3 minutos.
+ * Si no llega, se sigue sin investigación y se dice — nunca se inventa.
+ */
+export async function investigacionDeProduccion(
+  tenantId: number,
+  producto: string,
+): Promise<{ ok: boolean; texto?: string; motivo?: string }> {
+  const { investigacionRapida, guardarInvestigacionDeMercado } = await import("./app-operator");
+  const instruccion = `qué ángulos y ganchos funcionan hoy en anuncios de ${producto}`;
+  const r = await investigacionRapida(
+    { tenantId, sessionId: `panel-${tenantId}-${Date.now()}` },
+    instruccion,
+    90_000,
+  );
+  if (!r.ok) return { ok: false, motivo: r.motivo };
+  const guardado = await guardarInvestigacionDeMercado(tenantId, instruccion, r.texto);
+  if (!guardado.ok) return { ok: false, motivo: guardado.motivo };
+  return { ok: true, texto: r.texto };
+}
+
+export const PASOS_DE_CAMPANA = ["investigacion", "segmentacion", "anuncio"] as const;
 
 /**
  * Corre el flujo completo de "producto → campaña".
@@ -82,12 +128,13 @@ export const PASOS_DE_CAMPANA = ["segmentacion", "anuncio"] as const;
 export async function generarCampana(
   tenantId: number,
   op: OpcionesDeCampana,
-  deps: { ejecutar?: EjecutorDeAccion } = {},
+  deps: { ejecutar?: EjecutorDeAccion; investigar?: InvestigadorDeMercado } = {},
 ): Promise<ResultadoCampana> {
   const ejecutar = deps.ejecutar ?? (executeAction as unknown as EjecutorDeAccion);
+  const investigar = deps.investigar ?? ((producto: string) => investigacionDeProduccion(tenantId, producto));
   const ctx = { tenantId, objetivoDelAdmin: op.objetivo };
   const pasos: PasoDeCampana[] = [];
-  const vacio = { pasos, productoId: null, draftId: null, copy: null };
+  const vacio = { pasos, productoId: null, draftId: null, copy: null, investigado: false };
 
   const producto = String(op.producto || "").trim();
   if (!producto) {
@@ -96,6 +143,25 @@ export async function generarCampana(
   const presupuesto = Number(op.dailyBudget) || 0;
   if (!(presupuesto > 0)) {
     return { ok: false, resumen: "Falta el presupuesto diario. No lo invento: es tu plata.", ...vacio };
+  }
+
+  // ── 0. INVESTIGACIÓN DEL MERCADO ────────────────────────────────────────
+  // Va PRIMERO y es la diferencia con "crear un anuncio por defecto": el copy
+  // se escribe con el ángulo que está funcionando hoy, no solo con la ficha.
+  // Si falla, el anuncio sale igual —pero se dice, no se disimula.
+  let investigado = false;
+  if (op.conInvestigacion !== false) {
+    let detalle: string;
+    try {
+      const inv = await investigar(producto);
+      investigado = inv.ok;
+      detalle = inv.ok
+        ? "Investigué el mercado: el copy va a salir del ángulo que está funcionando hoy, no solo de la ficha del producto."
+        : `No pude investigar (${inv.motivo || "sin resultado"}). El anuncio sale igual, con los datos reales del producto.`;
+    } catch (e: any) {
+      detalle = `Falló la investigación (${e?.message || "error"}). El anuncio sale igual, con los datos reales del producto.`;
+    }
+    pasos.push({ paso: "investigacion", ok: investigado, detalle });
   }
 
   // ── 1. Segmentación sugerida ────────────────────────────────────────────
@@ -126,7 +192,7 @@ export async function generarCampana(
 
   // Si el anuncio no salió, no hay campaña sobre la que seguir.
   if (!anuncio.ok) {
-    return { ok: false, resumen: anuncio.summary, pasos, productoId, draftId, copy };
+    return { ok: false, resumen: anuncio.summary, pasos, productoId, draftId, copy, investigado };
   }
 
   const conSegmentacion = pasos.some((p) => p.paso === "segmentacion" && p.ok);
@@ -134,10 +200,13 @@ export async function generarCampana(
     `✅ Anuncio listo para "${producto}"`,
     draftId ? `(borrador ${draftId})` : "",
     op.subirAMeta === true ? "y campaña creada en Meta EN PAUSA." : "— borrador guardado, sin tocar Meta todavía.",
+    investigado
+      ? "Copy escrito con investigación de mercado."
+      : "⚠️ Sin investigación: el copy salió de la ficha del producto, no de lo que funciona hoy.",
     conSegmentacion ? " Incluye segmentación sugerida." : "",
   ]
     .filter(Boolean)
     .join(" ");
 
-  return { ok: true, resumen, pasos, productoId, draftId, copy };
+  return { ok: true, resumen, pasos, productoId, draftId, copy, investigado };
 }

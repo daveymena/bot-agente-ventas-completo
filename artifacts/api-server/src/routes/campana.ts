@@ -46,6 +46,9 @@ router.post("/generar", async (req: Request, res: Response, next: NextFunction) 
       subirAMeta: body.subirAMeta === true,
       // La segmentación es sugerencia: solo se saltea si el panel la apaga.
       conSegmentacion: body.conSegmentacion !== false,
+      // La investigación NO se saltea salvo que el panel lo pida explícito: es
+      // lo que hace que el copy salga como el de Atlas y no "por defecto".
+      conInvestigacion: body.conInvestigacion !== false,
     });
 
     logger.info(
