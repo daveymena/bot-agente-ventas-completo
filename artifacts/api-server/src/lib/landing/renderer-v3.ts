@@ -227,6 +227,7 @@ function cssFamilia(familia: string): string {
   if (familia === "suplemento") return CSS_SUPLEMENTO;
   if (familia === "gourmet") return CSS_GOURMET;
   if (familia === "dropshipping") return CSS_DROPSHIPPING;
+  if (familia === "clinica") return CSS_CLINICA;
   return "";
 }
 
@@ -823,6 +824,34 @@ const CSS_DROPSHIPPING = `
 .offer-price{color:var(--bg)}
 .checkout{border-radius:24px}
 .sticky .btn{border-radius:16px}
+`;
+
+const CSS_CLINICA = `
+/*f:clinica - PostureFit/dav mobile-first Meta Ads*/
+.topbar{background:#10233D;color:#fff;font-size:.68rem;font-weight:700;overflow:hidden}
+.topbar-in{max-width:760px}
+.topbar-in span{font-size:.68rem}
+.hero{background:linear-gradient(180deg,#F3F8FF 0%,#fff 100%);padding-top:28px;min-height:auto}
+.hero h1{font-size:clamp(2rem,8vw,2.6rem);line-height:1.04;letter-spacing:-.045em;color:#10233D}
+.hero .lead{font-size:.95rem;color:#56687B}
+.hero-price{font-size:2.4rem;font-weight:900;color:#10233D;letter-spacing:-.05em}
+.hero-price small{display:block;font-size:.65rem;color:#6C7B8D;font-weight:700;letter-spacing:.02em}
+.btn{min-height:56px;border-radius:14px;font-weight:900;font-size:.95rem;width:100%}
+.btn--primary{background:#13B86A;color:#fff;box-shadow:0 10px 24px rgba(19,184,106,.28)}
+.eyebrow{display:inline-block;color:#1769D3;font-size:.68rem;font-weight:900;letter-spacing:.09em;background:#EDF5FF;border-radius:999px;padding:7px 12px;text-transform:uppercase}
+.trust{border-top:1px solid var(--line);border-bottom:1px solid var(--line);border-left:0;border-right:0;border-radius:0;background:#fff}
+.trust span{background:#FBFDFF;font-size:.75rem}
+.bento-card,.strip article{border-radius:16px;background:#FBFDFF}
+.offer-main{background:linear-gradient(135deg,#0F2848,#174F7E)!important;color:#fff;border:0;border-radius:22px}
+.offer-main h2,.offer-main .lead{color:#fff}
+.offer-price{color:#fff;font-size:2.6rem;font-weight:900;letter-spacing:-.05em}
+.checkout{background:#F6F8FB;border:1px solid #E2E9F1;border-radius:20px}
+.field input,.field select{border-radius:12px;padding:13px 12px;font-size:.95rem;border:1px solid #D9E2EA}
+.field input:focus,.field select:focus{border-color:#1769D3;box-shadow:0 0 0 3px rgba(23,105,211,.1);outline:none}
+.faq details{border-radius:14px}
+.sticky{background:#fff;border-top:1px solid #E2E9F1}
+.sticky .btn{background:#13B86A}
+@media(max-width:820px){.hero{padding-top:16px}.sec{padding:40px 0}.head h2{font-size:1.8rem}}
 `;
 
 function renderFeature(section: SeccionParaRenderizar, producto: ProductoParaRenderizar | null | undefined, idx: number, foto: string): string {

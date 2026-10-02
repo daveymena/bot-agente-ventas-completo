@@ -52,12 +52,13 @@ export type FamiliaVisual =
   | "electronica"
   | "suplemento"
   | "gourmet"
-  | "dropshipping";
+  | "dropshipping"
+  | "clinica";
 
 export const FAMILIAS: readonly FamiliaVisual[] = [
   "premium", "respuesta-directa", "minimal", "editorial", "ecommerce", "belleza",
   "fitness", "educacion", "tecnologia", "familiar", "creativa", "oscura", "launch",
-  "electronica", "suplemento", "gourmet", "dropshipping",
+  "electronica", "suplemento", "gourmet", "dropshipping", "clinica",
 ] as const;
 
 /** Cómo se integran las fotos. Cambia la composición, no un filtro. */
@@ -542,6 +543,33 @@ export const TOKENS: Record<FamiliaVisual, TokensDeDiseno> = {
       faq: ["faq_accordion", "faq_cards"],
     },
   },
+
+  // ── Clínica PostureFit / dav (la que convierte) ──────────────────────────
+  // Port del diseño que trae el dueño (Desktop/dav + PostureFit): mobile-first
+  // para Meta Ads, navy #10233D + azul #1769D3 + verde CTA #13B86A, hero
+  // producto-primero con precio y CTA arriba, trust-line de 3, beneficios
+  // cortos, historia visual, specs, oferta repetida, formulario corto,
+  // FAQ de objeciones y sticky móvil. Checkout COD de 4 campos Dropi.
+  clinica: {
+    familia: "clinica",
+    nombre: "Clínica PostureFit",
+    cuando: "Salud/ortopedia y mascotas COD con tráfico móvil de Meta Ads: producto + oferta arriba, prueba y formulario corto.",
+    tipografia: { display: "'Inter', system-ui, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.15, pesoDisplay: 900, espaciadoTitulo: "-0.045em", interlineado: 1.45 },
+    color: { fondo: "#FFFFFF", superficie: "#F6F8FB", texto: "#10233D", textoSuave: "#6C7B8D", acento: "#13B86A", sobreAcento: "#FFFFFF", borde: "#E2E9F1" },
+    ritmo: { anchoContenido: "760px", padSeccionY: "58px", padSeccionX: "18px", separacion: "16px" },
+    forma: { radio: "22px", sombra: "0 14px 42px rgba(16,35,61,.09)", borde: "1px solid #E2E9F1" },
+    alineacion: "izquierda",
+    fondos: "plano",
+    imagen: "enmarcada",
+    cta: "bloque",
+    layoutsPreferidos: {
+      hero: ["hero_product_focus", "hero_center"],
+      benefits: ["benefits_cards", "benefits_icon_grid"],
+      offer: ["offer_card", "offer_urgency"],
+      testimonials: ["testimonial_cards", "testimonial_slider"],
+      faq: ["faq_accordion", "faq_cards"],
+    },
+  },
 };
 
 /** ¿Es una familia conocida? Sirve para no confiar en lo que mande el modelo. */
@@ -583,9 +611,9 @@ const SENALES: Array<{ familia: FamiliaVisual; palabras: string[] }> = [
   { familia: "gourmet", palabras: ["chocolate", "cafe", "comida", "gourmet", "organico", "panaderia", "torta", "postre", "vino", "cerveza", "miel", "te ", "reposteria", "snack", "granola"] },
   { familia: "belleza", palabras: ["belleza", "beauty", "piel", "skin", "cabello", "pelo", "maquillaje", "cosmetic", "crema", "serum", "facial", "perfume", "unas"] },
   { familia: "suplemento", palabras: ["suplemento", "vitamina", "colageno", "proteina", "omega", "magnesio", "creatina", "quemador", "adelgazante", "herbal", "capsula", "gomitas"] },
-  // Salud/ortopedia (corrector de postura, faja, rodillera) NO es fitness:
-  // en las tiendas reales va como cualquier producto de contraentrega.
-  { familia: "dropshipping", palabras: ["corrector de postura", "postura", "ortoped", "faja", "rodillera", "lumbar", "cervical", "masajeador", "terapia", "alivio"] },
+  // Salud/ortopedia (corrector de postura, faja, rodillera) va a la clínica
+  // que convierte (PostureFit/dav): navy + azul + CTA verde, mobile-first.
+  { familia: "clinica", palabras: ["corrector de postura", "postura", "ortoped", "faja", "rodillera", "lumbar", "cervical", "masajeador", "terapia", "alivio", "posturefit", "mascota", "transportadora", "pet"] },
   { familia: "fitness", palabras: ["fitness", "gym", "gimnasio", "entrenamiento", "workout", "musculo", "adelgazar", "proteina", "deporte", "yoga", "rutina"] },
   // Tecnología va ANTES que educación a propósito: "curso de inteligencia
   // artificial" es un curso, pero el rubro que manda en la estética es la
