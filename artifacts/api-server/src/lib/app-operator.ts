@@ -2849,7 +2849,7 @@ export const TOOLS: ToolDef[] = [
       "Si dice que no pudo verla, decíselo al admin tal cual en vez de inventar lo que muestra. " +
       "PROHIBIDO afirmar montos, fechas o datos exactos que la herramienta no haya dicho con claridad.",
     args: '{ "url": string (req: la URL de la imagen tal como aparece en el chat, http(s) o /uploads/...), "pregunta"?: string (opcional: qué buscar en la imagen, ej "qué dice el error del pantallazo") }',
-    run: async (args) => {
+    run: async (args, ctx) => {
       const crudo = String(args?.url || "").trim();
       const pregunta = String(args?.pregunta || "").trim().slice(0, 300);
       if (!crudo) return { ok: false, summary: "Pasame la 'url' de la imagen (la que aparece en el chat como ![...](url))." };
@@ -2897,7 +2897,7 @@ export const TOOLS: ToolDef[] = [
         return { ok: false, summary: `No pude traer la imagen: ${String(e?.message || e).slice(0, 160)}` };
       }
       const { describirImagen, visionDisponible } = await import("./media-entrante");
-      const descripcion = await describirImagen(buffer!, mime, pregunta || undefined);
+      const descripcion = await describirImagen(buffer!, mime, pregunta || undefined, (ctx as any)?.tenantId);
       if (!descripcion) {
         const v = visionDisponible();
         if (!v.hay) return { ok: false, summary: "Visión no configurada en este servidor (ningún modelo con visión tiene clave). Avisale al admin que revise VISION_MODELS u OLLAMA_LOCAL_URL." };

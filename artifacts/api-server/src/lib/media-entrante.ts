@@ -187,7 +187,35 @@ export async function transcribirAudio(audio: Buffer, mime = "audio/ogg"): Promi
  * Devuelve null si ningun modelo pudo verla -- explicitamente null, para que
  * quien llama sepa que NO hay informacion en vez de recibir una invencion.
  */
-export async function describirImagen(imagen: Buffer, mime = "image/jpeg", pregunta?: string): Promise<string | null> {
+/**
+ * Cadena de visión con la clave del PROPIO cliente primero (2026-10-02).
+ *
+ * Si el negocio cargó su Ollama en Configuración, sus imágenes las mira SU
+ * cuenta, no la del sistema. Sin clave propia, la cadena de siempre
+ * (Ollama del servidor → VISION_MODELS → DeepSeek de respaldo).
+ */
+export async function candidatosDeVision(tenantId?: number | null): Promise<Array<{ proveedor: string; modelo: string; cfg: any }>> {
+  const lista: Array<{ proveedor: string; modelo: string; cfg: any }> = [];
+  if (tenantId) {
+    try {
+      const { configDelTenant } = await import("./ai-keys-tenant");
+      const r = await configDelTenant(Number(tenantId), "ollama_cloud");
+      if (r?.config?.apiKey) {
+        lista.push({ proveedor: "ollama_cloud", modelo: String((r.config as any).model || "gemma3:27b"), cfg: r.config });
+      }
+    } catch { /* cae a la cadena global */ }
+  }
+  for (const { proveedor, modelo } of modelosDeVision()) {
+    let cfg: any = null;
+    try { cfg = getProviderConfig(proveedor); } catch { cfg = null; }
+    if (!cfg?.apiKey) continue;
+    if (lista.some((x) => x.proveedor === proveedor && x.modelo === modelo)) continue;
+    lista.push({ proveedor, modelo, cfg });
+  }
+  return lista;
+}
+
+export async function describirImagen(imagen: Buffer, mime = "image/jpeg", pregunta?: string, tenantId?: number | null): Promise<string | null> {
   const b64 = imagen.toString("base64");
   // El prompt le pide CAUTELA, no precisión. Un modelo de visión que afirma
   // montos y fechas es justo el que termina describiendo un Excel como "un
@@ -202,20 +230,19 @@ export async function describirImagen(imagen: Buffer, mime = "image/jpeg", pregu
     + "NO afirmes montos, fechas, nombres de bancos ni números salvo que los leas con total claridad. "
     + "Si no estás seguro de qué es, decí 'no está claro'. No inventes nada que no se vea con claridad.";
 
-  const disponible = visionDisponible();
-  if (!disponible.hay) {
+  const candidatos = await candidatosDeVision(tenantId);
+  if (!candidatos.length) {
     // Un `return null` mudo acá es lo que dejó al bot ciego durante semanas
     // sin que nadie lo notara. Que quede escrito qué se intentó y con qué.
+    const disponible = visionDisponible();
     logger.error(
-      { sinClave: disponible.sinClave, VISION_MODELS: process.env.VISION_MODELS || "(sin configurar)" },
+      { sinClave: disponible.sinClave, VISION_MODELS: process.env.VISION_MODELS || "(sin configurar)", tenantId: tenantId || null },
       "[Media] NINGUN modelo de vision tiene clave: el bot NO puede ver ninguna imagen",
     );
     return null;
   }
 
-  for (const { proveedor, modelo } of modelosDeVision()) {
-    const cfg = getProviderConfig(proveedor);
-    if (!cfg?.apiKey) continue;
+  for (const { proveedor, modelo, cfg } of candidatos) {
     try {
       const r = await fetch(`${cfg.baseUrl}/chat/completions`, {
         method: "POST",
