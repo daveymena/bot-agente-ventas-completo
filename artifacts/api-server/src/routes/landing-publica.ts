@@ -70,10 +70,10 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
       res.setHeader("Cache-Control", "public, max-age=60");
       // La misma foto bajo varias URLs (local, WordPress, CloudFront) no sale dos veces.
       const { htmlConFotosUnicas, guardadorDeMetadata } = await import("../lib/fotos-de-producto");
-      const { conFormularioQueResponde, sinRotulosInternos } = await import("../lib/landing/sanear-html");
+      const { conFormularioQueResponde, sinRotulosInternos, conIconosSeguros } = await import("../lib/landing/sanear-html");
       const { formularioConOpciones } = await import("../lib/landing/renderer");
       const base = producto ? await htmlConFotosUnicas((row as any).html, producto, { guardar: guardadorDeMetadata(producto.id) }) : (row as any).html;
-      return res.send(medir(conFormularioQueResponde(formularioConOpciones(sinRotulosInternos(base).html, producto as any))));
+      return res.send(medir(conFormularioQueResponde(formularioConOpciones(sinRotulosInternos(conIconosSeguros(base)).html, producto as any))));
     }
 
     const { htmlDeCopia } = await import("../lib/landing/clonar-html");
@@ -81,7 +81,8 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
     if (copia) {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.setHeader("Cache-Control", "public, max-age=60");
-      return res.send(medir(copia));
+      const { conIconosSeguros } = await import("../lib/landing/sanear-html");
+      return res.send(medir(conIconosSeguros(copia)));
     }
 
     const { renderizarLanding } = await import("../lib/landing/renderer-v3");

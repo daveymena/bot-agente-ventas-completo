@@ -398,6 +398,11 @@ REGLAS DE DISEÑO PREMIUM (para que se vea cara, no plantilla barata):
 7. Sombras suaves y difusas (0 20px 50px rgba(0,0,0,.08)), no bordes negros ni box-shadows duras.
 8. Un solo acento dominante para los CTA. El resto en grises suaves. Consistencia de punta a punta.
 9. Micro-espaciado: los bullets con iconos van con gap, no apilados. Respira.
+10. ICONOS SVG SEGUROS (obligatorio, 02-10-2026: los svg sin tamaño se desbordan antes del header):
+    TODO <svg> lleva width="15" height="15" y aria-hidden="true".
+    La barra superior (topbar/ann-bar) usa spans con display:inline-flex, align-items:center, gap:7px,
+    SIN white-space:nowrap global (permite wrap en móvil). Regla CSS obligatoria:
+    .topbar svg{width:15px;height:15px;flex:none} .topbar-in span{display:inline-flex;align-items:center;gap:7px}
 
 NOTA: El <style> es obligatorio para los media queries. No todo puede ir inline: las media queries SIEMPRE van en un <style> dentro del <head>.
 
