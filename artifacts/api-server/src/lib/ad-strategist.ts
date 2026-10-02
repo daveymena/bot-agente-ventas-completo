@@ -876,10 +876,22 @@ export class AdStrategist {
       const nombresIntereses: string[] = Array.isArray(estrategiaGuardada.interests)
         ? estrategiaGuardada.interests.filter((v: unknown) => typeof v === "string" && v.trim())
         : [];
+      // ── Las CIUDADES estudiadas también viajan a Meta ────────────────────
+      // El estudio de cobertura/riesgo (segmentacion-inteligente) deja las
+      // ciudades recomendadas en `strategy.ciudades`; sin esto el conjunto
+      // salía a todo el país, incluidos los pueblos sin cobertura de
+      // contraentrega -- exactamente los pedidos que se rechazan.
+      const ciudadesEstudiadas: string[] = Array.isArray(estrategiaGuardada.ciudades)
+        ? estrategiaGuardada.ciudades.filter((v: unknown) => typeof v === "string" && v.trim())
+        : [];
       const targetingDeAtlas: import("./facebook").FbTargeting = {
         ...(Number.isFinite(Number(estrategiaGuardada.ageMin)) && estrategiaGuardada.ageMin != null ? { ageMin: Number(estrategiaGuardada.ageMin) } : {}),
         ...(Number.isFinite(Number(estrategiaGuardada.ageMax)) && estrategiaGuardada.ageMax != null ? { ageMax: Number(estrategiaGuardada.ageMax) } : {}),
         ...(nombresIntereses.length ? { interests: nombresIntereses.map((name) => ({ id: "", name })) } : {}),
+        // Solo las CIUDADES: el país lo pone el createAdForProduct (el del
+        // negocio) y las mezcla con las ciudades -- mandar `countries: []`
+        // sería un geo_locations vacío y Meta lo rechaza.
+        ...(ciudadesEstudiadas.length ? { geoLocations: { cities: ciudadesEstudiadas } } : {}),
       };
       const creado = await fb.createAdForProduct(
         draft.productId,

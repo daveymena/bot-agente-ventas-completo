@@ -704,7 +704,7 @@ router.put("/strategist/draft/:id", async (req, res, next) => {
     const draftId = parseInt(req.params.id);
     const tenantId = (req as any).tenant?.id ?? null;
     if (!tenantId) return res.status(401).json({ ok: false, message: "No autenticado" });
-    const { headline, primaryText, description, budget, images, targeting } = req.body || {};
+    const { headline, primaryText, description, budget, images, targeting, objetivo } = req.body || {};
     // ¿El admin tocó la segmentación en este guardado? (para el aviso de abajo)
     const updatingTargeting = !!(targeting && typeof targeting === "object");
     const patch: Record<string, any> = { updatedAt: new Date() };
@@ -742,10 +742,25 @@ router.put("/strategist/draft/:id", async (req, res, next) => {
       }
       if (Array.isArray(targeting.ciudades)) {
         // Las ciudades viajan como geoLocations (como las lee el PUT viejo y
-        // como las manda el anuncio) — pero en la strategy, que es lo único
+        // como las manda el anuncio) -- pero en la strategy, que es lo único
         // que la subida a Meta lee de aquí.
         st.ciudades = targeting.ciudades.map(String).filter(Boolean);
       }
+      patch.strategy = st;
+    }
+    // ── El OBJETIVO (mensajes/ventas/trafico/reconocimiento) ───────────────
+    //
+    // Reportado por el dueño (03-10): "solo está publicando para WhatsApp
+    // cuando tenemos landingpage entre otros". El default era el del plan
+    // por modelo (físico → mensajes) y el panel no tenía dónde elegir: el
+    // objetivo solo se decidía hablando con Atlas. Ahora se elige en el
+    // modal y viaja en la strategy, que es lo que la subida a Meta lee para
+    // armar el objetivo REAL (WhatsApp, landing/tienda o formulario).
+    const OBJETIVOS_VALIDOS = ["ventas", "trafico", "mensajes", "reconocimiento"];
+    if (typeof objetivo === "string" && OBJETIVOS_VALIDOS.includes(objetivo)) {
+      const [fila] = await db.select().from(facebookDrafts).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, tenantId))).limit(1);
+      const st: any = (typeof patch.strategy === "object" && patch.strategy ? { ...(patch.strategy as any) } : (fila?.strategy && typeof fila.strategy === "object" ? { ...(fila.strategy as any) } : {}));
+      st.objetivo = objetivo;
       patch.strategy = st;
     }
     const [updated] = await db.update(facebookDrafts).set(patch).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, tenantId))).returning();
@@ -821,6 +836,17 @@ router.post("/strategist/draft/:id/upload", async (req, res, next) => {
     // (ver destinoPorDefecto); si no, WhatsApp como siempre.
     let objetivo = (req.body || {}).objetivo ? (String(req.body.objetivo) as any) : null;
     let preferenciaWeb: any = null;
+    if (!objetivo) {
+      // El objetivo que el admin ELIGIÓ en el modal (viajó a la strategy) manda
+      // sobre el del plan por modelo: es su campaña. Reportado 03-10: "solo
+      // está publicando para WhatsApp cuando tenemos landingpage".
+      const [d] = await db.select({ productId: facebookDrafts.productId, tenantId: facebookDrafts.tenantId, strategy: facebookDrafts.strategy }).from(facebookDrafts).where(eq(facebookDrafts.id, draftId)).limit(1);
+      const st: any = d?.strategy && typeof d.strategy === "object" ? d.strategy : {};
+      const elegido = String(st.objetivo || "");
+      if (["ventas", "trafico", "mensajes", "reconocimiento"].includes(elegido)) {
+        objetivo = elegido as any;
+      }
+    }
     if (!objetivo) {
       const [d] = await db.select({ productId: facebookDrafts.productId, tenantId: facebookDrafts.tenantId }).from(facebookDrafts).where(eq(facebookDrafts.id, draftId)).limit(1);
       const { destinoPorDefecto } = await import("../lib/landing/destino-del-producto");

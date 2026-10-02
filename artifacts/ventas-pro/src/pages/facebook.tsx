@@ -218,6 +218,10 @@ export default function FacebookAdsPage() {
   const [editGenero, setEditGenero] = useState<"todos" | "hombres" | "mujeres">("todos");
   const [editIntereses, setEditIntereses] = useState("");
   const [editCiudades, setEditCiudades] = useState("");
+  // El objetivo de la campaña: hoy salía SIEMPRE a WhatsApp (el default del
+  // plan por modelo) y el panel no tenía con qué cambiarlo. Con landing
+  // publicada la venta va a la landing (ventas/trafico); sin ella, WhatsApp.
+  const [editObjetivo, setEditObjetivo] = useState<"ventas" | "trafico" | "mensajes" | "reconocimiento">("mensajes");
   // "Cómo se vería publicado": el mock del anuncio dentro del modal.
   const [verVistaPrevia, setVerVistaPrevia] = useState(false);
   const [editHeadline, setEditHeadline] = useState("");
@@ -667,6 +671,7 @@ export default function FacebookAdsPage() {
     setEditGenero(Array.isArray(st.genders) && st.genders.length === 1 ? (st.genders[0] === 1 ? "hombres" : "mujeres") : "todos");
     setEditIntereses(Array.isArray(st.interests) ? st.interests.join(", ") : "");
     setEditCiudades(Array.isArray(st.ciudades) ? st.ciudades.join(", ") : (st.city ? String(st.city) : ""));
+    setEditObjetivo((["ventas", "trafico", "mensajes", "reconocimiento"].includes(st.objetivo) ? st.objetivo : "mensajes") as any);
     setVerVistaPrevia(false);
   };
 
@@ -719,6 +724,9 @@ export default function FacebookAdsPage() {
             interests: editIntereses.split(",").map((s) => s.trim()).filter(Boolean),
             ciudades: editCiudades.split(",").map((s) => s.trim()).filter(Boolean),
           },
+          // El objetivo elegido: es lo que decide si el anuncio abre WhatsApp
+          // o lleva a la landing/tienda.
+          objetivo: editObjetivo,
         }),
       });
       if (res.metaSync && !res.metaSync.ok) {
@@ -1625,16 +1633,18 @@ export default function FacebookAdsPage() {
                 <Input type="number" value={editBudget} onChange={(e) => setEditBudget(Number(e.target.value))} min={1000} />
               </div>
 
-              {/* ── SEGMENTACIÓN (público) ──────────────────────────────────
-                  Ya se generaba y Meta la leía, pero acá no se veía: para
-                  ajustar el público había que pedirle otro borrador a Atlas.
-                  Viaja en la strategy del borrador (la misma verdad). */}
+              {/* ── SEGMENTACIÓN y OBJETIVO ────────────────────────────────
+                  La segmentación ya se generaba (y Meta la leía) pero no se
+                  veía: para ajustar el público había que pedirle otro
+                  borrador a Atlas. Y el objetivo quedaba SIEMPRE en el
+                  default por modelo (físico → WhatsApp) aunque hubiera
+                  landing publicada — pedido del dueño 03-10. */}
               <div className="rounded-md border p-3 space-y-3 bg-muted/30">
                 <div className="flex items-center gap-2">
                   <Target className="h-4 w-4 text-muted-foreground" />
                   <Label className="mb-0">Segmentación del público</Label>
                 </div>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-4 gap-2">
                   <div><Label>Edad mín.</Label><Input type="number" min={13} max={65} value={editAgeMin} onChange={(e) => setEditAgeMin(Number(e.target.value))} /></div>
                   <div><Label>Edad máx.</Label><Input type="number" min={13} max={65} value={editAgeMax} onChange={(e) => setEditAgeMax(Number(e.target.value))} /></div>
                   <div><Label>Género</Label>
@@ -1642,10 +1652,23 @@ export default function FacebookAdsPage() {
                       <option value="todos">Todos</option><option value="hombres">Hombres</option><option value="mujeres">Mujeres</option>
                     </select>
                   </div>
+                  <div><Label>Objetivo</Label>
+                    <select className="h-10 w-full rounded-md border bg-background px-2 text-sm" value={editObjetivo} onChange={(e) => setEditObjetivo(e.target.value as any)}>
+                      <option value="mensajes">Mensajes (WhatsApp)</option>
+                      <option value="ventas">Ventas (landing/tienda)</option>
+                      <option value="trafico">Tráfico (landing/tienda)</option>
+                      <option value="reconocimiento">Reconocimiento</option>
+                    </select>
+                  </div>
                 </div>
                 <div><Label>Intereses (separados por coma)</Label><Input value={editIntereses} onChange={(e) => setEditIntereses(e.target.value)} placeholder="Ej: Compras online, Bienestar, Hogar" /></div>
                 <div><Label>Ciudades (separadas por coma — vacío = todo el país)</Label><Input value={editCiudades} onChange={(e) => setEditCiudades(e.target.value)} placeholder="Ej: Cali, Palmira" /></div>
-                <p className="text-xs text-muted-foreground">Los intereses se validan contra la taxonomía de Meta al subir; si alguno no existe, te avisa y NO se crea nada.</p>
+                <p className="text-xs text-muted-foreground">
+                  {editObjetivo === "mensajes"
+                    ? "El anuncio abre el WhatsApp del negocio con el mensaje ya escrito."
+                    : "El anuncio lleva a la landing publicada del producto; si no hay, a la página del producto en la tienda."}
+                  {" "}Los intereses se validan contra la taxonomía de Meta al subir; si alguno no existe, te avisa y NO se crea nada.
+                </p>
               </div>
 
               <div>
