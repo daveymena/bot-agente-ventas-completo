@@ -60,4 +60,45 @@ router.post("/generar", async (req: Request, res: Response, next: NextFunction) 
   }
 });
 
+/**
+ * POST /api/campana/referencias
+ *   { productId, pais?, limite?, max? }
+ * → { ok, referencias[], intentos[], guardado }
+ *
+ * Paso 1 del plan: lee la Biblioteca de Anuncios en el idioma del negocio y en
+ * uno extra (traducido), une lo que encontró sin repetir, y lo guarda en
+ * `metadata.referencias` del producto. Es PESADO (cada lectura de la Biblioteca
+ * puede tardar hasta 75 s), así que va aparte del "generar campaña" y no en su
+ * camino crítico.
+ *
+ * Si ninguna búsqueda devuelve nada, NO guarda una lista vacía: eso haría creer
+ * que el producto ya está investigado.
+ */
+router.post("/referencias", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const tenantId = Number((req as any).tenant?.id) || 0;
+    if (!tenantId) return res.status(401).json({ message: "No hay sesión. Iniciá sesión de nuevo." });
+
+    const body = (req.body ?? {}) as any;
+    const productId = Number(body.productId) || 0;
+    if (!productId) return res.status(400).json({ message: "Falta el producto." });
+
+    const { buscarYGuardarReferenciasDelProducto } = await import("../lib/referencias-de-mercado");
+    const r = await buscarYGuardarReferenciasDelProducto(tenantId, productId, {
+      pais: body.pais ? String(body.pais) : undefined,
+      limite: Number(body.limite) || undefined,
+      max: Number(body.max) || undefined,
+    });
+
+    logger.info(
+      { tenantId, productId, ok: r.ok, referencias: r.referencias.length, busquedas: r.intentos.length, guardado: r.guardado },
+      "[Campana] Referencias de mercado",
+    );
+    return res.json(r);
+  } catch (e: any) {
+    logger.error({ err: e?.message }, "[Campana] No se pudieron leer las referencias de mercado");
+    return next(e);
+  }
+});
+
 export default router;
