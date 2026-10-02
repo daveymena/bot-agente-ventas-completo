@@ -23,7 +23,7 @@ services:
 
       # ========== AI FALLBACK ==========
       AI_FALLBACK_ENABLED: "${AI_FALLBACK_ENABLED:-true}"
-      AI_FALLBACK_ORDER: "${AI_FALLBACK_ORDER:-opencode,groq,github,g4f}"
+      AI_FALLBACK_ORDER: "${AI_FALLBACK_ORDER:-ollama_cloud,opencode,groq,github,g4f}"
       # Autoevaluación curada: solo aplica una mejora gestionada, validada y reversible.
       AUTOREFLEXION_ENABLED: "${AUTOREFLEXION_ENABLED:-true}"
       OPENCODE_API_URL: "${OPENCODE_API_URL:-https://api.freemodel.dev/v1}"
@@ -39,6 +39,8 @@ services:
       CEREBRAS_MODEL: "${CEREBRAS_MODEL:-llama-3.1-8b-instruct}"
       OLLAMA_LOCAL_URL: "${OLLAMA_LOCAL_URL}"
       OLLAMA_CLOUD_API_KEY: "${OLLAMA_CLOUD_API_KEY}"
+      OLLAMA_CLOUD_MODEL: "${OLLAMA_CLOUD_MODEL:-gemma3:27b}"
+      OLLAMA_IMAGE_MODEL: "${OLLAMA_IMAGE_MODEL:-x/z-image-turbo}"
       GITHUB_TOKEN: "${GITHUB_TOKEN}"
       GITHUB_MODEL: "${GITHUB_MODEL:-gpt-4o-mini}"
       GITHUB_MODEL_CLAUDE: "${GITHUB_MODEL_CLAUDE:-claude-sonnet-4-20250514}"

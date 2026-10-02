@@ -96,3 +96,27 @@ describe("Atlas no se pega con proveedores muertos", () => {
     expect(optimizedRotation.isInCooldown("ollama_cloud")).toBe(false);
   });
 });
+describe("fallback sin DeepSeek ni Ollama", () => {
+  const saved2: Record<string, string | undefined> = {};
+  const keys2 = ["OLLAMA_CLOUD_API_KEY", "OLLAMA_IMAGE_MODEL", "DEEPSEEK_API_KEY", "OLLAMA_LOCAL_URL", "AI_FALLBACK_ORDER"];
+  it("la cadena no incluye ollama cuando no hay credencial", async () => {
+    for (const k of keys2) saved2[k] = process.env[k];
+    try {
+      delete process.env.OLLAMA_CLOUD_API_KEY;
+      delete process.env.OLLAMA_LOCAL_URL;
+      delete process.env.DEEPSEEK_API_KEY;
+      process.env.OPENCODE_API_KEY = process.env.OPENCODE_API_KEY || "dummy_for_test";
+      const { armarCadena } = await import("../motor-nuevo/cliente-llm");
+      const cadena = await armarCadena({ tenantId: null, appSettings: { aiProvider: "ollama_cloud" } as any });
+      expect(cadena.map((c) => String(c.source))).not.toContain("ollama_cloud");
+    } finally {
+      for (const k of keys2) { if (saved2[k] === undefined) delete process.env[k]; else process.env[k] = saved2[k]; }
+    }
+  });
+  it("easypanel fallback empieza con ollama_cloud", async () => {
+    const fs = await import("node:fs");
+    const path = await import("node:path");
+    const yaml: string = fs.readFileSync(path.join(process.cwd(), "..", "..", "easypanel.yml"), "utf8");
+    expect(yaml).toMatch(/AI_FALLBACK_ORDER.*ollama_cloud/);
+  });
+});

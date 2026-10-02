@@ -292,7 +292,7 @@ export function getProviderConfigConClave(
       return {
         baseUrl: process.env.OLLAMA_CLOUD_URL || "https://ollama.com/v1",
         apiKey,
-        model: model || process.env.OLLAMA_CLOUD_MODEL || "gemma4:31b-cloud",
+        model: model || process.env.OLLAMA_CLOUD_MODEL || "gemma3:27b",
       };
     }
     default:
@@ -385,7 +385,7 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
       return {
         baseUrl: process.env.OLLAMA_CLOUD_URL || "https://ollama.com/v1",
         apiKey: process.env.OLLAMA_CLOUD_API_KEY,
-        model: process.env.OLLAMA_CLOUD_MODEL || "gpt-oss:120b",
+        model: process.env.OLLAMA_CLOUD_MODEL || "gemma3:27b",
       };
 
     case "ollama_local":
