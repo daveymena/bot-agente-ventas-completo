@@ -116,21 +116,61 @@ function puntosReales(p: ProductoParaAnuncio, emojiPorDefecto: string, sinFrase 
     .split(/\r?\n/)
     .slice(1)
     .map((l) => l.trim());
-  const conBullet = lineas
-    .filter((l) => /^[•\-*✅✔️👉▪️◾]|^\p{Extended_Pictographic}/u.test(l))
-    .map((l) => l.replace(/^[•\-*▪️◾]\s*/u, "").trim());
-  // Frases corridas SIN bullet, en el orden de la ficha. Tope 140: la frase
-  // que dice el beneficio ("Diseñada para llevar pañales, toallitas…" = 93)
-  // se descartaba con el tope de 90 y la copia salía truncada.
-  const frases = lineas
-    .join(" ")
-    .split(/(?<=[.!?])\s+/)
-    .map((l) => l.trim())
-    .filter((l) => l.length >= 25 && l.length <= 140);
+
+  // Candidatos EN EL ORDEN DE LA FICHA: cada línea aporta su punto (o varios
+  // si es larga), ya limpio de bullet. Antes iban los bullets PRIMERO y el
+  // cupo de 3 se llenaba con ellos, dejando sin usar la frase concreta del
+  // beneficio principal ("Cuenta con múltiples compartimentos…").
+  const aPunto = (l: string): string => {
+    const t = l.trim();
+    if (t.length <= 140) return t;
+    // Primero el tramo hasta la coma; si AÚN largo, el primer conector
+    // ("o / y / u / para"): la oración del diseño del Pañalera mide 172 y solo
+    // tiene una coma -- el segundo corte la deja en "… una práctica cuna portátil".
+    const primera = t.split(/[,;]\s*/)[0]!.trim();
+    if (primera.length <= 140) return primera;
+    const conectada = primera.split(/\s+(?:o|y|u|para)\s+/i)[0]!.trim();
+    return conectada.length >= 25 ? conectada : "";
+  };
+  const candidatos: string[] = [];
+  for (const linea of lineas) {
+    // El mínimo DEPENDE del tipo: una línea con bullet/emoji puede ser corta
+    // ("🎹 19 módulos" = 13) y una frase corrida NO (si no, cualquier rótulo
+    // colgado de la ficha entraría como punto).
+    const esBullet = /^[•\-*✅✔️👉▪️◾]|^\p{Extended_Pictographic}/u.test(linea);
+    const cuerpo = linea.replace(/^[•\-*▪️◾]\s*/u, "").trim();
+    if (cuerpo.length < (esBullet ? 4 : 25)) continue;
+    if (cuerpo.length <= 140) { candidatos.push(aPunto(cuerpo)); continue; }
+    for (const tz of cuerpo.split(/(?<=[.!?])\s+/)) {
+      const punto = aPunto(tz);
+      if (punto) candidatos.push(punto);
+    }
+  }
+
+  // ── Un RÓTULO de sección NO es una característica ───────────────────────
+  //
+  // Las fichas importadas de Dropi traen, PEGADO AL FINAL, el encabezado de la
+  // plantilla de origen sin contenido: "✨ BENEFICIOS PRINCIPALES", "Lo que
+  // incluye", "Características"… Al llevar emoji adelante pasaba como
+  // característica y llegaba visible al anuncio -- la "copia truncada" tal
+  // cual la midió el dueño. Es la misma regla que ya usa la landing
+  // (sanear-html → ROTULO_INTERNO), aplicada al anuncio y tolerante al emoji.
+  const esRotulo = (t: string) => {
+    const cuerpo = t.replace(/^[\p{Extended_Pictographic}\uFE0F\s]+/u, "").trim();
+    if (!cuerpo) return true; // solo emoji: no dice nada
+    return (
+      // "BENEFICIOS PRINCIPALES", "CARACTERÍSTICAS", "LO QUE INCLUYE"
+      /^[\p{Lu}\u00C0-\u00DF0-9][^\p{Ll}]{2,60}[.:]?$/u.test(cuerpo) ||
+      /^(?:lo que|qué|que)\s+(?:incluye|trae|lleva)[.:]?$/i.test(cuerpo) ||
+      /^(?:beneficios?|caracter[ií]sticas?|incluye|el kit|la oferta|garant[ií]a|compra segura|ventajas?|características? del producto)[.:]?\s*$/i.test(cuerpo) ||
+      /^(?:principales|destacad[oa]s?|incluid[oa]s?)[.:]?\s*$/i.test(cuerpo)
+    );
+  };
 
   const vistas = new Set<string>(excluida ? [excluida] : []);
   const out: string[] = [];
-  for (const t of [...crudas, ...conBullet, ...frases]) {
+  for (const t of [...crudas, ...candidatos]) {
+    if (esRotulo(t)) continue;
     const clave = claveDe(t);
     if (!clave || clave === excluida || vistas.has(clave)) continue;
     vistas.add(clave);
