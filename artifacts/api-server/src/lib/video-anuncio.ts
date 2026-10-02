@@ -62,14 +62,7 @@ function dirVideos(): string {
   return path.join(base, "videos", "anuncios");
 }
 
-/**
- * Corre un binario (ffmpeg/ffprobe) y devuelve su salida.
- *
- * Exportado porque los recortes de GIF/WebP (`gifs-de-producto.ts`) usan el
- * MISMO ffmpeg y el mismo manejo de timeout: duplicar esto sería tener dos
- * formas de matar un proceso colgado.
- */
-export function run(cmd: string, args: string[], timeoutMs = 180_000): Promise<{ code: number; out: string; err: string }> {
+function run(cmd: string, args: string[], timeoutMs = 180_000): Promise<{ code: number; out: string; err: string }> {
   return new Promise((resolve, reject) => {
     const p = spawn(cmd, args, { stdio: ["ignore", "pipe", "pipe"] });
     let out = "", err = "";

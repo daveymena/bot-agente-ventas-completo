@@ -60,43 +60,4 @@ router.post("/generar", async (req: Request, res: Response, next: NextFunction) 
   }
 });
 
-/**
- * POST /api/campana/gifs
- *   { productId, cuantos?, lado? }
- * → { ok, error?, clips[], guardado }
- *
- * Recorta 2-4 tramos del video del producto (o anima sus fotos) a WebP cuadrado
- * y los guarda EN EL PRODUCTO (`metadata.gifs`), para que la landing y el
- * anuncio lean el mismo activo.
- *
- * Es sincrónico a propósito: son 2-4 recortes de 3 s (~10-20 s). Cuando el
- * dueño lo pida desde varios productos a la vez, se mueve a segundo plano con
- * aviso, igual que el video de anuncio (`video-anuncio.generarVideoEnSegundoPlano`).
- */
-router.post("/gifs", async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const tenantId = Number((req as any).tenant?.id) || 0;
-    if (!tenantId) return res.status(401).json({ message: "No hay sesión. Iniciá sesión de nuevo." });
-
-    const body = (req.body ?? {}) as any;
-    const productId = Number(body.productId) || 0;
-    if (!productId) return res.status(400).json({ message: "Falta el producto." });
-
-    const { generarGifsDelProducto } = await import("../lib/gifs-de-producto");
-    const r = await generarGifsDelProducto(tenantId, productId, {
-      cuantos: Number(body.cuantos) || undefined,
-      lado: Number(body.lado) || undefined,
-    });
-
-    logger.info(
-      { tenantId, productId, ok: r.ok, clips: r.clips.length, guardado: r.guardado },
-      "[Campana] Recortes de producto",
-    );
-    return res.json(r);
-  } catch (e: any) {
-    logger.error({ err: e?.message }, "[Campana] No se pudieron generar los recortes");
-    return next(e);
-  }
-});
-
 export default router;
