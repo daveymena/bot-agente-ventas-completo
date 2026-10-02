@@ -52,19 +52,37 @@ interface ProductoParaAnuncio {
 
 const limpio = (t: unknown) => String(t ?? "").replace(/\s+/g, " ").trim();
 
-/** Primera frase útil que escribió el dueño: es el gancho más honesto posible. */
+/**
+ * Primera frase útil que escribió el dueño: es el gancho más honesto posible.
+ *
+ * Bug (2026-10-02, la Pañalera): los productos importados de Dropi arrancan la
+ * description REPITIENDO el nombre ("Pañalera Mochila Multifuncional 2 En 1"),
+ * y `find(l => l.length >= 20)` se quedaba con ESE rótulo como gancho. El
+ * anuncio abría con el nombre… que ya está el headline de arriba: el gancho y
+ * el título eran lo mismo, y los beneficios reales quedaban dos líneas abajo
+ * sin usarse. Ahora las líneas que repiten el nombre no cuentan como gancho.
+ */
 function ganchoReal(p: ProductoParaAnuncio): string {
-  const primera = String(p.description || "")
+  const nombre = limpio(p.name).toUpperCase().replace(/[^A-ZÁÉÍÓÚÑ0-9 ]/g, "");
+  const candidata = String(p.description || "")
     .split(/\r?\n/)
     .map((l) => l.replace(/^[^\p{L}\p{N}¿¡]+/u, "").trim())
-    .find((l) => l.length >= 20);
-  if (!primera) return limpio(p.name);
+    .find((l) => {
+      if (l.length < 20) return false;
+      // Una línea que es (casi) el nombre del producto no es un gancho.
+      const sinNombre = l.toUpperCase().replace(/[^A-ZÁÉÍÓÚÑ0-9 ]/g, "").replace(new RegExp(`\\s*${nombre}\\s*`, "g"), " ");
+      if (!nombre || sinNombre.length < 12) return false;
+      // Ni una lista de características suelto ("Batería Li-ION de 2,0 Ah"),
+      // que se lee como ficha y no como gancho.
+      return !/^[\p{Extended_Pictographic}\s]*[\p{Lu}ÁÉÍÓÚÑ ]{4,}[:.]?\s*$/u.test(l);
+    });
+  if (!candidata) return limpio(p.name);
   // Frases COMPLETAS hasta tener algo que diga el beneficio (≥ 60 letras),
   // sin pasar de 160. "Corrector de postura con diseño en X." solo nombra el
   // producto; la frase que sigue ("Ayuda a mantener la espalda recta…") es el
   // gancho de verdad. Y nunca se corta a mitad de frase: "Fácil de ajustar…"
   // colgando es lo que salía antes.
-  const frases = primera.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g)?.map((f) => f.trim()) ?? [primera];
+  const frases = candidata.match(/[^.!?]+[.!?]+(\s|$)|[^.!?]+$/g)?.map((f) => f.trim()) ?? [candidata];
   let gancho = "";
   for (const f of frases) {
     if (gancho && (gancho + " " + f).length > 160) break;
@@ -74,27 +92,56 @@ function ganchoReal(p: ProductoParaAnuncio): string {
   return gancho.length > 160 ? `${gancho.slice(0, gancho.lastIndexOf(" ", 157))}…` : gancho;
 }
 
-/** Hasta 3 características REALES, cada una con su emoji (el suyo si lo trae). */
-function puntosReales(p: ProductoParaAnuncio, emojiPorDefecto: string): string[] {
+/**
+ * Hasta 3 características REALES, cada una con su emoji (el suyo si lo trae).
+ *
+ * Dos bugs del 2026-10-02 (la "copia truncada" de la Pañalera):
+ *   1. Solo tomaba líneas que EMPIEZAN con bullet/emoji — los productos de
+ *      Dropi traen la descripción en PÁRRAFOS: resultado, cero beneficios y el
+ *      bloque del anuncio enteramente vacío.
+ *   2. La frase que ya va como GANCHO se repetía también como primer punto
+ *      (el mismo texto dos veces seguidas).
+ *
+ * `sinFrase` = el texto que ya va como gancho, para excluirlo.
+ */
+function puntosReales(p: ProductoParaAnuncio, emojiPorDefecto: string, sinFrase = ""): string[] {
+  const claveDe = (t: string) =>
+    String(t || "").toLowerCase().replace(/[^a-z0-9ñáéíóú ]/gi, "").trim();
+  const excluida = claveDe(sinFrase);
+
   const crudas = Array.isArray(p.features) ? (p.features as unknown[]).map(limpio) : [];
-  const deLaDescripcion = String(p.description || "")
+  // La línea 0 de la description no entra: los productos de Dropi arrancan
+  // REPITIENDO el nombre del producto, que ya está en el headline.
+  const lineas = String(p.description || "")
     .split(/\r?\n/)
     .slice(1)
-    .map((l) => l.trim())
+    .map((l) => l.trim());
+  const conBullet = lineas
     .filter((l) => /^[•\-*✅✔️👉▪️◾]|^\p{Extended_Pictographic}/u.test(l))
     .map((l) => l.replace(/^[•\-*▪️◾]\s*/u, "").trim());
-  const todas = [...crudas, ...deLaDescripcion].filter((t) => t.length >= 4 && t.length <= 90);
-  const vistas = new Set<string>();
+  // Frases corridas SIN bullet, en el orden de la ficha. Tope 140: la frase
+  // que dice el beneficio ("Diseñada para llevar pañales, toallitas…" = 93)
+  // se descartaba con el tope de 90 y la copia salía truncada.
+  const frases = lineas
+    .join(" ")
+    .split(/(?<=[.!?])\s+/)
+    .map((l) => l.trim())
+    .filter((l) => l.length >= 25 && l.length <= 140);
+
+  const vistas = new Set<string>(excluida ? [excluida] : []);
   const out: string[] = [];
-  for (const t of todas) {
-    const clave = t.toLowerCase().replace(/[^a-z0-9ñáéíóú ]/gi, "").trim();
-    if (!clave || vistas.has(clave)) continue;
+  for (const t of [...crudas, ...conBullet, ...frases]) {
+    const clave = claveDe(t);
+    if (!clave || clave === excluida || vistas.has(clave)) continue;
     vistas.add(clave);
     out.push(/^\p{Extended_Pictographic}/u.test(t) ? t : `${emojiPorDefecto} ${t}`);
     if (out.length >= 3) break;
   }
   return out;
 }
+
+/** Exportada para probarla directamente: el CI no corre el anuncio completo. */
+export { puntosReales };
 
 function precioTexto(p: ProductoParaAnuncio): string | null {
   const n = Number(p.price) || 0;
@@ -126,7 +173,7 @@ export function planDeAnuncio(
       envio?.pago === "contraentrega" ? "💵 Pagas al recibir" : envio?.pago === "ambos" ? "💵 Pagas antes o al recibir" : "",
       envio?.plazo ? `📦 Llega en ${envio.plazo}` : "",
     ].filter(Boolean);
-    const puntos = puntosReales(p, "✔️");
+    const puntos = puntosReales(p, "✔️", gancho);
     return {
       modelo,
       // AIDA: atención (el beneficio del producto) → interés/deseo (lo que
@@ -158,7 +205,7 @@ export function planDeAnuncio(
   }
 
   if (modelo === "servicio" || modelo === "cotizacion") {
-    const puntos = puntosReales(p, "✔️");
+    const puntos = puntosReales(p, "✔️", gancho);
     return {
       modelo,
       primaryText: [
@@ -187,7 +234,7 @@ export function planDeAnuncio(
   }
 
   // digital (y suscripción): el puente del punto A al punto B.
-  const puntos = puntosReales(p, "📌");
+  const puntos = puntosReales(p, "📌", gancho);
   const entrega = p.deliveryLink ? "⚡ Lo recibes al instante por enlace" : "⚡ Lo recibes por WhatsApp apenas pagas";
   return {
     modelo,
@@ -279,3 +326,4 @@ export function pulirCopyDeAnuncio(
   };
   return { primaryText: pulir(copy.primaryText), headline: pulir(copy.headline), description: pulir(copy.description) };
 }
+
