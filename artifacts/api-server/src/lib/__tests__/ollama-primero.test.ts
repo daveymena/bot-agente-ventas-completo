@@ -81,3 +81,18 @@ describe("Ollama para todo", () => {
     for (const c of lista) expect(c.cfg?.apiKey).toBeTruthy();
   });
 });
+
+describe("Atlas no se pega con proveedores muertos", () => {
+  it("dos timeouts seguidos enfrían al proveedor", async () => {
+    const { optimizedRotation, resetProviderRotation } = await import("../optimized-rotation");
+    try {
+      expect(optimizedRotation.isInCooldown("ollama_cloud")).toBe(false);
+      optimizedRotation.reportFailure("ollama_cloud", "timeout of 15000ms exceeded");
+      optimizedRotation.reportFailure("ollama_cloud", "timeout of 15000ms exceeded");
+      expect(optimizedRotation.isInCooldown("ollama_cloud")).toBe(true);
+    } finally {
+      resetProviderRotation();
+    }
+    expect(optimizedRotation.isInCooldown("ollama_cloud")).toBe(false);
+  });
+});
