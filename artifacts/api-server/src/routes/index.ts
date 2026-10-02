@@ -49,6 +49,7 @@ import agentLabRouter from "./agent-lab";
 import probarVendedorRouter from "./probar-vendedor";
 import scraperRouter from "./scraper";
 import agentLabDashboardRouter from "./agent-lab-dashboard";
+import campanaRouter from "./campana";
 
 const router: IRouter = Router();
 
@@ -101,6 +102,7 @@ router.use("/agent-lab", agentLabRouter);
 router.use("/probar-vendedor", probarVendedorRouter);
 router.use("/scraper", scraperRouter);
 router.use("/agent-lab-dashboard", agentLabDashboardRouter);
+router.use("/campana", campanaRouter);
 router.use(errorHandler);
 
 export default router;
