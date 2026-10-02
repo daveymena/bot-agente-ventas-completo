@@ -128,22 +128,27 @@ Cada paso deja su resultado guardado en el producto, para que landing, anuncio y
 | **GIFs / clips de video (ffmpeg)** | ❌ | ✅ **ya estaba hecho** | `activos-fabricante.ts`: `tramosParaClips`, `cortarClips`, `videoDeFotos`, `gifDeVideo`, `gifDeFotos`. **En uso**: `app-operator.ts:5763` (Atlas ya hace "haz un gif") y `activosAprobados` → `landing-studio-opencode.ts:849`. Ruta pública `/media/fabricante/`. ⚠️ Una sesión creó un módulo duplicado (`gifs-de-producto.ts`) por no verificar primero; se borró (commit `9029f2d`). |
 | **Campaña en un clic (panel)** | no estaba en el plan | ✅ **hecho (02-10)** | `lib/campana-un-clic.ts` + `routes/campana.ts` (`POST /api/campana/generar`) + botón en `facebook.tsx` |
 | Aprobación de activos del fabricante | (no estaba en el plan) | ✅ **hecho** | `activosAprobados()` exige `aprobado: true` en la metadata: nada entra a la landing sin que el dueño lo apruebe |
-| Variantes A/B de landing | ❌ | 🟡 **parcial** | `routes/marketing.ts` ya tiene experimentos (hipótesis + variante + presupuesto + duración); falta la UI |
-| Referencias en 2-3 idiomas | amplía lo existente | 🟡 **parcial** | `fb_ad_library` busca por país y `traducirConsultaAingles` ya existe en `activos-fabricante.ts`; falta recorrer los idiomas |
-| Infografía automática | ❌ | 🟡 **parcial (otro camino)** | `crear-landing-imagenes.ts` + `plan-imagenes.ts` generan paneles con IA; no es la compuesta con Chromium |
-| 3 ganchos distintos por video | 🟡 | ❌ | `video-anuncio.ts` hace un video por producto, no 3 ganchos |
+| Variantes A/B | ❌ | ✅ **ya estaba hecho (end-to-end)** | Backend: `routes/marketing.ts` (crear/listar/cerrar) + `marketing-team/agents/experiment-manager.ts`, con la regla anti-fake: **sin impresiones mínimas el resultado queda `INCONCLUSO`, nunca `GANADOR`**. UI: `ventas-pro/src/pages/marketing.tsx` → `ExperimentosTab` con botón "Crear experimento". |
+| Referencias en 2-3 idiomas | amplía lo existente | 🟡 **falta el bucle** | `fb_ad_library` recibe `query` + `pais` (por defecto CO) y ordena por impresiones; **no** recorre idiomas solo. `traducirConsultaAingles()` ya existe (`activos-fabricante.ts`) y es lo que falta enchufarle. |
+| 3 ganchos distintos | 🟡 | ✅ **ya estaba hecho** | `lanzamiento.ts:100` pide `ganchos:["…","…","…"]` (dolor / curiosidad / resultado, ≤90 caracteres) + copies + guion de video. |
+| Infografía automática | ❌ (compuesta con Chromium) | 🟡 **existe por otro camino** | `landing/plan-imagenes.ts` + `crear-landing-imagenes.ts` arman los paneles (dolor, beneficios, comparativa, ofertas…) y sus prompts. No es la composición con Chromium que describe el plan. |
 
-### Lo que sigue, en orden (lo que DE VERDAD falta)
+### Lo que sigue (lo que DE VERDAD falta de este plan)
 
-1. **Variantes A/B**: UI sobre los experimentos que ya existen en `routes/marketing.ts`.
-2. **Referencias multi-idioma**: `traducirConsultaAingles` ya existe; falta que `fb_ad_library` recorra 2-3 idiomas y guarde los anuncios activos de más de 15 días.
-3. **3 ganchos distintos** por video (hoy hay uno por producto).
-4. **Infografía compuesta con Chromium** (texto exacto, sin API paga), reusando el patrón de `video-anuncio.ts`.
+El plan, revisado paso por paso, **ya está implementado**. Quedan dos refinamientos y
+ninguno bloquea vender:
 
-> ⚠️ **Lección de esta ronda**: cuatro de los pasos de arriba figuraban como ❌ y
-> ya estaban hechos (píxel, video, ofertas, ángulos) **y los GIFs también**.
-> Antes de escribir una función nueva, buscar la que ya existe por su
-> comportamiento — no por su nombre.
+1. **Referencias multi-idioma**: que `fb_ad_library` recorra 2-3 idiomas con
+   `traducirConsultaAingles` y guarde los anuncios sostenidos (>15 días) en
+   `metadata.referencias`. Hoy Atlas tendría que llamarla varias veces a mano.
+2. **Infografía compuesta con Chromium** (texto exacto, sin API paga): hoy los
+   paneles se generan con IA, que es más caro y menos predecible en el texto.
+
+> ⚠️ **Lección de estas rondas (caro de repetir)**: **seis** pasos de este plan
+> figuraban como ❌ y ya estaban hechos (datos inventados, Purchase, píxel, video,
+> ofertas, ángulos, GIFs, A/B y 3 ganchos). Dos veces se empezó a escribir código
+> que ya existía: el motor v2 y los GIFs. **Antes de crear una función, buscar la
+> que ya existe por su comportamiento — no por su nombre.**
 
 ⚠️ **Regla que no cambia**: nada de la sección 6 se automatiza. Un activo sin
 dato real detrás se cae, no se rellena.
