@@ -4,9 +4,12 @@
  *
  * Dos decisiones de diseño, las dos obligadas por la realidad del sistema:
  *
- * 1. DEEPSEEK PRIMERO. Es orden del dueño (2026-09-03) y ya es una regla con
- *    pruebas en `lib/deepseek-al-frente.ts`. Este cliente la respeta y no la
- *    reinventa: llama a la misma función.
+ * 1. MANDA EL PROVEEDOR ELEGIDO (2026-10-02, por encima de "DeepSeek siempre
+ *    primero" del 2026-09-03): si el admin eligió un proveedor en
+ *    Configuración Y está configurado (clave o URL), sus candidatos van al
+ *    frente; DeepSeek queda justo detrás como respaldo. Sin elección válida,
+ *    DeepSeek primero como siempre (regla con pruebas en
+ *    `lib/deepseek-al-frente.ts`, que se sigue llamando igual).
  *
  * 2. SI EL MODELO NO TRAE HERRAMIENTAS, EL MOTOR SIGUE IGUAL. La plataforma
  *    rota por modelos gratis (OpenCode Zen, Groq, Cerebras) y varios no
@@ -202,6 +205,33 @@ export async function armarCadena(opts: {
     if (nvidia && healthMonitor.isServiceHealthy("nvidia_8b")) cola.push({ config: nvidia, source: `nvidia/${nvidia.model}` });
   } catch {
     /* sin nvidia configurado */
+  }
+
+  // ── El elegido al frente, si resuelve ───────────────────────────────────
+  // El admin elige el proveedor en Configuración y el motor elige el MODELO
+  // (el primero sano de ese proveedor en la cola). Solo se promueve si el
+  // proveedor resuelve de verdad (clave o URL): promover un elegido sin
+  // configurar pondría un candidato muerto primero en cada turno.
+  if (proveedorElegido && proveedorElegido !== "none" && proveedorElegido !== "deepseek" && proveedorElegido !== "opencode") {
+    let resuelve = false;
+    try {
+      const { getProviderConfigFromSettings: resolver } = await import("@workspace/integrations-openai-ai-server");
+      resuelve = !!resolver({ ...(ajustes || {}), aiProvider: proveedorElegido });
+    } catch { resuelve = false; }
+    if (resuelve) {
+      const esElegido = (s: unknown): boolean => {
+        const v = String(s || "");
+        if (proveedorElegido === "ollama_cloud") return v.startsWith("ollama_cloud") || v.startsWith("ollama_local");
+        if (proveedorElegido === "ollama_local") return v.startsWith("ollama_local");
+        return v === proveedorElegido || v.startsWith(`${proveedorElegido}/`) || v.startsWith(`${proveedorElegido}_`);
+      };
+      const pri = cola.filter((c) => esElegido(c.source));
+      if (pri.length) {
+        const resto = cola.filter((c) => !esElegido(c.source));
+        cola.length = 0;
+        cola.push(...pri, ...resto);
+      }
+    }
   }
 
   // Un modelo de razonamiento tarda 26-30s medidos contra producción: nadie

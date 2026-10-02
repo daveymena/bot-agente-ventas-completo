@@ -247,6 +247,13 @@ class OptimizedProviderRotation {
       "nvidia",
       "openrouter",
       "github",
+      // Ollama (nube Pro y local), Mimo y Cerebras: sin registro,
+      // reportFailure/isInCooldown eran no-op para ellos y el chat de Atlas
+      // los reintentaba a costo completo en cada paso de cada turno.
+      "ollama_cloud",
+      "ollama_local",
+      "mimo",
+      "cerebras",
     ];
 
     for (const name of providerList) {

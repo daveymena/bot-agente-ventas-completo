@@ -25,9 +25,7 @@ describe("cada familia tiene CSS propio (no solo tokens)", () => {
   for (const f of FAMILIAS) {
     it(`${f} trae su skin en el HTML`, () => {
       const html = renderizarLanding({ nombre: "x", familia: f, producto: product, negocio: { modelo: "fisico" }, secciones: sections });
-      // electronica comparte base oscura pero tiene skin propio
-      const marca = f === "electronica" ? "/*f:electronica*/" : `/*f:${f}*/`;
-      expect(html).toContain(marca);
+      expect(html).toContain(`/*f:${f}`);
     });
   }
 });

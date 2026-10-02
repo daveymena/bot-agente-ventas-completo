@@ -2593,7 +2593,7 @@ export class WhatsAppManager {
                       text = "[el cliente mandó una nota de voz que no se pudo escuchar]";
                     }
                   } else {
-                    const visto = await describirImagen(buf, mime);
+                    const visto = await describirImagen(buf, mime, undefined, (this as any)?.currentTenant?.id);
                     const { pareceComprobante } = await import("./verificacion-pago");
                     // ── La descripción NO se le pasa al agente como hecho ──
                     //
@@ -3037,7 +3037,7 @@ export class WhatsAppManager {
       const { credencialesDe } = await import("./tenant-payment-credentials");
       const { tenantManager } = await import("./tenantManager");
 
-      const leido = await leerComprobante(buf, mime);
+      const leido = await leerComprobante(buf, mime, (this as any)?.currentTenant?.id);
       const tenant = await tenantManager.getTenantById(this.currentTenant.id);
       const cuentas = credencialesDe(tenant as any)?.transfer?.accounts || [];
       cotejos = cotejarComprobante(leido, {
