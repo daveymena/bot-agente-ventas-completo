@@ -343,11 +343,24 @@ export async function correrTurnoDirecto(o: OpcionesDeTurnoDirecto): Promise<Res
  */
 export interface ConfigDirecta { apiKey: string; baseUrl: string; modelo: string; proveedor: string }
 
+/**
+ * El fetch de más abajo manda POST a `baseUrl` tal cual. DeepSeek trae el
+ * sufijo en su URL (`.../chat/completions`) pero Ollama viene como
+ * `https://ollama.com/v1`: sin el `/chat/completions` devuelve 405 Method
+ * Not Allowed (visto en prod 02-10-2026) y el turno cae al puente OpenCode.
+ * Acá se normaliza el endpoint completo, sea cual sea el proveedor.
+ */
+function endpointChat(base: string): string {
+  const b = String(base || "").replace(/\/+$/, "");
+  if (/\/chat\/completions$/.test(b)) return b;
+  return `${b}/chat/completions`;
+}
+
 export function configDirecta(env: NodeJS.ProcessEnv = process.env): ConfigDirecta | null {
   if (env.OLLAMA_CLOUD_API_KEY) {
     return {
       apiKey: String(env.OLLAMA_CLOUD_API_KEY),
-      baseUrl: String(env.ATLAS_DIRECTO_URL || env.OLLAMA_CLOUD_URL || "https://ollama.com/v1"),
+      baseUrl: endpointChat(String(env.ATLAS_DIRECTO_URL || env.OLLAMA_CLOUD_URL || "https://ollama.com/v1")),
       modelo: String(env.ATLAS_DIRECTO_MODELO || env.OLLAMA_CLOUD_MODEL || "gpt-oss:20b"),
       proveedor: "ollama_cloud",
     };
@@ -355,7 +368,7 @@ export function configDirecta(env: NodeJS.ProcessEnv = process.env): ConfigDirec
   if (env.DEEPSEEK_API_KEY) {
     return {
       apiKey: String(env.DEEPSEEK_API_KEY),
-      baseUrl: String(env.ATLAS_DIRECTO_URL || URL_POR_DEFECTO),
+      baseUrl: endpointChat(String(env.ATLAS_DIRECTO_URL || URL_POR_DEFECTO)),
       modelo: String(env.ATLAS_DIRECTO_MODELO || "deepseek-v4-flash"),
       proveedor: "deepseek",
     };
