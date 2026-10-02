@@ -66,3 +66,33 @@ describe("Ollama nunca cuelga un turno", () => {
     expect(ms).toBeLessThan(10000);
   }, 15000);
 });
+
+describe("Ollama para todo", () => {
+  it("redacción: ollama abre la cadena gratuita", async () => {
+    const { ORDEN_GRATUITOS_PRIMERO } = await import("../landing/agente-landing");
+    expect(ORDEN_GRATUITOS_PRIMERO[0]).toBe("ollama_local");
+    expect(ORDEN_GRATUITOS_PRIMERO[1]).toBe("ollama_cloud");
+  });
+
+  it("visión: candidatos con clave resuelta (sin tenant usa entorno)", async () => {
+    const { candidatosDeVision } = await import("../media-entrante");
+    const lista = await candidatosDeVision();
+    expect(Array.isArray(lista)).toBe(true);
+    for (const c of lista) expect(c.cfg?.apiKey).toBeTruthy();
+  });
+});
+
+describe("Atlas no se pega con proveedores muertos", () => {
+  it("dos timeouts seguidos enfrían al proveedor", async () => {
+    const { optimizedRotation, resetProviderRotation } = await import("../optimized-rotation");
+    try {
+      expect(optimizedRotation.isInCooldown("ollama_cloud")).toBe(false);
+      optimizedRotation.reportFailure("ollama_cloud", "timeout of 15000ms exceeded");
+      optimizedRotation.reportFailure("ollama_cloud", "timeout of 15000ms exceeded");
+      expect(optimizedRotation.isInCooldown("ollama_cloud")).toBe(true);
+    } finally {
+      resetProviderRotation();
+    }
+    expect(optimizedRotation.isInCooldown("ollama_cloud")).toBe(false);
+  });
+});

@@ -12,6 +12,7 @@ import {
   getOptimizedProviderOrder,
   reportProviderResult,
   getProviderTimeout,
+  optimizedRotation,
 } from "../lib/optimized-rotation";
 import { getG4FResponse } from "../lib/providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
@@ -1420,6 +1421,18 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
       if (base) pushCfg(`${m.proveedor}:${m.modelo}`, { ...base, model: m.modelo });
     }
     pushCfg("nvidia", getProviderConfig("nvidia"));
+    // Los que ya se sabe que no responden se saltean desde el arranque del
+    // turno (no en cada paso): un candidato colgado cuesta 15s por paso y con
+    // varios pasos el "hola" se sentía pegado. Si TODOS están fríos se intenta
+    // igual: mejor lento que mudo.
+    const baseDe = (n: string) => String(n || "").split(":")[0];
+    {
+      const vivos = candidates.filter((c) => !optimizedRotation.isInCooldown(baseDe(c.name)));
+      if (vivos.length > 0) {
+        candidates.length = 0;
+        candidates.push(...vivos);
+      }
+    }
     if (candidates.length === 0) return finish({ error: "No hay motor de IA configurado" }, 500);
 
     // callAI se llama una vez por paso (hasta 10), y antes CADA paso volvía a
@@ -1466,6 +1479,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
         const remaining = deadline - Date.now();
         if (remaining <= 0) break;
         const cfg: AIProviderConfig = { ...cand.config };
+        const t0 = Date.now();
         try {
           if (cfg.baseUrl === "https://api.githubcopilot.com") {
             const session = await getCopilotSessionToken(cfg.apiKey);
@@ -1489,6 +1503,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
           );
           const c = resp.choices[0]?.message?.content;
           if (c) {
+            reportProviderResult(baseDe(cand.name), true, Date.now() - t0);
             // Los pasos siguientes (y las próximas peticiones) arrancan por este.
             ultimoProveedorBueno = cfg.baseUrl + "|" + cfg.model;
             logger.info({ provider: cand.name, model: cfg.model }, "[AppOperator] respondió");
@@ -1499,6 +1514,7 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
           logger.warn({ provider: cand.name, model: cfg.model }, "[AppOperator] respuesta vacía, rotando");
         } catch (e: any) {
           const msg = String(e?.message || "");
+          reportProviderResult(baseDe(cand.name), false, undefined, msg);
           const agotado = /429|rate.?limit|FreeUsageLimit|quota/i.test(msg);
           logger.warn(
             { provider: cand.name, model: cfg.model, agotado, err: msg.slice(0, 120) },

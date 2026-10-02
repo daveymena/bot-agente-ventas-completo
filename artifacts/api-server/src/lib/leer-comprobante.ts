@@ -194,12 +194,12 @@ export function extraerJsonDelComprobante(bruto: string): any | null {
 export async function leerComprobante(
   imagen: Buffer,
   mime = "image/jpeg",
+  tenantId?: number | null,
 ): Promise<ComprobanteLeido | null> {
   const b64 = imagen.toString("base64");
+  const { candidatosDeVision } = await import("./media-entrante");
 
-  for (const { proveedor, modelo } of modelosDeVision()) {
-    const cfg = getProviderConfig(proveedor);
-    if (!cfg?.apiKey) continue;
+  for (const { proveedor, modelo, cfg } of await candidatosDeVision(tenantId)) {
     try {
       const r = await fetch(`${cfg.baseUrl}/chat/completions`, {
         method: "POST",
