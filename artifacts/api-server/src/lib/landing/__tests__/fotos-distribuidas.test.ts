@@ -90,3 +90,19 @@ describe("hero y sellos sin detalles rotos", () => {
     expect(html).toContain("<svg");
   });
 });
+
+describe("topbar sin desbordes", () => {
+  const html = () =>
+    renderizarLanding({
+      nombre: "x", familia: "familiar",
+      producto: { name: "M", description: "D", imageUrl: "https://cdn.example.com/m.webp", images: ["https://cdn.example.com/m.webp"], price: 1, currency: "COP" },
+      negocio: { modelo: "fisico", confianza: ["Pago contra entrega", "Envío a todo el país"] },
+      secciones: [{ id: "hero", type: "hero", title: "T", subtitle: "S", cta: "P" }],
+    });
+  it("los iconos del topbar tienen tamaño fijo (nada gigante)", () => {
+    expect(html()).toContain(".topbar-in svg{width:15px;height:15px");
+  });
+  it("la base corta cualquier desborde horizontal", () => {
+    expect(html()).toContain("overflow-x:clip");
+  });
+});
