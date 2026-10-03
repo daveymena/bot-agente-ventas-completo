@@ -414,6 +414,53 @@ export function bodegaDe(p: ProductoDropi): string | null {
 }
 
 /**
+ * La garantía REAL del proveedor, extraída de la description de Dropi.
+ *
+ * Dropi NO tiene un campo estructurado de garantía (medido 03-10-2026 contra
+ * products/v2: ni `warranty` ni `garantia`; `dropi_app_description=null`).
+ * Lo que sí pasa (medido en productos reales: AB Roller #1620647 la trae, la
+ * Mochila Antirrobo #2248412 no): el PROVEEDOR escribe la política como
+ * texto dentro de la description, generalmente bajo un rótulo
+ * "GARANTÍAS"/"GARANTÍA"/"Warranty" seguido de las condiciones.
+ *
+ * Devuelve el RESUMEN honesto (los días/plazo + la condición principal que
+ * se pueda caber en una línea) — la landing y el bot lo muestran como dato
+ * del proveedor. Si no la menciona: null (no se inventa nada).
+ */
+export function garantiaDesdeDropi(p: ProductoDropi): string | null {
+  const desc = String((p as any).description || "");
+  if (!desc || !/garant[ií]|warranty/i.test(desc)) return null;
+  const plano = desc
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(td|tr|p|div|h[1-6]|li|table)>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/\\u003c/gi, "<")
+    .replace(/\\u003e/gi, ">")
+    .replace(/\r/g, "");
+  const m = plano.match(/(garant[ií]as?|warranty)[^\w\n]{0,10}([\s\S]{0,600})/i);
+  if (!m) return null;
+  const cuerpo = m[2]
+    .split(/\n{2,}/)[0]
+    .split(/\n(?=[A-ZÁÉÍÓÚÑ¿¡][^\n]{3,60}:)/)[0]
+    .split(/\n(?=[A-ZÁÉÍÓÚÑ ]{4,30}$)/)[0]
+    .trim();
+  const lineas = cuerpo
+    .split("\n")
+    .map((l) => l.replace(/^[-*•·\s]+/, "").trim())
+    .filter(Boolean)
+    .slice(0, 2);
+  if (!lineas.length) return null;
+  // Unir las dos primeras reglas en una frase que la landing quepa con gracejo.
+  const resumen = lineas.join(" ");
+  // Recorte defensivo: la landing no debe recibir 600 chars de política.
+  return resumen.length > 220 ? `${resumen.slice(0, 217).trimEnd()}…` : resumen || null;
+}
+
+/**
  * Lo que Atlas y el panel muestran de un producto de Dropi. Existe porque
  * cada herramienta leía los campos a su manera: `dropi_buscar` y el radar
  * usaban `p.stock` y `p.user_id`, que en el listado NO vienen (el stock está
@@ -667,6 +714,10 @@ export async function importarProductoDropi(tenantId: number, token: string, dro
     imageUrls,
     imagenes: imageUrls,
     dropiRevisadoEn: new Date().toISOString(),
+    // La garantía del PROVEEDOR (texto real de la description de Dropi). Solo
+    // si existe: si el proveedor no la escribió, `garantia` queda en null y
+    // la landing/bot siguen el default sin prometer nada.
+    ...(garantiaDesdeDropi(p) ? { garantia: garantiaDesdeDropi(p) } : {}),
     ...(ficha ? { curado: { por: ficha.curadoPor || null, en: new Date().toISOString(), beneficioPrincipal: ficha.beneficioPrincipal, copyWhatsapp: ficha.copyWhatsapp, preguntasFrecuentes: ficha.preguntasFrecuentes, complementadoDesde: ficha.complementadoDesde } } : {}),
   };
   const nombreFinal = ficha?.nombre || String(p.name || `Producto Dropi ${p.id}`);
