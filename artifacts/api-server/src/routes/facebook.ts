@@ -658,19 +658,32 @@ router.post("/catalogo/conectar", async (req, res, next) => {
 
     let catalogId = previo?.catalogId || null;
     if (!catalogId) {
-      // fbPost LANZA al fallo (con sus reintentos transitorios): sin este
-      // catch el admin recibía un 500 sin motivo. El 500 no servía para
-      // nada -- el motivo de Graph sí (permisos, la cuenta, etc.).
-      let c: any = null;
+      // ── Los catálogos viven en el BUSINESS, no en la cuenta ────────────
+      // "Unsupported post request" de Meta con POST /act_X/product_catalogs:
+      // el catálogo es una propiedad del BUSINESS del anunciante (owned_
+      // product_catalogs). Se resuelve: el business de la cuenta; si la
+      // cuenta no lo trae, el primero de los businesses del token.
       try {
-        c = await fb.fbPost(`act_${adAccountId}/product_catalogs`, { name: `${nombre} (VentasPro)` }, "catálogo de productos", token);
+        const acc: any = await fb.fbGet(`act_${adAccountId}`, { fields: "business" }, token);
+        const delToken: any = (!acc?.business?.id) ? await fb.fbGet("me/businesses", { fields: "id,name" }, token) : null;
+        const businessId = acc?.business?.id || delToken?.data?.[0]?.id || null;
+        if (!businessId) {
+          return res.json({ ok: false, message: "La conexión no alcanza un Business de Meta para crear el catálogo: reconecta la cuenta (debe tener el Business Manager ligado)." });
+        }
+        let c: any = null;
+        try {
+          c = await fb.fbPost(`${businessId}/owned_product_catalogs`, { name: `${nombre} (VentasPro)`, vertical: "commerce" }, "catálogo de productos", token);
+        } catch (err: any) {
+          const motivo = err?.fbError?.message || err?.fbError?.error_user_msg || err?.message || "sin detalle";
+          logger.warn({ err: motivo, tenantId, businessId }, "[Catalogo] Meta no aceptó crear el catálogo");
+          return res.json({ ok: false, message: `Meta no aceptó crear el catálogo: ${motivo}` });
+        }
+        if (!c?.id) return res.json({ ok: false, message: `Meta no aceptó crear el catálogo: ${fb.lastAdError || "sin detalle"}` });
+        catalogId = String(c.id);
       } catch (err: any) {
         const motivo = err?.fbError?.message || err?.fbError?.error_user_msg || err?.message || "sin detalle";
-        logger.warn({ err: motivo, tenantId }, "[Catalogo] Meta no aceptó crear el catálogo");
-        return res.json({ ok: false, message: `Meta no aceptó crear el catálogo: ${motivo}` });
+        return res.json({ ok: false, message: `No pude resolver el Business para el catálogo: ${motivo}` });
       }
-      if (!c?.id) return res.json({ ok: false, message: `Meta no aceptó crear el catálogo: ${fb.lastAdError || "sin detalle"}` });
-      catalogId = String(c.id);
     }
 
     // 2. El feed con horario DAILY (Meta va a descargar NUESTRO feed solo).
