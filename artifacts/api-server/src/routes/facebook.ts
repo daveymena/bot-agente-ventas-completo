@@ -676,7 +676,24 @@ router.post("/catalogo/conectar", async (req, res, next) => {
         } catch (err: any) {
           const motivo = err?.fbError?.message || err?.fbError?.error_user_msg || err?.message || "sin detalle";
           logger.warn({ err: motivo, tenantId, businessId }, "[Catalogo] Meta no aceptó crear el catálogo");
-          return res.json({ ok: false, message: `Meta no aceptó crear el catálogo: ${motivo}` });
+          // Missing Permission: el nombre exacto del permiso es catalog_management
+          // (docs del catálogo). Se le dice al admin QUÉ conectarlo y qué tiene hoy.
+          let perms = "";
+          if (/permission/i.test(motivo)) {
+            try {
+              const p: any = await fb.fbGet("me/permissions", { fields: "permission,status" }, token);
+              const vivos = (p?.data || []).filter((x: any) => x.status === "granted").map((x: any) => x.permission);
+              perms = ` Permisos actuales del token: ${vivos.slice(0, 14).join(", ") || "ninguno legible"}.`;
+            } catch { /* sin permisos legibles */ }
+          }
+          return res.json({
+            ok: false,
+            message:
+              `Meta no aceptó crear el catálogo: ${motivo}`
+              + (/permission/i.test(motivo)
+                ? " El permiso que falta es catalog_management: en developers.facebook.com, en la app (Facebook Login for Business → la configuración usada en el conector), marca catalog_management y RECONECTA la cuenta acá — el token nuevo lo trae y esto funciona." + perms
+                : ""),
+          });
         }
         if (!c?.id) return res.json({ ok: false, message: `Meta no aceptó crear el catálogo: ${fb.lastAdError || "sin detalle"}` });
         catalogId = String(c.id);
