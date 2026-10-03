@@ -329,9 +329,19 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
             ["⚡", "Entrega inmediata", "a tu correo o WhatsApp"],
           ];
 
+  // Los bullets de la HERO cortos (2-6 palabras, como en el modelo validado):
+  // si la IA escribió frases largas, la hero lleva el recorte y el texto
+  // íntegro queda en la sección de beneficios.
+  const corto = (t: string, tope: number): string => {
+    const x = String(t || "").replace(/\s+/g, " ").trim();
+    if (x.length <= tope) return x;
+    const p2 = x.slice(0, tope).split(" ");
+    p2.pop();
+    return p2.join(" ");
+  };
   const bullets = (p.heroBullets?.length ? p.heroBullets : p.benefits || [])
     .slice(0, 5)
-    .map((b) => `<li><span>✓</span>${esc(b)}</li>`)
+    .map((b) => `<li><span>✓</span>${esc(corto(b, 56))}</li>`)
     .join("");
 
   const listaFeatures: { title: string; text?: string; icon?: string }[] = p.features?.length
@@ -1466,7 +1476,24 @@ export function estiloDesdeFila(a: {
 
   const fotos = (a.fotos || []).filter(Boolean).map(String);
   const descripcion = String(producto?.description || "").trim();
-  const subtitulo = String(hero?.subtitle || "").trim() || descripcion.split(/\n+/)[0] || "";
+  // ── La hero es la PUERTA DE ENTRADA (pedido del dueño, 03-10): el texto
+  // antes de la foto debe ser CORTO. Cuando el Studio no escribió subtitle,
+  // la descripción cruda sirve de FONDO de copy pero NO como headline: se
+  // recorta a la primera oración y a un tope duro, y el resto del texto vive
+  // en la ficha (beneficios/FAQ), no tapando la imagen.
+  const primeraOracion = (texto: string): string => {
+    const limpia = texto.replace(/\s+/g, " ").trim();
+    const corte = limpia.match(/^.{10,}?[.!?](?=\s|$)/);
+    return (corte ? corte[0] : limpia).trim();
+  };
+  const fraseDeHero = (texto: string, tope: number): string => {
+    const oracion = primeraOracion(texto);
+    if (oracion.length <= tope) return oracion;
+    const palabras = oracion.slice(0, tope).split(" ");
+    palabras.pop();
+    return palabras.join(" ") + "…";
+  };
+  const subtitulo = String(hero?.subtitle || "").trim() || (descripcion ? fraseDeHero(descripcion, 110) : "");
   const modelo = a.modelo || "digital";
   const kind = modelo === "fisico" ? undefined : modelo === "servicio" || modelo === "cotizacion" ? "service" : "digital";
 
@@ -1482,7 +1509,9 @@ export function estiloDesdeFila(a: {
       ? String(design.style)
       : elegirEstilo(producto, a.precioAntes || undefined),
     productName: String(producto?.name || row.name || "Producto"),
-    tagline: subtitulo.slice(0, 160),
+    // El tagline del header (la línea bajo la marca) también es corto: es la
+    // misma puerta de entrada. Tope 60 chars.
+    tagline: fraseDeHero(subtitulo, 60),
     brand: negocio.nombre || producto?.brand || "",
     slug: String(row.slug || ""),
     price: producto?.price ?? 0,
