@@ -32,7 +32,7 @@ import {
   definicionesDeHerramientas,
   ejecutores,
   puntuarCoincidencias,
-  productoMencionadoEnElMensajeActual,
+  productosMencionadosEnElMensajeActual,
   diceQueCompra,
   esConfirmacionBreve,
   esDudaONegativa,
@@ -580,25 +580,38 @@ export async function responder(params: {
   // productos que SÍ existen ("Coche Mecedora para Bebé…") y "el precio que
   // dice no es el de lo que se está hablando" (×9): el cliente cambia de
   // producto y el modelo, sin volver a buscar, responde con el foco VIEJO o
-  // niega el existe. La regla (herramientas.productoMencionadoEnElMensaje-
-  // Actual, pura y testeada) decide; el motor aplica el re-enfoque y le
-  // entrega el hecho al modelo.
+  // niega el existe. Y en el caso del cliente CAÓTICO (nombra varios en un
+  // mensaje), el hecho ahora LISTA TODOS los nombrados: el vendedor no
+  // niega ninguno que exista y el foco queda en el que ganó con margen.
   try {
-    const mencionado = productoMencionadoEnElMensajeActual(mensajeDelClienteActual, catalogo);
+    const mencionados = productosMencionadosEnElMensajeActual(mensajeDelClienteActual, catalogo);
     const focoViejo = estado.productoEnFoco ?? null;
-    if (mencionado && mencionado.id !== focoViejo) {
-      apilarContexto(estado, focoViejo ? `hablaban de ${nombrePorProducto(focoViejo)}` : "explorando");
-      estado.productoAnterior = focoViejo ?? null;
-      estado.productoEnFoco = mencionado.id;
-      estado.opcionesMostradas = [];
-      if (estado.etapa === "saludo" || estado.etapa === "explorando") estado.etapa = "producto_en_foco";
-      messages.push({
-        role: "system",
-        content:
-          `El cliente mencionó "${mencionado.nombre}" (producto #${mencionado.id}) y el producto en foco era ${focoViejo ? `"${nombrePorProducto(focoViejo)}"` : "ninguno"}: ` +
-          "el foco YA cambió con este mensaje. Cualquier dato (precio, ficha, variantes) de la respuesta debe salir de las herramientas PARA ESE producto; el precio/ficha del producto anterior NO aplica.",
-      });
-      traza.push({ herramienta: "[foco:revalidado]", args: { nuevo: mencionado.id, anterior: focoViejo }, resultado: `${mencionado.nombre} (${mencionado.puntos.toFixed(0)} pts) sustituyó al foco anterior` });
+    if (mencionados.length) {
+      const hayOtro = mencionados.some((m) => m.id !== focoViejo);
+      if (hayOtro) {
+        // ¿Re-enfoque? SOLO si hay un ganador CLARO (el doble del segundo).
+        // Sin ganador (mención ambigua) el foco se queda y el hecho lista
+        // los nombrados: el vendedor pregunta cuál, no decide solo.
+        const [top, segundo] = mencionados;
+        const ganadorClaro = mencionados.length === 1 || (segundo && top.puntos >= segundo.puntos * 2);
+        if (ganadorClaro) {
+          apilarContexto(estado, focoViejo ? `hablaban de ${nombrePorProducto(focoViejo)}` : "explorando");
+          estado.productoAnterior = focoViejo ?? null;
+          estado.productoEnFoco = top.id;
+          estado.opcionesMostradas = [];
+          if (estado.etapa === "saludo" || estado.etapa === "explorando") estado.etapa = "producto_en_foco";
+          traza.push({ herramienta: "[foco:revalidado]", args: { nuevo: top.id, anterior: focoViejo }, resultado: `${top.nombre} (${top.puntos.toFixed(0)} pts) sustituyó al foco anterior` });
+        }
+        const listaNombres = mencionados.map((m) => `"${m.nombre}" (#${m.id})`).join(", ");
+        messages.push({
+          role: "system",
+          content:
+            `El cliente MENCIONA en este mensaje: ${listaNombres}. TODOS existen en el catálogo`
+            + (ganadorClaro ? `; el foco YA cambió a "${mencionados[0].nombre}"` : "; NINGUNO quedó en foco todavía")
+            + `. Cualquier dato (precio, ficha, variantes) sale de las herramientas PARA el producto que se esté hablando: el precio/ficha del producto anterior NO aplica y no digas "no lo tengo" de ninguno de los de esa lista`
+            + (mencionados.length > 1 ? " (si no está claro cuál quiere, pregúntale cuál de esos es)." : "."),
+        });
+      }
     }
   } catch { /* sin revalidación el foco queda como estaba */ }
 

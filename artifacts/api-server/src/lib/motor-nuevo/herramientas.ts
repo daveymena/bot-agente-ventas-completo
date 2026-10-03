@@ -723,6 +723,43 @@ export function puntuarCoincidencias(consulta: string, catalogo: Producto[], lim
 export const UMBRAL_RE_ENFOQUE = 8;
 
 /**
+ * LOS PRODUCTOS que el mensaje actual nombró (1 a 4), en orden de fuerza.
+ *
+ * La versión DE LISTA de `productoMencionadoEnElMensajeActual`: el probador
+ * marcó el caso del cliente caótico que nombra varios en un mensaje ("…y
+ * la Mochila Elegante, y la Transportadora para Mascotas…") — el vendedor
+ * negaba los que no estaban en foco ("dice que no lo tiene" con productos
+ * que SÍ existen). Cada candidato acá exige sus PROPIAS palabras de nombre
+ * en el mensaje (el coche con "coche/mecedora", la mochila con "mochila"):
+ * sin ese requisito, el que gana por puntos comería a los demás.
+ *
+ * La AMBIGÜEDAD deja de ser rechazo: un "mochila" solo empata entre diez
+ * mochilas y el hecho las lista para que el vendedor pregunte cuál — que es
+ * lo que corresponde a una duda así (el foco solo cambia con un GANADOR
+ * CLARO, y eso lo decide el motor con la regla de arriba).
+ */
+export function productosMencionadosEnElMensajeActual(
+  mensaje: string,
+  catalogo: Producto[],
+  limite = 4,
+): Array<{ id: number; nombre: string; puntos: number }> {
+  if (!String(mensaje || "").trim()) return [];
+  const palabras = N(mensaje)
+    .split(/[^a-z0-9ñ]+/)
+    .filter((w) => w.length > 2);
+  if (!palabras.length) return [];
+  const punt = puntuarCoincidencias(mensaje, catalogo, 8);
+  const out: Array<{ id: number; nombre: string; puntos: number }> = [];
+  for (const cand of punt) {
+    if (cand.puntos < UMBRAL_RE_ENFOQUE) break;
+    if (!palabras.some((w) => incluyeConTypo(N(cand.p.name), w))) continue;
+    out.push({ id: cand.p.id, nombre: cand.p.name, puntos: cand.puntos });
+    if (out.length >= limite) break;
+  }
+  return out;
+}
+
+/**
  * El producto que el mensaje actual nombró con fuerza, o null (no hay).
  *
  * Tres condiciones — las tres importan, y juntas son libres de escala:

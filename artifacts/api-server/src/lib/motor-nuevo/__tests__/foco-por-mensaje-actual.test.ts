@@ -14,7 +14,7 @@
  * "¿cuánto vale?", "ese") — ruido, no producto.
  */
 import { describe, expect, it } from "vitest";
-import { puntuarCoincidencias, productoMencionadoEnElMensajeActual, UMBRAL_RE_ENFOQUE } from "../herramientas";
+import { puntuarCoincidencias, productoMencionadoEnElMensajeActual, productosMencionadosEnElMensajeActual, UMBRAL_RE_ENFOQUE } from "../herramientas";
 
 // Fragmentos del catálogo REAL (producción, 04-10: scripts/catalogo-real.json
 // son 133; acá los implicados en el fallo del probador + otros con palabras
@@ -60,5 +60,47 @@ describe("productoMencionadoEnElMensajeActual", () => {
       const top = puntuarCoincidencias(p.name, catalogo, 5)[0];
       expect(top?.p.id, `la búsqueda de "${p.name}" debería devolverlo primero`).toBe(p.id);
     }
+  });
+});
+
+/* ── EL CLIENTE CAÓTICO (el caso del probador: nombra VARIOS en un mensaje) ──
+ * El fallo: "dice que no lo tiene" con productos que nombró y SÍ existen —
+ * el vendedor solo miraba el foco. La regla de LISTA (todos los nombrados,
+ * cada uno con SUS palabras de nombre) le entrega el hecho completo. */
+describe("productosMencionadosEnElMensajeActual (los multi-nombrados)", () => {
+  it("un mensaje que nombra DOS productos distintos los lista a los dos", () => {
+    const r = productosMencionadosEnElMensajeActual(
+      "quiero el Coche Mecedora para Bebé con Cierre de Maleta y también la Pañalera Mochila",
+      catalogo,
+    );
+    const ids = r.map((x) => x.id);
+    expect(ids).toContain(91); // el coche
+    expect(ids).toContain(163); // la pañalera
+  });
+
+  it("un nombre completo solo es UNO (los que no nombró, no entran)", () => {
+    const r = productosMencionadosEnElMensajeActual("quiero el Coche Mecedora para Bebé con Cierre de Maleta", catalogo);
+    expect(r.map((x) => x.id)).toEqual([91]);
+  });
+
+  it("los ruidos no listan nada (la verde / ese / vacío)", () => {
+    expect(productosMencionadosEnElMensajeActual("me gusta la verde", catalogo)).toEqual([]);
+    expect(productosMencionadosEnElMensajeActual("ese, lo quiero", catalogo)).toEqual([]);
+    expect(productosMencionadosEnElMensajeActual("", catalogo)).toEqual([]);
+  });
+
+  it("un 'mochila' ambiguo: en el catálogo REAL (133) lista las candidatas; en el chico es palabra de categoría y no lista", async () => {
+    // En el catálogo chico "mochila" aparece en 3 de 4: el umbral la suelta
+    // como palabra de categoría (diseño). En el REAL (133) es un match real
+    // y la regla la LISTA para que el vendedor pregunte cuál (nadie niega).
+    expect(productosMencionadosEnElMensajeActual("me interesa una mochila", catalogo)).toEqual([]);
+    const { readFileSync } = await import("node:fs");
+    const real = (JSON.parse(readFileSync("scripts/catalogo-real.json", "utf8")) as any[]).map((p: any) => ({
+      id: p.id, name: p.name, description: p.description, categoria: p.category,
+      opciones: [], disponible: p.isActive !== false, price: p.price, currency: p.currency,
+    }));
+    const r = productosMencionadosEnElMensajeActual("me interesa una mochila para mi bebé", real);
+    expect(r.length).toBeGreaterThanOrEqual(2);
+    expect(r.every((x) => /mochila|pañalera|beb[eé]/i.test(x.nombre))).toBe(true);
   });
 });
