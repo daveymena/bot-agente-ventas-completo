@@ -51,12 +51,13 @@ describe("el renderer-estilo (variantes reales del dueño, 03-10)", () => {
     }
   });
 
-  it("el DEFAULT (cleanhome): header de marca, form derecha en desktop, trust4, tbar, footer", () => {
+  it("el DEFAULT (cleanhome): header de marca, form derecha en desktop, UNA franja de confianza (sin repetir)", () => {
     const html = renderizarEstilo(fila(), { host: "", accion: "/pedir" });
     expect(html).toContain('class="hdr"');
     expect(html).toContain("hero-form");
     expect(html).toContain('class="trust4"');
-    expect(html).toContain('class="tbar"');
+    // la barra de 3 sellos que repetía el trust4 salió (03-10): UNA franja
+    expect(html).not.toContain('class="tbar"');
     // con WhatsApp del negocio: el footer y el flotante lo llevan
     const conWa = renderizarEstilo(fila({}, { producto: { ...productoReal, whatsapp: "+573001234567" } }), { accion: "/pedir" });
     expect(conWa).toContain("Escríbenos por WhatsApp");

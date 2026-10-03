@@ -741,16 +741,6 @@ p{margin:0 0 12px}
 .rating-pill b{font-size:12.5px}
 .announce{background:#141a24;color:#fff;text-align:center;font-size:11.5px;font-weight:700;padding:7px 12px;letter-spacing:.02em}
 
-/* barra de marca */
-.top{position:sticky;top:0;z-index:40;background:var(--a);color:#fff;padding:8px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
-.top .brand{display:flex;align-items:center;gap:9px;min-width:0}
-.top .logo{flex:0 0 30px;height:30px;border-radius:9px;background:#ffffff24;border:1.5px solid #ffffff70;display:grid;place-items:center;font-weight:900;font-size:15px}
-.top .bn{font-weight:900;font-size:14.5px;line-height:1.05;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.top .tag{font-size:10px;opacity:.85;font-weight:600}
-.top .ship{display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:800;text-align:right;line-height:1.15;flex:0 0 auto}
-.top .ship span{opacity:.85}
-.announce{background:#141a24;color:#fff;text-align:center;font-size:11.5px;font-weight:700;padding:7px 12px;letter-spacing:.02em}
-
 /* hero */
 .hero{background:#fff;padding:20px 0 4px}
 .hero-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:18px}
@@ -1196,16 +1186,22 @@ ${
 }
 
 ${
+  p.riskFree
+    ? `<section style="padding-top:6px"><div class="wrap">
+    <div class="${style === "pro" ? "guarantee" : "risk"}"${style === "pro" ? "" : ' style="max-width:640px"'}>
+      ${style === "pro" ? `<span class="seal">🛡️</span><div><h3>${esc(p.riskFree.title)}</h3><p>${esc(p.riskFree.text)}</p></div>` : `<span class="guar">🛡️</span><h2>${esc(p.riskFree.title)}</h2><p>${esc(p.riskFree.text)}</p>`}
+    </div>
+  </div></section>`
+    : ""
+}
+
+${
   waLink
     ? `<a class="wa" href="${waLink}" target="_blank" rel="noopener" aria-label="Escribir por WhatsApp">
   <svg width="30" height="30" viewBox="0 0 24 24" fill="#fff"><path d="M17.47 14.38c-.3-.15-1.76-.87-2.03-.97-.27-.1-.47-.15-.67.15-.2.3-.77.97-.94 1.17-.17.2-.35.22-.65.07-.3-.15-1.26-.46-2.4-1.48-.89-.79-1.49-1.77-1.66-2.07-.17-.3-.02-.46.13-.61.13-.13.3-.35.45-.52.15-.17.2-.3.3-.5.1-.2.05-.37-.02-.52-.07-.15-.67-1.62-.92-2.22-.24-.58-.49-.5-.67-.51h-.57c-.2 0-.52.07-.79.37-.27.3-1.04 1.02-1.04 2.48s1.07 2.88 1.22 3.08c.15.2 2.1 3.2 5.08 4.49.71.31 1.26.49 1.69.63.71.23 1.36.19 1.87.12.57-.09 1.76-.72 2.01-1.41.25-.7.25-1.29.17-1.41-.07-.12-.27-.2-.57-.35zM12.05 21.78h-.01a9.87 9.87 0 01-5.03-1.38l-.36-.21-3.74.98 1-3.65-.24-.37a9.85 9.85 0 01-1.51-5.26c0-5.44 4.43-9.87 9.88-9.87 2.64 0 5.12 1.03 6.99 2.9a9.82 9.82 0 012.89 6.98c0 5.45-4.44 9.88-9.87 9.88zm8.41-18.3A11.8 11.8 0 0012.04 0C5.5 0 .16 5.33.16 11.89c0 2.1.55 4.14 1.59 5.94L.07 24l6.3-1.65a11.86 11.86 0 005.67 1.44h.01c6.55 0 11.88-5.34 11.88-11.9 0-3.17-1.24-6.15-3.47-8.39z"/></svg>
 </a>`
     : ""
 }
-
-<div class="tbar">
-  ${trustBottom.map(([i, b, s]) => `<div><span>${i}</span><b>${b}</b>${s}</div>`).join("")}
-</div>
 
 <div class="sticky" id="sticky">
   <span class="cart">🛒</span>
@@ -1444,11 +1440,23 @@ export function estiloDesdeFila(a: {
   const cierre = porTipo("cta");
   const ctaText = String(cierre?.cta || "").trim();
 
-  const bullets = lineas(beneficios?.body);
+  // ── Bullets de una sola línea pegados por comas (measured 03-10: la IA
+  // escribió "Reduce la tensión...,Mejora la circulación...,Alivia..." en UN
+  // renglón y la hero mostró UNA viñeta kilométrica). Se parten en items.
+  const partirBulletsPegados = (lista: string[]): string[] =>
+    lista.flatMap((b) => {
+      const t = String(b).trim();
+      if (t.length <= 60 || !t.includes(",")) return [t];
+      const partes = t.split(/\s*,\s*/).map((x) => x.trim()).filter(Boolean);
+      // si alguna "parte" es demasiado corta (<8), era una coma normal: no partir
+      return partes.length >= 2 && partes.every((x) => x.length >= 8) ? partes : [t];
+    });
+
+  const bullets = partirBulletsPegados(lineas(beneficios?.body));
   const baseBullets: string[] = bullets.length
     ? bullets
     : Array.isArray(producto?.features)
-      ? producto.features.map((f: unknown) => String(f)).slice(0, 5)
+      ? partirBulletsPegados(producto.features.map((f: unknown) => String(f)))
       : [];
 
   const faq: { q: string; a: string }[] = [];
@@ -1481,19 +1489,58 @@ export function estiloDesdeFila(a: {
   // la descripción cruda sirve de FONDO de copy pero NO como headline: se
   // recorta a la primera oración y a un tope duro, y el resto del texto vive
   // en la ficha (beneficios/FAQ), no tapando la imagen.
+  //
+  // 2ª pasada (03-10, masajeador): la descripción de Dropi trae la FICHA
+  // TÉCNICA pegada ("• Tipo: ...\n• Área de masaje: ..."). Eso NO es copy:
+  // se recorta en el primer bullet técnico y se deja la frase vendedora.
   const primeraOracion = (texto: string): string => {
     const limpia = texto.replace(/\s+/g, " ").trim();
     const corte = limpia.match(/^.{10,}?[.!?](?=\s|$)/);
     return (corte ? corte[0] : limpia).trim();
   };
+  /** Corta la ficha técnica: bullet "•/·/-", "Tipo:", "Caracteristica:", etc.
+   *  y frases en Mayúscula-Inicial tras coma que delatan una lista pegada. */
+  const sinFichaTecnica = (texto: string): string => {
+    let t = String(texto || "");
+    // el primer salto de línea con bullet mata todo lo que sigue
+    const mBullets = t.match(/^(.*?)(?=\n\s*[•·▪‣-]\s|\n\s*(?:Tipo|Caracter|Área|Fuente|Talla|Color|Material|Marca|Modelo|Contenido|Incluye|Medida|Peso|Capacidad|Voltaje|Garant)\w*\s*:)/s);
+    if (mBullets) t = mBullets[1];
+    // bullets en la misma línea también cortan
+    const lBullets = t.match(/^(.*?)(?=[•·▪‣]\s*\w)/s);
+    if (lBullets && lBullets[1].trim().length >= 20) t = lBullets[1];
+    return t.trim();
+  };
   const fraseDeHero = (texto: string, tope: number): string => {
-    const oracion = primeraOracion(texto);
+    const oracion = primeraOracion(sinFichaTecnica(texto));
     if (oracion.length <= tope) return oracion;
     const palabras = oracion.slice(0, tope).split(" ");
     palabras.pop();
     return palabras.join(" ") + "…";
   };
-  const subtitulo = String(hero?.subtitle || "").trim() || (descripcion ? fraseDeHero(descripcion, 110) : "");
+  const subtituloRaw = String(hero?.subtitle || "").trim() || (descripcion ? fraseDeHero(descripcion, 110) : "");
+  // ── El sub aporta o sobra (03-10): si repite lo que el h1 ya dice (el nombre
+  // del producto) no suma nada. Solo sale si la primera oración tiene palabras
+  // nuevas frente al nombre; si no, hero SIN subtexto (como el modelo
+  // CleanHome: titular + foto, cero relleno).
+  const nombreProductoStr = String(producto?.name || "");
+  const sinRepetirNombre = (texto: string, nombreProducto: string): string => {
+    const oraciones = String(texto || "").replace(/([.!?])\s+/g, "$1|").split("|").map((x) => x.trim()).filter(Boolean);
+    const nombreClaves = nombreProducto.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+    const repite = (o: string): boolean => {
+      const ol = o.toLowerCase();
+      const hits = nombreClaves.filter((w) => ol.includes(w)).length;
+      return nombreClaves.length >= 2 && hits >= Math.min(2, nombreClaves.length);
+    };
+    const otras = oraciones.filter((o) => !repite(o));
+    return (otras[0] || "").trim();
+  };
+  const candidata = sinRepetirNombre(subtituloRaw, nombreProductoStr) || subtituloRaw;
+  // "Masajeador de Hombros y Cuello, Masajeador..." sigue diciendo masajeador/
+  // cuello: si comparte >=2 palabras clave y no hay otra oración, se va.
+  const clavesNombre = nombreProductoStr.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+  const clavesCandidata = candidata.toLowerCase().split(/\s+/).filter((w) => w.length > 3);
+  const solapadas = clavesCandidata.filter((w) => clavesNombre.includes(w)).length;
+  const subtitulo = candidata.length >= 20 && (clavesNombre.length < 2 || solapadas < 2) ? candidata : "";
   const modelo = a.modelo || "digital";
   const kind = modelo === "fisico" ? undefined : modelo === "servicio" || modelo === "cotizacion" ? "service" : "digital";
 
@@ -1647,6 +1694,29 @@ export async function renderizarLandingEstilo(a: {
     ...(envioReal ? { envioReal } : {}),
   });
 
+  // ── El color que COMBINA con el producto (decisión del dueño 03-10:
+  // "los colores de fondo son lo de menos... que los colores combinen con el
+  // producto sin saturar"). Si el admin/la IA no fijó un color propio, el
+  // acento sale del producto: su foto (color saturado dominante vía ffmpeg)
+  // y su público (paletaDelPublico); si es neutro, el del rubro. Nunca
+  // invertimos: el color elegido a mano manda.
+  const primaryPedido = (a.row?.design as any)?.primary;
+  const primaryUtil = typeof primaryPedido === "string" && /^#[0-9a-f]{6}$/i.test(primaryPedido) && !/^#(111827|1f2937|374151|0f172a)$/i.test(primaryPedido);
+  if (!primaryUtil) {
+    try {
+      const { colorDelProducto } = await import("./color-del-producto");
+      const c = await colorDelProducto({
+        fotoUrl: fotos[0] || producto?.imageUrl || null,
+        categoria: producto?.category || null,
+        marcaPrimaria: null,
+        nombre: producto?.name || null,
+        descripcion: producto?.description || null,
+        caracteristicas: producto?.features,
+        tipo: producto?.kind || null,
+      });
+      if (c.acento) p.accent = c.acento;
+    } catch { /* sin color: queda el default del producto (p.accent) */ }
+  }
 
   let html = renderizarEstilo(p, { host: a.host || "", accion, pago: a.pago });
   if (modelo === "fisico") html = formularioConOpciones(html, producto);
