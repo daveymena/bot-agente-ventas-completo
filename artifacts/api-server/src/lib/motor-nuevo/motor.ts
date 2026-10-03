@@ -752,6 +752,43 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
   };
   await bucle(MAX_VUELTAS);
 
+  // ── La ficha del producto que el cliente NO mencionó no sale sola ────────
+  // El caso del caótico (probador, ×4): nombró la "Coche Mecedora…" u otras
+  // y salió la ficha de la Pañalera (el foco de antes) — el cliente veía el
+  // precio del producto que no está mirando. Con productos nombrados EN ESTE
+  // turno: las fichas de productos que NO mencionó se RETIRAN (con el
+  // desmarcado de sus secciones, para que poder mostrarse después), y el
+  // modelo reescribe presentando lo nombrado o preguntando cuál quiere ver.
+  if (mencionadosFoco.length) {
+    const esAjena = (par: any) => par?.kind === "card" && Number.isFinite(Number(par.productId)) && !mencionadosFoco.includes(Number(par.productId));
+    const ajenas = (ctx.partes as any[]).filter(esAjena);
+    if (ajenas.length) {
+      // Desmarcar las secciones que la ficha retirada "le mandó": la ficha no
+      // salió, así que el estado no puede creer que ya la vio.
+      for (const par of ajenas) {
+        const pid = Number(par.productId);
+        const secs = estado.seccionesEnviadas?.[pid];
+        if (secs && typeof secs === "object") {
+          delete secs[par.seccion as keyof typeof secs];
+          if (Object.keys(secs).length === 0) delete estado.seccionesEnviadas[pid];
+        }
+      }
+      ctx.partes = (ctx.partes as any[]).filter((par) => !esAjena(par));
+      messages.push({ role: "assistant", content: textoFinal || "…" });
+      messages.push({
+        role: "system",
+        content:
+          `Este turno el cliente mencionó: ${mencionadosFoco.map((id) => `"${nombrePorProducto(id)}" (#${id})`).join(", ")}. ` +
+          "Mostraste ficha de un producto que NO mencionó acá y se retiró del envío: no vuelvas a mostrarla. Presenta lo que mencionó (o pregúntale cuál quiere ver) con los datos de las herramientas. No le hables de este aviso.",
+      });
+      const conLaFichaVieja = textoFinal;
+      textoFinal = "";
+      try { await bucle(2); } catch { /* se queda lo que haya */ }
+      if (!textoFinal && !ctx.partes.length) textoFinal = conLaFichaVieja;
+      traza.push({ herramienta: "[ficha:ajena retirada]", args: { retiradas: ajenas.map((p) => ({ id: p.productId, seccion: p.seccion })) }, resultado: "la ficha de un producto no nombrado no sale a ese mensaje" });
+    }
+  }
+
   // ── Llegó del anuncio: la ficha completa la manda el servidor ────────────
   // Simulación del 25-09-2026: con el producto del anuncio ya en foco, el
   // modelo preguntaba "¿Te refieres al Corrector de Hombros y Clavícula?".
