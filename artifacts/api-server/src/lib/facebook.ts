@@ -242,8 +242,12 @@ export function mejorasDelCreativo(opts: { hayFotoReal: boolean; mejorasCompleta
   // real, como las demás que alteran la imagen.
   if (opts.hayFotoReal && opts.conCarrusel) f.push("multi_photo_to_video");
   // Como en las campañas reales de la cuenta: todas las mejoras individuales.
+  // media_type_automation entra acá (pedida por el dueño 04-10: "programá que
+  // Meta automáticamente mejore... y todo lo demás"): Meta elige el TIPO de
+  // medio (imagen, video o carrusel) por persona, junto con la entrega y el
+  // público.
   if (opts.mejorasCompletas) {
-    f.push("image_templates", "image_animation", "cv_transformation", "inline_comment", "pac_relaxation",
+    f.push("media_type_automation", "image_templates", "image_animation", "cv_transformation", "inline_comment", "pac_relaxation",
       "product_extensions", "show_destination_blurbs", "site_extensions", "product_browsing");
   }
   const spec: Record<string, { enroll_status: "OPT_IN" }> = {};
@@ -1308,7 +1312,13 @@ Responde SOLO con este JSON exacto:
       // se activan con foto real del producto -- ver hasRealProductImage.
       const creativeFeaturesSpec = mejorasDelCreativo({
         hayFotoReal: hasRealProductImage,
-        mejorasCompletas: !!plantilla?.mejorasCompletas,
+        // ── El paquete COMPLETO es el default (decisión del dueño, 04-10):
+        // "programá que Meta en automático mejore los copys, la forma como
+        // entrega y todo lo demás". Solo una plantilla que diga
+        // mejorasCompletas:false lo baja (nadie la pone hoy). Con foto real
+        // entran los retoques; el resto (texto/CTA/medio/pacing/extensiones)
+        // siempre.
+        mejorasCompletas: plantilla?.mejorasCompletas !== false,
       });
       // Instagram: la cuenta vinculada a la página, para que el anuncio salga
       // también ahí con identidad propia (las reales la traen).
