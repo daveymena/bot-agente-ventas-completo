@@ -303,6 +303,23 @@ Escribe en ${language} para ${country}.${bloquePublico}${opts.contexto ? `\n\n${
       tipo: product.kind, precio: Number(product.price),
     });
     const design: any = { ...(result?.design || { tone: "direct-response premium", primary: "#111827", background: "#ffffff", radius: "14px" }), familia: (opts.familia && esFamilia(opts.familia) ? opts.familia : null) || (result?.design as any)?.familia || sugerida.familia };
+    // ── La COMPOSICIÓN: qué MODELO de página es esta landing ───────────────
+    // Cada generación NUEVA lleva su modelo + semilla: dropshipping →
+    // tienda-directa/advertorial (según la evidencia del tipo), digital →
+    // digital-rapida si es barata, servicio → servicio-local... Y "otra
+    // composición" en el editor = otra semilla. Ya publicadas se quedan las
+    // suyas (el render sin modelo sale clasica).
+    try {
+      const { elegirComposicion, semillaNueva, tipoDeNegocio } = await import("../lib/landing/composicion");
+      const tipoNeg = tipoDeNegocio(product.kind, ["fisico", "dropshipping", "physical"].includes(String(product.kind)));
+      const semillaNuevaValor = semillaNueva();
+      const comp = elegirComposicion({ semilla: semillaNuevaValor, familia: design.familia, tipo: tipoNeg, precio: product.price });
+      design.modelo = comp.modelo;
+      design.semilla = semillaNuevaValor;
+      design.composicionPorque = comp.porque;
+    } catch {
+      // Sin composición disponible: la landing sale clásica, como siempre.
+    }
     // Para quién es el producto manda sobre el color (unisex → neutros,
     // mujer → femeninos, hombre → masculinos, niños → infantiles). Ya se
     // calculó arriba (paletaPublico) para el copy; acá solo se aplica.

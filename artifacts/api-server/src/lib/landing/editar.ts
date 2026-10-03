@@ -14,6 +14,13 @@ import { eq } from "drizzle-orm";
 import { db, landingPages } from "@workspace/db";
 import { callMarketingAI } from "../marketing-team/ai";
 import { aTextoPlano } from "../texto-plano";
+import { MODELOS, pedidoDeComposicion, semillaNueva, type ModeloId } from "./composicion";
+
+/** La fecha con el formato que la base acepta (el repo lo trae: date-utils). */
+async function dbNow(): Promise<Date | unknown> {
+  const { dbNow: now } = await import("../date-utils");
+  return now();
+}
 
 export interface OperacionDeEdicion {
   op: string;
@@ -220,6 +227,33 @@ export function lanzarEdicionDeHtmlEnSegundoPlano(landing: any, instruction: str
 export async function editarLanding(tenantId: number, landingId: number, instruction: string, selectedSectionId?: string | null) {
   const [landing] = await db.select().from(landingPages).where(eq(landingPages.id, landingId)).limit(1);
   if (!landing || landing.tenantId !== tenantId) return { ok: false as const, message: "Landing no encontrada", aplicadas: [] as string[], ignoradas: [] as string[] };
+
+  // ── Composición: el cambio de FORMA se lee con CÓDIGO, no con el modelo ──
+  // "hazla tipo artículo", "otra composición", "sorprendeme": son pedidos de
+  // composición y NO deben depender de que un modelo los entienda (pedido del
+  // dueño 03-10: la IA puede cambiar el estilo cuando él lo pide, pero los
+  // FORMATOS son los del sistema). La lista de modelos permitidos y cuándo
+  // aplicar cada uno vive en composicion.ts.
+  const pedidoComposicion = pedidoDeComposicion(instruction);
+  if (pedidoComposicion && !landingTieneHtmlPropio(landing as any)) {
+    const designActual: any = (landing.design as any) || {};
+    const semillaNuevaDe = semillaNueva;
+    const semillaElegida = pedidoComposicion.nueva || !pedidoComposicion.modelo ? semillaNuevaDe() : (designActual.semilla || semillaNuevaDe());
+    const nuevoDesign = {
+      ...designActual,
+      ...(pedidoComposicion.modelo ? { modelo: pedidoComposicion.modelo } : {}),
+      semilla: semillaElegida,
+    };
+    await db.update(landingPages).set({ design: nuevoDesign, updatedAt: await dbNow() } as any).where(eq(landingPages.id, landingId));
+    const nombreModelo = MODELOS[(pedidoComposicion.modelo || "") as ModeloId]?.nombre || "otra composición";
+    return {
+      ok: true as const,
+      message: `Composición cambiada: ${nombreModelo} (semilla ${semillaElegida}). La página conserva los textos.`
+        + (pedidoComposicion.nueva && !pedidoComposicion.modelo ? " Se dejó que la evidencia eligiera el modelo." : ""),
+      aplicadas: ["composición"], ignoradas: [] as string[],
+    };
+  }
+
   if (landingTieneHtmlPropio(landing as any)) {
     const r = lanzarEdicionDeHtmlEnSegundoPlano(landing, instruction);
     return { ok: r.ok as boolean, message: r.message, aplicadas: r.ok ? ["html (en segundo plano)"] : [], ignoradas: [] as string[], enSegundoPlano: r.ok };
