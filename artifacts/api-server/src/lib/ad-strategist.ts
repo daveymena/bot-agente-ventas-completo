@@ -646,6 +646,36 @@ export class AdStrategist {
     }
   }
 
+  /**
+   * LIMPIAR DUPLICADOS: borra los borradores repetidos de un producto y deja
+   * el más reciente (el último que el admin editó). Es el arregla-listas
+   * para el flood de "Megapacks": en un clic la lista volvió a ser la de
+   * verdad.
+   */
+  async limpiarBorradoresDuplicados(tenantId: number): Promise<{ borrados: number; conservados: number }> {
+    const filas = await db
+      .select({ id: facebookDrafts.id, productId: facebookDrafts.productId, campaignId: facebookDrafts.campaignId })
+      .from(facebookDrafts)
+      .where(eq(facebookDrafts.tenantId, tenantId))
+      .orderBy(desc(facebookDrafts.createdAt));
+    const conservado = new Set<number>();
+    let borrados = 0;
+    for (const f of filas) {
+      if (!f.productId) continue; // sin producto no se deduplica
+      if (!conservado.has(Number(f.productId))) {
+        conservado.add(Number(f.productId)); // el MÁS NUEVO queda
+        continue;
+      }
+      try {
+        await this.deleteDraftWithMeta(f.id, tenantId);
+      } catch {
+        await this.deleteDraft(f.id);
+      }
+      borrados++;
+    }
+    return { borrados, conservados: conservado.size };
+  }
+
   /** Borra el borrador scoped por tenant y su campaña en Meta (si existe).
    *  Antes deleteDraft borraba sin tenant y dejaba la campaña huérfana ACTIVE. */
   async deleteDraftWithMeta(draftId: number, tenantId: number): Promise<{ ok: boolean; meta?: string }> {
@@ -1231,7 +1261,7 @@ export class AdStrategist {
     return localDraft;
   }
 
-  async createDraftsForAllProducts(): Promise<{ created: number; failed: number; withoutRealImage: number; drafts: DraftAd[] }> {
+  async createDraftsForAllProducts(): Promise<{ created: number; failed: number; withoutRealImage: number; omitidos?: number; drafts: DraftAd[] }> {
     const result = { created: 0, failed: 0, withoutRealImage: 0, drafts: [] as DraftAd[] };
 
     const { accessToken, adAccountId } = this.credencialesFb();
@@ -1243,8 +1273,20 @@ export class AdStrategist {
 
     const activeProducts = await db.select().from(products).where(eq(products.isActive, true));
 
+    // ── Si ya tiene borrador, no se crea otro ────────────────────────────
+    // Reportado por el dueño (03-10): "borradores desbordados" — cada clic en
+    // "Megapacks" creaba UN borrador POR PRODUCTO, aunque ya existiera, y la
+    // lista creció a 132 filas basura que nadie iba a mirar. El dedup por
+    // product: un producto con borrador se OMITE (con su motivo en el resumen).
+    const existentes = new Set(
+      (await db.select({ productId: facebookDrafts.productId }).from(facebookDrafts))
+        .map((r: { productId: number | null | undefined }) => Number(r.productId)),
+    );
+    let yaTenian = 0;
+
     for (const p of activeProducts) {
       try {
+        if (existentes.has(Number(p.id))) { yaTenian++; continue; }
         // Queda LOCAL (sin subir): "Megapacks" dispara decenas de borradores de
         // una -- subirlos todos a Meta en el mismo paso sería crear campañas
         // REALES sin que nadie las revisó ni aprobó. Se revisan y se suben una
@@ -1265,6 +1307,7 @@ export class AdStrategist {
         result.failed++;
       }
     }
+    (result as any).omitidos = yaTenian;
 
     return result;
   }

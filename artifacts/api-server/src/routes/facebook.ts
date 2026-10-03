@@ -637,6 +637,20 @@ router.get("/strategist/drafts", async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+// ── Limpiar duplicados ────────────────────────────────────────────────────
+// El "Megapacks" repetido llenó la lista de borradores (132, 03-10): esto
+// conserva el borrador más reciente de CADA producto y elimina el resto,
+// con su limpeza en Meta cuando la campaña ya existe. Es la reparación de
+// la lista; el DEDUP del Megapack evita volver a suceder.
+router.delete("/strategist/drafts/duplicados", async (req, res, next) => {
+  try {
+    const tenantId = Number((req as any).tenant?.id);
+    if (!tenantId) return res.status(401).json({ ok: false, message: "No autenticado" });
+    const r = await new AdStrategist((req as any).tenant || undefined).limpiarBorradoresDuplicados(tenantId);
+    return res.json({ ok: true, ...r });
+  } catch (e) { return next(e); }
+});
+
 /**
  * Un borrador por id. Faltaba, como las de producto y prospecto: quien la
  * llamaba recibía el 404 de Express en HTML y lo interpretaba como "ese

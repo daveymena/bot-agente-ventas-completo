@@ -195,6 +195,7 @@ export default function FacebookAdsPage() {
   const [loadingDrafts, setLoadingDrafts] = useState(false);
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [creatingAllDrafts, setCreatingAllDrafts] = useState(false);
+  const [limpiandoDuplicados, setLimpiandoDuplicados] = useState(false);
   const [selectedDraftProduct, setSelectedDraftProduct] = useState<number | null>(null);
 
   // Métricas en vivo por borrador publicado (gasto, impresiones, clics...)
@@ -597,10 +598,14 @@ export default function FacebookAdsPage() {
       // withoutRealImage: cuántos de esos borradores van a salir con el
       // cartel de texto genérico en vez de una foto real del curso -- la
       // causa más probable de "la foto no corresponde al producto".
-      const imgWarning = res.withoutRealImage > 0 ? ` -- ${res.withoutRealImage} sin foto real (revisá esos productos)` : "";
+      // omitidos: los productos que YA tenían borrador — si no se omitieran,
+      // cada clic en Megapacks crearía un borrador POR PRODUCTO (la lista
+      // llegó a 132 "desbordados" el 03-10).
+      const omitidos = res.omitidos > 0 ? ` · ${res.omitidos} ya tenían borrador (no duplicados)` : "";
+      const imgWarning = res.withoutRealImage > 0 ? ` · ${res.withoutRealImage} sin foto real` : "";
       toast({
         title: "Borradores creados",
-        description: `${res.created} creados, ${res.failed} fallos${imgWarning}`,
+        description: `${res.created} nuevos, ${res.failed} fallos${imgWarning}${omitidos}`,
         variant: res.withoutRealImage > 0 ? "destructive" : "default",
       });
       loadDrafts();
@@ -617,6 +622,20 @@ export default function FacebookAdsPage() {
     } catch (e: any) {
       toast({ title: "Error", description: describeError(e, "No se pudo eliminar el borrador."), variant: "destructive" });
     }
+  };
+
+  // El arreglo de la lista desbordada: deja el último borrador de cada
+  // producto y quita los duplicados (el flood de Megapacks repetidos).
+  const limpiarDuplicados = async () => {
+    if (!confirm("Esto deja el borrador más RECIENTE de cada producto y elimina los que están repetidos (con su limpieza en Meta si la campaña ya existía). ¿Seguro?")) return;
+    try {
+      setLimpiandoDuplicados(true);
+      const res = await apiRequest("/facebook/strategist/drafts/duplicados", { method: "DELETE" });
+      toast({ title: "Lista limpiada", description: `${res.borrados} duplicados eliminados · ${res.conservados} productos conservados` });
+      loadDrafts();
+    } catch (e: any) {
+      toast({ title: "Error", description: describeError(e, "No se pudo limpiar la lista."), variant: "destructive" });
+    } finally { setLimpiandoDuplicados(false); }
   };
 
   const loadInsights = async (draftId: number, datePreset?: string) => {
@@ -1159,6 +1178,13 @@ export default function FacebookAdsPage() {
                       <Button variant="outline" onClick={loadDrafts} disabled={loadingDrafts} className="w-full sm:w-auto">
                         {loadingDrafts ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <RefreshCw className="mr-2 h-4 w-4 shrink-0" />}
                         Actualizar lista
+                      </Button>
+                      {/* El arreglo de la lista desbordada: cada clic viejo de
+                          Megapacks duplicó borradores (132 filas). Esto deja el
+                          MÁS RECIENTE de cada producto y quita el resto. */}
+                      <Button variant="destructive" onClick={limpiarDuplicados} disabled={limpiandoDuplicados} className="w-full sm:w-auto">
+                        {limpiandoDuplicados ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <Trash2 className="mr-2 h-4 w-4 shrink-0" />}
+                        Limpiar borradores duplicados
                       </Button>
                     </div>
                   </CardContent>
