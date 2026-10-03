@@ -10,6 +10,7 @@ import { isIP } from "node:net";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { landingPublicaRouter } from "./routes/landing-publica";
+import { catalogoMetaRouter } from "./routes/catalogo-meta";
 import healthRouter from "./health";
 import woocommerceRouter from "./routes/woocommerce";
 import dropiRouter from "./routes/dropi";
@@ -964,6 +965,10 @@ app.use("/api", router);
 // Landing pública (/l/:slug) y su formulario de pedido: sin sesión, con el
 // dominio de la app. Va ANTES del /api con middlewares de tenant y del SPA.
 app.use(landingPublicaRouter);
+// El feed de productos para el catálogo de Meta (/catalogo-meta/:tenantId.json):
+// público a propósito -- el rastreador de Meta lo descarga con el horario
+// DAILY del feed conectado (routes/catalogo-meta.ts).
+app.use(catalogoMetaRouter);
 
 app.get("/p/:productId", async (req, res, next) => {
   try {

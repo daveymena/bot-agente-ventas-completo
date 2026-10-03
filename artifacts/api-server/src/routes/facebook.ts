@@ -628,6 +628,71 @@ router.post("/strategist/upload-image", async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
+// ══ CATÁLOGO DE META (Commerce) ═══════════════════════════════════════════
+// Pedido del dueño (04-10): subir el catálogo completo. La vía oficial:
+// crear el catálogo en la cuenta + un FEED con horario DAILY que descarga
+// NUESTRA URL pública (routes/catalogo-meta.ts). Con el catálogo se
+// desbloquean los anuncios de Advantage+ Catálogo (la IA de Meta genera
+// FONDOS: image_background_gen, que sin catálogo es el error 3858293 que
+// el código ya documentó), el retargeting dinámico (el que vio el producto
+// recibe SU anuncio) y los formatos de colección.
+router.post("/catalogo/conectar", async (req, res, next) => {
+  try {
+    const tenantId = Number((req as any).tenant?.id);
+    if (!tenantId) return res.status(401).json({ ok: false, message: "No autenticado" });
+    const tenant = (req as any).tenant;
+    const adAccountId = tenant?.facebook?.adAccountId || respaldoEnvFacebook(tenantId)(process.env.FB_AD_ACCOUNT_ID);
+    const token = tenant?.facebook?.userAccessToken || tenant?.facebook?.accessToken || respaldoEnvFacebook(tenantId)(process.env.FB_ACCESS_TOKEN);
+    if (!adAccountId || !token) return res.status(400).json({ ok: false, message: "Facebook no está conectado: reconecta la cuenta en la pestaña Configuración." });
+
+    const { urlFeedDelCatalogo } = await import("./catalogo-meta");
+    const feedUrl = urlFeedDelCatalogo(tenantId);
+    const nombre = String((req as any).tenant?.brandName || "Catálogo");
+    const { FacebookService } = await import("../lib/facebook");
+    const fb = new FacebookService((req as any).tenant || undefined);
+
+    // 1. El catálogo (uno POR NEGOCIO: si ya está, no se duplica).
+    const [fila] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    const meta = fila?.metadata ? (typeof fila.metadata === "string" ? JSON.parse(fila.metadata) : fila.metadata) : {};
+    const previo = meta?.facebook?.catalogo || null;
+
+    let catalogId = previo?.catalogId || null;
+    if (!catalogId) {
+      const c = await fb.fbPost(`act_${adAccountId}/product_catalogs`, { name: `${nombre} (VentasPro)` }, "catálogo de productos", token);
+      if (!c?.id) return res.json({ ok: false, message: `Meta no aceptó crear el catálogo: ${fb.lastAdError || "sin detalle"}` });
+      catalogId = String(c.id);
+    }
+
+    // 2. El feed con horario DAILY (Meta va a descargar NUESTRO feed solo).
+    const f = await fb.fbPost(`product_catalogs/${catalogId}/product_feeds`, {
+      name: "Feed VentasPro (diario)",
+      schedule: { interval: "DAILY", url: feedUrl },
+    }, "feed del catálogo", token);
+    if (!f?.id) return res.json({ ok: false, message: `Meta aceptó el catálogo pero no el feed: ${fb.lastAdError || "sin detalle"}`, catalogId });
+
+    // 3. Guardar en el negocio (el mismo rincón que la conexión de FB).
+    const metaNuevo = { ...meta, facebook: { ...(meta.facebook || {}), catalogo: { catalogId, feedId: String(f.id), feedUrl, conectado: new Date().toISOString() } } };
+    await db.update(tenants).set({ metadata: metaNuevo as any }).where(eq(tenants.id, tenantId));
+    tenantManager.clearCache();
+
+    return res.json({
+      ok: true,
+      message: "Catálogo conectado: Meta descargará los productos con el horario DAILY.",
+      catalogId, feedId: String(f.id), feedUrl,
+    });
+  } catch (e) { return next(e); }
+});
+
+router.get("/catalogo/estado", async (req, res, next) => {
+  try {
+    const tenantId = Number((req as any).tenant?.id);
+    if (!tenantId) return res.status(401).json({ ok: false, message: "No autenticado" });
+    const [fila] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    const meta = fila?.metadata ? (typeof fila.metadata === "string" ? JSON.parse(fila.metadata) : fila.metadata) : {};
+    return res.json({ ok: true, catalogo: meta?.facebook?.catalogo || null, feedUrl: (await import("./catalogo-meta")).urlFeedDelCatalogo(tenantId) });
+  } catch (e) { return next(e); }
+});
+
 router.get("/strategist/drafts", async (req, res, next) => {
   try {
     const tenantId = Number((req as any).tenant?.id);

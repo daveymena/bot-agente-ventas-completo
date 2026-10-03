@@ -197,6 +197,29 @@ export default function FacebookAdsPage() {
   const [creatingDraft, setCreatingDraft] = useState(false);
   const [creatingAllDrafts, setCreatingAllDrafts] = useState(false);
   const [limpiandoDuplicados, setLimpiandoDuplicados] = useState(false);
+  // El catálogo de Meta (el feed diario)
+  const [conectandoCatalogo, setConectandoCatalogo] = useState(false);
+  const [catalogoEstado, setCatalogoEstado] = useState<{ catalogo?: { catalogId: string; feedId: string; feedUrl?: string; conectado?: string } | null; feedUrl?: string } | null>(null);
+  const cargarCatalogoEstado = async () => {
+    try {
+      const res = await apiRequest("/facebook/catalogo/estado");
+      setCatalogoEstado(res);
+    } catch { /* sin estado: el botón queda en "Conectar" */ }
+  };
+  const conectarCatalogo = async () => {
+    try {
+      setConectandoCatalogo(true);
+      const res = await apiRequest("/facebook/catalogo/conectar", { method: "POST" });
+      if (res.ok) {
+        toast({ title: "Catálogo conectado", description: "Meta descargará los productos en horario DAILY. En ~30 min aparecen en el Administrador de comercio." });
+        cargarCatalogoEstado();
+      } else {
+        toast({ title: "Meta no aceptó el catálogo", description: res.message, variant: "destructive" });
+      }
+    } catch (e: any) {
+      toast({ title: "Error", description: describeError(e, "No se pudo conectar el catálogo."), variant: "destructive" });
+    } finally { setConectandoCatalogo(false); }
+  };
   const [selectedDraftProduct, setSelectedDraftProduct] = useState<number | null>(null);
 
   // Métricas en vivo por borrador publicado (gasto, impresiones, clics...)
@@ -771,6 +794,7 @@ export default function FacebookAdsPage() {
     if (id === "channels") loadChannelStatus();
     if (id === "drafts") loadDrafts();
     if (id === "agent") loadAgentLogs();
+    if (id === "config" && connected) cargarCatalogoEstado();
   };
 
   const tabs = [
@@ -880,6 +904,44 @@ export default function FacebookAdsPage() {
                   <CuentaPublicitariaSelector
                     onCambio={(id) => setConfig((c) => ({ ...c, adAccountId: id }))}
                   />
+                )}
+
+                {connected && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2"><Package className="h-5 w-5" /> Catálogo de productos en Meta</CardTitle>
+                      <CardDescription>
+                        Sube TODO el catálogo a Meta con un FEED que se descarga solo cada día. Con el catálogo se
+                        desbloquean los anuncios de Advantage+ Catálogo (la IA de Meta genera fondos detrás del producto),
+                        el retargeting dinámico (el que vio la Pañalera recibe el anuncio de la Pañalera) y los formatos
+                        de colección.
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex flex-wrap gap-2">
+                        <Button onClick={conectarCatalogo} disabled={conectandoCatalogo} className="w-full sm:w-auto">
+                          {conectandoCatalogo ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <Package className="mr-2 h-4 w-4 shrink-0" />}
+                          {catalogoEstado?.catalogo?.catalogId ? "Reconectar feed" : "Conectar catálogo a Meta"}
+                        </Button>
+                        {catalogoEstado?.feedUrl && (
+                          <Button variant="outline" onClick={() => window.open(catalogoEstado.feedUrl, "_blank")} className="w-full sm:w-auto">
+                            Ver el feed (JSON)
+                          </Button>
+                        )}
+                      </div>
+                      {catalogoEstado?.catalogo?.conectado && (
+                        <p className="text-xs text-muted-foreground">
+                          ✓ Conectado el {new Date(catalogoEstado.catalogo.conectado).toLocaleDateString("es-CO", { day: "numeric", month: "long" })} ·
+                          catálogo {catalogoEstado.catalogo.catalogId} · Meta descarga {catalogoEstado.catalogo.feedUrl?.split("/").pop()} en horario DAILY.
+                        </p>
+                      )}
+                      <p className="text-xs text-muted-foreground">
+                        El feed es público (es información comercial) y sale de los productos ACTIVOS con su foto real:
+                        la regla del anuncio (landing publicada primero, si no la ficha de la tienda) es la misma que usan
+                        los enlaces.
+                      </p>
+                    </CardContent>
+                  </Card>
                 )}
 
                 <Card>
