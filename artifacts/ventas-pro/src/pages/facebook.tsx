@@ -1758,6 +1758,29 @@ export default function FacebookAdsPage() {
                 <p className="text-xs text-muted-foreground mt-2">
                   Subí tu propia foto (o varias — se publican como carrusel, la persona desliza entre ellas). Si no subís ninguna, se usa la del producto.
                 </p>
+                {/* ── Las MEJORAS DE IA DE META que llevará el anuncio ──────
+                    La misma verdad que el backend arma en el creativo
+                    (creative_features_spec): texto/CTA siempre; los retoques
+                    solo con foto REAL (el placeholder los desactiva); y el
+                    video solo con el carrusel de fotos reales. Verlo acá
+                    evita "por qué mi anuncio no lleva mejoras". */}
+                {(() => {
+                  const conFotoReal = editImages.length > 0 && !editImages.some((u) => /placehold\.co/i.test(u));
+                  const conVideo = conFotoReal && editImages.length > 1;
+                  return (
+                    <div className="mt-3 rounded-md border bg-background/60 p-3 space-y-1.5">
+                      <p className="text-xs font-semibold">Mejoras de IA de Meta (al subir este anuncio)</p>
+                      <p className="text-xs text-muted-foreground">✓ Optimización del texto — Meta prueba variantes del copy</p>
+                      <p className="text-xs text-muted-foreground">✓ CTA optimizado automáticamente</p>
+                      {conFotoReal ? (
+                        <p className="text-xs text-muted-foreground">✓ Retoques de imagen, luz y ajuste a cada formato (feed/reels/stories)</p>
+                      ) : (
+                        <p className="text-xs text-amber-600">⚠️ Sin foto real del producto: los retoques de imagen quedan desactivados</p>
+                      )}
+                      {conVideo && <p className="text-xs text-muted-foreground">✓ Meta arma un VIDEO con tus {editImages.length} fotos</p>}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* ── CÓMO SE VERÍA PUBLICADO ────────────────────────────────
