@@ -1292,5 +1292,32 @@ function cssComposicion(): string {
 .price-old{font-size:1rem;text-decoration:line-through;color:#9CA3AF}
 .price-save{font-size:.85rem;font-weight:800;color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);padding:4px 10px;border-radius:999px}
 .lx-angosto .shell,.lx-angosto .narrow{max-width:760px}
-@media(max-width:820px){.price-anchor{gap:8px;font-size:.95rem}}`;
+@media(max-width:820px){.price-anchor{gap:8px;font-size:.95rem}}
+
+/* ── Las VARIANTES que cambian POSICIÓN/imagen/repetición, por CSS ──────
+ * El marcado trae data-bloque + data-variante en cada sección: con esto,
+ * la misma estructura se ve distinta porque la POSICIÓN cambia, que es lo
+ * que el dueño pidió (variar posiciones/imágenes/repeticiones, no el
+ * concepto). */
+/* GALERÍA: grilla / carrusel / mosaico */
+[data-variante="grilla"] .gallery{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+[data-variante="grilla"] .gallery img{aspect-ratio:1/1;object-fit:cover;border-radius:12px;width:100%;height:100%}
+[data-variante="carrusel"] .gallery{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding-bottom:10px}
+[data-variante="carrusel"] .gallery img{scroll-snap-align:center;flex:0 0 min(84%,340px);aspect-ratio:4/3;object-fit:cover;border-radius:12px}
+[data-variante="mosaico"] .gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+[data-variante="mosaico"] .gallery img{width:100%;height:100%;object-fit:cover;border-radius:10px}
+[data-variante="mosaico"] .gallery img:first-child{grid-column:span 2;grid-row:span 2;aspect-ratio:auto}
+/* FAQ: acordeon / dos-columnas */
+[data-variante="dos-columnas"] .faq{columns:2;column-gap:26px}
+[data-variante="dos-columnas"] .faq details{break-inside:avoid;margin-bottom:10px}
+@media(max-width:760px){[data-variante="dos-columnas"] .faq{columns:1}}
+/* LOGÍSTICA: tarjetas / iconos-fila */
+[data-variante="iconos-fila"] .strip{display:flex;flex-wrap:wrap;gap:8px}
+[data-variante="iconos-fila"] .strip .it,.strip span{display:inline-flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:999px;padding:7px 13px;background:var(--surface)}
+/* FEATURE: pasos / fila / tarjeta-ancha */
+[data-variante="pasos"] .feature-copy ol,.feature-copy ol{counter-reset:p;list-style:none;padding-left:0}
+[data-variante="pasos"] .feature-copy ol li{counter-increment:p;display:flex;gap:12px;align-items:flex-start;margin-bottom:12px}
+[data-variante="pasos"] .feature-copy ol li:before{content:counter(p);flex:0 0 30px;height:30px;border-radius:999px;background:var(--accent);color:#fff;font-weight:900;display:grid;place-items:center;font-size:.9rem}
+[data-variante="tarjeta-ancha"] .feature-media+[class],.feature-media ~ *{max-width:100%}
+`;
 }

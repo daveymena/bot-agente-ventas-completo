@@ -33,9 +33,18 @@ describe("elegirComposicion", () => {
     expect(a).toEqual(b);
   });
 
-  it("semillas distintas dan modelos distintos (no siempre lo mismo)", () => {
-    const modelos = new Set(Array.from({ length: 40 }, (_, i) => elegirComposicion({ semilla: `s${i}`, fisico: true }).modelo));
-    expect(modelos.size).toBeGreaterThanOrEqual(4);
+  // ── CONTRATO del 03-10-2026 (decisión del dueño) ─────────────────────────
+  // Con el concepto único la SEMILLA ya NO cambia el esqueleto: cambia las
+  // VARIANTES por bloque (posición del hero, orden del contenido, galería).
+  it("semillas distintas dan VARIANTES distintas: el modelo queda tienda-directa", () => {
+    const variantes = new Set<string>();
+    for (let i = 0; i < 40; i++) {
+      const c = elegirComposicion({ semilla: `s${i}`, fisico: true });
+      expect(c.modelo).toBe("tienda-directa");
+      variantes.add(c.variantes.hero);
+    }
+    // el sorteo de POSICIÓN sigue vivo: al menos 2 formas de hero distintas
+    expect(variantes.size).toBeGreaterThanOrEqual(2);
   });
 
   it("un digital nunca cae en un modelo pensado solo para físico", () => {
@@ -72,9 +81,8 @@ describe("el renderer dibuja cada modelo de verdad distinto", () => {
     expect(cuerpos.size).toBe(Object.keys(MODELOS).length);
   });
 
-  it("tienda directa pone el producto al frente; artículo usa portada editorial", () => {
+  it("tienda directa pone el producto al frente con la clase de su modelo", () => {
     expect(render("tienda-directa")).toMatch(/lx-prod|lx-hoffer/);
-    expect(render("advertorial")).toContain("lx-edit");
   });
 
   it("cada variante de cada bloque se dibuja con contenido (ninguna es un alias vacío)", () => {
@@ -136,9 +144,12 @@ describe("pedidoDeComposicion: el servidor entiende el pedido de diseño sin pre
   });
   it("nombra el modelo cuando se lo piden con palabras del dueño", async () => {
     const { pedidoDeComposicion } = await import("../composicion");
-    expect(pedidoDeComposicion("hazla tipo artículo")?.modelo).toBe("advertorial");
-    expect(pedidoDeComposicion("quiero algo más minimalista")?.modelo).toBe("minimal");
-    expect(pedidoDeComposicion("estilo lanzamiento con portada grande")?.modelo).toBe("lanzamiento");
+    // Los estilos eliminados ya no se leen como pedido de composición:
+    // devuelven null y el camino normal de edición sigue.
+    expect(pedidoDeComposicion("hazla tipo artículo")?.modelo).toBeUndefined();
+    expect(pedidoDeComposicion("hazla tipo tienda")?.modelo).toBe("tienda-directa");
+    expect(pedidoDeComposicion("quiero algo más minimalista")).toBeNull();
+    expect(pedidoDeComposicion("estilo lanzamiento con portada grande")).toBeNull();
   });
   it("un pedido de texto NO se confunde con uno de diseño", async () => {
     const { pedidoDeComposicion } = await import("../composicion");
@@ -166,33 +177,27 @@ describe("el modelo se elige por tipo de negocio, nicho, precio y lo que vende l
     }
   });
 
-  it("un servicio sale con modelos de servicio, y el de agenda es el más frecuente", async () => {
-    const c = await frecuencia({ tipo: "servicio" });
-    expect(Object.keys(c)).not.toContain("tienda-directa");
-    expect(Object.keys(c)).not.toContain("catalogo");
-    const top = Object.entries(c).sort((a, b) => b[1] - a[1])[0][0];
-    expect(top).toBe("servicio-local");
-  });
-
-  it("digital barato tiende a página corta; digital caro, a historia o experto", async () => {
-    const barato = await frecuencia({ tipo: "digital", precio: 25000 });
-    const caro = await frecuencia({ tipo: "digital", precio: 900000 });
-    expect(barato["digital-rapida"] || 0).toBeGreaterThan(barato["historia"] || 0);
-    expect((caro["historia"] || 0) + (caro["autoridad"] || 0)).toBeGreaterThan(caro["digital-rapida"] || 0);
-  });
-
-  it("un suplemento en dropshipping empuja al formato artículo (pre-venta)", async () => {
-    const { pesosDeModelos } = await import("../composicion");
-    const p = pesosDeModelos({ tipo: "dropshipping", familia: "suplemento" });
-    expect(p[0].modelo).toBe("advertorial");
+  // ── CONTRATO del 03-10-2026 (decisión del dueño) ────────────────────────
+  // "los otros estilos y familias no me gustan, elimínalos; manejemos esos
+  // conceptos, solo variarían posiciones, imágenes y repeticiones." Quita la
+  // variedad de esqueletos: queda el concepto "tienda-directa" (más la
+  // clásica para lo ya publicado) y la VARIACIÓN vive en las variantes por
+  // bloque — no en elegir otro esqueleto.
+  it("TODO tipo de negocio recibe el concepto 'tienda-directa' (los estilos del dueño)", async () => {
+    for (const tipo of ["dropshipping", "fisico", "digital", "servicio"] as const) {
+      const c = await frecuencia({ tipo });
+      expect(Object.keys(c)).toEqual(["tienda-directa"]);
+    }
   });
 
   it("lo que vendió en la tienda pesa, pero solo con visitas suficientes", async () => {
     const { factorPorRendimiento } = await import("../composicion");
-    const r = { "tienda-directa": { visitas: 2000, pedidos: 80 }, advertorial: { visitas: 2000, pedidos: 20 } } as any;
+    // Dos grupos del mismo pool: el concepto (4%) contra la clásica (1%).
+    const r = { "tienda-directa": { visitas: 2000, pedidos: 80 }, clasica: { visitas: 2000, pedidos: 20 } } as any;
     expect(factorPorRendimiento("tienda-directa", r)).toBeGreaterThan(1.2);
-    expect(factorPorRendimiento("advertorial", r)).toBeLessThan(0.8);
-    expect(factorPorRendimiento("catalogo", r)).toBe(1);
+    expect(factorPorRendimiento("clasica", r)).toBeLessThan(0.8);
+    expect(factorPorRendimiento("tienda-directa", null)).toBe(1);
+    // con pocas visitas el dato propio NO pesa (es ruido)
     expect(factorPorRendimiento("tienda-directa", { "tienda-directa": { visitas: 40, pedidos: 10 } } as any)).toBe(1);
   });
 
@@ -222,11 +227,15 @@ describe("métricas de landing", () => {
   });
   it("suma por modelo y las landings sin modelo cuentan como clásica", async () => {
     const { agruparPorModelo } = await import("../metricas");
+    // Los modelos viejos guardados en landings ya publicadas (advertorial,
+    // minimal...) ya no existen como tal: agruparPorModelo los agrupa por su
+    // TEXTO tal como viene (el dato histórico), y solo "clasica" es el
+    // canario del "sin modelo guardado".
     const r = agruparPorModelo([
       { design: { modelo: "advertorial" }, strategy: { metricas: { visitas: 100, pedidos: 4 } } },
       { design: { modelo: "advertorial" }, strategy: { metricas: { visitas: 50, pedidos: 1 } } },
       { design: {}, strategy: { metricas: { visitas: 30, pedidos: 0 } } },
-      { design: { modelo: "minimal" }, strategy: {} },
+      { design: { modelo: "tienda-directa" }, strategy: {} }, // sin métricas: no entra
     ]);
     expect(r).toEqual({ advertorial: { visitas: 150, pedidos: 5 }, clasica: { visitas: 30, pedidos: 0 } });
   });

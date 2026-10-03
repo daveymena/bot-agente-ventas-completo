@@ -34,15 +34,7 @@
 
 export type ModeloId =
   | "clasica"
-  | "tienda-directa"
-  | "advertorial"
-  | "historia"
-  | "lanzamiento"
-  | "catalogo"
-  | "minimal"
-  | "digital-rapida"
-  | "servicio-local"
-  | "autoridad";
+  | "tienda-directa";
 
 /** Cómo se vende: decide qué modelos tienen sentido. */
 export type TipoDeNegocio = "dropshipping" | "fisico" | "digital" | "servicio";
@@ -87,96 +79,23 @@ export const MODELOS: Record<ModeloId, ModeloDePagina> = {
       offer: ["tarjeta-foto"], faq: ["dos-columnas"], cta: ["tarjeta"], gallery: ["mosaico"],
     },
   },
+  // ── EL CONCEPTO (decisión del dueño, 03-10-2026) ─────────────────────────
+  // "los otros estilos y familias no me gustan, elimínalos; manejemos esos
+  // conceptos, solo variarían posiciones, imágenes y repeticiones." Un solo
+  // modelo de página para TODOS los tipos de negocio: producto al frente,
+  // pricebox con el ahorro (si hay precio lista real), sellos reales y el
+  // formulario de pedido contraentrega al cierre. La VARIACIÓN no viene de
+  // cambiar de concepto: viene de las VARIANTES por bloque (la posición del
+  // hero, el orden de los beneficios, la disposición de la galería) — el
+  // admin fuerza con `layout` en la sección, la semilla sorteó el resto.
   "tienda-directa": {
     id: "tienda-directa", nombre: "Tienda directa",
-    cuando: "Producto físico con tráfico pago: el producto y el precio arriba, compra en el primer scroll.",
-    para: ["dropshipping", "fisico"],
+    cuando: "El concepto del negocio: el producto y el precio arriba con compra en el primer scroll, sellos reales y formulario de pedido. Para físicos, digitales y servicios.",
+    para: TODOS,
     bloques: {
-      hero: ["producto", "oferta"], benefits: ["checklist", "iconos"], feature: ["fila", "tarjeta-ancha"],
-      logistics: ["iconos-fila", "tarjetas"], offer: ["ticket", "tarjeta-foto"], faq: ["acordeon"],
-      cta: ["banda", "tarjeta"], gallery: ["carrusel", "grilla"],
-    },
-  },
-  advertorial: {
-    id: "advertorial", nombre: "Artículo (advertorial)",
-    cuando: "Producto que necesita explicarse ante tráfico frío: se lee como una nota, con la compra al final de cada idea.",
-    para: ["dropshipping", "fisico", "digital"],
-    angosto: true,
-    bloques: {
-      hero: ["editorial"], benefits: ["numerada", "zigzag"], feature: ["pasos", "fila"],
-      logistics: ["lista"], offer: ["minimal", "ticket"], faq: ["acordeon"],
-      cta: ["minimal", "tarjeta"], gallery: ["grilla", "carrusel"],
-    },
-  },
-  historia: {
-    id: "historia", nombre: "Historia larga",
-    cuando: "Cursos y programas de precio alto: problema, camino y resultado, bloque por bloque.",
-    para: ["digital", "fisico", "servicio"],
-    bloques: {
-      hero: ["centrado", "split"], benefits: ["zigzag", "split-foto", "numerada"], feature: ["pasos", "tarjeta-ancha"],
-      logistics: ["tarjetas", "lista"], offer: ["tarjeta-foto", "banda"], faq: ["split", "acordeon"],
-      cta: ["tarjeta", "banda"], gallery: ["mosaico", "carrusel"],
-    },
-  },
-  lanzamiento: {
-    id: "lanzamiento", nombre: "Lanzamiento",
-    cuando: "Producto nuevo o tecnológico: portada a pantalla completa, bloques grandes y cierre en banda.",
-    para: ["digital", "fisico", "dropshipping"],
-    bloques: {
-      hero: ["a-sangre", "centrado"], benefits: ["bento", "iconos"], feature: ["pasos", "tarjeta-ancha"],
-      logistics: ["iconos-fila"], offer: ["banda", "ticket"], faq: ["split", "dos-columnas"],
-      cta: ["banda"], gallery: ["mosaico", "grilla"],
-    },
-  },
-  catalogo: {
-    id: "catalogo", nombre: "Catálogo visual",
-    cuando: "Productos que se venden mirándolos (ropa, belleza, decoración, accesorios): las fotos mandan.",
-    para: ["dropshipping", "fisico"],
-    bloques: {
-      hero: ["a-sangre", "producto"], benefits: ["split-foto", "iconos"], feature: ["tarjeta-ancha", "fila"],
-      logistics: ["iconos-fila"], offer: ["tarjeta-foto", "minimal"], faq: ["acordeon"],
-      cta: ["minimal", "banda"], gallery: ["mosaico", "carrusel"],
-    },
-  },
-  minimal: {
-    id: "minimal", nombre: "Minimal",
-    cuando: "Productos caros o de marca: poco texto, mucho aire, el precio sin gritar.",
-    para: ["fisico", "digital", "servicio", "dropshipping"],
-    angosto: true,
-    bloques: {
-      hero: ["editorial", "centrado"], benefits: ["numerada", "checklist"], feature: ["fila"],
-      logistics: ["lista"], offer: ["minimal"], faq: ["acordeon", "split"],
-      cta: ["minimal"], gallery: ["grilla"],
-    },
-  },
-  "digital-rapida": {
-    id: "digital-rapida", nombre: "Digital de compra rápida",
-    cuando: "Ebooks, plantillas y packs baratos: se deciden en un minuto, la página larga los pierde.",
-    para: ["digital"],
-    bloques: {
-      hero: ["oferta", "centrado"], benefits: ["checklist", "iconos"], feature: ["pasos"],
-      logistics: ["lista"], offer: ["ticket", "minimal"], faq: ["acordeon"],
-      cta: ["banda", "minimal"], gallery: ["grilla"],
-    },
-  },
-  "servicio-local": {
-    id: "servicio-local", nombre: "Servicio con agenda",
-    cuando: "Servicios a domicilio, consultas, citas: qué haces, cómo trabajas, dónde atiendes y un botón para escribir.",
-    para: ["servicio"],
-    bloques: {
-      hero: ["split", "centrado"], benefits: ["iconos", "checklist"], feature: ["pasos"],
-      logistics: ["iconos-fila", "lista"], offer: ["minimal", "tarjeta-foto"], faq: ["acordeon", "split"],
-      cta: ["banda"], gallery: ["grilla", "mosaico"],
-    },
-  },
-  autoridad: {
-    id: "autoridad", nombre: "Experto al frente",
-    cuando: "Mentorías, consultorías y servicios caros: se compra a la persona antes que al servicio.",
-    para: ["servicio", "digital"],
-    bloques: {
-      hero: ["editorial", "split"], benefits: ["numerada", "zigzag"], feature: ["tarjeta-ancha", "pasos"],
-      logistics: ["lista"], offer: ["tarjeta-foto", "minimal"], faq: ["split"],
-      cta: ["tarjeta", "minimal"], gallery: ["grilla"],
+      hero: ["producto", "oferta"], benefits: ["iconos", "checklist", "numerada"], feature: ["pasos", "fila", "tarjeta-ancha"],
+      logistics: ["iconos-fila", "tarjetas"], offer: ["ticket", "tarjeta-foto"], faq: ["acordeon", "dos-columnas"],
+      cta: ["banda", "tarjeta"], gallery: ["grilla", "carrusel", "mosaico"],
     },
   },
 };
@@ -202,28 +121,15 @@ export interface Evidencia {
 export const EVIDENCIA: Record<TipoDeNegocio, Evidencia[]> = {
   dropshipping: [
     { modelo: "tienda-directa", peso: 3, nivel: "verificado", porque: "Unbounce (15.981 landings de ecommerce): las de menos de 300 palabras convierten mejor; producto y precio arriba con formulario de un paso." },
-    { modelo: "advertorial", peso: 2, nivel: "reportado", porque: "Agencias DTC reportan que una página de pre-venta tipo artículo convierte 2-3× más que la de producto con tráfico frío (3-8% vs ~2%)." },
-    { modelo: "catalogo", peso: 1, nivel: "hipotesis", porque: "Moda, belleza y hogar (las categorías que más vende Dropi) se deciden mirando: las fotos mandan." },
-    { modelo: "lanzamiento", peso: 0.5, nivel: "hipotesis", porque: "Gadgets y tecnología: portada grande y bloques visuales." },
   ],
   fisico: [
     { modelo: "tienda-directa", peso: 3, nivel: "verificado", porque: "Unbounce: en ecommerce, menos de 300 palabras y lectura fácil convierten mejor." },
-    { modelo: "catalogo", peso: 1.5, nivel: "hipotesis", porque: "Productos de marca que se venden por cómo se ven." },
-    { modelo: "minimal", peso: 1, nivel: "hipotesis", porque: "Precio alto: el aire comunica valor mejor que la urgencia." },
-    { modelo: "advertorial", peso: 1, nivel: "reportado", porque: "Producto que necesita explicarse ante tráfico frío." },
   ],
   digital: [
-    { modelo: "historia", peso: 2, nivel: "reportado", porque: "Guías de plataformas de cursos (LearnWorlds, Thinkific, ClickFunnels): los cursos caros y complejos venden con página larga (1.500-5.000 palabras) que explica temario y resultados." },
-    { modelo: "digital-rapida", peso: 2, nivel: "verificado", porque: "Unbounce: 275-745 palabras es el rango que más convierte; la oferta barata y simple se pierde en una página larga." },
-    { modelo: "lanzamiento", peso: 1, nivel: "hipotesis", porque: "Software, IA y herramientas: portada grande tipo producto tecnológico." },
-    { modelo: "advertorial", peso: 0.7, nivel: "hipotesis", porque: "Tema que hay que explicar antes de vender." },
-    { modelo: "autoridad", peso: 0.7, nivel: "reportado", porque: "Mentorías y programas caros: se compra a la persona." },
+    { modelo: "tienda-directa", peso: 3, nivel: "reportado", porque: "Guías de cursos (LearnWorlds, ClickFunnels): la oferta clara y el temario concreto arriba; el concepto del negocio (03-10) unifica el esqueleto." },
   ],
   servicio: [
-    { modelo: "servicio-local", peso: 3, nivel: "reportado", porque: "Invoca 2025 (60M llamadas): 37% de las llamadas convierte vs ~1,7% de los formularios; botón para escribir o llamar arriba, a mitad y al final." },
-    { modelo: "autoridad", peso: 1.5, nivel: "hipotesis", porque: "Servicios profesionales caros: la persona y su experiencia venden." },
-    { modelo: "historia", peso: 0.7, nivel: "hipotesis", porque: "Servicios de transformación (coaching, entrenamiento)." },
-    { modelo: "minimal", peso: 0.5, nivel: "hipotesis", porque: "Marca personal sobria." },
+    { modelo: "tienda-directa", peso: 3, nivel: "reportado", porque: "Invoca 2025 (60M llamadas): el botón de contacto arriba, a mitad y al final — el concepto lo trae en hero, oferta y cierre." },
   ],
 };
 
@@ -233,25 +139,25 @@ export const EVIDENCIA: Record<TipoDeNegocio, Evidencia[]> = {
  * elige solo.
  */
 const NICHO: Record<string, Partial<Record<ModeloId, number>>> = {
-  suplemento: { advertorial: 2.5, historia: 1.3 },
-  belleza: { catalogo: 2, historia: 1.3 },
-  minimal: { catalogo: 2.2, minimal: 1.5 },
-  gourmet: { catalogo: 2, minimal: 1.4 },
-  electronica: { lanzamiento: 2.2, "tienda-directa": 1.3 },
-  tecnologia: { lanzamiento: 2.2, historia: 1.2 },
-  oscura: { lanzamiento: 1.8, minimal: 1.3 },
-  dropshipping: { "tienda-directa": 1.4, advertorial: 1.4 },
-  familiar: { "tienda-directa": 1.4, historia: 1.2 },
-  fitness: { historia: 1.6, lanzamiento: 1.4 },
-  educacion: { historia: 1.6, "digital-rapida": 1.1 },
-  premium: { minimal: 2, autoridad: 1.4 },
-  editorial: { advertorial: 1.8, minimal: 1.3 },
-  launch: { lanzamiento: 2.5 },
-  megapack: { "digital-rapida": 2.2, lanzamiento: 1.3 },
-  servicios: { "servicio-local": 1.5, autoridad: 1.5 },
-  "respuesta-directa": { "tienda-directa": 1.6, advertorial: 1.4 },
-  ecommerce: { "tienda-directa": 1.5, catalogo: 1.2 },
-  creativa: { catalogo: 1.6, lanzamiento: 1.3 },
+  suplemento: { "tienda-directa": 1.3 },
+  belleza: { "tienda-directa": 1.3 },
+  minimal: { "tienda-directa": 1.2 },
+  gourmet: { "tienda-directa": 1.2 },
+  electronica: { "tienda-directa": 1.3 },
+  tecnologia: { "tienda-directa": 1.2 },
+  oscura: { "tienda-directa": 1.2 },
+  dropshipping: { "tienda-directa": 1.4 },
+  familiar: { "tienda-directa": 1.4 },
+  fitness: { "tienda-directa": 1.2 },
+  educacion: { "tienda-directa": 1.2 },
+  premium: { "tienda-directa": 1.2 },
+  editorial: { "tienda-directa": 1.2 },
+  launch: { "tienda-directa": 1.2 },
+  megapack: { "tienda-directa": 1.2 },
+  servicios: { "tienda-directa": 1.3 },
+  "respuesta-directa": { "tienda-directa": 1.6 },
+  ecommerce: { "tienda-directa": 1.5 },
+  creativa: { "tienda-directa": 1.2 },
 };
 
 /** Umbrales de precio en COP. Lo barato pide página corta; lo caro, explicación y confianza. */
@@ -259,16 +165,10 @@ const BARATO_DIGITAL = 60_000;
 const CARO_DIGITAL = 300_000;
 const CARO_FISICO = 250_000;
 
-function pesoPorPrecio(tipo: TipoDeNegocio, modelo: ModeloId, precio: number): number {
-  if (!Number.isFinite(precio) || precio <= 0) return 1;
-  if (tipo === "digital") {
-    if (precio <= BARATO_DIGITAL) return modelo === "digital-rapida" ? 2 : modelo === "historia" || modelo === "autoridad" ? 0.4 : 1;
-    if (precio >= CARO_DIGITAL) return modelo === "historia" || modelo === "autoridad" ? 1.8 : modelo === "digital-rapida" ? 0.3 : 1;
-  }
-  if ((tipo === "fisico" || tipo === "dropshipping") && precio >= CARO_FISICO) {
-    return modelo === "advertorial" || modelo === "minimal" ? 1.6 : 1;
-  }
-  return 1;
+function pesoPorPrecio(_tipo: TipoDeNegocio, _modelo: ModeloId, precio: number): number {
+  // Un solo concepto: sin umbrales de precio que cambien el esqueleto. La
+  // longitud de los TEXTOS la decide el tipo (la plantilla), no el modelo.
+  return Number.isFinite(precio) && precio > 0 ? 1 : 1;
 }
 
 /** Visitas y pedidos de las landings de la tienda, por modelo. Ver metricas.ts. */
@@ -453,16 +353,12 @@ export function varianteDeSeccion(
  */
 export function pedidoDeComposicion(texto: unknown): { modelo?: ModeloId; nueva: boolean } | null {
   const t = String(texto ?? "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  // ── CONTRATO del 03-10-2026 ────────────────────────────────────────────
+  // Los estilos que el dueño eliminó ya NO son pedidos de composición: si el
+  // admin los nombra, devuelven null y el camino de edición normal atiende
+  // (los textos, los colores...), sin cambiar el esqueleto.
   const PALABRAS: Array<[ModeloId, RegExp]> = [
-    ["advertorial", /\b(advertorial|tipo (articulo|nota|blog)|como (un )?articulo|estilo (articulo|nota))\b/],
-    ["tienda-directa", /\b(tienda directa|tipo tienda|estilo tienda|pagina de producto|tipo shopify)\b/],
-    ["historia", /\b(historia larga|tipo historia|storytelling|que cuente una historia)\b/],
-    ["lanzamiento", /\b(lanzamiento|tipo launch|pantalla completa|portada grande)\b/],
-    ["catalogo", /\b(catalogo|que se vean las fotos|mas visual|tipo galeria)\b/],
-    ["minimal", /\b(minimal|minimalista|mas limpia|mas sobria|elegante)\b/],
-    ["digital-rapida", /\b(pagina corta|mas corta|compra rapida)\b/],
-    ["servicio-local", /\b(tipo servicio|para agendar|con agenda|para citas)\b/],
-    ["autoridad", /\b(experto al frente|marca personal|tipo autoridad)\b/],
+    ["tienda-directa", /\b(tienda directa|tipo tienda|estilo tienda|pagina de producto|tipo shopify|la del concepto)\b/],
     ["clasica", /\b(clasica|como antes|la de siempre)\b/],
   ];
   const pideNueva = /\b(otra (composicion|version|forma|distribucion|estructura|maqueta)|otro (diseno|modelo|layout|estilo de pagina)|cambi\w* (la )?(composicion|estructura|distribucion|maqueta|el diseno|el modelo)|sorprendeme|disena(la)? distinto|otra forma de pagina)\b/.test(t);
