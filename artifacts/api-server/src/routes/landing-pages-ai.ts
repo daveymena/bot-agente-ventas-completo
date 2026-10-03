@@ -206,6 +206,8 @@ export async function generarLandingLocal(opts: {
   sourceAd?: any; language?: string; country?: string; objective?: string; contexto?: string;
   /** Familia elegida por el admin: manda sobre la sugerida. */
   familia?: string | null;
+  /** Modelo de composición puesto a mano (los ejemplos por estilo, el estudio). */
+  modelo?: string | null;
 }) {
   const { tenantId, product } = opts;
   const productId = Number(product.id);
@@ -310,10 +312,14 @@ Escribe en ${language} para ${country}.${bloquePublico}${opts.contexto ? `\n\n${
     // composición" en el editor = otra semilla. Ya publicadas se quedan las
     // suyas (el render sin modelo sale clasica).
     try {
-      const { elegirComposicion, semillaNueva, tipoDeNegocio } = await import("../lib/landing/composicion");
+      const { elegirComposicion, semillaNueva, tipoDeNegocio, esModelo } = await import("../lib/landing/composicion");
       const tipoNeg = tipoDeNegocio(product.kind, ["fisico", "dropshipping", "physical"].includes(String(product.kind)));
       const semillaNuevaValor = semillaNueva();
-      const comp = elegirComposicion({ semilla: semillaNuevaValor, familia: design.familia, tipo: tipoNeg, precio: product.price });
+      // El modelo PUESTO por el admin (los ejemplos por estilo del panel, el
+      // estudio) manda sobre el sorteo con evidencia; sin él, la evidencia
+      // elige según el tipo de negocio.
+      const modeloPedido = opts.modelo && esModelo(opts.modelo) ? opts.modelo : undefined;
+      const comp = elegirComposicion({ modelo: modeloPedido, semilla: semillaNuevaValor, familia: design.familia, tipo: tipoNeg, precio: product.price });
       design.modelo = comp.modelo;
       design.semilla = semillaNuevaValor;
       design.composicionPorque = comp.porque;
@@ -394,6 +400,10 @@ router.post("/generate", async (req: TenantRequest, res, next) => {
     // ── Fallback: generador local existente ──────────────────────────────────
     return res.json(await generarLandingLocal({
       tenantId, product, brandName: req.tenant?.brandName, plantillaId: req.body?.plantilla, sourceAd, language, country, objective,
+      familia: req.body?.familia || null,
+      // El modelo de composición puesto a mano: el panel pide un estilo
+      // concreto (advertorial, tienda-directa...) y este respeto ese pedido.
+      modelo: req.body?.modelo || null,
     }));
   } catch (e) {
     return next(e);
