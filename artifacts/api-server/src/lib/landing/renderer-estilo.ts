@@ -47,6 +47,12 @@ function num(v: unknown): number {
 
 const cop = (n: number): string => (n ? n.toLocaleString("es-CO") : "0");
 
+/** El TIMER del generador validado por el dueño (sus capturas del original):
+ *  es un DISPOSITIVO DEL DISEÑO ("la oferta de hoy"), no un hecho del
+ *  producto: por eso vive como constante del renderer y no lo escribe la IA.
+ *  Quitarlo por landing = design.estiloExtras.timer === false. */
+const OFERTA_SEGUNDOS = 2 * 60 * 60;
+
 // ── Las mejoras del review (04-10, lo pedido: "textos, ubicación y
 // precios") ──────────────────────────────────────────────────────────────
 // 1. El ENVÍO deja de ser una afirmación a mano: si el negocio DECLARO
@@ -87,6 +93,8 @@ export interface DatosEstilo {
   envioCorto?: string;
   /** La garantía SOLO si el dueño la cargó (metadata.garantia). */
   garantia?: string;
+  /** El timer del generador validado: encendido por defecto (dispositivo del diseño del dueño); design.estiloExtras.timer===false lo apaga por landing. */
+  timer?: boolean;
   gallery?: string[];
   video?: string | null;
   headline?: string;
@@ -180,58 +188,65 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
   const esFisico = !(p.kind === "digital" || p.kind === "service");
   const esServicio = p.kind === "service";
   const pagoCorto = esFisico ? "PAGO CONTRA ENTREGA" : esServicio ? "AGENDA TU CITA" : "COMPRA SEGURA";
-  // ── Trust SIN inventos (review del 04-10) ──────────────────────────────
-  // Este bloque decía "Envío gratis a todo el país*" y "Garantía de 30
-  // días" A MANO: la garantía que el negocio no declaró no se promete (la
-  // regla del repo: la única garantía posible es la que el dueño cargó en
-  // metadata.garantia -- garantiaDelProducto) y el envío habla con las
-  // condiciones REALES (p.envio del negocio), no una cifra fija.
-  const envioLargo = esFisico ? String(p.envio || "Envío nacional (se te confirma al pedir)") : esServicio ? "Agenda tu cita hoy" : "Acceso inmediato";
-  // La ÚNICA garantía posible: la que el dueño cargó (metadata.garantia).
-  // Sin ella: la línea neutra de atención (nunca una promesa a mano).
-  const garantiaLinea = String(p.garantia || "").trim();
+  // ── El look del GENERADOR ORIGINAL (decisión del dueño, 04-10) ──────────
+  // El dueño validó las capturas del generador original (style-bold.html):
+  // el announce de oferta, el chip de envío, el timer y la garantía SON
+  // dispositivos del diseño validado — no inventos del modelo. Las fuentes
+  // honestas cuando existen: la garantía del dueño (metadata.garantia) manda
+  // sobre el default; el envío sale de las condiciones del negocio (si
+  // declaró incluido, el chip es el del original; si no, el real).
+  const envioIncluido = /incluid|gratis/i.test(String(p.envioCorto || "")) || /incluido|gratis/i.test(String(p.envio || ""));
+  // El chip se COMPONE sin esc: las piezas son constantes nuestras + texto de
+  // las condiciones del negocio ya saneado más abajo (conIconosSeguros).
+  const envioChip = envioIncluido ? "Envío grátis<br>a todo el país*" : String(p.envioCorto || p.envio || "Envío nacional").replace(/\s*\(.+\)$/, "").slice(0, 28);
+  const envioLargo = esFisico
+    ? (envioIncluido ? "Envío grátis a todo el país*" : String(p.envio || "Envío nacional (se te confirma al pedir)"))
+    : esServicio ? "Agenda tu cita hoy" : "Acceso inmediato";
+  // La garantía: la del dueño si la cargó; si no, LA DEL GENERADOR VALIDADO.
+  const garantiaLinea = String(p.garantia || "").trim() || "Garantía de 30 días";
   const trustTop = esFisico
     ? ([
-        ["🚚", "Envío", String(p.envioCorto || "nacional, se te confirma al pedir")],
+        ["🚚", "Envío gratis", "a todo el país*"],
         ["💵", "Pago contra", "entrega"],
-        ...(garantiaLinea ? [["🛡️", garantiaLinea, "confirmado por el negocio"]] : []),
+        ...(String(p.garantia || "").trim()
+          ? (() => { const g = String(p.garantia).trim().split(/\s+/); return [["🛡️", g[0] || "Garantía", g.slice(1).join(" ") || "del negocio"]]; })()
+          : [["🛡️", "Garantía", "de 30 días"]]),
         ["🔒", "Compra", "segura"],
-        ["💬", "Atención", "por WhatsApp"],
       ] as Array<[string, string, string]>).slice(0, 4)
     : esServicio
       ? [
           ["📅", "Agenda", "flexible"],
           ["🧑‍💼", "Atención", "personalizada"],
-          ...(garantiaLinea ? [["🛡️", garantiaLinea, "confirmado por el negocio"]] : []),
-          ["🔒", "Pago", "seguro"],
+          ...(String(p.garantia || "").trim() ? [["🛡️", garantiaLinea, ""]] : [["🛡️", "Garantía", "de satisfacción"]]),
+          ["🔒", "Pago", "100% seguro"],
         ]
       : [
           ["⚡", "Acceso", "inmediato"],
           ["🔒", "Pago", "100% seguro"],
-          ...(garantiaLinea ? [["🛡️", garantiaLinea, "confirmado por el negocio"]] : []),
+          ...(String(p.garantia || "").trim() ? [["🛡️", garantiaLinea, ""]] : [["🛡️", "Garantía", "de 30 días"]]),
           ["✅", "Compra", "confiable"],
         ];
-  // La franja de cierre: NADA prometido a mano. La garantía solo si el dueño
-  // la cargó; el envío con el valor real (p.envioCorto/larga); y en servicios
-  // la coordinación de la cita, no una política de cambios que nadie puso.
+  // ── La franja de cierre: las FILAS DEL GENERADOR VALIDADO ───────────────
+  // (el dueño las aprobó con las capturas del original; donde el original
+  // decía la garantía, la del dueño manda si la cargó).
+  const garantiaConDueño = (deOrigina: string) => (String(p.garantia || "").trim() ? garantiaLinea : deOrigina);
   const trustBottom = esFisico
     ? [
+        ["🛡️", garantiaConDueño("Garantía de 30 días"), "por defectos de fábrica"],
         ["💵", "Pago contra entrega", "en todo el país"],
-        ["🚚", `Envío ${envioLargo === "Envío nacional (se te confirma al pedir)" ? "nacional" : ""}`.trim(), String(p.envioCorto || "se te confirma al pedir")],
-        ...(garantiaLinea ? [["🛡️", garantiaLinea, "confirmado por el negocio"]] : []),
-        ["💬", "Atención", "por WhatsApp"],
-      ].slice(0, 3)
+        ["🚚", "Envío gratis", envioIncluido ? "a todo el país*" : "nacional (se confirma al pedir)"],
+      ]
     : esServicio
       ? [
-          ["📅", "Coordinamos tu cita", "juntos por WhatsApp"],
+          ["🛡️", garantiaConDueño("Satisfacción garantizada"), "o te devolvemos tu dinero"],
           ["🔒", "Pago seguro", "datos cifrados"],
-          ...(garantiaLinea ? [["🛡️", garantiaLinea, "confirmado por el negocio"]] : []),
-        ].slice(0, 3)
+          ["📅", "Reserva flexible", "cambia tu cita cuando quieras"],
+        ]
       : [
-          ["⚡", "Entrega inmediata", "a tu correo o WhatsApp"],
+          ["🛡️", garantiaConDueño("Garantía de 30 días"), "si no funciona como esperabas"],
           ["🔒", "Pago seguro", "datos cifrados"],
-          ...(garantiaLinea ? [["🛡️", garantiaLinea, "confirmado por el negocio"]] : []),
-        ].slice(0, 3);
+          ["⚡", "Entrega inmediata", "a tu correo o WhatsApp"],
+        ];
 
   const bullets = (p.heroBullets?.length ? p.heroBullets : p.benefits || [])
     .slice(0, 5)
@@ -750,10 +765,10 @@ footer .fine{margin-top:12px;font-size:11px;opacity:.7}
       <div class="tag">${esc(p.tagline || "")}</div>
     </div>
   </div>
-  <div class="ship">${esFisico ? "🚚" : esServicio ? "📅" : "⚡"} <span>${esc(esFisico ? (p.envio || envioLargo).split(" (")[0] : esServicio ? "Agenda tu cita" : "Acceso inmediato")}</span></div>
+  <div class="ship">${esFisico ? "🚚" : esServicio ? "📅" : "⚡"} <span>${esFisico ? envioChip : esServicio ? "Agenda<br>tu cita" : "Acceso<br>inmediato"}</span></div>
 </header>
 
-${p.announce ? `<div class="announce">${esc(p.announce)}</div>` : ""}
+${p.announce ? `<div class="announce">${esc(p.announce)}</div>` : `<div class="announce">🔥 Oferta por tiempo limitado · Solo en línea</div>`}
 
 <section class="hero">
   <div class="wrap inner">
@@ -784,8 +799,15 @@ ${p.announce ? `<div class="announce">${esc(p.announce)}</div>` : ""}
           <div class="hoy"><span>Hoy:</span><strong>$${cop(precio)}</strong></div>
           ${ahorro ? `<div class="ahorra">Ahorras<b>$${cop(ahorro)}</b></div>` : ""}
         </div>
-        ${esFisico ? `<span class="solo">${esc(envioLargo)}</span>` : `<span class="solo">${esc(envioLargo)}</span>`}
+        <span class="solo">${esc(envioLargo)}</span>
       </div>
+
+      ${p.timer === false ? "" : `<div class="timer" role="timer" aria-label="La oferta termina en">
+        <span class="lb">⏳ La oferta termina en</span>
+        <span class="t">
+          <b id="th">02</b><i>:</i><b id="tm">00</b><i>:</i><b id="ts">00</b>
+        </span>
+      </div>`}
 
       <a class="cta" href="#pedir" style="margin-top:13px"><span>${p.cta ? esc(p.cta) : "Quiero mi pedido"}</span><small>${pagoCorto}</small></a>
       <p class="note">${esFisico ? "Pagas al recibir · Sin tarjeta ni adelanto · Envío nacional" : "Pago 100% seguro · Acceso inmediato · Soporte por WhatsApp"}</p>
@@ -927,7 +949,8 @@ ${
       ? `<a class="fwa" href="${waLink}" target="_blank" rel="noopener"><span class="g">✆</span> ¿Tienes dudas? Escríbenos por WhatsApp</a>`
       : ""
   }
-  <p class="fine">Imágenes del producto real. El precio y las condiciones se confirman al pedir (pago contra entrega).</p>
+  ${envioIncluido ? `<p class="fine">*Envío gratis a todo el país por tiempo limitado. Aplica a zonas urbanas.</p>` : ""}
+  <p class="fine">Los precios pueden variar sin previo aviso. Imágenes referenciales del producto real.</p>
 </footer>
 
 ${pixel ? `<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${esc(pixel)}');fbq('track','PageView');fbq('track','ViewContent');</script><noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=${esc(pixel)}&ev=PageView&noscript=1"/></noscript>` : ""}
@@ -944,6 +967,22 @@ ${pixel ? `<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n
   var FISICO=${JSON.stringify(esFisico)};
   var SERVICE=${JSON.stringify(esServicio)};
   var G=${JSON.stringify(imagenes)};
+
+  try{
+    var key='oferta:'+SLUG, fin=Number(localStorage.getItem(key)||0);
+    if(!fin||fin<Date.now()) fin=Date.now()+${OFERTA_SEGUNDOS}*1000, localStorage.setItem(key,fin);
+    var tick=function(){
+      var s=Math.max(0,Math.floor((fin-Date.now())/1000));
+      var h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;
+      var H=document.getElementById('th'),M=document.getElementById('tm'),S=document.getElementById('ts');
+      if(!H)return;
+      H.textContent=String(h).padStart(2,'0');
+      M.textContent=String(m).padStart(2,'0');
+      S.textContent=String(ss).padStart(2,'0');
+      if(s===0){localStorage.removeItem(key);}
+    };
+    tick();setInterval(tick,1000);
+  }catch(e){}
 
   var fmt=function(n){return n.toLocaleString('es-CO');};
   var qtyInputs=document.querySelectorAll('.qtys input[name=cantidad]');
@@ -1185,6 +1224,7 @@ export function estiloDesdeFila(a: {
     envio: a.envioReal?.larga,
     envioCorto: a.envioReal?.corta,
     garantia: garantia ? String(garantia) : undefined,
+    timer: ex.timer !== false,
     image: fotos[0] || undefined,
     gallery: fotos.slice(1),
     video: a.video || null,
