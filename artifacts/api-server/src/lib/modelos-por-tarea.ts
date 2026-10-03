@@ -36,11 +36,12 @@ export type Tarea = "vendedor" | "intencion" | "redaccion" | "vision" | "fondo";
 export const REPARTO: Record<Tarea, string[]> = {
   // La venta: rápido y con herramientas. gpt-oss:120b se cuelga en el bucle
   // de herramientas (4,1 s de mediana, 2 turnos sin respuesta): afuera.
-  // GLM-5.3 entra de segundo (03-10-2026): el /test en producción midió
-  // 538 ms vivo y el turno con solo gemma4 se quedó MUDO cuando gemma4
-  // devolvió respuesta vacía — el vendedor necesita un segundo intento
-  // ANTES de caer en la cadena larga.
-  vendedor: ["gemma4:31b-cloud", "glm-5.3"],
+  // El segundo intento debe existir en EL SITIO QUE ATIENDE: la probé el
+  // 03-10 con el probador en producción y glm-5.3 (vivo en ollama_cloud con
+  // clave) NO existe en el Ollama del VPS (404 model not found) — el turno
+  // seguía mudo. gpt-oss:20b-cloud SÍ está en el /api/tags del VPS y en la
+  // medición responde intención 8/8 en 2,2s (ver medir-modelos.ts).
+  vendedor: ["gemma4:31b-cloud", "gpt-oss:20b-cloud"],
   // "¿Es un sí?", "¿qué quiere?": el más rápido que acertó 8/8.
   intencion: ["gemma4:31b-cloud"],
   // Landings, anuncios, fichas: acá la latencia importa poco y gpt-oss:120b
