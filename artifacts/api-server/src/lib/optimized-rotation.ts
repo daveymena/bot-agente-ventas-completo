@@ -59,7 +59,26 @@ export function clasificarFallo(error?: string): {
   const e = String(error || "").toLowerCase();
 
   if (/no payment method|creditserror|billing|add a payment|insufficient (credit|balance|funds)|payment required|402/.test(e)) {
-    return { clase: "sin_credito", cooldownMs: 6 * HORA, inmediato: true };
+    // ── BLOQUEO por saldo (decisión del dueño, 04-10) ─────────────────────
+    // "qué solo funcione cuando tenga saldo": un proveedor sin saldo NO debe
+    // quemar el turno de un cliente real cada 6 horas. 24h (se revisa al día)
+    // hasta que el admin recargue.
+    return { clase: "sin_credito", cooldownMs: 24 * HORA, inmediato: true, pista: "El proveedor quedó SIN SALDO: recarga la cuenta o quítalo de la cadena. Mientras tanto no se lo llama." };
+  }
+  // ── Bloqueos PERMANENTES de cuenta/configuración (04-10) ───────────────
+  // Estos tres NO se arreglan reintentando: el PAT de Copilot no sirve para
+  // esa API, el free tier de OpenCode no se puede usar desde el servidor y
+  // 403 de acceso no es un tropiezo. 24h con la pista; se re-habilitan solos
+  // cuando el admin cambia la configuración (el enfriamiento solo es el orden,
+  // nunca deja a la cadena sin candidatos).
+  if (/personal access tokens? (are |is )?not supported|third-party user token/.test(e)) {
+    return { clase: "sin_clave", cooldownMs: 24 * HORA, inmediato: true, pista: "El PAT de GitHub Copilot no sirve para esta API: hay que conectar la cuenta con el flujo de Copilot (Configuración), no con un token personal." };
+  }
+  if (/free tier can only be used from within opencode|only be used from within/.test(e)) {
+    return { clase: "sin_clave", cooldownMs: 24 * HORA, inmediato: true, pista: "OpenCode gratis solo corre desde su app: para usarlo del servidor hay que cargar una clave de pago (OpenCode Go) o elegir otro proveedor en Configuración." };
+  }
+  if (/\b403\b|forbidden|access denied|not allowed/.test(e)) {
+    return { clase: "sin_clave", cooldownMs: 6 * HORA, inmediato: true };
   }
   // `try again in <n>` entra acá aunque el mensaje no diga "rate limit": es
   // literalmente lo que contesta un limitador cuando te pasaste de la ventana.
