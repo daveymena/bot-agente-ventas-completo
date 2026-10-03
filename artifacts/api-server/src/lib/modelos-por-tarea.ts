@@ -36,7 +36,11 @@ export type Tarea = "vendedor" | "intencion" | "redaccion" | "vision" | "fondo";
 export const REPARTO: Record<Tarea, string[]> = {
   // La venta: rápido y con herramientas. gpt-oss:120b se cuelga en el bucle
   // de herramientas (4,1 s de mediana, 2 turnos sin respuesta): afuera.
-  vendedor: ["gemma4:31b-cloud"],
+  // GLM-5.3 entra de segundo (03-10-2026): el /test en producción midió
+  // 538 ms vivo y el turno con solo gemma4 se quedó MUDO cuando gemma4
+  // devolvió respuesta vacía — el vendedor necesita un segundo intento
+  // ANTES de caer en la cadena larga.
+  vendedor: ["gemma4:31b-cloud", "glm-5.3"],
   // "¿Es un sí?", "¿qué quiere?": el más rápido que acertó 8/8.
   intencion: ["gemma4:31b-cloud"],
   // Landings, anuncios, fichas: acá la latencia importa poco y gpt-oss:120b
