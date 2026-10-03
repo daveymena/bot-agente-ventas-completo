@@ -6,6 +6,7 @@ import type { TenantRequest } from "../lib/tenantManager";
 import { sendError } from "../lib/error-handler";
 import { ERROR_CODES } from "../lib/error-codes";
 import { logger } from "../lib/logger";
+import { dbNow } from "../lib/date-utils";
 
 const router = Router();
 
@@ -67,7 +68,7 @@ router.patch("/:id", async (req: TenantRequest, res, next) => {
       if (!(await productBelongsToTenant(patch.productId, tenantId))) return res.status(400).json({ error: "El producto no pertenece al tenant actual o no es válido" });
       patch.productId = patch.productId === null || patch.productId === "" ? null : Number(patch.productId);
     }
-    patch.updatedAt = new Date();
+    patch.updatedAt = dbNow();
     const [updated] = await db.update(landingPages).set(patch as any).where(and(eq(landingPages.id, id), eq(landingPages.tenantId, tenantId))).returning();
     if (!updated) return res.status(404).json({ error: "Landing no encontrada" });
     return res.json(updated);
@@ -101,6 +102,21 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
     const source = row.source as any;
     if (source?.landingforgeUrl) return res.redirect(302, source.landingforgeUrl);
     if (row.publishedUrl && !/\/l\//.test(String(row.publishedUrl))) return res.redirect(302, row.publishedUrl);
+
+    // Vía ESTILO (lib/landing/renderer-estilo.ts): el HTML sale de secciones +
+    // design en el acto; el html guardado es solo snapshot y la variante
+    // (cod/premium/bold/dark) está en design.style.
+    if ((row.design as any)?.renderer === "estilo") {
+      let productoEstilo: any = null;
+      if (row.productId) {
+        const [p] = await db.select().from(products).where(and(eq(products.id, row.productId), eq(products.tenantId, tenantId))).limit(1);
+        productoEstilo = p || null;
+      }
+      const { renderizarLandingEstilo } = await import("../lib/landing/renderer-estilo");
+      const html = await renderizarLandingEstilo({ tenantId, row: row as any, producto: productoEstilo });
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.send(html);
+    }
 
     if (row.html) {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -171,7 +187,7 @@ router.post("/:id/publish", async (req: TenantRequest, res, next) => {
     const { urlPublicaDe } = await import("./landing-publica");
     const publishedUrl = publicar ? urlPublicaDe(row.slug) : null;
     await db.update(landingPages)
-      .set({ status: publicar ? "published" : "draft", publishedUrl, updatedAt: new Date() } as any)
+      .set({ status: publicar ? "published" : "draft", publishedUrl, updatedAt: dbNow() } as any)
       .where(eq(landingPages.id, id));
     logger.info({ tenantId, id, publishedUrl }, "[LandingPages] publicación cambiada");
     return res.json({ ok: true, id, status: publicar ? "published" : "draft", url: publishedUrl });
@@ -202,6 +218,28 @@ router.post("/preview", async (req: TenantRequest, res, next) => {
       : modelo === "digital"
         ? { tipo: "pago" as const, accion: `/api/landing-publica/preview/cupon`, mercadopago: producto ? (await enlacesDePagoLocal(tenantId, producto)).mercadopago : undefined, paypal: producto ? (await enlacesDePagoLocal(tenantId, producto)).paypal : undefined }
         : { tipo: "whatsapp" as const };
+
+    // Vía ESTILO: la preview se recalcula con el mismo renderer que la pública
+    // (acción /preview/pedido: el geo de respaldo funciona y el POST real no
+    // existe todavía, que es justo lo que se espera en una vista previa).
+    const disenoBody = (req.body?.design && typeof req.body.design === "object") ? req.body.design : {};
+    if (disenoBody.renderer === "estilo") {
+      const { renderizarLandingEstilo } = await import("../lib/landing/renderer-estilo");
+      const html = await renderizarLandingEstilo({
+        tenantId,
+        row: {
+          name: String(req.body?.name || "Vista previa"),
+          slug: "",
+          sections: Array.isArray(req.body?.sections) ? req.body.sections : [],
+          design: disenoBody,
+        },
+        producto,
+        preview: true,
+        pago: producto && modelo !== "fisico" ? await enlacesDePagoLocal(tenantId, producto) : {},
+      });
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.send(html);
+    }
 
     const html = renderizarLanding({
       nombre: String(req.body?.name || "Vista previa"),

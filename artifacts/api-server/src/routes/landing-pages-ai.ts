@@ -208,6 +208,8 @@ export async function generarLandingLocal(opts: {
   familia?: string | null;
   /** Modelo de composición puesto a mano (los ejemplos por estilo, el estudio). */
   modelo?: string | null;
+  /** true = pedir además el bloque `estilo` (copy extra de la plantilla COD). */
+  estiloExtras?: boolean;
 }) {
   const { tenantId, product } = opts;
   const productId = Number(product.id);
@@ -260,7 +262,11 @@ ESTRUCTURA AIDA:
 - DESEO: El producto como el único vehículo para lograr el resultado.
 - ACCIÓN: Cierre fuerte con urgencia basada en el valor.
 
-Escribe en ${language} para ${country}.${bloquePublico}${opts.contexto ? `\n\n${opts.contexto}` : ""}`,
+Escribe en ${language} para ${country}.${bloquePublico}${opts.contexto ? `\n\n${opts.contexto}` : ""}${
+        opts.estiloExtras
+          ? `\n\nBLOQUE "estilo" (copy extra de la plantilla COD; NO inventes cifras, garantías, descuentos ni plazos que no estén en los datos del producto): announce = franja superior de 6 a 9 palabras con la oferta; heroBadge = sello corto sobre la foto (ej. "Llega en 48h"), vacío si no hay dato real; painPoints = 3 a 5 problemas del cliente que este producto resuelve, UNA LÍNEA por problema; useCasesTitle = título de la galería de fotos; useCases = un pie de foto corto por foto, en orden; comparison = solo si aporta, { titulo, sinProducto: [3 ítems], conProducto: [3 ítems] } cualitativo sin cifras.`
+          : ""
+      }`,
       userPrompt: JSON.stringify({
         tarea: "crear_landing",
         objetivo: objective,
@@ -271,6 +277,18 @@ Escribe en ${language} para ${country}.${bloquePublico}${opts.contexto ? `\n\n${
           strategy: { avatar: "string", awareness: "string", pain: "string", desire: "string", mechanism: "string", promise: "string", objections: ["string"], angle: "string", objective, language, country, currency: product.currency },
           sections: [{ id: "string", type: "hero|benefits|offer|before-after|comparison|authority|testimonials|how-it-works|logistics|faq|cta", title: "string", subtitle: "string", body: "string: en benefits, how-it-works, comparison y offer va UNA LÍNEA POR ÍTEM (3 a 6 ítems cortos y concretos, sin adjetivos de relleno); en faq va UNA LÍNEA POR PREGUNTA con la respuesta después de ' | ' (ej: '¿Cuánto tarda en llegar? | Entre 3 y 5 días hábiles'); en hero y cta, un párrafo corto", cta: "string: el mismo verbo en hero, offer y cta", imagePrompt: "SOLO si el producto no tiene foto: descripción en inglés (max 15 palabras) de una FOTO DE PRODUCTO limpia, sin personas ni texto" }],
           design: { tone: "string", primary: "string", background: "string", radius: "string" },
+          ...(opts.estiloExtras
+            ? {
+                estilo: {
+                  announce: "string",
+                  heroBadge: "string",
+                  painPoints: ["string"],
+                  useCasesTitle: "string",
+                  useCases: ["string"],
+                  comparison: { titulo: "string", sinProducto: ["string"], conProducto: ["string"] },
+                },
+              }
+            : {}),
           source: { type: sourceAd ? "facebook-ad" : "product", reference: sourceAd || null }
         }
       }),
@@ -333,6 +351,7 @@ Escribe en ${language} para ${country}.${bloquePublico}${opts.contexto ? `\n\n${
     const name = String(result?.name || `Landing · ${product.name}`);
 
     return { ok: true as const, generatedBy: conSecciones ? "ai" : "fallback", name, productId, strategy, sections, design,
+      estilo: opts.estiloExtras ? (result?.estilo && typeof result.estilo === "object" ? result.estilo : null) : null,
       plantilla: { id: plantilla.id, nombre: plantilla.nombre, para: plantilla.para, cuando: plantilla.cuando }, source: sourceAd ? { type: "facebook-ad", data: sourceAd } : { type: "product", productId } };
 }
 

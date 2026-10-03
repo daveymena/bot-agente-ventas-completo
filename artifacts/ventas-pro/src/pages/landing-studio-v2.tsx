@@ -64,10 +64,39 @@ Creo paginas de ventas profesionales con frameworks de alta conversion (AIDA, PA
 
 **Para empezar:**
 1. Selecciona un **producto** arriba
-2. Si querés, elegí un **estilo** de la lista (17 diseños; si no, se elige solo según el producto)
+2. Si querés, elegí un **estilo**: **Estilo COD** (product page de venta con 4 variantes: clásico, premium, bold o dark) o una **familia** de las 17. Si no, se elige solo según el producto
 3. Presiona **Generar** — o escribeme que quieres
 
 *"Crea una landing impactante para mi curso de piano"*`;
+
+/**
+ * Plantilla activa: "" = Automática, "estilo" / "estilo:cod|premium|bold|dark"
+ * = el renderer-estilo (port del generador COD; la variante la elige la IA si
+ * no se fija), cualquier otro valor = una familia v3. El prefijo "estilo:"
+ * evita la colisión con la familia "premium".
+ */
+type Plantilla = "" | Familia | "estilo" | `estilo:${string}`;
+
+const VARIANTES_ESTILO: { value: Plantilla; label: string }[] = [
+  { value: "estilo", label: "Estilo COD — que la IA elija la variante" },
+  { value: "estilo:cod", label: "Estilo: Clásico COD (verde)" },
+  { value: "estilo:premium", label: "Estilo: Premium (serif elegante)" },
+  { value: "estilo:bold", label: "Estilo: Bold (promo llamativo)" },
+  { value: "estilo:dark", label: "Estilo: Dark (tech oscuro)" },
+];
+
+const COLOR_ESTILO: Record<string, string> = { cod: "#0A8F47", premium: "#8C7A5B", bold: "#E5342A", dark: "#5B4BE8" };
+
+function plantillaDeDesign(d: any): Plantilla {
+  if (d?.renderer === "estilo") {
+    const s = String(d.style || "");
+    return s && ["cod", "premium", "bold", "dark"].includes(s) ? (`estilo:${s}` as Plantilla) : "estilo";
+  }
+  if (d?.familia) return d.familia as Familia;
+  return "";
+}
+
+const soloFamilia = (v?: string | null): string => (v && !v.startsWith("estilo") ? v : "");
 
 /**
  * Acá había un panel "Diseño (tú decides)" (fondo, botones, color) que solo
@@ -89,9 +118,9 @@ export default function LandingStudioV2() {
   const [landings, setLandings] = useState<Landing[]>([]);
   const [productId, setProductId] = useState<number | "">("");
   const [landingId, setLandingId] = useState<number | null>(null);
-  // "": Automática (el servidor sugiere por el producto). Con familia elegida,
-  // Generar usa SÍ O SÍ ese diseño (molde + renderer-v3 con skins y esqueletos).
-  const [familia, setFamilia] = useState<Familia | "">("");
+  // "": Automática (el servidor sugiere por el producto). Con plantilla
+  // elegida, Generar usa SÍ O SÍ ese diseño (estilo COD o familia v3).
+  const [plantilla, setPlantilla] = useState<Plantilla>("");
   const [previewMode, setPreviewMode] = useState<"desktop" | "mobile">("desktop");
   /**
    * Qué panel se ve cuando la pantalla es chica.
@@ -143,15 +172,15 @@ export default function LandingStudioV2() {
     }
   }, [previewHtml]);
 
-  const cargarPreview = useCallback(async (id: number, fam?: Familia) => {
+  const cargarPreview = useCallback(async (id: number, fam?: string) => {
     setPreviewBusy(true);
     try {
-      const r = await fetch(`/api/landing-pages/${id}/render?familia=${fam || familia}`, { credentials: "include" });
+      const r = await fetch(`/api/landing-pages/${id}/render?familia=${soloFamilia(fam) || soloFamilia(plantilla)}`, { credentials: "include" });
       if (!r.ok) throw new Error("Error al renderizar");
       setPreviewHtml(await r.text());
     } catch { toast.error("No se pudo cargar la preview"); }
     finally { setPreviewBusy(false); }
-  }, [familia]);
+  }, [plantilla]);
 
   const enviar = useCallback(async () => {
     const text = input.trim();
@@ -176,7 +205,7 @@ export default function LandingStudioV2() {
       const r = await fetch("/api/landing-studio/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: text, landingId: esNueva ? undefined : landingId, productId: pid, familia: familia || null }),
+        body: JSON.stringify({ message: text, landingId: esNueva ? undefined : landingId, productId: pid, plantilla: plantilla || null }),
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -208,7 +237,7 @@ export default function LandingStudioV2() {
       setBusy(false);
       inputRef.current?.focus();
     }
-  }, [input, busy, productId, landingId, familia]);
+  }, [input, busy, productId, landingId, plantilla]);
 
   const exportar = useCallback(async () => {
     if (!previewHtml) { toast.info("Primero genera una landing."); return; }
@@ -265,6 +294,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
       setUrlPublica(null);
       setLandingId(nueva.id);
       if (nueva.productId) setProductId(nueva.productId);
+      setPlantilla(plantillaDeDesign(nueva.design));
       await cargarPreview(nueva.id, (nueva.design as any)?.familia as Familia);
       toast.success(r.modo === "estilo" ? "Estilo clonado para el otro producto (borrador)." : "Copia creada (borrador).");
       setMsgs(m => [...m, { role: "assistant", content: r.modo === "estilo"
@@ -333,18 +363,24 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
     } catch (e: any) { toast.error(`No se pudo eliminar: ${e.message}`); }
   }, [landingId, landings]);
 
-  // El render usa la familia GUARDADA antes que `?familia=`: si no se guarda,
-  // elegir otro estilo sobre una landing ya generada no cambiaba nada (ni la
-  // preview ni la publicada).
-  const cambiarFamilia = useCallback(async (f: Familia) => {
-    setFamilia(f);
-    if (!landingId) return;
+  // El render usa la plantilla GUARDADA antes que `?familia=`: si no se guarda,
+  // elegir otra sobre una landing ya generada no cambiaba nada (ni la
+  // preview ni la publicada). En estilo: guarda {renderer:"estilo", style} y
+  // borra familia; en familia v3: la familia y borra renderer/style para que
+  // el fork de estilo no gane.
+  const cambiarPlantilla = useCallback(async (p: Plantilla) => {
+    setPlantilla(p);
+    if (!p || !landingId) return;
     const l = landings.find(x => x.id === landingId);
-    const design = { ...((l?.design as any) || {}), familia: f };
+    const previo = { ...((l?.design as any) || {}) };
+    const esEstilo = p === "estilo" || p.startsWith("estilo:");
+    const design = esEstilo
+      ? { ...previo, familia: null, renderer: "estilo", style: p === "estilo" ? null : p.slice(7) }
+      : { ...previo, renderer: null, style: null, familia: p };
     try {
       await apiFetch(`/api/landing-pages/${landingId}`, { method: "PATCH", body: JSON.stringify({ design }) });
       setLandings(ls => ls.map(x => x.id === landingId ? { ...x, design } : x));
-      await cargarPreview(landingId, f);
+      await cargarPreview(landingId, esEstilo ? "" : p);
     } catch (e: any) { toast.error(`No se pudo cambiar el estilo: ${e.message}`); }
   }, [landingId, landings, cargarPreview]);
 
@@ -353,9 +389,10 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
     if (!l) return;
     setLandingId(id);
     if (l.productId) setProductId(l.productId);
-    if ((l.design as any)?.familia) setFamilia((l.design as any).familia as Familia); else setFamilia("");
+    const p = plantillaDeDesign(l.design);
+    setPlantilla(p);
     setUrlPublica((l as any).status === "published" ? ((l as any).publishedUrl || null) : null);
-    await cargarPreview(id, (l.design as any)?.familia as Familia);
+    await cargarPreview(id, soloFamilia(p));
     setMsgs(m => [...m, { role: "assistant", content: `Landing **"${l.name}"** cargada${(l as any).status === "published" ? ` — publicada en ${(l as any).publishedUrl}` : " (borrador)"}. ¿Qué querés modificar?` }]);
   }, [landings, cargarPreview]);
 
@@ -502,15 +539,20 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
           >
             <div className="px-3 py-2 border-b bg-muted/20 shrink-0 flex items-center gap-2">
               <span className="text-[11px] font-medium text-muted-foreground shrink-0">Estilo</span>
-              <span className="h-3 w-3 rounded-full shrink-0 border" style={{ backgroundColor: (FAMILIAS.find(f => f.value === familia)?.color) || "#8B5CF6" }} />
-              <select value={familia} onChange={e => {
-                  const v = e.target.value as Familia | "";
-                  if (!v || !landingId) { setFamilia(v); return; }
-                  void cambiarFamilia(v as Familia);
+              <span className="h-3 w-3 rounded-full shrink-0 border" style={{ backgroundColor: plantilla.startsWith("estilo") ? (COLOR_ESTILO[plantilla.slice(7) || "cod"] || "#0A8F47") : (FAMILIAS.find(f => f.value === plantilla)?.color || "#8B5CF6") }} />
+              <select value={plantilla} onChange={e => {
+                  const v = e.target.value as Plantilla;
+                  if (!v || !landingId) { setPlantilla(v); return; }
+                  void cambiarPlantilla(v);
                 }} disabled={busy || previewBusy}
-                className="h-7 flex-1 rounded-md border bg-background px-2 text-xs" title="Manda en Generar y en la publicada: cada familia es un diseño distinto">
+                className="h-7 flex-1 rounded-md border bg-background px-2 text-xs" title="Manda en Generar y en la publicada: cada plantilla es un diseño distinto">
                 <option value="">✨ Automático (según el producto)</option>
-                {FAMILIAS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                <optgroup label="Estilo COD (product page de venta)">
+                  {VARIANTES_ESTILO.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
+                </optgroup>
+                <optgroup label="Familias (renderer v3)">
+                  {FAMILIAS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                </optgroup>
               </select>
             </div>
             <div className="flex shrink-0 border-b bg-muted/20 p-1 gap-1">
@@ -586,7 +628,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                 {landingId ? `/api/landing-pages/${landingId}/render` : "preview - genera una landing para comenzar"}
               </div>
               <Badge variant="outline" className="text-[10px] border-slate-700 text-slate-400 hidden sm:flex">
-{(FAMILIAS.find(f => f.value === familia)?.label) || "Automático"}
+{plantilla.startsWith("estilo") ? (plantilla === "estilo" ? "Estilo COD (IA elige)" : `Estilo: ${plantilla.slice(7)}`) : (FAMILIAS.find(f => f.value === plantilla)?.label) || "Automático"}
               </Badge>
             </div>
             <div className={`flex-1 overflow-auto flex ${previewMode === "mobile" ? "items-start justify-center py-8" : ""}`}>

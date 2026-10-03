@@ -2,6 +2,27 @@
 
 WhatsApp AI sales bot + SaaS platform. Express backend, React dashboard, SQLite/PostgreSQL dual-mode DB, Baileys WhatsApp integration, 10 AI agent personas.
 
+## gstack workflow (equipo de ingeniería IA)
+
+Este repo usa [gstack](https://github.com/garrytan/gstack) como workflow de ingeniería con agentes especializados. Los skills están en `~/.config/opencode/skills/gstack*` y se invocan con `/nombre`.
+
+Skills principales para este equipo:
+- `/office-hours` — reframing del problema antes de codear.
+- `/autoplan` — CEO → design → DX → eng review automático.
+- `/review` — staff engineer: bugs que pasan CI pero rompen prod.
+- `/qa` — QA lead: abre navegador real y verifica flujos.
+- `/ship` — release engineer: tests, PR, push.
+- `/investigate` — debugging sistemático.
+- `/context-save` / `/context-restore` — guardar/resumir estado.
+- `/learn` — memoria acumulada del proyecto.
+
+Reglas:
+1. Antes de una feature grande: `/office-hours` o `/autoplan`.
+2. Antes de cerrar cualquier PR: `/review`.
+3. Cuando hay UI o flujo nuevo: `/qa http://localhost:5174` (dev) o URL de staging.
+4. Guardar contexto con `/context-save` al final de sesiones largas.
+5. Nunca hacer `git push --force` ni `rm -rf` destructivo sin confirmación explícita del usuario.
+
 ## Documentación obligatoria antes de implementar cambios
 
 - `CLAUDE.md` — reglas maestras para la fase actual y separación Atlas/WhatsApp.

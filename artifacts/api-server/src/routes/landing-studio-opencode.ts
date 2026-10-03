@@ -22,6 +22,7 @@ import { and, eq } from "drizzle-orm";
 import { fotosDelProducto, videosDelProducto } from "../lib/fotos-de-producto";
 import { contextoLanding, recordarLanding } from "../lib/landing/memoria";
 import { tokensDe } from "../lib/landing/design-system";
+import { dbNow } from "../lib/date-utils";
 
 const router = Router();
 
@@ -919,6 +920,12 @@ export async function generarLandingConOpenCode(opts: {
   estilo?: "pro" | "clinico";
   /** Slug ya asignado (landings nuevas por vía familia: el cierre lo necesita). */
   slug?: string | null;
+  /** "estilo" = renderer-estilo.ts (port del generador COD, 4 variantes visuales). */
+  renderer?: "estilo";
+  /** Variante fija (cod|premium|bold|dark); null/undefined = la elige la IA por el producto. */
+  style?: string | null;
+  /** Secciones actuales de la landing en edición: el copy parte de ellas, no del HTML. */
+  seccionesActuales?: any[] | null;
 }): Promise<{ html: string; tipo: ProductType; error?: string; familia?: string; familiaPorque?: string; quitado?: string[]; proveedor?: string; sections?: any[]; design?: any; strategy?: any }> {
   const { product, instruction } = opts;
   const tenantIdDelProducto = Number(product?.tenantId) || 1;
@@ -927,11 +934,60 @@ export async function generarLandingConOpenCode(opts: {
   const { hayProveedorPropio, redactarConProveedores, REGLAS_DEL_AGENTE_DE_LANDINGS, htmlDesdeRespuesta } = await import("../lib/landing/agente-landing");
   const usaAgentePropio = await hayProveedorPropio(tenantIdDelProducto);
   const config = usaAgentePropio ? null : opencodeConfig();
+  const tipo = detectarTipo(product);
+
+  // ── Vía ESTILO (02-10-2026): port del generador COD ──────────────────────
+  // Secciones (copy por el generador local) + renderer-estilo: el HTML sale
+  // determinista con sus 4 variantes (cod/premium/bold/dark). Va ANTES del
+  // resto porque no necesita OpenCode (el generador local cae a plantilla si
+  // el negocio ni siquiera tiene claves) y porque IGNORA el HTML existente:
+  // la fuente de verdad son las secciones + design, no el snapshot guardado.
+  if (opts.renderer === "estilo" && tipo !== "ecommerce") {
+    try {
+      const { generarLandingLocal } = await import("./landing-pages-ai");
+      const { renderizarLandingEstilo, elegirEstilo, ESTILOS } = await import("../lib/landing/renderer-estilo");
+      const slug = String(opts.slug || "");
+      const seccionesBase = Array.isArray(opts.seccionesActuales) && opts.seccionesActuales.length ? (opts.seccionesActuales as any[]) : null;
+      const g: any = await generarLandingLocal({
+        tenantId: tenantIdDelProducto,
+        product,
+        contexto: seccionesBase
+          ? `${instruction}\n\nSECCIONES ACTUALES de la landing (editá SOLO lo que pide la instrucción y conservá el resto):\n${JSON.stringify(seccionesBase)}`
+          : instruction,
+        estiloExtras: true,
+        familia: null,
+      });
+      const estilo = opts.style && (ESTILOS as readonly string[]).includes(String(opts.style)) ? String(opts.style) : elegirEstilo(product);
+      const pago = await datosDePagoDelProducto(product);
+      const html = await renderizarLandingEstilo({
+        tenantId: tenantIdDelProducto,
+        row: { name: g.name, slug, sections: g.sections, design: { ...(g.design || {}), style: estilo } },
+        producto: product,
+        accion: slug ? `/api/landing-publica/${encodeURIComponent(slug)}/pedido` : "",
+        host: "",
+        pago: { mercadopago: pago.mercadopago, paypal: pago.paypal },
+      });
+      const design: any = { ...(g.design || {}), renderer: "estilo", style: estilo };
+      delete design.familia;
+      if (g.estilo) design.estiloExtras = g.estilo;
+      return {
+        html,
+        tipo,
+        familiaPorque: `estilo COD (${estilo})`,
+        proveedor: `molde+ia (${(g as any).generatedBy || "ai"})`,
+        sections: g.sections,
+        design,
+        strategy: (g as any).strategy,
+      };
+    } catch (e: any) {
+      return { html: "", tipo, error: `La vía estilo falló: ${e?.message || e}` };
+    }
+  }
+
   if (!usaAgentePropio && !config) return { html: "", tipo: "digital", error: "Sin proveedor de IA: el negocio no tiene claves cargadas y OpenCode no está configurado" };
 
   const existingHtml = opts.existingHtml ?? null;
   const diseno = opts.diseno ?? {};
-  const tipo = detectarTipo(product);
   // ── Sin familia elegida, se elige por el producto ───────────────────────
   //
   // Medido el 18-09-2026: todas las landings salían con la misma paleta
@@ -1162,7 +1218,7 @@ router.post("/design", async (req, res) => {
     const htmlBase = landing.html || "";
     const htmlFinal = inyectarDisenoEnHtml(htmlBase, nuevo);
 
-    await db.update(landingPages).set({ design: nuevo, html: htmlFinal, updatedAt: new Date() }).where(and(eq(landingPages.id, landingId), eq(landingPages.tenantId, tenantId)));
+    await db.update(landingPages).set({ design: nuevo, html: htmlFinal, updatedAt: dbNow() }).where(and(eq(landingPages.id, landingId), eq(landingPages.tenantId, tenantId)));
     return res.json({ ok: true, design: nuevo, html: htmlFinal });
   } catch (e: any) {
     logger.error({ err: e?.message }, "[LandingStudio/design] error");
@@ -1175,8 +1231,8 @@ router.post("/chat", async (req, res) => {
   try {
     const tenantId = negocioDe(req);
     if (!tenantId) return res.status(401).json({ message: "Iniciá sesión" });
-    const { message, landingId, productId, diseno, familia, estilo } = req.body as {
-      message?: string; landingId?: number; productId?: number; diseno?: Diseno; familia?: string | null; estilo?: string | null;
+    const { message, landingId, productId, diseno, familia, estilo, plantilla } = req.body as {
+      message?: string; landingId?: number; productId?: number; diseno?: Diseno; familia?: string | null; estilo?: string | null; plantilla?: string | null;
     };
     if (!message?.trim()) return res.status(400).json({ message: "Falta el mensaje" });
 
@@ -1224,9 +1280,25 @@ router.post("/chat", async (req, res) => {
     // Diseño efectivo: el que manda el cliente ahora, o el guardado en la landing.
     const disenoGuardado = (existingLanding?.design && typeof existingLanding.design === "object") ? existingLanding.design : {};
     const disenoFinal: Diseno = { ...disenoGuardado, ...(diseno || {}) };
+    // Plantilla del Studio (02-10-2026): "estilo" / "estilo:cod|premium|bold|dark"
+    // manda el renderer nuevo; cualquier otro valor crudo es una familia v3.
+    // Retrocompatible: sin `plantilla` sigue mandando el campo `familia`.
+    const plantillaParam = typeof plantilla === "string" ? plantilla.trim() : "";
+    const esEstilo = plantillaParam === "estilo" || plantillaParam.startsWith("estilo:");
+    const estiloPedido = esEstilo ? (plantillaParam === "estilo" ? null : plantillaParam.slice("estilo:".length)) : null;
     // Familia visual (estilo): la que manda el cliente ahora, o la guardada.
-    const familiaElegida = (familia ?? (disenoGuardado as any)?.familia ?? null) as string | null;
+    const familiaElegida = esEstilo
+      ? null
+      : plantillaParam
+        ? plantillaParam
+        : ((familia ?? (disenoGuardado as any)?.familia ?? null) as string | null);
     const designGuardado: any = { ...disenoFinal, ...(familiaElegida ? { familia: familiaElegida } : {}) };
+    if (esEstilo) {
+      delete designGuardado.familia;
+      designGuardado.renderer = "estilo";
+      if (estiloPedido) designGuardado.style = estiloPedido;
+      else delete designGuardado.style;
+    }
 
     const { bitacoraDe, textoDeBitacora, anotarEnBitacora } = await import("../lib/landing/agente-landing");
     // La vía de familias hornea el cierre (formulario/links) con el slug: para
@@ -1240,14 +1312,21 @@ router.post("/chat", async (req, res) => {
     const startTime = Date.now();
     const r = await generarLandingConOpenCode({
       product,
-      instruction: existingHtml
-        ? `EDITÁ la página existente (viene abajo como HTML). Aplicá SOLO este cambio y devolvé el HTML completo actualizado: ${message}`
-        : message,
+      // Vía estilo: se regenera de las secciones (el HTML guardado es solo
+      // snapshot), así que la instrucción va literal, sin "EDITÁ el HTML".
+      instruction: esEstilo
+        ? message
+        : existingHtml
+          ? `EDITÁ la página existente (viene abajo como HTML). Aplicá SOLO este cambio y devolvé el HTML completo actualizado: ${message}`
+          : message,
       existingHtml,
       diseno: disenoFinal,
       familia: familiaElegida,
       estilo: estilo === "clinico" ? "clinico" : "pro",
-      slug: slugPrevio || undefined,
+      renderer: esEstilo ? "estilo" : undefined,
+      style: esEstilo ? estiloPedido : undefined,
+      seccionesActuales: esEstilo && existingLanding?.sections ? (existingLanding.sections as any[]) : undefined,
+      slug: slugPrevio || existingLanding?.slug || undefined,
       timeoutMs: 120_000,
       bitacora: existingLanding ? textoDeBitacora(bitacoraDe(existingLanding)) : "",
     });
@@ -1263,7 +1342,15 @@ router.post("/chat", async (req, res) => {
     let savedLandingId = landingId;
     let slug = existingLanding?.slug || "";
     if (landingId && existingLanding) {
-      await db.update(landingPages).set({ html, design: designGuardado, updatedAt: new Date() }).where(eq(landingPages.id, landingId));
+      // Vía estilo: el renderer devuelve el design resuelto (variante +
+      // estiloExtras) y las secciones con las que se regeneró; se guardan para
+      // que la publicada no dependa del html snapshot.
+      await db.update(landingPages).set({
+        html,
+        design: esEstilo && (r as any).design ? { ...designGuardado, ...(r as any).design } : designGuardado,
+        ...((r as any).sections?.length ? { sections: (r as any).sections } : {}),
+        updatedAt: dbNow(),
+      } as any).where(eq(landingPages.id, landingId));
       savedLandingId = landingId;
     } else {
       slug = slugPrevio || ((product?.name || "landing")
@@ -1291,7 +1378,7 @@ router.post("/chat", async (req, res) => {
       html = asegurarFormularioDropshipping(html);
       if (savedLandingId != null) {
         html = html.split("__FORM_ACTION__").join(`/api/landing-publica/${encodeURIComponent(slug)}/pedido`);
-        await db.update(landingPages).set({ html, updatedAt: new Date() }).where(eq(landingPages.id, savedLandingId));
+        await db.update(landingPages).set({ html, updatedAt: dbNow() }).where(eq(landingPages.id, savedLandingId));
       }
     }
 

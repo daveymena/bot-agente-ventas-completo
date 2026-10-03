@@ -10,12 +10,13 @@
 import { Router, type Request, type Response } from "express";
 import { fotosDelProducto, fotosUnicasDelProducto, guardadorDeMetadata } from "../lib/fotos-de-producto";
 import { and, eq } from "drizzle-orm";
-import { db, landingPages, products, coupons } from "@workspace/db";
+import { db, landingPages, products, coupons, pool } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { tenantManager } from "../lib/tenantManager";
 import { getBusinessContext } from "../lib/business-context";
 import { CONDICIONES_DE_RESPALDO, modeloDelProducto } from "../lib/modelo-de-negocio";
 import { getAppUrl } from "../lib/app-url";
+import { dbNow } from "../lib/date-utils";
 
 export const landingPublicaRouter = Router();
 
@@ -72,6 +73,26 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
       pixelId = new FacebookService(t || undefined).pixelId || null;
     } catch { pixelId = null; }
     const medir = (html: string) => conMedicion(html, snippetDeMedicion({ slug: row.slug, pixelId, producto: producto as any }));
+
+    // Vía ESTILO (lib/landing/renderer-estilo.ts): se recalcula de secciones +
+    // design en CADA visita, antes del html guardado (que es solo snapshot) y
+    // de la copia clonada. La variante (cod/premium/bold/dark) vive en
+    // design.style; el píxel lo pone solo `medir` para no contarlo dos veces.
+    if ((row.design as any)?.renderer === "estilo") {
+      const { renderizarLandingEstilo } = await import("../lib/landing/renderer-estilo");
+      const modeloEstilo = producto ? modeloDelProducto(producto as any) : "digital";
+      const html = await renderizarLandingEstilo({
+        tenantId,
+        row: row as any,
+        producto,
+        precioAntes,
+        host: getAppUrl(),
+        pago: producto && modeloEstilo !== "fisico" ? await enlacesDePago(tenantId, producto) : {},
+      });
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "public, max-age=60");
+      return res.send(medir(html));
+    }
 
     // Si la landing tiene HTML dinámico generado por OpenCode, servirlo directo.
     if ((row as any).html) {
@@ -321,7 +342,7 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
         if (r.ok && cupon) {
           unitPrice = r.precioFinal / cantidad;
           cuponNota = `Cupón ${codigoCupon} (−$${Math.round(r.descuento).toLocaleString("es-CO")})`;
-          await db.update(coupons).set({ usos: Number(cupon.usos || 0) + 1, updatedAt: new Date() } as any).where(eq(coupons.id, cupon.id));
+          await db.update(coupons).set({ usos: Number(cupon.usos || 0) + 1, updatedAt: dbNow() } as any).where(eq(coupons.id, cupon.id));
         } else {
           cuponNota = `Cupón ${codigoCupon} no aplicó: ${r.motivo || "inválido"}`;
         }
@@ -336,14 +357,20 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
     // #324-#328, todos iguales. Un clic repetido no puede ser otro pedido.
     {
       const { pool } = await import("@workspace/db");
-      const { rows: previos } = await pool.query(
-        `SELECT * FROM dropshipping_orders
+      // pool solo existe en Postgres; en SQLite (sql.js) es null y el
+      // dedup se omite (abrirPedido igual crea el pedido).
+      let previos: any[] = [];
+      if (pool) {
+        const r = await pool.query(
+          `SELECT * FROM dropshipping_orders
           WHERE tenant_id = $1 AND product_id = $2 AND telefono = $3
             AND created_at > now() - interval '10 minutes'
             AND estado <> 'cancelado'
           ORDER BY id DESC LIMIT 1`,
-        [row.tenantId, producto.id, datos.telefono],
-      ).catch(() => ({ rows: [] as any[] }));
+          [row.tenantId, producto.id, datos.telefono],
+        ).catch(() => ({ rows: [] as any[] }));
+        previos = r.rows || [];
+      }
       if (previos[0]) {
         const prev = previos[0];
         logger.info({ pedidoId: prev.id, wooOrderId: prev.woo_order_id }, "[LandingPublica] Pedido repetido en 10 min: se devuelve el existente");
@@ -351,7 +378,37 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
       }
     }
 
-    let pedido = await ds.abrirPedido({
+    let pedido: any = null;
+    // En SQLite (modo local/dev) no hay pool de Postgres ni tampoco la tabla
+    // dropshipping_orders. Para no romper la landing pública en entorno de
+    // desarrollo, se simula el pedido y se avisa igual al dueño por WhatsApp.
+    if (!pool) {
+      const mockId = Math.floor(Date.now() / 1000) % 1000000;
+      pedido = {
+        id: mockId, tenantId: row.tenantId, conversationId: null, productId: producto.id,
+        productName: producto.name, quantity: cantidad, unitPrice: String(unitPrice),
+        total: String(unitPrice * cantidad), metodoPago: c.envio.pago === "anticipado" ? "transferencia" : "contraentrega",
+        estado: "confirmado", wooOrderId: null, wooError: null, dropiEstado: null, dropiOrderId: null,
+        variante: Object.values(opciones).join(" ").trim() || null, transportadora: limpio(b.transportadora, 80) || null,
+        transportadoraId: null,
+      } as any;
+      try {
+        const { avisarAlDueno } = await import("../lib/avisos");
+        const texto = [
+          `🛒 *Pedido nuevo desde la landing* (${row.name}) [MODO DEV/SQLITE]`,
+          `📦 ${producto.name} × ${cantidad} · total $${Math.round(unitPrice * cantidad).toLocaleString("es-CO")}`,
+          Object.values(opciones).join(" ").trim() ? `🎨 ${Object.values(opciones).join(" ").trim()}` : "",
+          `👤 ${datos.nombre} · 📱 ${datos.telefono}${datos.documento ? ` · 🪪 ${datos.documento}` : ""}`,
+          `🏠 ${datos.direccion}${datos.barrio ? `, ${datos.barrio}` : ""} — ${datos.ciudad}, ${datos.departamento}`,
+          datos.notas ? `📍 ${datos.notas}` : "",
+          "⚠️ Entorno SQLite: el pedido NO se guardó en base de datos."
+        ].filter(Boolean).join("\n");
+        await avisarAlDueno(row.tenantId, texto);
+      } catch (e: any) { logger.warn({ err: e?.message }, "[LandingPublica] no se pudo avisar al admin del pedido"); }
+      return responderPedido(req, res, { ok: true, pedidoId: pedido.id, registrado: false, plazo: c.envio.plazo }, producto.name);
+    }
+
+    pedido = await ds.abrirPedido({
       tenantId: row.tenantId,
       conversationId: null,
       productId: producto.id,
