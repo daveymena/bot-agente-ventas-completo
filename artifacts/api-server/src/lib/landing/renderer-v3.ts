@@ -1066,8 +1066,16 @@ function renderHeroVariante(hv: HeroV, c: { heroTitle: string; heroSubtitle: str
   if (hv === "bleed" && c.heroImage) return `<section class="shell hero hero--bleed"><div class="hero-bg"><img src="${esc(c.heroImage)}" alt="${esc(c.producto?.name || c.heroTitle)}" loading="eager" decoding="async"></div><div class="hero-card">${copy}${price}${actions}</div></section>`;
   if (hv === "buybox") {
     const meta = c.trust.slice(0, 3).map((x) => `<li>${esc(String(x || "").replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\uFE0F\s]+/u, "").trim())}</li>`).join("");
+    // El PRICEBOX del concepto (el de la tienda directa): precio real +, si
+    // existe un precio ANTERIOR real, el tachado y el ahorro exacto. Sin
+    // precioAntes cargado NADA se tacha (no se inventa el precio lista).
+    const antesNum = Number((c.producto as any)?.precioAntes ?? 0);
+    const precioNum = Number(c.producto?.price ?? 0);
+    const ancla = antesNum > 0 && precioNum > 0 && antesNum > precioNum
+      ? `<div class="price-anchor price-anchor--compact"><span class="price-old">$${esc(antesNum.toLocaleString("es-CO"))}</span><span class="price-real">${esc(precio(c.producto))}</span><span class="price-save">Ahorras $${esc(Math.round(antesNum - precioNum).toLocaleString("es-CO"))}</span></div>`
+      : "";
     const buyboxPrice = precio(c.producto) ? `<div class="buybox-price">${esc(precio(c.producto))}</div>` : "";
-    const panel = `<div class="buybox"><p class="eyebrow">${ojo}</p><h2>${esc(c.heroTitle)}</h2>${c.heroSubtitle ? `<p class="lead">${esc(c.heroSubtitle)}</p>` : ""}${buyboxPrice}${btn(c.heroCta, c.destino)}${c.wa ? `<p class="tiny" style="margin:12px 0 0"><a href="${esc(c.wa)}" style="color:var(--accent);font-weight:800">Resolver dudas por WhatsApp</a></p>` : ""}${meta ? `<ul class="buybox-meta">${meta}</ul>` : ""}</div>`;
+    const panel = `<div class="buybox"><p class="eyebrow">${ojo}</p><h2>${esc(c.heroTitle)}</h2>${c.heroSubtitle ? `<p class="lead">${esc(c.heroSubtitle)}</p>` : ""}${buyboxPrice}${ancla}${btn(c.heroCta, c.destino)}${c.wa ? `<p class="tiny" style="margin:12px 0 0"><a href="${esc(c.wa)}" style="color:var(--accent);font-weight:800">Resolver dudas por WhatsApp</a></p>` : ""}${meta ? `<ul class="buybox-meta">${meta}</ul>` : ""}</div>`;
     return `<section class="shell hero hero--buybox"><div class="hero-media">${heroGallery(c.heroGaleria && c.heroGaleria.length ? c.heroGaleria : (c.heroImage ? [c.heroImage] : []), c.producto?.name || c.heroTitle)}</div>${panel}</section>`;
   }
   if (hv === "offer-first") return `<section class="shell hero hero--offerfirst"><div class="hero-copy"><p class="eyebrow">${ojo}</p>${price}${actions}<h1>${esc(c.heroTitle)}</h1>${c.heroSubtitle ? `<p class="lead">${esc(c.heroSubtitle)}</p>` : ""}</div>${media}</section>`;
@@ -1278,7 +1286,9 @@ function cssComposicion(): string {
   return `
 .ann-bar{background:var(--accent);color:#fff;text-align:center;padding:9px var(--pad);font-size:.83rem;font-weight:800;letter-spacing:.03em}
 .price-anchor{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;padding:14px var(--pad) 6px;text-align:center}
+.price-anchor--compact{justify-content:flex-start;padding:6px 0;gap:10px}
 .price-real{font-size:1.6rem;font-weight:900;color:var(--text)}
+.price-anchor--compact .price-real{font-size:1.25rem}
 .price-old{font-size:1rem;text-decoration:line-through;color:#9CA3AF}
 .price-save{font-size:.85rem;font-weight:800;color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);padding:4px 10px;border-radius:999px}
 .lx-angosto .shell,.lx-angosto .narrow{max-width:760px}
