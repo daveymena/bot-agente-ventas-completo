@@ -705,6 +705,53 @@ export function puntuarCoincidencias(consulta: string, catalogo: Producto[], lim
     .slice(0, limite);
 }
 
+// ══ El mensaje ACTUAL contra el foco viejo ═══════════════════════════════
+// Regla del playbook (v1 la aprendió con sangre): "el producto del mensaje
+// actual manda sobre el contexto viejo". El probador marcó el fallo dos
+// rondas seguidas: el modelo, con foco viejo, negaba productos que SÍ
+// existen ("dice que no lo tiene… Coche Mecedora…") y daba el precio del
+// foco anterior (×9). La BÚSQUEDA pura está bien (los 133 del catálogo
+// real se encuentran a sí mismos primero: diag-match-productos.ts, 04-10):
+// lo que faltaba era que el re-enfoque no dependa del capricho del modelo.
+// Esta regla es el hecho: qué producto nombró el mensaje ACTUAL.
+
+/** Piso de puntos para considerar que el mensaje NOMBRÓ un producto. BAJO a
+ * propósito: el peso IDF escala con el tamaño del catálogo (con 133 un nombre
+ * propio rinde 30-60 pts, con 4 productos ~11) — un umbral alto rompe los
+ * catálogos chicos, medido con el diag del 04-10. Lo que decide de verdad es
+ * el MARGEN y la palabra de NOMBRE. */
+export const UMBRAL_RE_ENFOQUE = 8;
+
+/**
+ * El producto que el mensaje actual nombró con fuerza, o null (no hay).
+ *
+ * Tres condiciones — las tres importan, y juntas son libres de escala:
+ *   1. el que ganó tiene puntos >= 8 (algo del catálogo se mencionó);
+ *   2. al menos UNA palabra del mensaje vive en su NOMBRE (el match vino del
+ *      producto nombrado, no de la descripción: "me gusta la verde" puntúa
+ *      por la descripción y NO nombró nada);
+ *   3. gana con MARGEN: al menos el doble del segundo (o es el único que
+ *      puntuó). Un "mochila" sola empata contra diez mochilas: AMBIGUO — en
+ *      ese caso no se re-enfoca y el modelo consulta/busca, que es lo que le
+ *      corresponde a una duda así.
+ */
+export function productoMencionadoEnElMensajeActual(
+  mensaje: string,
+  catalogo: Producto[],
+): { id: number; nombre: string; puntos: number } | null {
+  const punt = puntuarCoincidencias(mensaje, catalogo, 3);
+  if (!punt.length) return null;
+  const top = punt[0];
+  if (top.puntos < UMBRAL_RE_ENFOQUE) return null;
+  const palabras = N(mensaje)
+    .split(/[^a-z0-9ñ]+/)
+    .filter((w) => w.length > 2);
+  if (!palabras.some((w) => incluyeConTypo(N(top.p.name), w))) return null;
+  const segundo = punt[1]?.puntos ?? 0;
+  if (segundo > 0 && top.puntos < segundo * 2) return null;
+  return { id: top.p.id, nombre: top.p.name, puntos: top.puntos };
+}
+
 export const ejecutores: Record<string, Ejecutor> = {
   buscar_en_catalogo(ctx, { consulta }) {
     if (!String(consulta || "").trim()) {

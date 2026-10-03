@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { Textarea } from "@/components/ui/textarea";
 import { Loader2, CheckCircle2, XCircle, RefreshCw, Megaphone, Package, Target, MapPin, Settings2, MessageCircle, MessageSquare, Radio, Globe, FileText, Trash2, Play, Pencil, BarChart3 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -1282,7 +1283,36 @@ export default function FacebookAdsPage() {
                                 </div>
                               )}
                             </div>
-                            <div className="flex md:flex-col gap-2 shrink-0">
+                            {/* ── Acciones ────────────────────────────────
+                                En móvil los 5 botones en fila no caben y el
+                                ÚLTIMO (Eliminar) se corta del ancho (reportado
+                                por el dueño, 04-10). Acá el compromiso: en
+                                móvil las acciones van en UN menú desplegable
+                                ("Acciones" + las 4); en desktop siguen en
+                                fila como siempre. Nada del listado cambia. */}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild className="sm:hidden">
+                                <Button size="sm" variant="outline" className="shrink-0" title="Acciones del borrador">⋯</Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-52">
+                                {!d.adId && d.status !== "published" && (
+                                  <DropdownMenuItem onClick={() => uploadDraft(d.id)}>
+                                    <Globe className="h-4 w-4 mr-2" /> Subir a Meta (en pausa)
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuItem onClick={() => openEditDraft(d)}><Pencil className="h-4 w-4 mr-2" /> Editar</DropdownMenuItem>
+                                {d.adId && (
+                                  <DropdownMenuItem onClick={() => window.open(`https://www.facebook.com/adsmanager/manage/ads?act=${config.adAccountId}&selected_ad_ids=${d.adId}`, "_blank")}>
+                                    <Globe className="h-4 w-4 mr-2" /> Ver en Facebook
+                                  </DropdownMenuItem>
+                                )}
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem className="text-red-600 focus:text-red-600" onClick={() => { if (confirm(`¿Eliminar el borrador de ${d.productName}?`)) deleteDraft(d.id); }}>
+                                  <Trash2 className="h-4 w-4 mr-2" /> Eliminar
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                            <div className="hidden sm:flex md:flex-col gap-2 shrink-0">
                               {!d.adId && d.status !== "published" && (
                                 <Button size="sm" variant="outline" onClick={() => uploadDraft(d.id)} title="Subir borrador a Meta en pausa (no gasta)">
                                   <Globe className="h-4 w-4 mr-1" /> Subir

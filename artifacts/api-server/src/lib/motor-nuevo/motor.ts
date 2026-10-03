@@ -32,6 +32,7 @@ import {
   definicionesDeHerramientas,
   ejecutores,
   puntuarCoincidencias,
+  productoMencionadoEnElMensajeActual,
   diceQueCompra,
   esConfirmacionBreve,
   esDudaONegativa,
@@ -572,6 +573,34 @@ export async function responder(params: {
     uso.salida += u.salida;
     uso.cacheados += u.cacheados;
   };
+
+  // ── El mensaje ACTUAL manda sobre el foco viejo (regla del playbook que
+  // v1 aprendió con sangre, acá como hecho del SERVIDOR) ────────────────────
+  // El probador la marcó dos rondas seguidas: "dice que no lo tiene" con
+  // productos que SÍ existen ("Coche Mecedora para Bebé…") y "el precio que
+  // dice no es el de lo que se está hablando" (×9): el cliente cambia de
+  // producto y el modelo, sin volver a buscar, responde con el foco VIEJO o
+  // niega el existe. La regla (herramientas.productoMencionadoEnElMensaje-
+  // Actual, pura y testeada) decide; el motor aplica el re-enfoque y le
+  // entrega el hecho al modelo.
+  try {
+    const mencionado = productoMencionadoEnElMensajeActual(mensajeDelClienteActual, catalogo);
+    const focoViejo = estado.productoEnFoco ?? null;
+    if (mencionado && mencionado.id !== focoViejo) {
+      apilarContexto(estado, focoViejo ? `hablaban de ${nombrePorProducto(focoViejo)}` : "explorando");
+      estado.productoAnterior = focoViejo ?? null;
+      estado.productoEnFoco = mencionado.id;
+      estado.opcionesMostradas = [];
+      if (estado.etapa === "saludo" || estado.etapa === "explorando") estado.etapa = "producto_en_foco";
+      messages.push({
+        role: "system",
+        content:
+          `El cliente mencionó "${mencionado.nombre}" (producto #${mencionado.id}) y el producto en foco era ${focoViejo ? `"${nombrePorProducto(focoViejo)}"` : "ninguno"}: ` +
+          "el foco YA cambió con este mensaje. Cualquier dato (precio, ficha, variantes) de la respuesta debe salir de las herramientas PARA ESE producto; el precio/ficha del producto anterior NO aplica.",
+      });
+      traza.push({ herramienta: "[foco:revalidado]", args: { nuevo: mencionado.id, anterior: focoViejo }, resultado: `${mencionado.nombre} (${mencionado.puntos.toFixed(0)} pts) sustituyó al foco anterior` });
+    }
+  } catch { /* sin revalidación el foco queda como estaba */ }
 
   // CEREBRO: razonar antes de responder
   const ctxRazonamiento: ContextoRazonamiento = {
