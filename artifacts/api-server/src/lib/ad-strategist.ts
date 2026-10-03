@@ -1033,6 +1033,27 @@ export class AdStrategist {
         linkData.picture = images[0];
       }
 
+      // ── Las MEJORAS DE IA de Meta acompañan al creativo nuevo ────────────
+      // El creativo ORIGINAL (el de la subida) las trae (createAdForProduct
+      // las arma en degrees_of_freedom_spec) — pero esta EDICIÓN creaba el
+      // creativo nuevo SIN ellas: al cambiar la imagen, el anuncio perdía
+      // los retoques/texto-optimizado. Y con carrusel (2+ fotos reales) va
+      // multi_photo_to_video: la IA de Meta arma video con las fotos.
+      // Los guardias son los del sistema: solo con foto real (mejorasDel-
+      // Creativo) y el lugar correcto es degrees_of_freedom_spec (verificado
+      // en vivo el 08-08-2026: el campo en la raíz lo acepta pero Meta no lo lee).
+      // Hay foto REAL si ninguna imagen de la lista es el placeholder
+      // (placehold.co es la señal del sistema de "este producto no tiene
+      // foto": las mejoras que ALTERAN la imagen solo con foto real).
+      const hayFotoReal = images.length > 0 && !images.some((u: string) => /placehold\.co/i.test(u));
+      let featuresMeta: Record<string, unknown> | null = null;
+      try {
+        const { mejorasDelCreativo } = await import("./facebook");
+        featuresMeta = mejorasDelCreativo({ hayFotoReal, mejorasCompletas: false, conCarrusel: images.length > 1 }) as any;
+      } catch (fe: any) {
+        logger.warn({ err: fe?.message, draftId }, "[AdStrategist] sin mejoras del creativo en la edición");
+      }
+
       const creative = await this.fbPost(act, "adcreatives", accessToken, {
         name: `[BORRADOR] ${draft.productName} - Creativo (editado)`,
         object_story_spec: {
@@ -1040,6 +1061,7 @@ export class AdStrategist {
           link_data: linkData,
           ...(instagramActual ? { instagram_user_id: instagramActual } : {}),
         },
+        ...(featuresMeta ? { degrees_of_freedom_spec: { creative_features_spec: featuresMeta } } : {}),
       });
 
       const swapRes = await fetch(`${FB_GRAPH_URL}/${draft.adId}`, {

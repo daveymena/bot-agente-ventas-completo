@@ -233,9 +233,14 @@ const PAQUETES_OBSOLETOS = new Set(["standard_enhancements", "advantage_plus_cre
  * Las mejoras de Advantage+ del creativo, UNA POR UNA (Meta ya no acepta
  * paquetes). Las que alteran la imagen solo con foto real del producto.
  */
-export function mejorasDelCreativo(opts: { hayFotoReal: boolean; mejorasCompletas: boolean }): Record<string, { enroll_status: "OPT_IN" }> {
+export function mejorasDelCreativo(opts: { hayFotoReal: boolean; mejorasCompletas: boolean; conCarrusel?: boolean }): Record<string, { enroll_status: "OPT_IN" }> {
   const f: string[] = ["text_optimizations", "enhance_cta"];
   if (opts.hayFotoReal) f.push("image_touchups", "image_brightness_and_contrast", "image_uncrop");
+  // Con CARRUSEL (2+ fotos reales): multi_photo_to_video deja que la IA de
+  // Meta arme un VIDEO con las fotos del producto (la lista oficial de
+  // AdCreativeFeaturesSpec v26; no es el touchup individual). Solo con foto
+  // real, como las demás que alteran la imagen.
+  if (opts.hayFotoReal && opts.conCarrusel) f.push("multi_photo_to_video");
   // Como en las campañas reales de la cuenta: todas las mejoras individuales.
   if (opts.mejorasCompletas) {
     f.push("image_templates", "image_animation", "cv_transformation", "inline_comment", "pac_relaxation",
