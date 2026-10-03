@@ -18,6 +18,8 @@
 import { describe, expect, it } from "vitest";
 import { renderizarEstilo, estiloDesdeFila, ESTILOS } from "../renderer-estilo";
 
+const cop = (n: number): string => (n ? n.toLocaleString("es-CO") : "0");
+
 const productoReal: any = {
   id: 163,
   name: "Pañalera Mochila Multifuncional 2 En 1",
@@ -37,38 +39,55 @@ const fila = (design: any = {}, extra: any = {}) => estiloDesdeFila({
   envioReal: extra.envioReal,
 });
 
-describe("el generador COD portado (renderer-estilo)", () => {
-  it("los 4 estilos existen", () => {
-    expect([...ESTILOS]).toEqual(["cod", "premium", "bold", "dark"]);
+describe("el renderer-estilo (variantes reales del dueño, 03-10)", () => {
+  it("las 4 variantes existen: cleanhome/urgencia/clinico/pro", () => {
+    expect([...ESTILOS]).toEqual(["cleanhome", "urgencia", "clinico", "pro"]);
   });
 
-  it("el LOOK del generador validado: announce de oferta + timer", () => {
+  it("los NOMBRES VIEJOS (cod/premium/bold/dark) resuelven por alias sin romper landings publicadas", () => {
+    for (const [viejo, nuevo] of [["cod", "cleanhome"], ["premium", "pro"], ["bold", "urgencia"], ["dark", "clinico"]] as const) {
+      const html = renderizarEstilo(estiloDesdeFila({ row: { slug: "d", sections: [], design: { renderer: "estilo", style: viejo } } as any, modelo: "fisico" }), { accion: "/p" });
+      expect(html).toContain(`data-style="${nuevo}"`);
+    }
+  });
+
+  it("el DEFAULT (cleanhome): header de marca, form derecha en desktop, trust4, tbar, footer", () => {
     const html = renderizarEstilo(fila(), { host: "", accion: "/pedir" });
-    expect(html).toContain("🔥 Oferta por tiempo limitado");
+    expect(html).toContain('class="hdr"');
+    expect(html).toContain("hero-form");
+    expect(html).toContain('class="trust4"');
+    expect(html).toContain('class="tbar"');
+    // con WhatsApp del negocio: el footer y el flotante lo llevan
+    const conWa = renderizarEstilo(fila({}, { producto: { ...productoReal, whatsapp: "+573001234567" } }), { accion: "/pedir" });
+    expect(conWa).toContain("Escríbenos por WhatsApp");
+    expect(conWa).toContain("wa.me/573001234567");
+    // announce default SOLO si el negocio lo declara: sin condiciones no promete gratis
+    expect(html).not.toContain("gratis");
+  });
+
+  it("el timer sigue siendo dispositivo del diseño (encendido por defecto, funciona por landing)", () => {
+    const html = renderizarEstilo(fila(), { host: "", accion: "/pedir" });
     expect(html).toContain('class="timer"');
     expect(html).toContain("La oferta termina en");
-    // La garantía default de "30 días" es un claim inventado: sin garantía
-    // real del dueño no se promete plazo.
-    expect(html).not.toContain("Garantía de 30 días");
+    expect(html).toMatch(/Date\.now\(\)\+7200\*1000/);
+    // apagable
+    const off = renderizarEstilo(fila({ estiloExtras: { timer: false } }), { accion: "/pedir" });
+    expect(off).not.toContain('class="timer"');
+    expect(off).not.toContain('id="th"');
   });
 
-  it("el timer del original FUNCIONA (la ventana queda interpolada en el script)", () => {
+  it("la garantía default NO promete plazo; la del dueño manda", () => {
     const html = renderizarEstilo(fila(), { accion: "/pedir" });
-    expect(html).toMatch(/localStorage\.setItem/);
-    expect(html).toMatch(/Date\.now\(\)\+7200\*1000/); // ${OFERTA_SEGUNDOS} -> 7200 interpola en el template
-  });
-
-  it("el timer se APAGA por landing (estiloExtras.timer=false): sin markup, el script queda no-op", () => {
-    const html = renderizarEstilo(fila({ estiloExtras: { timer: false } }), { accion: "/pedir" });
-    expect(html).not.toContain('class="timer"');
-    expect(html).not.toContain('id="th"'); // el tick no encuentra nada: no-op seguro
+    expect(html).not.toContain("Garantía de 30 días");
+    const conG = renderizarEstilo(fila({}, { producto: { ...productoReal, metadata: { garantia: "3 meses de garantía directa" } } }), { accion: "/pedir" });
+    expect(conG).toContain("3 meses de garantía directa");
   });
 
   it("sin precioAntes: NO hay tachado ni ahorro (y el descuento de la IA no entra)", () => {
     const p = fila({ estiloExtras: { discount: "52% OFF HOY" } });
     const html = renderizarEstilo(p, { accion: "/pedir" });
     expect(html).not.toMatch(/<del>/);
-    expect(html).not.toMatch(/Ahorras/);
+    expect(html).not.toContain("Ahorras");
     expect(html).not.toContain("52% OFF HOY");
   });
 
@@ -78,22 +97,26 @@ describe("el generador COD portado (renderer-estilo)", () => {
     expect(html).toContain("Ahorras");
   });
 
-  it("la garantía DEL DUEÑO manda sobre la del generador", () => {
-    const html = renderizarEstilo(fila({}, { producto: { ...productoReal, metadata: { garantia: "3 meses de garantía directa" } } }), { accion: "/pedir" });
-    expect(html).toContain("3 meses de garantía directa");
+  it("envío: sin condiciones reales NO promete gratis (ni el announce ni el chip)", () => {
+    const sinCondiciones = renderizarEstilo(fila(), { accion: "/pedir" });
+    expect(sinCondiciones).not.toMatch(/[Gg]rátis/);
+    expect(sinCondiciones).toContain("Envío nacional");
+
+    const conIncluido = renderizarEstilo(fila({}, { envioReal: { larga: "Envío grátis a todo el país*", corta: "incluido" } }), { accion: "/pedir" });
+    expect(conIncluido).toContain("grátis");
+    expect(conIncluido).toContain("por tiempo limitado");
   });
 
-  it("el envío con condiciones REALES: incluido → el chip del original; sin ellas → el neutro SIN la línea del asterisco", () => {
-    const conIncluido = renderizarEstilo(fila({}, { envioReal: { larga: "Envío grátis a todo el país*", corta: "incluido" } }), { accion: "/pedir" });
-    expect(conIncluido).toContain("Envío grátis<br>a todo el país*");
-    expect(conIncluido).toContain("por tiempo limitado");
-
-    const sinCondiciones = renderizarEstilo(fila(), { accion: "/pedir" });
-    // sin condiciones: el chip es el neutro (no promete gratis) y la LÍNEA
-    // DEL ASTERISCO del envío no sale. El announce ("por tiempo limitado")
-    // es el dispositivo del diseño validado y sigue.
-    expect(sinCondiciones).not.toMatch(/\*Env[ií]o gratis/);
-    expect(sinCondiciones).toContain("🔥 Oferta por tiempo limitado");
+  it("urgencia: topbar con countdown + stockbar + bundles 1x/2x/3x con ahorro real", () => {
+    const html = renderizarEstilo(fila({ style: "urgencia" }, { precioAntes: 119900 }), { accion: "/pedir" });
+    expect(html).toContain('data-style="urgencia"');
+    expect(html).toContain("chip-rojo");
+    expect(html).toContain("stockbar");
+    // bundle 2x con la cifra real: 2x el precio del producto, tachado 2x precioAntes
+    expect(html).toMatch(/MÁS POPULAR[^<]*AHORRA/);
+    expect(html).toContain("bs-total");
+    const ahorroReal = (119900 - 110990) * 2;
+    expect(html).toContain(`AHORRA ${cop(ahorroReal)}`);
   });
 
   it("el formulario es el REAL del bot: departamento, ciudad, dirección, cantidad y POST", () => {

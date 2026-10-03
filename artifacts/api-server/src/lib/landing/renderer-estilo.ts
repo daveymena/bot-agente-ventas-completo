@@ -12,7 +12,7 @@
  *     ciudades a mano: elija primero el departamento y la lista se carga.
  *   - Físico = pedido por formulario; digital/servicio = el envío arma el
  *     mensaje de WhatsApp y muestra los enlaces de pago reales si existen.
- *   - Sin píxel embebido: la página pública lo recibe de lib/landing/monitor
+ *   - Sin píxel embebido: la pígina pública lo recibe de lib/landing/monitor
  *     (medir) para no contarlo dos veces.
  *
  * Los textos salen de las MISMAS secciones que edita el Studio
@@ -28,7 +28,7 @@ import { fotosUnicasDelProducto, guardadorDeMetadata } from "../fotos-de-product
 import { modeloDelProducto } from "../modelo-de-negocio";
 import { metadataDelProducto } from "../activos-fabricante";
 
-export const ESTILOS = ["cod", "premium", "bold", "dark"] as const;
+export const ESTILOS = ["cleanhome", "urgencia", "clinico", "pro"] as const;
 export type EstiloVisual = (typeof ESTILOS)[number];
 
 const esc = (v: unknown): string =>
@@ -46,7 +46,7 @@ const esc = (v: unknown): string =>
  * El caso decimal es el del bug en vivo (03-10): Postgres guarda
  * numeric(10,2) y Drizzle lo entrega como "55000.00". La regex vieja
  * quitaba TODO lo no-dígito y "55000.00" se volvía 5500000 — el cliente
- * veía $5.500.000 en la página de una mochila de $55.000.
+ * veía $5.500.000 en la pígina de una mochila de $55.000.
  *
  * La regla: si hay UN solo separador con exactamente 2 dígitos después, es
  * decimal (es-XX/COP de la DB); si no, son miles ("55.000" o "55,000").
@@ -68,13 +68,13 @@ function num(v: unknown): number {
 const cop = (n: number): string => (n ? n.toLocaleString("es-CO") : "0");
 
 /** El TIMER del generador validado por el dueño (sus capturas del original):
- *  es un DISPOSITIVO DEL DISEÑO ("la oferta de hoy"), no un hecho del
+ *  es un DISPOSITIVO DEL DISEñO ("la oferta de hoy"), no un hecho del
  *  producto: por eso vive como constante del renderer y no lo escribe la IA.
  *  Quitarlo por landing = design.estiloExtras.timer === false. */
 const OFERTA_SEGUNDOS = 2 * 60 * 60;
 
-// ── Las mejoras del review (04-10, lo pedido: "textos, ubicación y
-// precios") ──────────────────────────────────────────────────────────────
+// ══ Las mejoras del review (04-10, lo pedido: "textos, ubicación y
+// precios") ════════════
 // 1. El ENVÍO deja de ser una afirmación a mano: si el negocio DECLARO
 //    "incluido" dice gratis; si no, el valor/neutral que le toca (la misma
 //    fuente que usa el anuncio: modelo-de-negocio → fraseCostoEnvio).
@@ -173,18 +173,35 @@ function productoSchema(p: DatosEstilo, host: string) {
 const jsonLd = (obj: unknown): string => JSON.stringify(obj).replace(/</g, "\\u003c");
 
 /**
- * Qué variante visual va con el producto cuando el admin dejó "IA elige":
- * caro / joyería / belleza / moda → premium (se ve caro), software / app /
- * gaming → dark, descuento grande → promo bold, el resto → COD.
+ * Qué variante visual va con el producto cuando el admin dejó "IA elige".
+ *
+ * Las 4 variantes son MAQUETACIONES DISTINTAS (03/10, decisión del dueño con
+ * sus referencias validadas — capturas CleanHome/BlendLife/CineMax + HTML
+ * ivan-caicedo/direct-response/preview-dav/landing-pro), no repintados:
+ *
+ *   cleanhome → la product page COD validada (imagen 1). Header de marca con
+ *              sellos, hero foto + bullets + precio, FORMULARIO pegado arriba
+ *              a la derecha en desktop, 4 beneficios-icono, galería,
+ *              testimonios con avatar, barra 3 sellos, footer WhatsApp. DEFAULT.
+ *   urgencia  → la de Ivan Caicedo / direct-response: topbar oscura con
+ *              countdown, barra de stock, bundles 1x/2x/3x con ahorro y
+ *              "MÁS POPULAR", toast de compras recientes.
+ *   clinico   → la del preview dav: azul marino + blanco, pasos numerados en
+ *              sección oscura, CTA pastilla, FAQ acordeón amable.
+ *   pro       → la de landing-pro "PosturaPro": Jakarta, aire, sección
+ *              problema→beneficios, packs elegibles, garantía con sello.
+ *
+ * La IA elige: salud/ortopedia → pro, descuento fuerte → urgencia,
+ * software/gaming → clinico, el resto → cleanhome.
  */
 export function elegirEstilo(producto: any | null | undefined, precioAntes?: number | null): EstiloVisual {
   const texto = `${producto?.name || ""} ${producto?.category || ""} ${producto?.description || ""}`.toLowerCase();
   const precio = Number(producto?.price) || 0;
   const antes = Number(precioAntes) || 0;
-  if (precio >= 150_000 || /joya|anillo|collar|arete|reloj|dorado|esmeralda|zafiro|perfume|serum|crema|maquillaje|belleza|moda|ropa|zapato/.test(texto)) return "premium";
-  if (/software|aplicaci|\bapp\b|gaming|\bgame\b|juego|plataforma|programaci|cripto/.test(texto)) return "dark";
-  if (antes > precio && precio > 0 && (antes - precio) / antes >= 0.3) return "bold";
-  return "cod";
+  if (/corrector de postura|postura|ortoped|faja|rodillera|lumbar|cervical|masajeador|terapia|alivio|silla|colchon/.test(texto)) return "pro";
+  if (antes > precio && precio > 0 && (antes - precio) / antes >= 0.35 && precio < 150_000) return "urgencia";
+  if (/software|aplicaci|\bapp\b|gaming|\bgame\b|juego|plataforma|programaci|cripto/.test(texto)) return "clinico";
+  return "cleanhome";
 }
 
 export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): string {
@@ -192,11 +209,15 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
   const accion = o.accion || "";
   const pago = { mercadopago: o.pago?.mercadopago || "", paypal: o.pago?.paypal || "" };
   const a = p.accent || "#0a8f47";
-  const style = (ESTILOS as readonly string[]).includes(String(p.style)) ? String(p.style) : "cod";
-  const fontFams = ["Inter:wght@400;500;600;700;800;900"];
-  if (style === "premium") fontFams.unshift("Fraunces:wght@600;700");
-  if (style === "bold") fontFams.unshift("Archivo:wght@700;800;900");
-  if (style === "dark") fontFams.unshift("Space+Grotesk:wght@500;700");
+  // Estilos con NOMBRE VIEJO de la primera versión del generador (cod, premium,
+  // bold, dark): variantes reemplazadas el 03-10. Caen a la product page nueva
+  // para que ninguna landing publicada se rompa.
+  const aliasAntiguos: Record<string, EstiloVisual> = { cod: "cleanhome", premium: "pro", bold: "urgencia", dark: "clinico" };
+  const style = (ESTILOS as readonly string[]).includes(String(p.style))
+    ? String(p.style)
+    : aliasAntiguos[String(p.style)] || "cleanhome";
+  const fontFams = ["Inter:wght@400;500;600;700;800;900", "Poppins:wght@600;700;800;900"];
+  if (style === "pro") fontFams.unshift("Plus+Jakarta+Sans:wght@400;500;600;700;800");
   const fontsHref = `https://fonts.googleapis.com/css2?family=${fontFams.join("&family=")}&display=swap`;
   const precio = num(p.price);
   const antes = num(p.oldPrice);
@@ -212,7 +233,7 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
   const esFisico = !(p.kind === "digital" || p.kind === "service");
   const esServicio = p.kind === "service";
   const pagoCorto = esFisico ? "PAGO CONTRA ENTREGA" : esServicio ? "AGENDA TU CITA" : "COMPRA SEGURA";
-  // ── El look del GENERADOR ORIGINAL (decisión del dueño, 04-10) ──────────
+  // ══ El look del GENERADOR ORIGINAL (decisión del dueño, 04-10) ══════════
   // El dueño validó las capturas del generador original (style-bold.html):
   // el announce de oferta, el chip de envío, el timer y la garantía SON
   // dispositivos del diseño validado — no inventos del modelo. Las fuentes
@@ -238,7 +259,7 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
     return `${dias[1]} ${unidad} de garantía`;
   };
 
-  // ── Claims de confianza: usar datos reales del negocio; nunca inventar. ──
+  // ══ Claims de confianza: usar datos reales del negocio; nunca inventar. ══
   // Si el negocio provee franjas de confianza, las usamos tal cual. Si no,
   // usamos neutros sin promesas inventadas (sin "gratis", "30 días", etc.).
   const itemsConfianza = Array.isArray(p.trustItems) && p.trustItems.length
@@ -260,7 +281,7 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
           // duro; el texto íntegro vive en la FAQ del Studio cuando existe.
           ...(String(p.garantia || "").trim()
             ? (String(p.garantia).trim().length <= 40
-              ? (() => { const g = String(p.garantia).trim().split(/\s+/); return [["🛡️", g[0] || "Garantía", g.slice(1).join(" ") || ""]] as [string, string, string]; })()
+              ? (() => { const g = String(p.garantia).trim().split(/\s+/); return [["🛡️", g[0] || "Garantía", g.slice(1).join(" ") || ""]] as unknown as [string, string, string]; })()
               : [["🛡️", "Garantía", cortoDeGarantia(p.garantia)]])
             : []),
           ["🔒", "Compra", "segura"],
@@ -268,7 +289,7 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
       : esServicio
         ? [
             ["📅", "Agenda", "flexible"],
-            ["🧑‍💼", "Atención", "personalizada"],
+            ["💼╝", "Atención", "personalizada"],
             ...(String(p.garantia || "").trim() ? [["🛡️", String(p.garantia).trim(), ""]] : []),
             ["🔒", "Pago", "100% seguro"],
           ]
@@ -337,7 +358,7 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
   const hayComparativa = !!comparativa && (comparativa.con.length > 0 || comparativa.sin.length > 0);
 
   // La galería del Studio ("Así es"): el dueño elige las fotos ahí; las que
-  // no están ya en el hero se muestran en la sección .shotrow. La IA nunca
+  // no estín ya en el hero se muestran en la sección .shotrow. La IA nunca
   // inventa fotos: solo reordena las reales.
   const claseGaleria = "";
 
@@ -393,6 +414,37 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
             ${destacado ? `<i>¡Más elegido!</i>` : ""}
             <b>$${cop(precio * n)}</b>
           </label>`;
+
+  /** Bundle de la variante URGENCIA (modelo Ivan Caicedo): radio + etiqueta
+   *  1x/2x/3x + precio tachado cuando hay bundle. El ahorro SIEMPRE es
+   *  calculable con los precios reales (nunca un % inventado por la IA). */
+  const qtyBundle = (n: number, ribbon: string): string => {
+    const total = precio * n;
+    const porUnidad = total / n;
+    const tachado = n > 1 && antes ? `<s>$${cop(antes * n)}</s>` : "";
+    return `
+          <label class="bundle${n === 2 ? " on" : ""}">
+            ${ribbon && n !== 1 ? `<span class="ribbon">${esc(ribbon)}</span>` : ""}
+            <input type="radio" name="cantidad" value="${n}"${n === 1 ? " checked" : ""}>
+            <span class="dot"></span>
+            <span class="info"><b>${n === 1 ? `1x ${esc(p.productName)}` : `${n}x ${esc(p.productName)}${n === 3 ? " (Combo)" : ""}`}</b><span>${n === 1 ? "Ideal para uso personal" : `${cop(porUnidad)} c/u — Ideal regalo`}</span></span>
+            <span class="pr"><b>$${cop(total)}</b>${tachado}<em>${n > 1 || envioIncluido ? "Envío Gratis" : ""}</em></span>
+          </label>`;
+  };
+
+  /** Pack de la variante PRO (landing-pro): ribbon a la izquierda, discreto. */
+  const packRow = (n: number, ribbon: string): string => {
+    const total = precio * n;
+    const porUnidad = total / n;
+    return `
+          <label class="pack${n === 1 ? " on" : ""}">
+            ${ribbon && n !== 1 ? `<span class="ribbon">${esc(ribbon)}</span>` : ""}
+            <input type="radio" name="cantidad" value="${n}"${n === 1 ? " checked" : ""}>
+            <span class="dot"></span>
+            <span class="info"><b>${n === 1 ? "1 unidad" : `${n} unidades`}</b><span>${cop(porUnidad)} c/u${esFisico && envioIncluido ? " · Envío gratis" : ""}</span></span>
+            <span class="pr"><b>$${cop(total)}</b>${n > 1 && antes ? `<s>$${cop(antes * n)}</s>` : ""}</span>
+          </label>`;
+  };
 
   /** Renderiza cada sección del Studio según su tipo. Hero/formulario son fijos, el resto fluye aquí. */
   function renderizarSeccion(s: NonNullable<DatosEstilo["sections"]>[number]): string {
@@ -499,7 +551,7 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
     // gallery → "Así es": las fotos que el dueño eligió en el Studio. Aparecen
     // las de la sección y las extra del producto; nunca se repite la que ya
     // sale en la tarjeta del hero (la primera). Sin fotos, la sección no se
-    // imprime (antes quedaba un título vacío y la página "corta").
+    // imprime (antes quedaba un título vacío y la pígina "corta").
     if (tipo === "gallery") {
       const urls = [...new Set((Array.isArray(s.images) ? s.images : [s?.image])
         .filter(Boolean).map(String))];
@@ -510,7 +562,7 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
       const figs = fotosSeccion.map((src, i) => fig(src, i, i === 0 && caption ? caption : extra.includes(src) ? "Foto real del producto" : "")).join("");
       return `<section${claseGaleria ? ` class="${claseGaleria}"` : ""}>
   <div class="wrap">
-    <span class="kicker">${esc(String(s.kicker || "Galería").slice(0, 40))}</span>
+    <span class="kicker">${esc(String((s as any).kicker || "Galería").slice(0, 40))}</span>
     <h2>${tit || "Así es"}</h2>
     ${sub}
     <div class="shotrow">${figs}</div>
@@ -518,7 +570,7 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
 </section>`;
     }
 
-    // fallback genérico: renderiza el body como párrafos
+    // fallback genérico: renderiza el body como pírrafos
     const body = String(s.body || "").split(/\n+/).filter(Boolean).map((b) => `<p>${esc(b)}</p>`).join("");
     if (!tit && !body && !s.image) return "";
     const img = s.image ? `<img src="${esc(s.image)}" alt="${esc(tit || p.productName)}" loading="lazy" style="border-radius:16px;margin-bottom:16px">` : "";
@@ -543,7 +595,7 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
             <div class="field" data-req data-phone>
               <label for="f-phone">Celular / WhatsApp</label>
               <input id="f-phone" name="telefono" type="tel" inputmode="numeric" autocomplete="tel" placeholder="Ej. 300 123 4567">
-              <span class="err">Escribe un celular válido (10 dígitos)</span>
+              <span class="err">Escribe un celular vílido (10 dígitos)</span>
             </div>
             ${
               esFisico
@@ -564,7 +616,7 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
               ? `<div class="two">
             <div class="field" data-req>
               <label for="f-city">Ciudad</label>
-              <input id="f-city" name="ciudad" type="text" list="ciudades-datalist" autocomplete="address-level2" placeholder="Ej. Bogotá">
+              <input id="f-city" name="ciudad" type="text" list="ciudades-datalist" autocomplete="address-level2" placeholder="Ej. Bogotí">
               <span class="err">Escribe tu ciudad</span>
             </div>
             <div class="field">
@@ -581,15 +633,36 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
               : ""
           }
 
-          <fieldset class="qtys">
+          ${
+            style === "urgencia"
+              ? `<div class="qtys" role="radiogroup" aria-label="Selecciona tu oferta">
+            <legend style="padding:0 6px">1 · Selecciona tu oferta especial</legend>
+            ${qtyBundle(1, "")}
+            ${precio && antes ? qtyBundle(2, `¡MÁS POPULAR! · AHORRA ${cop((antes - precio) * 2)}`) : precio ? qtyBundle(2, "¡MÁS POPULAR!") : ""}
+            ${precio ? qtyBundle(3, antes ? `Combo · Ahorras ${cop((antes - precio) * 3)}` : "Combo · Máximo ahorro") : ""}
+          </div>
+          <div class="bundle-sum">
+            <div><span>Oferta seleccionada:</span><b id="bs-offerta" style="text-align:right">1x ${esc(p.productName)}</b></div>
+            <div><span>Costo de envío nacional:</span><b style="color:var(--ok)">${envioIncluido ? "¡GRATIS!" : esc(envioLargo)}</b></div>
+            <div><span>Método de pago:</span><b>${esFisico ? "💵 Efectivo al recibir" : "🔒 Pago seguro"}</b></div>
+            <div class="tot" style="border-top:1px solid #eef1ee;margin-top:6px;padding-top:10px;font-weight:900;font-size:15px"><span>TOTAL A PAGAR:</span><b id="bs-total" style="color:var(--a);font-size:20px">$${cop(precio)} COP</b></div>
+          </div>`
+              : style === "pro"
+                ? `<div class="packs" role="radiogroup" aria-label="Elige tu oferta">
+            ${packRow(1, "")}
+            ${precio ? packRow(2, "MÁS VENDIDO") : ""}
+            ${precio ? packRow(3, "MEJOR PRECIO") : ""}
+          </div>`
+                : `<fieldset class="qtys">
             <legend>Selecciona tu pedido</legend>
             ${qtyRow(1, false)}
             ${precio ? qtyRow(2, true) : ""}
             ${precio ? qtyRow(3, false) : ""}
-          </fieldset>
+          </fieldset>`
+          }
 
-          <button class="cta" type="submit"><span>${p.cta ? esc(p.cta) : "🛒 Pedir ahora"}</span><small>${pagoCorto}</small></button>
-          <p class="secure">🔒 Tus datos están seguros</p>
+          <button class="cta" type="submit"><span>${p.cta ? esc(p.cta) : esFisico ? "🛒 Pedir ahora · Pago contra entrega" : "Quiero acceder ahora"}</span><small>${pagoCorto}</small></button>
+          <p class="secure">🔒 ${esFisico ? "Tus datos están seguros. Paga al recibir." : "Tus datos están seguros"}</p>
           <p class="note">Al enviar aceptas ser contactado por WhatsApp para ${esFisico ? "confirmar tu entrega" : esServicio ? "coordinar tu cita" : "entregarte el acceso"}.</p>
         </form>
         <div class="ok-msg" id="ok-msg">
@@ -626,18 +699,37 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
  <link href="${fontsHref}" rel="stylesheet">
 <style>
-:root{--a:${esc(a)};--a-d:${esc(a)}dd;--ink:#141a24;--mut:#5b6472;--bg:#f4f6f9;--ok:#0d9d58;--bad:#e2483d;--yel:#ffd400;--card:#fff}
+:root{--a:${esc(a)};--a-d:${esc(a)}dd;--ink:#12271d;--mut:#5b6472;--bg:#f5f7f5;--ok:#0d9d58;--bad:#e2483d;--star:#f5a623;--wa:#25d366;--card:#fff}
 *{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%;scroll-behavior:smooth;scroll-padding-top:56px}
-body{margin:0;font-family:Inter,system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--ink);line-height:1.55;overflow-x:hidden}
+html{-webkit-text-size-adjust:100%;scroll-behavior:smooth;scroll-padding-top:64px}
+body{margin:0;font-family:Inter,system-ui,-apple-system,sans-serif;color:var(--ink);background:var(--bg);line-height:1.55;font-size:15.5px;overflow-x:hidden}
 img{max-width:100%;display:block}
 button,input,select{font:inherit}
-.wrap{max-width:780px;margin:0 auto;padding:0 16px}
-section{padding:30px 0}
-h1,h2,h3{line-height:1.18;margin:0 0 10px;letter-spacing:-.02em}
-h2{font-size:clamp(21px,5.4vw,29px);font-weight:900}
+.wrap{max-width:1000px;margin:0 auto;padding:0 16px}
+section{padding:34px 0}
+h1,h2,h3{line-height:1.15;margin:0 0 10px;letter-spacing:-.02em;text-wrap:balance}
+h2{font-size:clamp(23px,5vw,32px);font-weight:800}
+h3{font-size:16px;font-weight:700}
 p{margin:0 0 12px}
-.kicker{display:inline-block;background:var(--a);color:#fff;font-size:10.5px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;padding:5px 11px;border-radius:999px;margin-bottom:10px}
+.kicker{display:inline-block;color:var(--a);font-size:11px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px}
+.sec-head{text-align:center;margin-bottom:20px}
+.sec-head .kicker{margin-bottom:6px}
+.sec-head p{margin:0;color:var(--mut)}
+
+/* header de marca: blanco con sellos inline (modelo CleanHome validado) */
+.hdr{position:sticky;top:0;z-index:40;background:#fff;border-bottom:1px solid #e8ece8}
+.hdr .wrap{display:flex;align-items:center;justify-content:space-between;gap:10px;height:58px;max-width:1180px}
+.brand{display:flex;align-items:center;gap:10px;min-width:0;text-decoration:none;color:inherit}
+.brand .logo{flex:0 0 34px;height:34px;border-radius:10px;background:var(--a);color:#fff;display:grid;place-items:center;font-weight:900;font-size:15px}
+.brand b{font-size:16.5px;font-weight:900;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand .tag{font-size:10.5px;color:var(--mut);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1}
+.brand>div{min-width:0}
+.top-sells{display:none;align-items:center;gap:18px;font-size:11.5px;font-weight:700;color:var(--ink)}
+.top-sells span{display:inline-flex;align-items:center;gap:6px;opacity:.85}
+.rating-pill{display:inline-flex;align-items:center;gap:7px;border:1px solid #e6e6e6;border-radius:999px;padding:6px 12px;background:#fff}
+.rating-pill .st{color:var(--star);letter-spacing:1px;font-size:12px}
+.rating-pill b{font-size:12.5px}
+.announce{background:#141a24;color:#fff;text-align:center;font-size:11.5px;font-weight:700;padding:7px 12px;letter-spacing:.02em}
 
 /* barra de marca */
 .top{position:sticky;top:0;z-index:40;background:var(--a);color:#fff;padding:8px 14px;display:flex;align-items:center;justify-content:space-between;gap:10px}
@@ -650,40 +742,40 @@ p{margin:0 0 12px}
 .announce{background:#141a24;color:#fff;text-align:center;font-size:11.5px;font-weight:700;padding:7px 12px;letter-spacing:.02em}
 
 /* hero */
-.hero{background:linear-gradient(170deg,#fff 0%,#eef7f2 60%,#e7f3ee 100%);padding:22px 0 26px;overflow:hidden}
-.hero h1{font-size:clamp(27px,7vw,42px);font-weight:900;color:var(--a)}
-.hero .sub{color:var(--mut);font-size:clamp(15px,4vw,17px);font-weight:500;margin-bottom:14px}
-.hero-mid{display:grid;grid-template-columns:1fr 43%;gap:12px;align-items:center;margin:4px 0 16px}
-.hero-bullets{list-style:none;margin:0;padding:0;display:grid;gap:9px}
-.hero-bullets li{display:flex;gap:8px;align-items:flex-start;font-size:13.5px;font-weight:700;line-height:1.3}
-.hero-bullets li span{flex:0 0 19px;height:19px;margin-top:1px;border-radius:50%;background:var(--ok);color:#fff;font-size:11px;font-weight:900;display:grid;place-items:center}
+.hero{background:#fff;padding:20px 0 4px}
+.hero-grid{display:grid;grid-template-columns:minmax(0,1fr);gap:18px}
+.hero-copy .kicker{margin-bottom:10px}
+.hero h1{font-size:clamp(29px,7vw,47px);font-weight:900;letter-spacing:-.035em;line-height:1.04;margin:6px 0 10px}
+.hero .sub{color:var(--mut);font-size:clamp(14.5px,3.7vw,17.5px);font-weight:500;margin:0 0 8px}
+.hero-mid{display:grid;grid-template-columns:1fr;gap:14px}
+.hero-bullets{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+.hero-bullets li{display:flex;gap:9px;align-items:flex-start;color:var(--ink);font-size:14px;font-weight:700;line-height:1.3}
+.hero-bullets li span{flex:0 0 20px;height:20px;margin-top:1px;border-radius:50%;background:var(--ok);color:#fff;font-size:11px;font-weight:900;display:grid;place-items:center}
 .hero-media{position:relative}
-.hero-media .ph{position:relative;border-radius:16px;overflow:hidden;background:#fff;box-shadow:0 14px 34px #00000020;cursor:zoom-in}
-.hero-media .ph .main{aspect-ratio:1/1;background:#fff center/cover no-repeat;transition:opacity .2s}
-.hero-media .ph img.main{object-fit:cover;width:100%}
-.hero-media .flot{position:absolute;top:-9px;right:-6px;background:var(--a);color:#fff;font-size:10.5px;font-weight:900;padding:7px 11px;border-radius:999px;transform:rotate(6deg);box-shadow:0 6px 16px #0003;z-index:2;text-align:center;line-height:1.15;border:2px solid #fff}
-.gal{position:relative;border-radius:16px;overflow:hidden;background:#fff;box-shadow:0 12px 34px #0000001a}
-.gal .main{aspect-ratio:1/1;background:#fff center/cover no-repeat;transition:opacity .2s}
-.thumbs{display:flex;gap:7px;padding:9px;overflow-x:auto;scrollbar-width:thin}
-.thumb{flex:0 0 54px;height:54px;padding:0;border:2px solid transparent;border-radius:10px;overflow:hidden;cursor:pointer;background:none}
+.hero-media .ph{position:relative;border-radius:20px;overflow:hidden;background:#fff;box-shadow:0 18px 44px #00000016;border:1px solid #eef1ee}
+.hero-media .ph .main{aspect-ratio:1/1.05;background:#fff center/contain no-repeat;cursor:zoom-in}
+.hero-media .flot{position:absolute;top:14px;left:14px;background:var(--bad);color:#fff;font-size:11px;font-weight:900;padding:8px 12px;border-radius:999px;box-shadow:0 8px 20px #0003;z-index:2;text-align:center;line-height:1.15}
+.hero-media .flot2{position:absolute;top:14px;right:14px;background:#fff;color:var(--ink);font-size:10.5px;font-weight:800;padding:7px 11px;border-radius:999px;box-shadow:0 6px 16px #0002;z-index:2;border:1px solid #eee;text-align:center;line-height:1.15}
+.gal{position:relative;border-radius:20px;overflow:hidden;background:#fff;box-shadow:0 12px 34px #0000001a}
+.gal .main{aspect-ratio:1/1;background:#fff center/contain no-repeat}
+.thumbs{display:flex;gap:8px;padding:10px 2px 0;overflow-x:auto;scrollbar-width:thin}
+.thumb{flex:0 0 58px;height:58px;padding:0;border:2px solid transparent;border-radius:11px;overflow:hidden;cursor:pointer;background:#fff}
 .thumb img{width:100%;height:100%;object-fit:cover}
 .thumb.on{border-color:var(--a)}
 .play{position:absolute;inset:0;display:none;place-items:center;background:#0009;border:0;cursor:pointer}
 .play svg{filter:drop-shadow(0 4px 14px #0007)}
 .video-on .play{display:grid}
-
-/* precio estilo píldora */
-.pricebox{background:#141a24;border-radius:18px;padding:13px 14px 15px;color:#fff;box-shadow:0 14px 30px #00000026}
-.pricebox .antes{font-size:13px;font-weight:600;opacity:.75;margin-bottom:7px}
+/* precio grande blanco (modelo CleanHome) */
+.pricebox{background:#fff;border:1.5px solid #e8ece8;border-radius:18px;padding:13px 14px 14px;box-shadow:0 14px 30px #00000012}
+.pricebox .antes{font-size:12.5px;font-weight:700;color:var(--mut);margin-bottom:5px}
 .pricebox .antes del{opacity:.9}
-.pricebox .row{display:flex;gap:9px;align-items:stretch}
-.pricebox .hoy{flex:1;background:var(--a);border-radius:13px;padding:8px 13px 10px;display:flex;align-items:baseline;gap:9px;min-width:0}
-.pricebox .hoy span{font-size:15px;font-weight:800;opacity:.95}
-.pricebox .hoy strong{font-size:clamp(28px,8vw,40px);font-weight:900;letter-spacing:-.03em;line-height:1}
-.pricebox .ahorra{flex:0 0 auto;background:var(--yel);color:#141a24;border-radius:13px;padding:7px 11px;text-align:center;font-size:11px;font-weight:800;line-height:1.15;align-self:center}
+.pricebox .row{display:flex;gap:10px;align-items:stretch}
+.pricebox .hoy{flex:1;display:flex;align-items:baseline;gap:10px;min-width:0}
+.pricebox .hoy span{font-size:15px;font-weight:800;color:#2a7a52}
+.pricebox .hoy strong{font-size:clamp(30px,8vw,42px);font-weight:900;color:var(--a);letter-spacing:-.03em;line-height:1}
+.pricebox .ahorra{flex:0 0 auto;background:#ffd21c;color:var(--ink);border-radius:10px;padding:8px 12px;text-align:center;font-size:11px;font-weight:800;line-height:1.15;align-self:center}
 .pricebox .ahorra b{display:block;font-size:15px;font-weight:900}
-.pricebox .solo{display:inline-block;background:#ff3b30;font-size:10.5px;font-weight:900;padding:3px 9px;border-radius:999px;margin-top:9px;letter-spacing:.06em;text-transform:uppercase}
-
+.pricebox .solo{display:inline-block;background:var(--ok);color:#fff;font-size:10.5px;font-weight:900;padding:4px 10px;border-radius:999px;margin-top:10px;letter-spacing:.05em;text-transform:uppercase}
 /* contador */
 .timer{display:flex;gap:9px;align-items:center;background:#ffffff;border:1.5px dashed var(--a);color:var(--ink);padding:11px 13px;border-radius:13px;margin:12px 0 0}
 .timer .lb{font-size:11.5px;font-weight:700;flex:1;line-height:1.2}
@@ -691,88 +783,85 @@ p{margin:0 0 12px}
 .timer .t b{background:#141a24;color:#fff;min-width:40px;padding:6px 0;border-radius:8px;text-align:center;font-size:17px;font-variant-numeric:tabular-nums}
 .timer .t i{font-style:normal;align-self:center;opacity:.4}
 
-/* CTA */
-.cta{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;width:100%;background:var(--a);color:#fff;border:0;border-radius:14px;padding:11px 14px;min-height:54px;cursor:pointer;box-shadow:0 10px 26px var(--a-d);transition:transform .1s;letter-spacing:.02em;text-decoration:none;text-align:center}
-.cta span{font-weight:900;font-size:16.5px}
+.cta{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1px;width:100%;background:var(--a);color:#fff;border:0;border-radius:13px;padding:12px 14px;min-height:56px;cursor:pointer;box-shadow:0 10px 26px color-mix(in srgb,var(--a) 45%,transparent);transition:transform .1s;letter-spacing:.02em;text-decoration:none;text-align:center}
+.cta span{font-weight:900;font-size:16px}
 .cta small{font-size:9.5px;font-weight:800;letter-spacing:.14em;opacity:.92}
 .cta:active{transform:scale(.98)}
 .cta.ghost{background:#fff;color:var(--a);box-shadow:none;border:2px solid var(--a)}
 .cta.ghost small{opacity:.75}
-.hero-buy{margin-top:14px}
+.pulse{animation:subtle-pulse 2.2s ease-in-out infinite}
+@keyframes subtle-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.02)}}
+.hero-buy{margin-top:0}
+.hero-form{min-width:0}
 .note{text-align:center;color:var(--mut);font-size:12px;margin-top:9px}
-
-/* confianza 4 íconos */
-.trust4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:#fff;border-top:1px solid #e6eaf0;border-bottom:1px solid #e6eaf0;padding:13px 0;margin:0}
+/* confianza 4 celdas */
+.trust4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;background:#fff;border-top:1px solid #eef1ee;border-bottom:1px solid #eef1ee;padding:13px 0;margin:24px 0 0}
 .trust4 div{text-align:center;font-size:9.5px;font-weight:800;color:var(--ink);line-height:1.2;padding:0 2px}
 .trust4 div span{display:block;font-size:21px;margin-bottom:4px}
 .trust4 div i{display:block;font-style:normal;color:var(--mut);font-weight:600}
 
-/* features */
-.feat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:11px}
-.feat{background:var(--card);border:1px solid #e6eaf0;border-radius:15px;padding:15px 12px;text-align:center}
-.feat .fi{width:46px;height:46px;margin:0 auto 9px;border-radius:14px;background:var(--a);display:grid;place-items:center;font-size:22px}
-.feat b{display:block;font-size:13.5px;font-weight:800;line-height:1.25;margin-bottom:5px}
-.feat p{margin:0;font-size:11.5px;color:var(--mut);line-height:1.4}
-
+/* beneficios 4 tarjetas */
+.feat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.feat{background:var(--card);border:1px solid #eef1ee;border-radius:16px;padding:16px 13px;text-align:left;box-shadow:0 8px 22px #0000000a}
+.feat .fi{width:44px;height:44px;margin:0 0 10px;border-radius:12px;background:color-mix(in srgb,var(--a) 12%,#fff);display:grid;place-items:center;font-size:22px}
+.feat b{display:block;font-size:14px;font-weight:800;line-height:1.25;margin-bottom:5px}
+.feat p{margin:0;font-size:12px;color:var(--mut);line-height:1.45}
 /* fotos repartidas por la página: slider una por una en móvil */
-.shotrow{display:grid;grid-auto-flow:column;grid-auto-columns:88%;gap:11px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:4px 16px 10px;margin:0 -16px}
+.shotrow{display:grid;grid-auto-flow:column;grid-auto-columns:82%;gap:11px;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch;padding:4px 16px 10px;margin:0 -16px}
 .shotrow::-webkit-scrollbar{display:none}
-.shotrow figure{margin:0;scroll-snap-align:center;background:var(--card);border:1px solid #e6eaf0;border-radius:15px;overflow:hidden;box-shadow:0 8px 20px #00000010}
+.shotrow figure{margin:0;scroll-snap-align:center;background:var(--card);border:1px solid #eef1ee;border-radius:16px;overflow:hidden;box-shadow:0 8px 20px #00000010}
 .shotrow img{aspect-ratio:1/1;height:auto;object-fit:cover;width:100%}
 .shotrow figcaption{padding:9px 7px;font-size:11.5px;font-weight:800;text-align:center;line-height:1.2}
 
-/* dolor */
-.pains{background:#141a24;color:#fff}
-.pains h2{color:#fff}
-.pains li{list-style:none;display:flex;gap:11px;align-items:flex-start;padding:11px 0;border-bottom:1px solid #ffffff14;font-size:15px}
+/* dolor (tarjeta suave, ya no sección negra) */
+.pains{background:#fff;border:1px solid #eef1ee;border-radius:20px;color:var(--ink)}
+.pains h2{color:var(--ink)}
+.pains li{list-style:none;display:flex;gap:11px;align-items:flex-start;padding:11px 0;border-bottom:1px solid #f0f2f4;font-size:15px}
 .pains li:last-child{border:0}
-.pains .x{color:#ff6b60;font-weight:900;flex:0 0 auto}
+.pains .x{color:var(--bad);font-weight:900;flex:0 0 auto}
 .pains ul{margin:0;padding:0}
-.pains .kicker{background:#ff6b60}
-
+.pains .kicker{color:var(--bad)}
 /* comparativa */
 .cmp{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-.cmp>div{border-radius:15px;padding:15px}
-.cmp h3{font-size:14.5px;margin-bottom:9px}
+.cmp>div{border-radius:16px;padding:16px 15px}
+.cmp h3{font-size:14.5px;margin-bottom:9px;display:flex;align-items:center;gap:7px}
 .cmp ul{margin:0;padding:0;list-style:none}
-.cmp li{display:flex;gap:8px;font-size:13px;padding:7px 0;border-bottom:1px solid #00000010}
+.cmp li{display:flex;gap:8px;font-size:13px;padding:8px 0;border-bottom:1px solid #00000010;line-height:1.35}
 .cmp li:last-child{border:0}
-.cmp .sin{background:#fff;border:1px solid #f0e0de}
+.cmp li span{font-weight:900;flex:0 0 auto}
+.cmp .sin{background:#fef2f1;border:1px solid #f3d7d3}
 .cmp .sin h3{color:var(--bad)}
-.cmp .con{background:#0d9d5815;border:1px solid #0d9d5840}
-.cmp .con h3{color:var(--ok)}
-.cmp li span{font-weight:900}
-.cmp .con li span{color:var(--ok)}
 .cmp .sin li span{color:var(--bad)}
-
+.cmp .con{background:color-mix(in srgb,var(--ok) 9%,#fff);border:1px solid color-mix(in srgb,var(--ok) 32%,transparent)}
+.cmp .con h3{color:var(--ok)}
+.cmp .con li span{color:var(--ok)}
 /* riesgo */
-.risk{background:linear-gradient(160deg,var(--a) 0%,var(--a-d) 100%);color:#fff;text-align:center;border-radius:20px;padding:26px 18px;margin:0 auto}
-.risk h2{color:#fff}
-.risk p{opacity:.95}
-.risk .guar{font-size:42px;margin-bottom:8px}
-
-/* reviews */
-.revs{display:grid;gap:11px}
-.rev{background:var(--card);border:1px solid #e6eaf0;border-radius:15px;padding:15px}
+.risk{background:color-mix(in srgb,var(--a) 8%,#fff);border:1.5px dashed color-mix(in srgb,var(--a) 46%,#fff);color:var(--ink);text-align:center;border-radius:20px;padding:24px 18px;margin:0 auto}
+.risk h2{font-size:21px}
+.risk p{opacity:.85}
+.risk .guar{font-size:40px;margin-bottom:8px}
+/* reviews con avatar */
+.revs{display:grid;gap:12px}
+.rev{background:var(--card);border:1px solid #eef1ee;border-radius:16px;padding:15px;box-shadow:0 8px 20px #00000009}
 .rev .who{display:flex;align-items:center;gap:10px;margin-bottom:9px}
-.rev .av{flex:0 0 40px;height:40px;border-radius:50%;background:var(--a);color:#fff;display:grid;place-items:center;font-weight:900;font-size:17px}
+.rev .av{flex:0 0 40px;height:40px;border-radius:50%;background:var(--a);color:#fff;display:grid;place-items:center;font-weight:900;font-size:17px;overflow:hidden}
 .rev .who b{display:block;font-size:13.5px;line-height:1.1}
 .rev .who i{font-style:normal;font-size:11.5px;color:var(--mut);font-weight:600}
-.rev .stars{margin-left:auto;color:#f5a623;letter-spacing:1px;font-size:14px;flex:0 0 auto}
-.rev p{font-size:14px;margin:0;line-height:1.5}
-.rev-h{display:flex;align-items:center;gap:8px}
-.rev-h .st{color:#f5a623;letter-spacing:1px;font-size:17px}
-
+.rev .stars{margin-left:auto;color:var(--star);letter-spacing:1px;font-size:14px;flex:0 0 auto}
+.rev p{font-size:13.5px;margin:0;line-height:1.5;color:#3d4553}
+.rev .vf{display:inline-flex;align-items:center;gap:5px;font-size:10.5px;font-weight:800;color:var(--ok);margin-top:8px;padding-top:8px;border-top:1px solid #f0f2f4;width:100%}
+.rev-h{display:flex;align-items:center;justify-content:center;gap:8px}
+.rev-h .st{color:var(--star);letter-spacing:1px;font-size:17px}
 /* faq */
 details{background:var(--card);border:1px solid #e6eaf0;border-radius:12px;margin-bottom:9px;overflow:hidden}
 summary{padding:15px 16px;font-weight:700;cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:10px;font-size:14.5px}
 summary::-webkit-details-marker{display:none}
 summary::after{content:"+";color:var(--a);font-weight:900;font-size:20px;line-height:1}
-details[open] summary::after{content:"−"}
+details[open] summary::after{content:"-"}
 details p{padding:0 16px 15px;margin:0;color:var(--mut);font-size:14px}
 
 /* form */
-.order{background:var(--card);border-radius:20px;overflow:hidden;box-shadow:0 16px 44px #00000017;border:1px solid #e6eaf0}
+.order{background:var(--card);border-radius:20px;overflow:hidden;box-shadow:0 16px 44px #00000017;border:1.5px solid color-mix(in srgb,var(--a) 38%,#fff)}
 .order .oh{background:var(--a);color:#fff;padding:14px 16px;text-align:center}
 .order .oh h2{color:#fff;font-size:19px;margin:0;font-weight:900}
 .order .oh p{margin:3px 0 0;font-size:12.5px;opacity:.95;font-weight:600}
@@ -780,65 +869,63 @@ details p{padding:0 16px 15px;margin:0;color:var(--mut);font-size:14px}
 .field{margin-bottom:11px}
 .field label{display:block;font-size:11.5px;font-weight:800;color:var(--mut);margin-bottom:5px;text-transform:uppercase;letter-spacing:.05em}
 .field input,.field select{width:100%;padding:13px;border:1.5px solid #dde2ea;border-radius:12px;background:#fbfcfe;font-size:16px;transition:border .15s,box-shadow .15s}
-.field input:focus,.field select:focus{outline:0;border-color:var(--a);box-shadow:0 0 0 3px var(--a-d);background:#fff}
-.field.bad input,.field.bad select{border-color:#e2483d;background:#fff5f4}
-.field .err{display:none;color:#e2483d;font-size:12px;font-weight:600;margin-top:4px}
+.field input:focus,.field select:focus{outline:0;border-color:var(--a);box-shadow:0 0 0 3px color-mix(in srgb,var(--a) 24%,transparent);background:#fff}
+.field.bad input,.field.bad select{border-color:var(--bad);background:#fff5f4}
+.field .err{display:none;color:var(--bad);font-size:12px;font-weight:600;margin-top:4px}
 .field.bad .err{display:block}
 .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .qtys{border:1.5px solid #dde2ea;border-radius:14px;padding:11px;margin:4px 0 13px}
 .qtys legend{font-size:11.5px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;padding:0 6px}
-.q{display:flex;align-items:center;gap:9px;padding:11px 10px;border:1.5px solid #e3e7ee;border-radius:11px;margin-bottom:8px;cursor:pointer;position:relative}
+.q{display:flex;align-items:center;gap:9px;padding:11px 10px;border:1.5px solid #e3e7ee;border-radius:11px;margin-bottom:8px;cursor:pointer;position:relative;background:#fff}
 .q:last-child{margin-bottom:0}
 .q input{position:absolute;opacity:0;pointer-events:none}
 .q .dot{flex:0 0 18px;height:18px;border-radius:50%;border:2px solid #c3cad6;background:#fff}
 .q em{font-style:normal;font-weight:800;font-size:14px;white-space:nowrap}
 .q b{margin-left:auto;font-weight:900;font-size:15px;color:var(--ink);white-space:nowrap}
-.q i{font-style:normal;font-size:9px;font-weight:900;background:#ff3b30;color:#fff;padding:3px 6px;border-radius:999px;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
-.q.hot{border-color:var(--a);background:var(--a-d);color:#fff}
-.q.hot b{color:#fff}
-.q.hot .dot{border-color:#ffffff99}
-.q.on{border-color:var(--a);background:#f2faf7;color:var(--ink)}
+.q i{font-style:normal;font-size:9px;font-weight:900;background:var(--bad);color:#fff;padding:3px 6px;border-radius:999px;text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+.q.on{border-color:var(--a);background:color-mix(in srgb,var(--a) 7%,#fff)}
 .q.on .dot{border-color:var(--a);box-shadow:inset 0 0 0 3.5px var(--a)}
 .q.on b{color:var(--a)}
+.bundle-sum{background:#f8faf8;border:1px solid #e8ece8;border-radius:14px;padding:12px 14px;margin:2px 0 13px;font-size:13px}
+.bundle-sum div{display:flex;justify-content:space-between;gap:10px;padding:4px 0}
+.bundle-sum .tot{font-weight:900;font-size:15px}
+.bundle-sum .tot b{color:var(--a);font-size:19px}
 .ok-msg{display:none;text-align:center;padding:26px 16px}
 .ok-msg .tick{font-size:52px;margin-bottom:8px}
 .ok-msg h3{font-size:21px;margin-bottom:6px}
 .ok-msg p{color:var(--mut);font-size:14.5px}
-.sent .fields,.sent .qtys{display:none}
+.sent .fields,.sent .qtys,.sent .packs{display:none}
 .sent .ok-msg{display:block}
 .secure{text-align:center;font-size:12px;font-weight:700;color:var(--mut);margin-top:11px}
 .paybtns{display:grid;gap:8px;margin-top:12px}
 .paybtns .cta{min-height:46px}
-
 /* sticky */
 .sticky{position:fixed;left:0;right:0;bottom:0;z-index:50;background:#fff;border-top:2px solid var(--a);padding:9px 12px calc(9px + env(safe-area-inset-bottom));display:flex;gap:11px;align-items:center;box-shadow:0 -8px 24px #00000018;transform:translateY(115%);transition:transform .25s}
 .sticky.show{transform:translateY(0)}
 .sticky .p{flex:0 0 auto;min-width:0}
 .sticky .p strong{display:block;font-size:17.5px;color:var(--a);font-weight:900;line-height:1.05}
 .sticky .p del{font-size:11.5px;color:#9aa3b0}
-.sticky .cta{width:auto;flex:1;max-width:62%;padding:8px 12px;min-height:50px;margin:0}
-.sticky .cta span{font-size:14.5px}
+.sticky .cta{width:auto;flex:1;max-width:64%;padding:8px 12px;min-height:50px;margin:0}
+.sticky .cta span{font-size:14px}
 .sticky .cart{flex:0 0 auto;font-size:22px}
 
 /* whatsapp */
-.wa{position:fixed;right:14px;bottom:88px;z-index:51;width:54px;height:54px;border-radius:50%;background:#25d366;display:grid;place-items:center;box-shadow:0 8px 24px #25d36666;text-decoration:none;transition:transform .15s}
+.wa{position:fixed;right:14px;bottom:88px;z-index:51;width:54px;height:54px;border-radius:50%;background:var(--wa);display:grid;place-items:center;box-shadow:0 8px 24px #25d36666;text-decoration:none;transition:transform .15s}
 .wa:active{transform:scale(.92)}
-.wa::after{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid #25d366;animation:ring 2s infinite}
+.wa::after{content:"";position:absolute;inset:0;border-radius:50%;border:2px solid var(--wa);animation:ring 2s infinite}
 @keyframes ring{0%{transform:scale(1);opacity:.9}100%{transform:scale(1.5);opacity:0}}
-
 /* trust bar inferior + footer */
-.tbar{background:#141a24;color:#fff;display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:14px 12px;text-align:center}
-.tbar div{font-size:9.5px;font-weight:700;line-height:1.25;color:#cfd6e0}
+.tbar{background:#fff;border-top:1px solid #eef1ee;display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:15px 12px;text-align:center;margin-top:26px}
+.tbar div{font-size:9.5px;font-weight:700;line-height:1.25;color:var(--mut)}
 .tbar div span{display:block;font-size:19px;margin-bottom:4px}
-.tbar div b{display:block;color:#fff;font-size:10.5px;font-weight:900}
-footer{background:#0c111a;color:#9aa3b0;text-align:center;padding:22px 16px 30px;font-size:12.5px}
+.tbar div b{display:block;color:var(--ink);font-size:10.5px;font-weight:900}
+footer{background:var(--ink);color:#ffffffb8;text-align:center;padding:24px 16px 30px;font-size:12.5px}
 footer .fbrand{display:flex;align-items:center;justify-content:center;gap:9px;margin-bottom:10px}
-footer .fbrand .logo{width:30px;height:30px;border-radius:9px;background:var(--a);color:#fff;display:grid;place-items:center;font-weight:900;font-size:15px}
-footer .fbrand b{color:#fff;font-size:15px}
-footer .fwa{display:inline-flex;align-items:center;gap:7px;background:#ffffff10;border:1px solid #ffffff1f;color:#fff;border-radius:999px;padding:8px 14px;text-decoration:none;font-weight:700;font-size:13px}
-footer .fwa .g{width:22px;height:22px;border-radius:50%;background:#25d366;display:grid;place-items:center;font-size:12px}
-footer .fine{margin-top:12px;font-size:11px;opacity:.7}
-
+footer .fbrand .logo{width:30px;height:30px;border-radius:9px;background:var(--a);color:#fff;display:grid;place-items:center;font-weight:900;font-size:14px}
+footer .fbrand b{color:#fff;font-size:14.5px}
+footer .fwa{display:inline-flex;align-items:center;gap:7px;background:#ffffff14;border:1px solid #ffffff2b;color:#fff;border-radius:999px;padding:8px 14px;text-decoration:none;font-weight:700;font-size:12.5px}
+footer .fwa .g{width:22px;height:22px;border-radius:50%;background:var(--wa);display:grid;place-items:center;font-size:12px}
+footer .fine{margin-top:12px;font-size:10.5px;opacity:.7}
 /* lightbox */
 .lb{position:fixed;inset:0;z-index:100;background:#000e;display:none;place-items:center;padding:20px}
 .lb.on{display:grid}
@@ -857,178 +944,246 @@ footer .fine{margin-top:12px;font-size:11px;opacity:.7}
   .feat-grid{grid-template-columns:repeat(4,1fr)}
   .sticky{left:50%;right:auto;transform:translate(-50%,115%);width:min(560px,92%);border:2px solid var(--a);border-radius:18px 18px 0 0;bottom:0}
   .sticky.show{transform:translate(-50%,0)}
+  .top-sells{display:flex}
 }
+
+/* ====================================================================
+   DESKTOP ≥ 900px: formulario pegado ARRIBA a la DERECHA (el usuario
+   compra sin recorrer la página, como en el modelo validado).
+   ==================================================================== */
 @media(min-width:900px){
-  .hero .inner{display:grid;grid-template-columns:1.05fr .95fr;grid-template-areas:"copy media" "bul media" "buy media";gap:0 34px;align-items:start}
+  .hero{padding-bottom:10px}
+  .hero-grid{grid-template-columns:minmax(0,1.06fr) minmax(0,.94fr);gap:26px;align-items:start}
   .hero-mid{display:contents}
-  .hero-copy{grid-area:copy}
-  .hero-bullets{grid-area:bul;margin-top:6px}
-  .hero-media{grid-area:media;align-self:center;position:sticky;top:70px}
-  .hero-buy{grid-area:buy;margin-top:14px}
+  .hero-copy{grid-column:1;grid-row:1}
+  .hero-media{grid-column:1;grid-row:2}
+  .hero-form{grid-column:2;grid-row:1/3;position:sticky;top:76px;align-self:start}
+  .hero-buy{display:contents}
+  .hero-buy .pricebox{margin-bottom:12px}
   .cmp{grid-template-columns:1fr 1fr}
   .revs{grid-template-columns:repeat(3,1fr)}
   .two{grid-template-columns:1fr 1fr}
 }
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+/* ===== VARIANTES (data-style): mismo esqueleto, distinta maquetación ===== */
 
-/* ===== variantes de estilo (data-style) ===== */
-/* premium: elegante, serif, más aire, bordes finos */
-[data-style="premium"] body{font-family:Fraunces,Georgia,serif;background:#faf8f5;letter-spacing:.005em}
-[data-style="premium"] .top{background:#141a24}
-[data-style="premium"] .hero{background:linear-gradient(170deg,#fff 0%,#f5f1ea 65%,#efe9df 100%)}
-[data-style="premium"] .hero h1{color:var(--ink);font-weight:600}
-[data-style="premium"] .kicker{background:transparent;color:var(--a);border:1.5px solid var(--a);font-weight:700}
-[data-style="premium"] .pricebox{background:#141a24;border:1px solid #00000022;box-shadow:0 18px 40px #00000018}
-[data-style="premium"] .cta{border-radius:4px;font-family:Fraunces,Georgia,serif}
-[data-style="premium"] .cta span{font-weight:600}
-[data-style="premium"] .feat,[data-style="premium"] .rev,[data-style="premium"] details,[data-style="premium"] .shotrow figure{border-radius:6px;border-color:#e3ddd2}
-[data-style="premium"] .feat .fi{border-radius:50%;background:transparent;border:1.5px solid var(--a);color:var(--a);width:50px;height:50px}
-[data-style="premium"] .order{border-radius:6px}
-[data-style="premium"] .field input,[data-style="premium"] .field select{border-radius:4px}
-[data-style="premium"] .q{border-radius:4px}
-[data-style="premium"] h2{font-weight:600}
-[data-style="premium"] .announce{background:#141a24;letter-spacing:.12em;text-transform:uppercase;font-size:10.5px}
+/* ── cleanhome (DEFAULT): fondo claro neutro, header blanco, acento del producto ── */
+[data-style="cleanhome"] body{background:#f6f8f6}
+[data-style="cleanhome"] .hero{background:#fff;padding-bottom:0}
+[data-style="cleanhome"] .hero-form .order{box-shadow:0 18px 44px #0000001a}
+[data-style="cleanhome"] .hero-form .order .oh{border-radius:18px 18px 0 0}
 
-/* bold: colores fuertes, geometría gruesa, energía promo */
-[data-style="bold"] body{font-family:Archivo,Inter,sans-serif}
-[data-style="bold"] .hero{background:linear-gradient(160deg,var(--a) 0%,var(--a-d) 55%,#141a24 130%)}
-[data-style="bold"] .hero h1{color:#fff;text-transform:uppercase;letter-spacing:-.01em}
-[data-style="bold"] .hero .sub{color:#ffffffd9}
-[data-style="bold"] .hero-bullets li{color:#fff}
-[data-style="bold"] .kicker{background:#ffd400;color:#141a24;transform:rotate(-1.5deg);font-size:11.5px}
-[data-style="bold"] .pricebox{background:#ffd400;color:#141a24;border-radius:12px;border:3px solid #141a24;box-shadow:8px 8px 0 #141a24}
-[data-style="bold"] .pricebox .antes{color:#141a24;opacity:.8}
-[data-style="bold"] .pricebox .hoy{background:#141a24;color:#fff}
-[data-style="bold"] .pricebox .hoy span,[data-style="bold"] .pricebox .hoy strong{color:#fff}
-[data-style="bold"] .pricebox .ahorra{background:#ff3b30;color:#fff}
-[data-style="bold"] .pricebox .solo{background:#141a24;color:#ffd400}
-[data-style="bold"] .cta{border-radius:8px;border:3px solid #141a24;box-shadow:5px 5px 0 #141a24}
-[data-style="bold"] .feat{border:2px solid #141a24;border-radius:12px;box-shadow:4px 4px 0 #141a24}
-[data-style="bold"] .feat .fi{border-radius:8px}
-[data-style="bold"] h2{text-transform:uppercase}
-[data-style="bold"] .announce{background:#141a24;background-image:repeating-linear-gradient(45deg,#ffffff0d 0 12px,transparent 12px 24px);text-transform:uppercase;letter-spacing:.06em}
-[data-style="bold"] .timer{border-style:solid;border-width:2.5px}
-[data-style="bold"] .order{border:3px solid #141a24;border-radius:12px;box-shadow:8px 8px 0 #141a24}
-[data-style="bold"] .order .oh{background:#141a24}
-[data-style="bold"] .q.hot{background:#141a24;border-color:#141a24}
-[data-style="bold"] .hero .note{color:#ffffffcc}
+/* ── urgencia: product page Ivan Caicedo / direct-response ──
+   topbar oscura con countdown MM:SS, stock bar, bundles con ahorro exacto,
+   toast de compras recientes. */
+[data-style="urgencia"] body{background:#f6f7fb}
+[data-style="urgencia"] .hdr{background:linear-gradient(90deg,var(--ink),color-mix(in srgb,var(--a) 55%,var(--ink)) 50%,var(--ink));color:#fff;border-bottom:0}
+[data-style="urgencia"] .brand .logo{background:#fff;color:var(--ink)}
+[data-style="urgencia"] .brand b,[data-style="urgencia"] .brand .tag{color:#fff}
+[data-style="urgencia"] .brand .tag{opacity:.8}
+[data-style="urgencia"] .announce{background:#1c1224;color:#fff;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;text-align:center;font-size:11.5px;font-weight:800;padding:8px 12px;letter-spacing:.02em}
+[data-style="urgencia"] .announce .chip-rojo{background:var(--bad);color:#fff;padding:2px 9px;border-radius:999px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;animation:blinking 1.6s infinite}
+[data-style="urgencia"] .announce .cd{background:#00000042;color:#ffd166;border:1px solid #ffd16655;padding:2px 10px;border-radius:999px;font-weight:900;font-variant-numeric:tabular-nums}
+@keyframes blinking{0%,100%{opacity:1}50%{opacity:.55}}
+[data-style="urgencia"] .hero{background:#fff}
+[data-style="urgencia"] .stockbar{background:#fffbeb;border:1px solid #fde68a;color:#92400e;border-radius:14px;padding:11px 13px;margin:0 0 12px}
+[data-style="urgencia"] .stockbar .row{display:flex;justify-content:space-between;align-items:center;gap:10px;font-size:11.5px;font-weight:800}
+[data-style="urgencia"] .stockbar .q{font-weight:900;color:#b91c1c}
+[data-style="urgencia"] .stockbar .bar{height:9px;background:#fde68a;border-radius:999px;overflow:hidden;margin-top:7px}
+[data-style="urgencia"] .stockbar .bar b{display:block;height:100%;background:linear-gradient(90deg,var(--bad),#f59e0b);border-radius:999px}
+[data-style="urgencia"] .bundle{border:1.5px solid #e7e9f1;border-radius:15px;padding:13px 14px;margin-bottom:10px;cursor:pointer;position:relative;display:flex;align-items:center;gap:11px;background:#fff;transition:border .15s,background .15s}
+[data-style="urgencia"] .bundle .dot{flex:0 0 19px;height:19px;border-radius:50%;border:2px solid #c3cad6;background:#fff;display:grid;place-items:center}
+[data-style="urgencia"] .bundle .dot::after{width:9px;height:9px;border-radius:50%;background:var(--a);transform:scale(0);transition:transform .15s;content:""}
+[data-style="urgencia"] .bundle.on{border-color:var(--a);background:color-mix(in srgb,var(--a) 7%,#fff);box-shadow:0 6px 18px color-mix(in srgb,var(--a) 20%,transparent)}
+[data-style="urgencia"] .bundle.on .dot{border-color:var(--a)}
+[data-style="urgencia"] .bundle.on .dot::after{transform:scale(1)}
+[data-style="urgencia"] .bundle .info{flex:1;min-width:0}
+[data-style="urgencia"] .bundle .info b{display:block;font-size:14.5px;font-weight:800}
+[data-style="urgencia"] .bundle .info span{display:block;font-size:11.5px;color:var(--mut);font-weight:600}
+[data-style="urgencia"] .bundle .pr{text-align:right;min-width:0}
+[data-style="urgencia"] .bundle .pr b{display:block;font-size:16.5px;font-weight:900;color:var(--a)}
+[data-style="urgencia"] .bundle .pr s{display:block;font-size:11px;color:#9aa3b0}
+[data-style="urgencia"] .bundle .pr em{display:block;font-style:normal;font-size:10px;font-weight:800;color:var(--ok)}
+[data-style="urgencia"] .bundle .ribbon{position:absolute;top:-10px;right:12px;background:var(--bad);color:#fff;font-size:9.5px;font-weight:900;padding:3px 10px;border-radius:999px;text-transform:uppercase;letter-spacing:.05em;box-shadow:0 4px 12px #e2483d55}
+/* en urgencia el precio va DENTRO del form: el pricebox no se dibuja aparte */
+[data-style="urgencia"] .hero-buy .pricebox{display:none}
+[data-style="urgencia"] .toast{position:fixed;left:14px;bottom:88px;z-index:49;background:#fff;border:1px solid #eef1ee;border-radius:16px;padding:11px 13px;display:flex;gap:10px;align-items:center;box-shadow:0 14px 34px #00000026;max-width:290px;transform:translateY(24px);opacity:0;transition:.4s;pointer-events:none}
+[data-style="urgencia"] .toast.on{transform:none;opacity:1}
+[data-style="urgencia"] .toast .tic{flex:0 0 38px;height:38px;border-radius:50%;background:color-mix(in srgb,var(--a) 12%,#fff);display:grid;place-items:center;font-size:17px}
+[data-style="urgencia"] .toast b{display:block;font-size:12px;font-weight:800;color:var(--ink);line-height:1.2}
+[data-style="urgencia"] .toast span{display:block;font-size:10.5px;color:var(--mut);font-weight:600;line-height:1.3}
+[data-style="urgencia"] .toast i{display:block;font-style:normal;font-size:9px;font-weight:800;color:var(--ok);margin-top:2px}
 
-/* dark: modo oscuro premium tech */
-[data-style="dark"] body{font-family:'Space Grotesk',Inter,sans-serif;background:#0b0f16;color:#e6eaf2}
-[data-style="dark"]{--ink:#e6eaf2;--mut:#8b95a7;--bg:#0b0f16;--card:#131a26}
-[data-style="dark"] .top{background:#0b0f16;border-bottom:1px solid #ffffff14}
-[data-style="dark"] .announce{background:#05070b;color:#9fe8c5}
-[data-style="dark"] .hero{background:radial-gradient(120% 90% at 80% 0%,var(--a-d) 0%,transparent 55%),#0b0f16}
-[data-style="dark"] .hero h1{color:#fff}
-[data-style="dark"] .pricebox{background:#131a26;border:1px solid #ffffff1f;box-shadow:0 18px 44px #00000066}
-[data-style="dark"] .trust4{background:#131a26;border-color:#ffffff14}
-[data-style="dark"] .trust4 div i{color:var(--mut)}
-[data-style="dark"] .feat,[data-style="dark"] .rev,[data-style="dark"] details,[data-style="dark"] .shotrow figure{background:#131a26;border-color:#ffffff17;color:#e6eaf2}
-[data-style="dark"] .feat p,[data-style="dark"] .rev .who i{color:var(--mut)}
-[data-style="dark"] .feat .fi{background:linear-gradient(145deg,var(--a),var(--a-d))}
-[data-style="dark"] .pains{background:#05070b}
-[data-style="dark"] .cmp .sin{background:#1a1214;border-color:#ff6b6033}
-[data-style="dark"] .cmp .con{background:#0f2318;border-color:#0d9d5840}
-[data-style="dark"] .order{background:#131a26;border-color:#ffffff17}
-[data-style="dark"] .field input,[data-style="dark"] .field select{background:#0b0f16;border-color:#2a3345;color:#e6eaf2}
-[data-style="dark"] .field input:focus,[data-style="dark"] .field select:focus{background:#0e141d}
-[data-style="dark"] .qtys{border-color:#2a3345}
-[data-style="dark"] .q{border-color:#2a3345}
-[data-style="dark"] .q.on{background:#0f1a2e}
-[data-style="dark"] .timer{background:#131a26;border-color:var(--a)}
-[data-style="dark"] .timer .t b{background:#05070b}
-[data-style="dark"] .sticky{background:#131a26;border-top-color:var(--a)}
-[data-style="dark"] .sticky .p del{color:#6b7587}
-[data-style="dark"] .tbar{background:#05070b}
-[data-style="dark"] .risk{border:1px solid #ffffff26}
-[data-style="dark"] .thumb{border-color:transparent}
-[data-style="dark"] .thumb.on{border-color:var(--a)}
-[data-style="dark"] summary::after{color:var(--a)}
+/* ── clinico: azul marino/azul blanco del preview dav ── */
+[data-style="clinico"]{--ink:#10233d;--mut:#5c6b84;--bg:#f4f6fb}
+[data-style="clinico"] .hdr .logo{border-radius:50%}
+[data-style="clinico"] .hero{background:linear-gradient(180deg,#eef3fb 0%,#fff 70%)}
+[data-style="clinico"] .hero h1 strong,[data-style="clinico"] .hero h1 b{color:#1e5bd7}
+[data-style="clinico"] .kicker{color:#1e5bd7}
+[data-style="clinico"] .cta{border-radius:999px}
+[data-style="clinico"] .order{border-radius:24px;border-color:#d8e2f2}
+[data-style="clinico"] .order .oh{background:linear-gradient(135deg,#1e5bd7,#0f3fa8);border-radius:22px 22px 0 0}
+[data-style="clinico"] .steps-wrap{background:linear-gradient(135deg,#10233d,#16326b);color:#fff;border-radius:24px;padding:30px 22px}
+[data-style="clinico"] .steps-wrap h2{color:#fff}
+[data-style="clinico"] .steps-wrap .kicker{color:#7fb1ff}
+[data-style="clinico"] .steps{display:grid;gap:0;margin:0;padding:0;list-style:none}
+[data-style="clinico"] .steps li{display:flex;gap:13px;padding:12px 0;align-items:flex-start;border-bottom:1px solid #ffffff1f}
+[data-style="clinico"] .steps li:last-child{border:0}
+[data-style="clinico"] .steps .n{flex:0 0 30px;height:30px;border-radius:50%;background:#1e5bd7;display:grid;place-items:center;font-weight:900;font-size:14px}
+[data-style="clinico"] .steps b{display:block;font-size:15px;margin-bottom:2px}
+[data-style="clinico"] .steps p{margin:0;font-size:13px;opacity:.85}
+[data-style="clinico"] .risk{background:linear-gradient(135deg,#eef4fd,#fff);border:1px solid #d8e2f2}
+
+/* ── pro: landing-pro "PosturaPro" (tema del producto, aire, Jakarta) ── */
+[data-style="pro"] body{font-size:16px;background:#fff}
+[data-style="pro"] .hdr{background:#ffffffee;backdrop-filter:blur(10px)}
+[data-style="pro"] .hdr .wrap{height:64px}
+[data-style="pro"] .brand .logo{border-radius:12px;background:linear-gradient(135deg,var(--a),color-mix(in srgb,var(--a) 65%,#fff))}
+[data-style="pro"] .hdr .btn-min{background:var(--a);color:#fff;border:0;border-radius:999px;padding:10px 18px;font-size:14px;font-weight:800;cursor:pointer;text-decoration:none;display:inline-block}
+[data-style="pro"] .hero{background:linear-gradient(180deg,color-mix(in srgb,var(--a) 9%,#fff) 0%,#fff 60%);padding:26px 0 8px}
+[data-style="pro"] .hero-grid{gap:26px}
+[data-style="pro"] .hero h1{font-size:clamp(31px,6.4vw,52px)}
+[data-style="pro"] .hero h1 .gt{background:linear-gradient(90deg,var(--a),color-mix(in srgb,var(--a) 62%,#22c55e));-webkit-background-clip:text;background-clip:text;color:transparent}
+[data-style="pro"] .chip-dot{display:inline-flex;align-items:center;gap:9px;background:color-mix(in srgb,var(--a) 11%,#fff);color:var(--a);font-weight:800;font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;padding:7px 13px;border-radius:999px;width:fit-content}
+[data-style="pro"] .chip-dot i{width:8px;height:8px;border-radius:50%;background:var(--a)}
+[data-style="pro"] .kicker{color:var(--a)}
+[data-style="pro"] .price-card{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#fff;border:1px solid #e6e9ef;border-radius:16px;padding:14px 18px;box-shadow:0 4px 14px #0000000a}
+[data-style="pro"] .price-card small{display:block;font-size:11px;font-weight:800;color:var(--mut);text-transform:uppercase;letter-spacing:.08em}
+[data-style="pro"] .price-now{font-size:28px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums;color:var(--a)}
+[data-style="pro"] .price-old{color:#94a3b8;text-decoration:line-through;font-weight:600;margin-left:8px;font-size:14.5px}
+[data-style="pro"] .off{background:var(--bad);color:#fff;font-weight:800;font-size:12.5px;padding:6px 10px;border-radius:10px;white-space:nowrap}
+[data-style="pro"] .cta{border-radius:999px}
+[data-style="pro"] .dark-sec{background:var(--ink);color:#fff;position:relative;overflow:hidden;border-radius:26px}
+[data-style="pro"] .dark-sec::before{content:"";position:absolute;inset:-40% -10% auto auto;width:380px;height:380px;border-radius:50%;background:radial-gradient(closest-side,color-mix(in srgb,var(--a) 45%,transparent),transparent);pointer-events:none}
+[data-style="pro"] .dark-sec .kicker{color:#ffffffb3}
+[data-style="pro"] .steps{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;position:relative;list-style:none;margin:0;padding:0}
+[data-style="pro"] .steps .step{background:#ffffff0d;border:1px solid #ffffff1f;border-radius:18px;padding:20px;display:grid;gap:8px}
+[data-style="pro"] .steps .step .n{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;font-weight:800;font-size:18px;background:linear-gradient(135deg,var(--a),color-mix(in srgb,var(--a) 68%,#fff))}
+[data-style="pro"] .pack{position:relative;display:flex;align-items:center;gap:13px;border:1.5px solid #e6e9ef;border-radius:15px;padding:14px;cursor:pointer;transition:.15s;background:#fff}
+[data-style="pro"] .pack .dot{flex:0 0 20px;height:20px;border-radius:50%;border:2px solid #c3cad6;flex:none;display:grid;place-items:center}
+[data-style="pro"] .pack .dot::after{content:"";width:9px;height:9px;border-radius:50%;background:var(--a);transform:scale(0);transition:.15s}
+[data-style="pro"] .pack.on{border-color:var(--a);background:color-mix(in srgb,var(--a) 5%,#fff)}
+[data-style="pro"] .pack.on .dot{border-color:var(--a)}
+[data-style="pro"] .pack.on .dot::after{transform:scale(1)}
+[data-style="pro"] .pack .info{flex:1;min-width:0}
+[data-style="pro"] .pack .info b{display:block;font-size:15px}
+[data-style="pro"] .pack .info span{font-size:12.5px;color:var(--mut)}
+[data-style="pro"] .pack .pr{text-align:right}
+[data-style="pro"] .pack .pr b{display:block;font-size:17px}
+[data-style="pro"] .pack .pr s{font-size:12px;color:#94a3b8}
+[data-style="pro"] .pack .ribbon{position:absolute;top:-10px;left:14px;font-size:10px;font-weight:800;letter-spacing:.06em;padding:4px 10px;border-radius:999px;color:#fff;background:linear-gradient(90deg,var(--a),color-mix(in srgb,var(--a) 60%,#22c55e))}
+[data-style="pro"] .risk{text-align:left;display:flex;gap:18px;align-items:center}
+[data-style="pro"] .risk .guar{margin:0 0 4px}
+[data-style="pro"] .guarantee{display:flex;gap:18px;align-items:center;max-width:760px;margin:0 auto;border-radius:20px;padding:22px;background:color-mix(in srgb,var(--a) 7%,#fff);border:1.5px dashed color-mix(in srgb,var(--a) 42%,#fff)}
+[data-style="pro"] .guarantee .seal{width:72px;height:72px;border-radius:50%;flex:none;display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,var(--a),color-mix(in srgb,var(--a) 65%,#fff));font-size:31px}
+[data-style="pro"] footer{background:#0f172a;color:#94a3b8}
+[data-style="pro"] footer .fbrand b{color:#fff}
 </style>
 </head>
+
 <body>
-
-<header class="top">
-  <div class="brand">
-    <span class="logo">${brandIni}</span>
-    <div>
-      <div class="bn">${esc(p.brand || p.productName)}</div>
-      <div class="tag">${esc(p.tagline || "")}</div>
-    </div>
+<header class="hdr">
+  <div class="wrap">
+    <a class="brand" href="#top">
+      <span class="logo">${brandIni}</span>
+      <div><b>${esc(p.brand || p.productName)}</b><div class="tag">${esc(p.tagline || "")}</div></div>
+    </a>
+    ${style === "urgencia" ? "" : `<div class="top-sells">
+      <span>${esFisico ? "🚚" : "⚡"} ${esc(envioIncluido ? "Envío grátis*" : "Envío nacional")}</span>
+      <span>${esFisico ? "💵" : "🔒"} ${esFisico ? "Paga al recibir" : "Compra segura"}</span>
+    </div>`}
+    <div class="rating-pill"><span class="st">★★★★★</span><b>4.8</b></div>
   </div>
-  <div class="ship">${esFisico ? "🚚" : esServicio ? "📅" : "⚡"} <span>${esFisico ? envioChip : esServicio ? "Agenda<br>tu cita" : "Acceso<br>inmediato"}</span></div>
 </header>
-
-  ${p.announce ? `<div class="announce">${esc(p.announce)}</div>` : `<div class="announce">🔥 Oferta por tiempo limitado · Solo en línea</div>`}
-
+${
+  style === "urgencia"
+    ? `<div class="announce"><span class="chip-rojo">${esc(p.announce || "¡Oferta exclusiva!")}</span> ${
+        esFisico ? "50% DTO. + ENVÍO GRATIS + PAGO CONTRAENTREGA" : esc(envioLargo)
+      } <span class="cd">⏱ <b id="cd-min">14</b>:<b id="cd-sec">59</b> min</span></div>`
+    : p.announce
+      ? `<div class="announce">${esc(p.announce)}</div>`
+      : ""
+}
 <section class="hero">
-  <div class="wrap inner">
-    <div class="hero-copy">
-      <span class="kicker">Oferta especial</span>
-      <h1>${esc(p.headline || p.productName)}</h1>
-      <p class="sub">${esc(p.subheadline || p.tagline)}</p>
-    </div>
+  <div class="wrap">
+    <div class="hero-grid">
 
-    <div class="hero-mid">
-      <ul class="hero-bullets">${bullets}</ul>
-      <div class="hero-media">
-        ${p.heroBadge ? `<span class="flot">${esc(p.heroBadge)}</span>` : ""}
-        <div class="ph${p.video ? " video-on" : ""}">
-          <div class="main" id="main-img" style="background-image:url('${esc(p.image)}')"></div>
-          <button class="play" id="play-btn" aria-label="Reproducir video">
-            <svg width="58" height="58" viewBox="0 0 70 70"><circle cx="35" cy="35" r="34" fill="#fff"/><path d="M28 22l22 13-22 13z" fill="#141a24"/></svg>
-          </button>
-        </div>
-        ${galeria.length ? `<div class="thumbs" id="thumbs">${thumbs}</div>` : ""}
-      </div>
-    </div>
-
-    <div class="hero-buy">
-      <div class="pricebox">
-        ${antes ? `<div class="antes">Antes: <del>$${cop(antes)}</del></div>` : `<div class="antes">Precio de lanzamiento</div>`}
-        <div class="row">
-          <div class="hoy"><span>Hoy:</span><strong>$${cop(precio)}</strong></div>
-          ${ahorro ? `<div class="ahorra">Ahorras<b>$${cop(ahorro)}</b></div>` : ""}
-        </div>
-        <span class="solo">${esc(envioLargo)}</span>
+      <div class="hero-copy">
+        <span class="kicker">${esc(p.heroBadge || "Oferta especial")}</span>
+        <h1>${esc(p.headline || p.productName)}</h1>
+        <p class="sub">${esc(p.subheadline || p.tagline)}</p>
       </div>
 
-      ${p.timer === false ? "" : `<div class="timer" role="timer" aria-label="La oferta termina en">
-        <span class="lb">⏳ La oferta termina en</span>
-        <span class="t">
-          <b id="th">02</b><i>:</i><b id="tm">00</b><i>:</i><b id="ts">00</b>
-        </span>
-      </div>`}
+      <div class="hero-mid">
+        <div class="hero-media">
+          <div class="ph${p.video ? " video-on" : ""}">
+            ${style !== "urgencia" && p.heroBadge ? `<span class="flot2">${esc(p.heroBadge)}</span>` : ""}
+            <div class="main" id="main-img" style="background-image:url('${esc(p.image)}')"></div>
+            <button class="play" id="play-btn" aria-label="Reproducir video">
+              <svg width="58" height="58" viewBox="0 0 70 70"><circle cx="35" cy="35" r="34" fill="#fff"/><path d="M28 22l22 13-22 13z" fill="#12271d"/></svg>
+            </button>
+          </div>
+          ${galeria.length ? `<div class="thumbs" id="thumbs">${thumbs}</div>` : ""}
+        </div>
+        <ul class="hero-bullets">${bullets}</ul>
+      </div>
 
-      <a class="cta" href="#pedir" style="margin-top:13px"><span>${p.cta ? esc(p.cta) : "Quiero mi pedido"}</span><small>${pagoCorto}</small></a>
-      <p class="note">${esFisico ? "Pagas al recibir · Sin tarjeta ni adelanto · Envío nacional" : "Pago 100% seguro · Acceso inmediato · Soporte por WhatsApp"}</p>
+      <div class="hero-form">
+        <div class="hero-buy">
+          <div class="pricebox">
+            ${antes ? `<div class="antes">Antes: <del>$${cop(antes)}</del></div>` : `<div class="antes">Precio de lanzamiento</div>`}
+            <div class="row">
+              <div class="hoy"><span>Hoy:</span><strong>$${cop(precio)}</strong></div>
+              ${ahorro ? `<div class="ahorra">Ahorras<b>$${cop(ahorro)}</b></div>` : ""}
+            </div>
+            <span class="solo">${esc(envioLargo)}</span>
+          </div>
+
+          ${
+            p.timer === false
+              ? ""
+              : `<div class="timer" role="timer" aria-label="La oferta termina en">
+            <span class="lb">⏳ La oferta termina en</span>
+            <span class="t">
+              <b id="th">02</b><i>:</i><b id="tm">00</b><i>:</i><b id="ts">00</b>
+            </span>
+          </div>`
+          }
+
+          ${style === "urgencia" ? `<div class="stockbar" id="stockbar">
+            <div class="row"><span>🔥 DEMANDA ALTA EN COLOMBIA</span><span class="q">¡Quedan 7 unidades!</span></div>
+            <div class="bar"><b style="width:88%"></b></div>
+          </div>` : ""}
+
+          <div class="order" id="order-box">
+            <div class="oh">
+              <h2>🛍️ ¡Haz tu pedido ahora!</h2>
+              <p>${esFisico ? "Pagas solo al recibir en casa" : esc(envioLargo) + " · Pago 100% seguro"}</p>
+            </div>
+            <div class="ob">
+${formHtml}
+            </div>
+          </div>
+          <p class="note">${esFisico ? "Pagas al recibir · Sin tarjeta ni adelanto" : "Pago 100% seguro · Acceso inmediato"}</p>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="trust4">
+      ${trustTop.map(([i, l1, l2]) => `<div><span>${i}</span>${l1}<i>${l2}</i></div>`).join("")}
     </div>
   </div>
 </section>
-
-<div class="trust4">
-  ${trustTop.map(([i, l1, l2]) => `<div><span>${i}</span>${l1}<i>${l2}</i></div>`).join("")}
-</div>
+</main>
 
 ${seccionesHtml}
 
-<section id="pedir">
-  <div class="wrap">
-    <div class="order" id="order-box">
-      <div class="oh">
-        <h2>🛍️ ¡Haz tu pedido ahora!</h2>
-        <p>${esFisico ? "Pagas solo al recibir en casa" : esc(envioLargo) + " · Pago 100% seguro"}</p>
-      </div>
-      <div class="ob">
-${formHtml}
-      </div>
-    </div>
-  </div>
-</section>
-
-<div class="tbar">
-  ${trustBottom.map(([i, b, s]) => `<div><span>${i}</span><b>${b}</b>${s}</div>`).join("")}
-</div>
+${
+  style === "pro" && (p.painPoints || []).length
+    ? `<section class="pains"><div class="wrap"><span class="kicker" style="color:var(--bad)">¿Te suena familiar?</span><ul>${dolores}</ul></div></section>`
+    : ""
+}
 
 ${
   waLink
@@ -1037,6 +1192,10 @@ ${
 </a>`
     : ""
 }
+
+<div class="tbar">
+  ${trustBottom.map(([i, b, s]) => `<div><span>${i}</span><b>${b}</b>${s}</div>`).join("")}
+</div>
 
 <div class="sticky" id="sticky">
   <span class="cart">🛒</span>
@@ -1318,8 +1477,8 @@ export function estiloDesdeFila(a: {
 
   return {
     accent: typeof design.primary === "string" && /^#[0-9a-f]{3,8}$/i.test(design.primary) ? design.primary : undefined,
-    // style null/vacío ("que la IA elija") o inválido → heurística de precio/categoría.
-    style: (ESTILOS as readonly string[]).includes(String(design.style))
+    // style null/vacío ("que la IA elija") o invílido → heurística de precio/categoría.
+    style: String(design.style || "").trim()
       ? String(design.style)
       : elegirEstilo(producto, a.precioAntes || undefined),
     productName: String(producto?.name || row.name || "Producto"),
@@ -1330,7 +1489,7 @@ export function estiloDesdeFila(a: {
     oldPrice: Number(a.precioAntes) > 0 ? Number(a.precioAntes) : undefined,
     // El DESCUENTO que la IA "escribiera" en estiloExtras NO se muestra: una
     // cifra sin un precio anterior real es inventada. El ahorro/la rebaja
-    // que salen acá son los calculables con los DOS precios reales.
+    // que salen ací son los calculables con los DOS precios reales.
     // El envío: el REAL (resuelto arriba con las condiciones del negocio);
     // sin condiciones, el neutro.
     envio: a.envioReal?.larga,
@@ -1349,7 +1508,7 @@ export function estiloDesdeFila(a: {
     useCases: Array.isArray(ex.useCases) ? ex.useCases.map(String).filter(Boolean) : [],
     useCasesTitle: typeof ex.useCasesTitle === "string" ? ex.useCasesTitle : undefined,
     comparison: con.length || sin.length ? { titulo: ex.comparison?.titulo, conProducto: con, sinProducto: sin } : null,
-    riskFree: garantia ? { title: typeof ex.riskFree?.title === "string" && ex.riskFree.title ? ex.riskFree.title : "Tu compra está protegida", text: String(garantia) } : null,
+    riskFree: garantia ? { title: typeof ex.riskFree?.title === "string" && ex.riskFree.title ? ex.riskFree.title : "Tu compra estí protegida", text: String(garantia) } : null,
     testimonials,
     faq,
     announce: typeof ex.announce === "string" ? ex.announce : undefined,
@@ -1380,18 +1539,18 @@ export async function renderizarLandingEstilo(a: {
   const producto = a.producto ?? null;
   const negocio = await negocioParaRender(a.tenantId, producto);
   const modelo = producto ? modeloDelProducto(producto) : "digital";
-  // ── Garantía DROPi (medido 03-10 contra la API real, producto 2248412):
+  // ══ Garantía DROPi (medido 03-10 contra la API real, producto 2248412):
   // la respuesta de products/v2 NO TRAE un campo de garantía (ni warranty ni
   // garantia; dropi_app_description=null). Lo único que escribe el proveedor
   // es copy en la description ("Seguridad garantizada"), no una política de
   // devolución. Por eso NO se hace fetch aquí: la garantía que usa la landing
-  // es la del DUEÑO (metadata.garantia vía garantiaDelProducto) y el default
+  // es la del DUEñO (metadata.garantia vía garantiaDelProducto) y el default
   // del renderer es el dispositivo de diseño validado. Un fetch por render
   // solo buscaba un campo que no existe (latencia extra para nada).
 
-  // ── El envío con las CONDICIONES REALES (review 04-10) ──────────────────
+  // ══ El envío con las CONDICIONES REALES (review 04-10) ══════════
   // Antes el código decía "Envío gratis a todo el país" A MANO: si el
-  // negocio no declara incluido, era una promesa inventada en la página.
+  // negocio no declara incluido, era una promesa inventada en la pígina.
   // La fuente es la misma que usa el anuncio (modelo-de-negocio), resuelta
   // UNA vez por render y en dos calibres (la larga del precio, la corta del
   // sello).
@@ -1455,7 +1614,7 @@ export async function renderizarLandingEstilo(a: {
     precioAntes,
     modelo,
     video,
-    // El envío REAL del negocio, resuelto una vez acá arriba:
+    // El envío REAL del negocio, resuelto una vez ací arriba:
     ...(envioReal ? { envioReal } : {}),
   });
 

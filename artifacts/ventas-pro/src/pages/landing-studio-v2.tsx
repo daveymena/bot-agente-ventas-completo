@@ -64,33 +64,36 @@ Creo paginas de ventas profesionales con frameworks de alta conversion (AIDA, PA
 
 **Para empezar:**
 1. Selecciona un **producto** arriba
-2. Si querés, elegí un **estilo**: **Estilo COD** (product page de venta con 4 variantes: clásico, premium, bold o dark) o una **familia** de las 17. Si no, se elige solo según el producto
+2. Si querés, elegí un **modelo**: los 4 MODELOS DE PÁGINA validados (CleanHome COD, Urgencia, Clínico o Pro) o una **familia** visual. Si no, se elige solo según el producto
 3. Presiona **Generar** — o escribeme que quieres
 
 *"Crea una landing impactante para mi curso de piano"*`;
 
 /**
- * Plantilla activa: "" = Automática, "estilo" / "estilo:cod|premium|bold|dark"
- * = el renderer-estilo (port del generador COD; la variante la elige la IA si
- * no se fija), cualquier otro valor = una familia v3. El prefijo "estilo:"
+ * Plantilla activa: "" = Automática, "estilo" / "estilo:cleanhome|urgencia|clinico|pro"
+ * = el renderer-estilo (cada valor es UNA MAQUETACIÓN DISTINTA validada por el
+ * dueño el 03-10), cualquier otro valor = una familia v3. El prefijo "estilo:"
  * evita la colisión con la familia "premium".
  */
 type Plantilla = "" | Familia | "estilo" | `estilo:${string}`;
 
 const VARIANTES_ESTILO: { value: Plantilla; label: string }[] = [
-  { value: "estilo", label: "Estilo COD — que la IA elija la variante" },
-  { value: "estilo:cod", label: "Estilo: Clásico COD (verde)" },
-  { value: "estilo:premium", label: "Estilo: Premium (serif elegante)" },
-  { value: "estilo:bold", label: "Estilo: Bold (promo llamativo)" },
-  { value: "estilo:dark", label: "Estilo: Dark (tech oscuro)" },
+  { value: "estilo", label: "Modelo COD — que la IA elija el modelo" },
+  { value: "estilo:cleanhome", label: "Modelo: CleanHome (product page COD, form arriba derecha)" },
+  { value: "estilo:urgencia", label: "Modelo: Urgencia (countdown + stock + combos 2x/3x)" },
+  { value: "estilo:clinico", label: "Modelo: Clínico (azul marino, pasos, packs)" },
+  { value: "estilo:pro", label: "Modelo: Pro (PosturaPro, salud/precio alto)" },
 ];
 
-const COLOR_ESTILO: Record<string, string> = { cod: "#0A8F47", premium: "#8C7A5B", bold: "#E5342A", dark: "#5B4BE8" };
+const COLOR_ESTILO: Record<string, string> = { cleanhome: "#08783A", urgencia: "#E5342A", clinico: "#1E5BD7", pro: "#0E9F8A" };
 
 function plantillaDeDesign(d: any): Plantilla {
   if (d?.renderer === "estilo") {
     const s = String(d.style || "");
-    return s && ["cod", "premium", "bold", "dark"].includes(s) ? (`estilo:${s}` as Plantilla) : "estilo";
+    if (s && ["cleanhome", "urgencia", "clinico", "pro"].includes(s)) return (`estilo:${s}` as Plantilla);
+    const alias: Record<string, string> = { cod: "cleanhome", premium: "pro", bold: "urgencia", dark: "clinico" };
+    if (s && alias[s]) return (`estilo:${alias[s]}` as Plantilla);
+    return "estilo";
   }
   if (d?.familia) return d.familia as Familia;
   return "";
@@ -538,16 +541,16 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
             }`}
           >
             <div className="px-3 py-2 border-b bg-muted/20 shrink-0 flex items-center gap-2">
-              <span className="text-[11px] font-medium text-muted-foreground shrink-0">Estilo</span>
-              <span className="h-3 w-3 rounded-full shrink-0 border" style={{ backgroundColor: plantilla.startsWith("estilo") ? (COLOR_ESTILO[plantilla.slice(7) || "cod"] || "#0A8F47") : (FAMILIAS.find(f => f.value === plantilla)?.color || "#8B5CF6") }} />
+              <span className="text-[11px] font-medium text-muted-foreground shrink-0">Modelo</span>
+              <span className="h-3 w-3 rounded-full shrink-0 border" style={{ backgroundColor: plantilla.startsWith("estilo") ? (COLOR_ESTILO[plantilla.slice(7) || "cleanhome"] || "#08783A") : (FAMILIAS.find(f => f.value === plantilla)?.color || "#8B5CF6") }} />
               <select value={plantilla} onChange={e => {
                   const v = e.target.value as Plantilla;
                   if (!v || !landingId) { setPlantilla(v); return; }
                   void cambiarPlantilla(v);
                 }} disabled={busy || previewBusy}
-                className="h-7 flex-1 rounded-md border bg-background px-2 text-xs" title="Manda en Generar y en la publicada: cada plantilla es un diseño distinto">
+                className="h-7 flex-1 rounded-md border bg-background px-2 text-xs" title="Manda en Generar y en la publicada: cada modelo es una maquetación distinta">
                 <option value="">✨ Automático (según el producto)</option>
-                <optgroup label="Estilo COD (product page de venta)">
+                <optgroup label="Modelos COD (product page validada)">
                   {VARIANTES_ESTILO.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
                 </optgroup>
                 <optgroup label="Familias (renderer v3)">
@@ -628,7 +631,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                 {landingId ? `/api/landing-pages/${landingId}/render` : "preview - genera una landing para comenzar"}
               </div>
               <Badge variant="outline" className="text-[10px] border-slate-700 text-slate-400 hidden sm:flex">
-{plantilla.startsWith("estilo") ? (plantilla === "estilo" ? "Estilo COD (IA elige)" : `Estilo: ${plantilla.slice(7)}`) : (FAMILIAS.find(f => f.value === plantilla)?.label) || "Automático"}
+                {plantilla.startsWith("estilo") ? (plantilla === "estilo" ? "Modelo COD (IA elige)" : `Modelo: ${plantilla.slice(7)}`) : (FAMILIAS.find(f => f.value === plantilla)?.label) || "Automático"}
               </Badge>
             </div>
             <div className={`flex-1 overflow-auto flex ${previewMode === "mobile" ? "items-start justify-center py-8" : ""}`}>
