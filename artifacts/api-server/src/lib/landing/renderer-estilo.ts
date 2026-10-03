@@ -39,10 +39,30 @@ const esc = (v: unknown): string =>
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 
-/** Acepta "55000", "55.000" o "55,000" y devuelve número entero COP. */
+/**
+ * Acepta "55000", "55.000", "55,000" y también "55000.00" (decimal de la DB)
+ * y devuelve número entero COP.
+ *
+ * El caso decimal es el del bug en vivo (03-10): Postgres guarda
+ * numeric(10,2) y Drizzle lo entrega como "55000.00". La regex vieja
+ * quitaba TODO lo no-dígito y "55000.00" se volvía 5500000 — el cliente
+ * veía $5.500.000 en la página de una mochila de $55.000.
+ *
+ * La regla: si hay UN solo separador con exactamente 2 dígitos después, es
+ * decimal (es-XX/COP de la DB); si no, son miles ("55.000" o "55,000").
+ */
 function num(v: unknown): number {
-  const s = String(v ?? "").replace(/[^\d]/g, "");
-  return s ? Number(s) : 0;
+  const s = String(v ?? "").trim();
+  if (!s) return 0;
+  // Decimal con punto: 55000.00 (dos dígitos fijos al final)
+  const mDec = s.match(/^(\d{1,7}(?:[.\s]\d{3})*),(\d{2})$/) || s.match(/^(\d+)\.(\d{2})$/);
+  if (mDec) return Math.round(Number(`${mDec[1].replace(/[.\s]/g, "")}.${mDec[2]}`));
+  // Miles con punto o coma: 55.000 / 55,000
+  const mMiles = s.match(/^(\d{1,3}(?:[.,]\d{3})+)$/);
+  if (mMiles) return Number(mMiles[1].replace(/[.,]/g, ""));
+  // Solo dígitos
+  const d = s.replace(/[^\d]/g, "");
+  return d ? Number(d) : 0;
 }
 
 const cop = (n: number): string => (n ? n.toLocaleString("es-CO") : "0");
@@ -288,6 +308,11 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
     : null;
   const hayComparativa = !!comparativa && (comparativa.con.length > 0 || comparativa.sin.length > 0);
 
+  // La galería del Studio ("Así es"): el dueño elige las fotos ahí; las que
+  // no están ya en el hero se muestran en la sección .shotrow. La IA nunca
+  // inventa fotos: solo reordena las reales.
+  const claseGaleria = "";
+
   const heroImgs = imagenes.slice(0, 2);
   const thumbs = heroImgs
     .map(
@@ -297,22 +322,12 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
     .join("");
 
   const caps = p.useCases || [];
-  const resto = imagenes.slice(2);
+  const fotosDelProducto = imagenes.slice(2);
   const fig = (src: string, i: number, extra = ""): string => `
       <figure>
         <img src="${esc(src)}" alt="${esc(caps[i] || p.productName)}" loading="lazy" width="600" height="600">
         ${caps[i] || extra ? `<figcaption>${esc(caps[i] || extra)}</figcaption>` : ""}
       </figure>`;
-  const seccionFotos = (lista: string[], desde: number, titulo: string, kicker: string, clase: string): string =>
-    lista.length
-      ? `<section class="${clase}">
-  <div class="wrap">
-    <span class="kicker">${esc(kicker)}</span>
-    <h2>${esc(titulo)}</h2>
-    <div class="shotrow">${lista.map((src, i) => fig(src, desde + i)).join("")}</div>
-  </div>
-</section>`
-      : "";
 
   const testimonios = (p.testimonials || [])
     .map(
@@ -451,6 +466,28 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
     // cta → bloque llamativo
     if (tipo === "cta") {
       return `<section><div class="wrap"><div class="risk">${tit ? `<h2>${tit}</h2>` : "<h2>¿Listo para empezar?</h2>"}${sub}<a class="cta" href="#pedir" style="max-width:340px;margin:16px auto 0"><span>${esc(s.cta || "Pedir ahora")}</span></a></div></div></section>`;
+    }
+
+    // gallery → "Así es": las fotos que el dueño eligió en el Studio. Aparecen
+    // las de la sección y las extra del producto; nunca se repite la que ya
+    // sale en la tarjeta del hero (la primera). Sin fotos, la sección no se
+    // imprime (antes quedaba un título vacío y la página "corta").
+    if (tipo === "gallery") {
+      const urls = [...new Set((Array.isArray(s.images) ? s.images : [s?.image])
+        .filter(Boolean).map(String))];
+      const extra = fotosDelProducto.filter((f) => !urls.includes(f) && !heroImgs.includes(f));
+      const fotosSeccion = [...urls, ...extra].filter((f) => !heroImgs.includes(f));
+      if (!fotosSeccion.length) return "";
+      const caption = String(s.subtitle || "").trim();
+      const figs = fotosSeccion.map((src, i) => fig(src, i, i === 0 && caption ? caption : extra.includes(src) ? "Foto real del producto" : "")).join("");
+      return `<section${claseGaleria ? ` class="${claseGaleria}"` : ""}>
+  <div class="wrap">
+    <span class="kicker">${esc(String(s.kicker || "Galería").slice(0, 40))}</span>
+    <h2>${tit || "Así es"}</h2>
+    ${sub}
+    <div class="shotrow">${figs}</div>
+  </div>
+</section>`;
     }
 
     // fallback genérico: renderiza el body como párrafos
@@ -1315,23 +1352,14 @@ export async function renderizarLandingEstilo(a: {
   const producto = a.producto ?? null;
   const negocio = await negocioParaRender(a.tenantId, producto);
   const modelo = producto ? modeloDelProducto(producto) : "digital";
-  // Si el producto proviene de Dropi, obtenemos datos reales (garantía, stock, etc.)
-  let garantiaDropi: string | null = null;
-    if (producto && producto.metadata && producto.metadata.dropiProductId) {
-      try {
-        const { tokenDropiDelTenant } = await import("../dropi-directo");
-        const token = await tokenDropiDelTenant(a.tenantId);
-        if (token) {
-          const { detalleProductoDropi } = await import("../dropi-directo");
-          const det = await detalleProductoDropi(token, Number(producto.metadata.dropiProductId));
-          if (det.ok && det.data) {
-            garantiaDropi = det.data.garantia || null;
-          }
-        }
-      } catch (e) {
-        // Si falla, seguimos sin garantía Dropi.
-      }
-    }
+  // ── Garantía DROPi (medido 03-10 contra la API real, producto 2248412):
+  // la respuesta de products/v2 NO TRAE un campo de garantía (ni warranty ni
+  // garantia; dropi_app_description=null). Lo único que escribe el proveedor
+  // es copy en la description ("Seguridad garantizada"), no una política de
+  // devolución. Por eso NO se hace fetch aquí: la garantía que usa la landing
+  // es la del DUEÑO (metadata.garantia vía garantiaDelProducto) y el default
+  // del renderer es el dispositivo de diseño validado. Un fetch por render
+  // solo buscaba un campo que no existe (latencia extra para nada).
 
   // ── El envío con las CONDICIONES REALES (review 04-10) ──────────────────
   // Antes el código decía "Envío gratis a todo el país" A MANO: si el
@@ -1401,9 +1429,6 @@ export async function renderizarLandingEstilo(a: {
     video,
     // El envío REAL del negocio, resuelto una vez acá arriba:
     ...(envioReal ? { envioReal } : {}),
-      // Si la garantía real viene de Dropi, la sobreescribe (para la franja
-      // de confianza y la sección de garantía).
-      ...(garantiaDropi ? { garantia: garantiaDropi } : {}),
   });
 
 
