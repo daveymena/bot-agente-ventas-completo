@@ -658,16 +658,33 @@ router.post("/catalogo/conectar", async (req, res, next) => {
 
     let catalogId = previo?.catalogId || null;
     if (!catalogId) {
-      const c = await fb.fbPost(`act_${adAccountId}/product_catalogs`, { name: `${nombre} (VentasPro)` }, "catálogo de productos", token);
+      // fbPost LANZA al fallo (con sus reintentos transitorios): sin este
+      // catch el admin recibía un 500 sin motivo. El 500 no servía para
+      // nada -- el motivo de Graph sí (permisos, la cuenta, etc.).
+      let c: any = null;
+      try {
+        c = await fb.fbPost(`act_${adAccountId}/product_catalogs`, { name: `${nombre} (VentasPro)` }, "catálogo de productos", token);
+      } catch (err: any) {
+        const motivo = err?.fbError?.message || err?.fbError?.error_user_msg || err?.message || "sin detalle";
+        logger.warn({ err: motivo, tenantId }, "[Catalogo] Meta no aceptó crear el catálogo");
+        return res.json({ ok: false, message: `Meta no aceptó crear el catálogo: ${motivo}` });
+      }
       if (!c?.id) return res.json({ ok: false, message: `Meta no aceptó crear el catálogo: ${fb.lastAdError || "sin detalle"}` });
       catalogId = String(c.id);
     }
 
     // 2. El feed con horario DAILY (Meta va a descargar NUESTRO feed solo).
-    const f = await fb.fbPost(`product_catalogs/${catalogId}/product_feeds`, {
-      name: "Feed VentasPro (diario)",
-      schedule: { interval: "DAILY", url: feedUrl },
-    }, "feed del catálogo", token);
+    let f: any = null;
+    try {
+      f = await fb.fbPost(`product_catalogs/${catalogId}/product_feeds`, {
+        name: "Feed VentasPro (diario)",
+        schedule: { interval: "DAILY", url: feedUrl },
+      }, "feed del catálogo", token);
+    } catch (err: any) {
+      const motivo = err?.fbError?.message || err?.fbError?.error_user_msg || err?.message || "sin detalle";
+      logger.warn({ err: motivo, tenantId, catalogId }, "[Catalogo] Meta aceptó el catálogo pero no el feed");
+      return res.json({ ok: false, message: `Meta aceptó el catálogo (${catalogId}) pero no el feed: ${motivo}`, catalogId });
+    }
     if (!f?.id) return res.json({ ok: false, message: `Meta aceptó el catálogo pero no el feed: ${fb.lastAdError || "sin detalle"}`, catalogId });
 
     // 3. Guardar en el negocio (el mismo rincón que la conexión de FB).
