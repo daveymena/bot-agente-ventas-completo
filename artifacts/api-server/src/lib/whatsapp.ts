@@ -1,4 +1,4 @@
-import { eq, inArray, desc, and } from "drizzle-orm";
+import { eq, inArray, desc, and, sql } from "drizzle-orm";
 import { getAppUrl } from "./app-url";
 import { transcribirAudio, describirImagen } from "./media-entrante";
 import { contextoDeMoneda } from "./moneda-por-pais";
@@ -19,6 +19,7 @@ import { HttpsProxyAgent } from "https-proxy-agent";
 import QRCode from "qrcode";
 import {
   db,
+  ensureDbReady,
   conversations,
   messages,
   activityEvents,
@@ -26,6 +27,7 @@ import {
   products,
   productCategories,
   tenants,
+  whatsappAuth,
 } from "@workspace/db";
 
 import { logger } from "./logger";
@@ -60,6 +62,183 @@ function calcTypingDelay(text: string): number {
 
 async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+
+// ─── Agente Supervisor: Telemetría de Salud (persistida en Postgres) ─────────
+// Vive en la tabla whatsapp_auth, clave "supervisor_health". Si el proceso
+// se reinicia en plena ola de baneos, el riesgo NO arranca en cero: el freno
+// sigue activo desde el primer mensaje del reinicio.
+const HEALTH_STATE_KEY = "supervisor_health";
+const HEALTH_SAVE_DEBOUNCE_MS = 30_000; // no escribir la DB en cada mensaje
+
+const HealthManager = {
+  riskScore: 0, // 0 = Seguro, 100 = Baneo Inminente
+  consecutiveErrors: 0,
+  _lastSaveAt: 0,
+  _saving: false,
+  _tableReady: false,
+
+  /**
+   * Auto-crea whatsapp_auth si el deploy no corrio drizzle-kit push.
+   * Espejo exacto de lib/db/src/schema/whatsapp.ts. Si ya existe,
+   * IF NOT EXISTS lo deja intacto: cuesta una query en todo el arranque.
+   */
+  async _ensureTable() {
+    if (this._tableReady) return;
+    await ensureDbReady();
+    await db.execute(sql`
+      CREATE TABLE IF NOT EXISTS whatsapp_auth (
+        key TEXT PRIMARY KEY,
+        value JSONB NOT NULL,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    this._tableReady = true;
+  },
+
+  async restoreState() {
+    try {
+      await this._ensureTable();
+      const [row] = await db
+        .select()
+        .from(whatsappAuth)
+        .where(eq(whatsappAuth.key, HEALTH_STATE_KEY))
+        .limit(1);
+      const value = (row as any)?.value;
+      if (value && typeof value.riskScore === "number") {
+        this.riskScore = Math.min(Math.max(value.riskScore, 0), 100);
+        this.consecutiveErrors = value.consecutiveErrors ?? 0;
+        logger.info(
+          `[Supervisor] Estado restaurado de Postgres: riskScore=${this.riskScore}, ` +
+          `erroresConsecutivos=${this.consecutiveErrors}`,
+        );
+      }
+    } catch (e) {
+      logger.warn(`[Supervisor] No se pudo restaurar el estado (arranca en 0): ${e}`);
+    }
+  },
+
+  async persistState(force = false) {
+    const now = Date.now();
+    // Debounce: updateScore se llama por CADA mensaje. Escribir la DB en cada
+    // uno saturaria Postgres antes de que Meta banee nada. Sin force, se
+    // persiste a lo sumo una vez cada 30s.
+    if (!force && now - this._lastSaveAt < HEALTH_SAVE_DEBOUNCE_MS) return;
+    if (this._saving) return;
+    this._saving = true;
+    this._lastSaveAt = now;
+    try {
+      await ensureDbReady();
+      const state = {
+        riskScore: this.riskScore,
+        consecutiveErrors: this.consecutiveErrors,
+        updatedAt: new Date().toISOString(),
+      };
+      await db
+        .insert(whatsappAuth)
+        .values({ key: HEALTH_STATE_KEY, value: state })
+        .onConflictDoUpdate({
+          target: whatsappAuth.key,
+          set: { value: state, updatedAt: new Date() },
+        });
+    } catch (e) {
+      logger.error(`[Supervisor] No se pudo persistir el estado de salud: ${e}`);
+    } finally {
+      this._saving = false;
+    }
+  },
+
+  async updateScore(delta: number) {
+    const criticoAntes = this.riskScore > 70;
+    this.riskScore = Math.min(Math.max(this.riskScore + delta, 0), 100);
+    const criticoAhora = this.riskScore > 70;
+    logger.info(`[Supervisor] Risk Score actualizado: ${this.riskScore}`);
+    // Cruce de zona critica -> persistir YA. Dentro de la misma zona, el
+    // debounce de 30s alcanza.
+    void this.persistState(criticoAntes !== criticoAhora);
+    if (criticoAhora && !criticoAntes) {
+      logger.warn(`[Supervisor] ALERTA ROJA: Activando modo sigilo extremo`);
+    }
+  },
+
+  async reportEvent(status: 'success' | 'failure', error?: any) {
+    if (status === 'success') {
+      this.consecutiveErrors = 0;
+      await this.updateScore(-1); // Baja el riesgo lentamente
+    } else {
+      this.consecutiveErrors++;
+      const isBanned = error?.message?.includes('401') || error?.message?.includes('suspended') || error?.message?.includes('blocked');
+      await this.updateScore(isBanned ? 30 : 10); // Sube el riesgo fuerte si hay baneo
+      // Un fallo SIEMPRE se persiste inmediato: si el proceso muere justo
+      // despues, el reinicio tiene que saber que la red esta en problemas.
+      void this.persistState(true);
+    }
+  },
+
+  get currentDelayMultiplier(): number {
+    if (this.riskScore < 30) return 1;
+    if (this.riskScore < 60) return 2;
+    return 4; // Multiplica los delays x4 si el riesgo es critico
+  }
+};
+
+// Restaurar el estado apenas arranca el proceso. ensureDbReady() espera a
+// que la DB este lista, asi que este fire-and-forget es seguro.
+void HealthManager.restoreState();
+// ─── Adaptación Cognitiva: reescribe mensajes cuando el riesgo es alto ───────
+// Usa el proveedor de IA que esté de turno (mismo mecanismo de rotación que
+// el agente de conversación). Si la IA falla o tarda, se envía el texto
+// original: la reescritura es una protección, nunca un bloqueo del envío.
+let lastAdaptAttemptAt = 0;
+const ADAPT_COOLDOWN_MS = 60_000; // no martillar la IA cada mensaje
+
+async function adaptMessageByRisk(text: string): Promise<string> {
+  if (HealthManager.riskScore < 60) return text; // solo interviene en riesgo alto
+  if (!text || text.length < 10) return text;    // textos cortos no se tocan
+
+  // Cooldown: un solo intento de reescritura por minuto aunque lleguen 100 envíos
+  const now = Date.now();
+  if (now - lastAdaptAttemptAt < ADAPT_COOLDOWN_MS) return text;
+  lastAdaptAttemptAt = now;
+
+  try {
+    // Toma la rotación del proveedor activo (el "de turno")
+    const { getProviderRotation, getOpenCodeRotation } = await import(
+      "@workspace/integrations-openai-ai-server"
+    );
+    const rotation = [...getProviderRotation("opencode"), ...getOpenCodeRotation()];
+    if (!rotation || rotation.length === 0) return text;
+
+    const config = rotation[0];
+    const client = createAIClient(config);
+    const completion = await client.chat.completions.create(
+      {
+        model: config.model,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Eres un asistente que reescribe mensajes de ventas para que suenen casuales, humanos y no comerciales. " +
+              "Elimina lenguaje publicitario (oferta, descuento, compra ya, promoción, cupón). " +
+              "Mantén la información esencial y el emoji si lo hay. Responde SOLO con el mensaje reescrito, sin comillas ni explicaciones.",
+          },
+          { role: "user", content: `Reescribe este mensaje: ${text}` },
+        ],
+        temperature: 0.9,
+      },
+      { timeout: 8000, maxRetries: 0 },
+    );
+    const result = (completion.choices[0]?.message?.content ?? "").trim();
+    if (result && result.length >= 10) {
+      logger.info(`[Supervisor] Mensaje reescrito por IA (riesgo ${HealthManager.riskScore})`);
+      return result;
+    }
+    return text;
+  } catch (e) {
+    logger.error(`[AI-Adapt] Error reescribiendo mensaje: ${e}`);
+    return text; // SIEMPRE se devuelve algo enviable
+  }
 }
 
 // Caché global de IDs de mensajes procesados para evitar duplicados/bucle
@@ -2887,20 +3066,27 @@ export class WhatsAppManager {
     // párrafos y viñetas con emoji con sentido (ver lib/presentacion.ts).
     text = presentarParaWhatsApp(text);
 
-    // Simular lectura + escritura
-    await sleep(READ_DELAY_MS);
+    // Simular lectura + escritura, con el multiplicador de riesgo del Agente
+    // Supervisor: si suben los errores, el bot se vuelve mas lento solo.
+    const multiplier = HealthManager.currentDelayMultiplier;
+    await sleep(READ_DELAY_MS * multiplier);
     await this.sock.sendPresenceUpdate("composing", targetJid);
-    await sleep(calcTypingDelay(text));
+    await sleep(calcTypingDelay(text) * multiplier);
     await this.sock.sendPresenceUpdate("paused", targetJid);
+
+    // Riesgo alto -> la IA de turno reescribe el mensaje en tono casual
+    const textoFinal = await adaptMessageByRisk(text);
 
     try {
       // Se anota el id para poder distinguir despues nuestro propio eco de lo
       // que conteste otro --el dueno desde su celular, o la IA de Meta--, que
       // llega con el mismo `fromMe: true`. Ver `mensajes-propios.ts`.
-      const enviado = await this.sock.sendMessage(targetJid, { text });
+      const enviado = await this.sock.sendMessage(targetJid, { text: textoFinal });
       anotarMensajePropio(enviado?.key?.id);
+      await HealthManager.reportEvent("success");
     } catch (e) {
       this.recordSendFailure();
+      await HealthManager.reportEvent("failure", e);
       throw e;
     }
     this.recordSendSuccess();
@@ -2924,11 +3110,20 @@ export class WhatsAppManager {
     this.enforceSendLimits();
     const targetJid = originalJid || `${phone}@s.whatsapp.net`;
     await this.esperarEspaciadoEntreEnvios(targetJid);
+    // Nota de voz humana: estado "recording..." + pausa proporcional al tamano
+    // del audio, escalada por el multiplicador de riesgo del Supervisor.
+    const multiplier = HealthManager.currentDelayMultiplier;
+    const duracionEstimadaMs = Math.min(buffer.length * 8, 15000); // ~8ms por byte, tope 15s
     try {
+      await this.sock.sendPresenceUpdate("recording", targetJid);
+      await sleep(Math.round(duracionEstimadaMs * (0.8 + Math.random() * 0.4) * multiplier));
+      await this.sock.sendPresenceUpdate("paused", targetJid);
       const enviado = await this.sock.sendMessage(targetJid, { audio: buffer, mimetype });
       anotarMensajePropio(enviado?.key?.id);
+      await HealthManager.reportEvent("success");
     } catch (e) {
       this.recordSendFailure();
+      await HealthManager.reportEvent("failure", e);
       throw e;
     }
     this.recordSendSuccess();
@@ -3230,10 +3425,12 @@ export class WhatsAppManager {
     const jid = originalJid || `${phone}@s.whatsapp.net`;
     await this.esperarEspaciadoEntreEnvios(jid);
 
-    // Simular lectura + escritura (basado en el caption)
-    await sleep(READ_DELAY_MS);
+    // Simular lectura + escritura (basado en el caption), escalada por el
+    // multiplicador de riesgo del Agente Supervisor.
+    const multiplier = HealthManager.currentDelayMultiplier;
+    await sleep(READ_DELAY_MS * multiplier);
     await this.sock.sendPresenceUpdate("composing", jid);
-    await sleep(calcTypingDelay(caption));
+    await sleep(calcTypingDelay(caption) * multiplier);
     await this.sock.sendPresenceUpdate("paused", jid);
 
     let sentSomething = false;
@@ -3295,8 +3492,13 @@ export class WhatsAppManager {
     // imagen ni el texto de respaldo lograron salir por el socket -- que
     // falte la imagen del producto no es una señal de que WhatsApp esté
     // restringiendo el número.
-    if (sentSomething) this.recordSendSuccess();
-    else this.recordSendFailure();
+    if (sentSomething) {
+      this.recordSendSuccess();
+      await HealthManager.reportEvent("success");
+    } else {
+      this.recordSendFailure();
+      await HealthManager.reportEvent("failure", new Error("imagen y texto de respaldo fallaron"));
+    }
     trackWhatsAppCost(this.currentTenant.id.toString());
     // Y en la base, que es lo que sobrevive a un reinicio. El de arriba vive en
     // un Map del proceso y alimenta el panel de costos; el limite del plan se
