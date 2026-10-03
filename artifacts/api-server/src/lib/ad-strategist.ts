@@ -917,6 +917,8 @@ export class AdStrategist {
       const targetingDeAtlas: import("./facebook").FbTargeting = {
         ...(Number.isFinite(Number(estrategiaGuardada.ageMin)) && estrategiaGuardada.ageMin != null ? { ageMin: Number(estrategiaGuardada.ageMin) } : {}),
         ...(Number.isFinite(Number(estrategiaGuardada.ageMax)) && estrategiaGuardada.ageMax != null ? { ageMax: Number(estrategiaGuardada.ageMax) } : {}),
+        // El género elegido (el estudio o el admin en el modal): vacío = todos.
+        ...(Array.isArray(estrategiaGuardada.genders) && estrategiaGuardada.genders.length ? { genders: estrategiaGuardada.genders } : {}),
         ...(nombresIntereses.length ? { interests: nombresIntereses.map((name) => ({ id: "", name })) } : {}),
         // Solo las CIUDADES: el país lo pone el createAdForProduct (el del
         // negocio) y las mezcla con las ciudades -- mandar `countries: []`
@@ -1292,6 +1294,37 @@ export class AdStrategist {
         // REALES sin que nadie las revisó ni aprobó. Se revisan y se suben una
         // por una desde la lista.
         const draft = await this.createDraftAd(adAccountId, accessToken, p.id, undefined, undefined, undefined, undefined, { subirSolo: false });
+
+        // ── LA SEGMENTACIÓN DEL ESTUDIO entra en el borrador ──────────────
+        // Reportado por el dueño (04-10): los del Megapack "salen sin
+        // investigación, sin segmentación y a medias". La segmentación REAL
+        // (público derivado + intereses que Meta conoce + ciudades con
+        // cobertura y riesgo medido) es local y barata: se le da a CADA
+        // borrador del lote. La investigación de mercado (gancho del
+        // mercado) es una llamada de Biblioteca POR PRODUCTO: 151 productos
+        // no se pueden investigar en un botón sin quemar horas -- esa sigue
+        // siendo la tarea de "Generar campaña" producto por producto, que
+        // ya investiga y guarda la evidencia.
+        if (draft.id) {
+          try {
+            const { segmentacionDelProducto } = await import("./segmentacion-inteligente");
+            const est = await segmentacionDelProducto(this.tenant?.id ?? 0, p.id, { conInvestigacion: false });
+            const [filaAntes] = await db.select().from(facebookDrafts).where(eq(facebookDrafts.id, draft.id)).limit(1);
+            const st: any = filaAntes?.strategy && typeof filaAntes.strategy === "object" ? { ...(filaAntes.strategy as any) } : {};
+            st.ageMin = est.edadMin;
+            st.ageMax = est.edadMax;
+            st.genders = est.genero === "todos" ? [] : (est.genero === "hombres" ? [1] : [2]);
+            st.interests = est.intereses;
+            st.ciudades = est.ciudades.filter((c) => c.recomendada).slice(0, 5).map((c) => c.ciudad);
+            st.segmentacionEstudio = { en: new Date().toISOString(), evidencia: est.evidencia };
+            await db.update(facebookDrafts).set({ strategy: st } as any).where(eq(facebookDrafts.id, draft.id));
+            draft.strategy = st as any;
+            (result as any).conSegmentacion = ((result as any).conSegmentacion ?? 0) + 1;
+          } catch (segErr: any) {
+            logger.warn({ err: segErr?.message, producto: p.id }, "[AdStrategist] la segmentación del estudio no se pudo poner en el borrador");
+          }
+        }
+
         result.drafts.push(draft);
         if (draft.status === "created") result.created++;
         // Un borrador LOCAL ES un éxito (está guardado y listo para revisar):
