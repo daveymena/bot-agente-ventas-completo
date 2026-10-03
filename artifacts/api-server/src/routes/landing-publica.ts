@@ -14,7 +14,7 @@ import { db, landingPages, products, coupons, pool } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { tenantManager } from "../lib/tenantManager";
 import { getBusinessContext } from "../lib/business-context";
-import { CONDICIONES_DE_RESPALDO, modeloDelProducto } from "../lib/modelo-de-negocio";
+import { CONDICIONES_DE_RESPALDO, modeloDelProducto, sellosDelNegocio } from "../lib/modelo-de-negocio";
 import { getAppUrl } from "../lib/app-url";
 import { dbNow } from "../lib/date-utils";
 
@@ -153,11 +153,9 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
       },
       negocio,
       cierre,
-      // Landing de imágenes (lib/landing/plan-imagenes.ts): paneles, ofertas
-      // del dueño y sellos de las condiciones reales del negocio.
       modo: (row.design as any)?.modo ?? null,
       ofertas: (row.design as any)?.ofertas ?? null,
-      sellos: (await import("../lib/landing/plan-imagenes")).sellosDelNegocio(c),
+      sellos: sellosDelNegocio(c),
     });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "public, max-age=60");

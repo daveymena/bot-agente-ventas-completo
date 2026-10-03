@@ -107,6 +107,17 @@ export const ETIQUETA_DEL_MODELO: Record<ModeloDeNegocio, string> = {
 
 export type PagoDeEnvio = "contraentrega" | "anticipado" | "ambos";
 
+/** Sellos a partir de las condiciones reales del negocio (nunca del modelo). */
+export function sellosDelNegocio(c: { envio?: { pago?: string; costo?: string; plazo?: string; cobertura?: string } } | null | undefined): string[] {
+  const e = c?.envio || {};
+  const out: string[] = [];
+  if (/contraentrega|al recibir|contra entrega/i.test(String(e.pago || ""))) out.push("Paga al recibir");
+  if (/^incluid|gratis/i.test(String(e.costo || "").trim())) out.push("Envío gratis");
+  if (e.plazo) out.push(`Llega en ${String(e.plazo).trim()}`);
+  if (e.cobertura && /todo/i.test(String(e.cobertura))) out.push(`Envíos a ${String(e.cobertura).trim()}`);
+  return out.slice(0, 4);
+}
+
 /** Cómo entrega y cobra ESTE negocio. Sale del perfil; lo de código es respaldo. */
 export interface CondicionesDelNegocio {
   /** País del negocio (ISO-2 o nombre). Manda sobre la validación de zona. */

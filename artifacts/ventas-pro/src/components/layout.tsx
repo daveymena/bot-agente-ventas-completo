@@ -68,7 +68,6 @@ export function AppSidebar() {
     { label: "Facebook", href: "/facebook", icon: Facebook },
     { label: "Marketing", href: "/marketing", icon: Megaphone },
     { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate },
-    { label: "Landing de imágenes", href: "/landing-imagenes", icon: LayoutTemplate },
     { label: "Configuración", href: "/settings", icon: Settings },
     { label: "Diagnóstico", href: "/diagnostico", icon: Activity },
     // Oculto del menú 29-09-2026: duplicado de "Probar vendedor" (línea de arriba).

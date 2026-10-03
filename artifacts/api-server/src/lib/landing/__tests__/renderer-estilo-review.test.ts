@@ -42,12 +42,14 @@ describe("el generador COD portado (renderer-estilo)", () => {
     expect([...ESTILOS]).toEqual(["cod", "premium", "bold", "dark"]);
   });
 
-  it("el LOOK del generador validado: announce de oferta + timer + garantía", () => {
+  it("el LOOK del generador validado: announce de oferta + timer", () => {
     const html = renderizarEstilo(fila(), { host: "", accion: "/pedir" });
     expect(html).toContain("🔥 Oferta por tiempo limitado");
     expect(html).toContain('class="timer"');
     expect(html).toContain("La oferta termina en");
-    expect(html).toContain("Garantía de 30 días");
+    // La garantía default de "30 días" es un claim inventado: sin garantía
+    // real del dueño no se promete plazo.
+    expect(html).not.toContain("Garantía de 30 días");
   });
 
   it("el timer del original FUNCIONA (la ventana queda interpolada en el script)", () => {

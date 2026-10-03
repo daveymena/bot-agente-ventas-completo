@@ -115,6 +115,10 @@ export interface DatosEstilo {
   pixelId?: string | null;
   kind?: "digital" | "service" | string;
   cta?: string;
+  /** Secciones del Studio; se renderizan todas las que no estén ya cubiertas por el esqueleto fijo. */
+  sections?: Array<{ id?: string; type?: string; title?: string; subtitle?: string; body?: string; cta?: string; image?: string; images?: string[]; layout?: string }>;
+  /** Franja de confianza real del negocio (si viene). */
+  trustItems?: string[];
 }
 
 export interface OpcionesRenderEstilo {
@@ -196,57 +200,65 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
   // sobre el default; el envío sale de las condiciones del negocio (si
   // declaró incluido, el chip es el del original; si no, el real).
   const envioIncluido = /incluid|gratis/i.test(String(p.envioCorto || "")) || /incluido|gratis/i.test(String(p.envio || ""));
-  // El chip se COMPONE sin esc: las piezas son constantes nuestras + texto de
-  // las condiciones del negocio ya saneado más abajo (conIconosSeguros).
   const envioChip = envioIncluido ? "Envío grátis<br>a todo el país*" : String(p.envioCorto || p.envio || "Envío nacional").replace(/\s*\(.+\)$/, "").slice(0, 28);
   const envioLargo = esFisico
     ? (envioIncluido ? "Envío grátis a todo el país*" : String(p.envio || "Envío nacional (se te confirma al pedir)"))
     : esServicio ? "Agenda tu cita hoy" : "Acceso inmediato";
-  // La garantía: la del dueño si la cargó; si no, LA DEL GENERADOR VALIDADO.
-  const garantiaLinea = String(p.garantia || "").trim() || "Garantía de 30 días";
-  const trustTop = esFisico
-    ? ([
-        ["🚚", "Envío gratis", "a todo el país*"],
-        ["💵", "Pago contra", "entrega"],
-        ...(String(p.garantia || "").trim()
-          ? (() => { const g = String(p.garantia).trim().split(/\s+/); return [["🛡️", g[0] || "Garantía", g.slice(1).join(" ") || "del negocio"]]; })()
-          : [["🛡️", "Garantía", "de 30 días"]]),
-        ["🔒", "Compra", "segura"],
-      ] as Array<[string, string, string]>).slice(0, 4)
-    : esServicio
+
+  // ── Claims de confianza: usar datos reales del negocio; nunca inventar. ──
+  // Si el negocio provee franjas de confianza, las usamos tal cual. Si no,
+  // usamos neutros sin promesas inventadas (sin "gratis", "30 días", etc.).
+  const itemsConfianza = Array.isArray(p.trustItems) && p.trustItems.length
+    ? p.trustItems
+    : [];
+  const trustTop = itemsConfianza.length >= 3
+    ? itemsConfianza.slice(0, 4).map((txt) => {
+        const palabras = String(txt).trim().split(/\s+/);
+        return ["✅", palabras.slice(0, 2).join(" "), palabras.slice(2).join(" ")] as [string, string, string];
+      })
+    : esFisico
+      ? ([
+          ["🚚", "Envío", envioIncluido ? "grátis incluido*" : "nacional"],
+          ["💵", "Pago contra", "entrega"],
+          ...(String(p.garantia || "").trim()
+            ? (() => { const g = String(p.garantia).trim().split(/\s+/); return [["🛡️", g[0] || "Garantía", g.slice(1).join(" ") || "del negocio"]]; })()
+            : []),
+          ["🔒", "Compra", "segura"],
+        ] as Array<[string, string, string]>).slice(0, 4)
+      : esServicio
+        ? [
+            ["📅", "Agenda", "flexible"],
+            ["🧑‍💼", "Atención", "personalizada"],
+            ...(String(p.garantia || "").trim() ? [["🛡️", String(p.garantia).trim(), ""]] : []),
+            ["🔒", "Pago", "100% seguro"],
+          ]
+        : [
+            ["⚡", "Acceso", "inmediato"],
+            ["🔒", "Pago", "100% seguro"],
+            ...(String(p.garantia || "").trim() ? [["🛡️", String(p.garantia).trim(), ""]] : []),
+            ["✅", "Compra", "confiable"],
+          ];
+
+  const garantiaLinea = String(p.garantia || "").trim();
+  const trustBottom = itemsConfianza.length >= 3
+    ? itemsConfianza.slice(0, 3).map((txt) => ["✅", String(txt).trim(), ""] as [string, string, string])
+    : esFisico
       ? [
-          ["📅", "Agenda", "flexible"],
-          ["🧑‍💼", "Atención", "personalizada"],
-          ...(String(p.garantia || "").trim() ? [["🛡️", garantiaLinea, ""]] : [["🛡️", "Garantía", "de satisfacción"]]),
-          ["🔒", "Pago", "100% seguro"],
+          ["🛡️", garantiaLinea || "Garantía del negocio", garantiaLinea ? "" : "consulta términos"],
+          ["💵", "Pago contra entrega", "en todo el país"],
+          ["🚚", envioIncluido ? "Envío grátis" : "Envío nacional", envioIncluido ? "a todo el país*" : "se confirma al pedir"],
         ]
-      : [
-          ["⚡", "Acceso", "inmediato"],
-          ["🔒", "Pago", "100% seguro"],
-          ...(String(p.garantia || "").trim() ? [["🛡️", garantiaLinea, ""]] : [["🛡️", "Garantía", "de 30 días"]]),
-          ["✅", "Compra", "confiable"],
-        ];
-  // ── La franja de cierre: las FILAS DEL GENERADOR VALIDADO ───────────────
-  // (el dueño las aprobó con las capturas del original; donde el original
-  // decía la garantía, la del dueño manda si la cargó).
-  const garantiaConDueño = (deOrigina: string) => (String(p.garantia || "").trim() ? garantiaLinea : deOrigina);
-  const trustBottom = esFisico
-    ? [
-        ["🛡️", garantiaConDueño("Garantía de 30 días"), "por defectos de fábrica"],
-        ["💵", "Pago contra entrega", "en todo el país"],
-        ["🚚", "Envío gratis", envioIncluido ? "a todo el país*" : "nacional (se confirma al pedir)"],
-      ]
-    : esServicio
-      ? [
-          ["🛡️", garantiaConDueño("Satisfacción garantizada"), "o te devolvemos tu dinero"],
-          ["🔒", "Pago seguro", "datos cifrados"],
-          ["📅", "Reserva flexible", "cambia tu cita cuando quieras"],
-        ]
-      : [
-          ["🛡️", garantiaConDueño("Garantía de 30 días"), "si no funciona como esperabas"],
-          ["🔒", "Pago seguro", "datos cifrados"],
-          ["⚡", "Entrega inmediata", "a tu correo o WhatsApp"],
-        ];
+      : esServicio
+        ? [
+            ["🛡️", garantiaLinea || "Satisfacción garantizada", garantiaLinea ? "" : "según condiciones del negocio"],
+            ["🔒", "Pago seguro", "datos cifrados"],
+            ["📅", "Reserva flexible", "cambia tu cita cuando quieras"],
+          ]
+        : [
+            ["🛡️", garantiaLinea || "Garantía del negocio", garantiaLinea ? "" : "consulta términos"],
+            ["🔒", "Pago seguro", "datos cifrados"],
+            ["⚡", "Entrega inmediata", "a tu correo o WhatsApp"],
+          ];
 
   const bullets = (p.heroBullets?.length ? p.heroBullets : p.benefits || [])
     .slice(0, 5)
@@ -338,6 +350,120 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
             ${destacado ? `<i>¡Más elegido!</i>` : ""}
             <b>$${cop(precio * n)}</b>
           </label>`;
+
+  /** Renderiza cada sección del Studio según su tipo. Hero/formulario son fijos, el resto fluye aquí. */
+  function renderizarSeccion(s: NonNullable<DatosEstilo["sections"]>[number]): string {
+    const tipo = String(s.type || "").toLowerCase();
+    const tit = esc(s.title || "");
+    const sub = s.subtitle ? `<p style="color:var(--mut);font-weight:600;margin-bottom:18px">${esc(s.subtitle)}</p>` : "";
+    const ctaBtn = s.cta
+      ? `<a class="cta" href="#pedir" style="margin-top:14px;max-width:340px"><span>${esc(s.cta)}</span></a>`
+      : "";
+
+    // benefits / features → grid de 4 tarjetas con íconos
+    if (tipo === "benefits" || tipo === "features" || tipo === "feature") {
+      const lineas = String(s.body || "")
+        .split(/\n+|\s*\|\s*/)
+        .map((x) => x.replace(/^[-*]\s*/, "").trim())
+        .filter(Boolean)
+        .slice(0, 4);
+      if (!lineas.length) return "";
+      const cards = lineas.map((t, i) => `
+        <article class="feat">
+          <div class="fi">${esc(ICONS[i % ICONS.length])}</div>
+          <b>${esc(t)}</b>
+        </article>`).join("");
+      return `<section><div class="wrap"><span class="kicker">${tipo === "features" || tipo === "feature" ? "Características" : "Beneficios"}</span>${tit ? `<h2>${tit}</h2>` : ""}${sub}<div class="feat-grid">${cards}</div>${ctaBtn}</div></section>`;
+    }
+
+    // offer → bloque de precio / oferta
+    if (tipo === "offer") {
+      const lineas = String(s.body || "").split(/\n+/).map((x) => x.replace(/^[-*]\s*/, "").trim()).filter(Boolean);
+      return `<section><div class="wrap"><span class="kicker">Oferta</span>${tit ? `<h2>${tit}</h2>` : ""}${sub}
+        <div class="pricebox">
+          ${antes ? `<div class="antes">Antes: <del>$${cop(antes)}</del></div>` : ""}
+          <div class="row"><div class="hoy"><span>Hoy:</span><strong>$${cop(precio)}</strong></div>${ahorro ? `<div class="ahorra">Ahorras<b>$${cop(ahorro)}</b></div>` : ""}</div>
+          <span class="solo">${esc(envioLargo)}</span>
+        </div>
+        ${lineas.length ? `<ul class="hero-bullets" style="margin-top:14px">${lineas.map((b) => `<li><span>✓</span>${esc(b)}</li>`).join("")}</ul>` : ""}
+        ${ctaBtn}
+      </div></section>`;
+    }
+
+    // comparison → antes/después
+    if (tipo === "comparison" || tipo === "before-after") {
+      const items = String(s.body || "")
+        .split(/\n+|\s*\|\s*/)
+        .map((x) => x.replace(/^[-*]\s*/, "").trim())
+        .filter(Boolean);
+      if (!items.length) return "";
+      const mitad = Math.ceil(items.length / 2);
+      const sin = items.slice(0, mitad);
+      const con = items.slice(mitad);
+      return `<section style="background:#fff"><div class="wrap"><span class="kicker">Comparativa</span>${tit ? `<h2>${tit}</h2>` : ""}${sub}
+        <div class="cmp">
+          <div class="sin"><h3>${tipo === "before-after" ? "Antes" : "Sin esto"}</h3><ul>${sin.map((x) => `<li><span>✗</span>${esc(x)}</li>`).join("")}</ul></div>
+          <div class="con"><h3>${tipo === "before-after" ? "Después" : "Con esto"}</h3><ul>${con.map((x) => `<li><span>✓</span>${esc(x)}</li>`).join("")}</ul></div>
+        </div>
+        ${ctaBtn}
+      </div></section>`;
+    }
+
+    // authority / how-it-works / logistics → lista numerada con íconos
+    if (tipo === "authority" || tipo === "how-it-works" || tipo === "logistics" || tipo === "steps") {
+      const lineas = String(s.body || "")
+        .split(/\n+|\s*\|\s*/)
+        .map((x) => x.replace(/^(\d+[.)-]\s*|-\s*|\*\s*)/, "").trim())
+        .filter(Boolean)
+        .slice(0, 5);
+      if (!lineas.length) return "";
+      const kick = tipo === "authority" ? "¿Por qué confiar?" : tipo === "logistics" ? "Entrega" : "Cómo funciona";
+      const items = lineas.map((t, i) => `<li style="display:flex;gap:11px;padding:11px 0;border-bottom:1px solid #e6eaf0;font-size:14.5px"><span style="flex:0 0 26px;height:26px;border-radius:50%;background:var(--a);color:#fff;display:grid;place-items:center;font-weight:900;font-size:13px">${i + 1}</span><span>${esc(t)}</span></li>`).join("");
+      return `<section><div class="wrap"><span class="kicker">${esc(kick)}</span>${tit ? `<h2>${tit}</h2>` : ""}${sub}<ul style="margin:0;padding:0;list-style:none">${items}</ul>${ctaBtn}</div></section>`;
+    }
+
+    // testimonials → tarjetas de reseñas
+    if (tipo === "testimonials") {
+      const lineas = String(s.body || "").split(/\n+/).map((x) => x.replace(/^[-*]\s*/, "").trim()).filter(Boolean);
+      if (!lineas.length && !(p.testimonials || []).length) return "";
+      const cards = lineas.length
+        ? lineas.map((t) => {
+            const [texto, nombre = ""] = t.split(/\s*\|\s*/, 2);
+            return `<article class="rev"><div class="who"><span class="av">${esc(nombre.trim().charAt(0).toUpperCase() || "?")}</span><div><b>${esc(nombre.trim())}</b></div><span class="stars">★★★★★</span></div><p>“${esc(texto.trim())}”</p></article>`;
+          }).join("")
+        : testimonios;
+      return `<section><div class="wrap"><span class="kicker">Clientes reales</span><div class="rev-h"><h2 style="margin:0">${tit || "Lo que dicen nuestros clientes"}</h2><span class="st">★★★★★</span></div><p style="margin-top:8px;color:var(--mut);font-size:13.5px;font-weight:600">Comentarios de compradores verificados</p><div class="revs">${cards}</div>${ctaBtn}</div></section>`;
+    }
+
+    // faq → acordeón
+    if (tipo === "faq") {
+      const lineas = String(s.body || "").split(/\n+/).map((x) => x.replace(/^[-*]\s*/, "").trim()).filter(Boolean);
+      if (!lineas.length && !faqs) return "";
+      const acordeon = lineas.length
+        ? lineas.map((l, i) => {
+            const [q, ...resto] = l.split(/\s*\|\s*/);
+            return `<details${i === 0 ? " open" : ""}><summary>${esc(q)}</summary><p>${esc(resto.join(" | "))}</p></details>`;
+          }).join("")
+        : faqs;
+      return `<section style="background:#fff"><div class="wrap"><span class="kicker">Dudas frecuentes</span>${tit ? `<h2>${tit}</h2>` : "<h2>Preguntas antes de pedir</h2>"}${sub}${acordeon}${ctaBtn}</div></section>`;
+    }
+
+    // cta → bloque llamativo
+    if (tipo === "cta") {
+      return `<section><div class="wrap"><div class="risk">${tit ? `<h2>${tit}</h2>` : "<h2>¿Listo para empezar?</h2>"}${sub}<a class="cta" href="#pedir" style="max-width:340px;margin:16px auto 0"><span>${esc(s.cta || "Pedir ahora")}</span></a></div></div></section>`;
+    }
+
+    // fallback genérico: renderiza el body como párrafos
+    const body = String(s.body || "").split(/\n+/).filter(Boolean).map((b) => `<p>${esc(b)}</p>`).join("");
+    if (!tit && !body && !s.image) return "";
+    const img = s.image ? `<img src="${esc(s.image)}" alt="${esc(tit || p.productName)}" loading="lazy" style="border-radius:16px;margin-bottom:16px">` : "";
+    return `<section><div class="wrap">${img}${tit ? `<h2>${tit}</h2>` : ""}${sub}${body}${ctaBtn}</div></section>`;
+  }
+
+  const seccionesHtml = (p.sections || [])
+    .filter((s: any) => s && !["hero"].includes(String(s.type || "")))
+    .map(renderizarSeccion)
+    .join("");
 
   const brandIni = esc((p.brand || "L").trim().charAt(0).toUpperCase());
 
@@ -768,7 +894,7 @@ footer .fine{margin-top:12px;font-size:11px;opacity:.7}
   <div class="ship">${esFisico ? "🚚" : esServicio ? "📅" : "⚡"} <span>${esFisico ? envioChip : esServicio ? "Agenda<br>tu cita" : "Acceso<br>inmediato"}</span></div>
 </header>
 
-${p.announce ? `<div class="announce">${esc(p.announce)}</div>` : `<div class="announce">🔥 Oferta por tiempo limitado · Solo en línea</div>`}
+  ${p.announce ? `<div class="announce">${esc(p.announce)}</div>` : `<div class="announce">🔥 Oferta por tiempo limitado · Solo en línea</div>`}
 
 <section class="hero">
   <div class="wrap inner">
@@ -819,86 +945,7 @@ ${p.announce ? `<div class="announce">${esc(p.announce)}</div>` : `<div class="a
   ${trustTop.map(([i, l1, l2]) => `<div><span>${i}</span>${l1}<i>${l2}</i></div>`).join("")}
 </div>
 
-${
-  features.length
-    ? `<section>
-  <div class="wrap">
-    <span class="kicker">Beneficios</span>
-    <h2>¿Por qué miles de colombianos lo eligen?</h2>
-    <div class="feat-grid">${features.join("")}</div>
-  </div>
-</section>`
-    : ""
-}
-
-${seccionFotos(resto, 2, p.useCasesTitle || "Así se ve en la vida real", "Míralo de cerca", "shotsA")}
-
-${
-  dolores
-    ? `<section class="pains">
-  <div class="wrap">
-    <span class="kicker">El problema</span>
-    <h2>¿Te pasa algo así?</h2>
-    <ul>${dolores}</ul>
-  </div>
-</section>`
-    : ""
-}
-
-${
-  hayComparativa && comparativa
-    ? `<section style="background:#fff">
-  <div class="wrap">
-    <span class="kicker">Comparativa</span>
-    <h2>${esc(comparativa.titulo)}</h2>
-    <div class="cmp">
-      <div class="sin"><h3>Sin esto</h3><ul>${comparativa.sin
-        .map((x) => `<li><span>✗</span>${esc(x)}</li>`)
-        .join("")}</ul></div>
-      <div class="con"><h3>Con esto</h3><ul>${comparativa.con
-        .map((x) => `<li><span>✓</span>${esc(x)}</li>`)
-        .join("")}</ul></div>
-    </div>
-  </div>
-</section>`
-    : ""
-}
-
-${
-  p.riskFree
-    ? `<section><div class="wrap"><div class="risk">
-      <div class="guar">🛡️</div>
-      <h2>${esc(p.riskFree.title)}</h2>
-      <p>${esc(p.riskFree.text)}</p>
-      <a class="cta ghost" href="#pedir" style="max-width:340px;margin:16px auto 0"><span>${p.cta ? esc(p.cta) : "Pedir ahora"}</span></a>
-    </div></div></section>`
-    : ""
-}
-
-${
-  testimonios
-    ? `<section>
-  <div class="wrap">
-    <span class="kicker">Clientes reales</span>
-    <div class="rev-h"><h2 style="margin:0">Lo que dicen nuestros clientes</h2><span class="st">★★★★★</span></div>
-    <p style="margin-top:8px;color:var(--mut);font-size:13.5px;font-weight:600">Comentarios de compradores verificados</p>
-    <div class="revs">${testimonios}</div>
-  </div>
-</section>`
-    : ""
-}
-
-${
-  faqs
-    ? `<section style="background:#fff">
-  <div class="wrap">
-    <span class="kicker">Dudas frecuentes</span>
-    <h2>Preguntas antes de pedir</h2>
-    ${faqs}
-  </div>
-</section>`
-    : ""
-}
+${seccionesHtml}
 
 <section id="pedir">
   <div class="wrap">
@@ -1245,6 +1292,7 @@ export function estiloDesdeFila(a: {
     whatsapp: negocio.whatsapp || producto?.whatsapp || "",
     kind,
     cta: ctaText || undefined,
+    sections: secciones as DatosEstilo["sections"],
   };
 }
 
@@ -1267,6 +1315,23 @@ export async function renderizarLandingEstilo(a: {
   const producto = a.producto ?? null;
   const negocio = await negocioParaRender(a.tenantId, producto);
   const modelo = producto ? modeloDelProducto(producto) : "digital";
+  // Si el producto proviene de Dropi, obtenemos datos reales (garantía, stock, etc.)
+  let garantiaDropi: string | null = null;
+    if (producto && producto.metadata && producto.metadata.dropiProductId) {
+      try {
+        const { tokenDropiDelTenant } = await import("../dropi-directo");
+        const token = await tokenDropiDelTenant(a.tenantId);
+        if (token) {
+          const { detalleProductoDropi } = await import("../dropi-directo");
+          const det = await detalleProductoDropi(token, Number(producto.metadata.dropiProductId));
+          if (det.ok && det.data) {
+            garantiaDropi = det.data.garantia || null;
+          }
+        }
+      } catch (e) {
+        // Si falla, seguimos sin garantía Dropi.
+      }
+    }
 
   // ── El envío con las CONDICIONES REALES (review 04-10) ──────────────────
   // Antes el código decía "Envío gratis a todo el país" A MANO: si el
@@ -1325,6 +1390,7 @@ export async function renderizarLandingEstilo(a: {
           ? `/api/landing-publica/${encodeURIComponent(slug)}/pedido`
           : "";
 
+  // …
   const p = estiloDesdeFila({
     row: a.row,
     producto,
@@ -1335,7 +1401,11 @@ export async function renderizarLandingEstilo(a: {
     video,
     // El envío REAL del negocio, resuelto una vez acá arriba:
     ...(envioReal ? { envioReal } : {}),
+      // Si la garantía real viene de Dropi, la sobreescribe (para la franja
+      // de confianza y la sección de garantía).
+      ...(garantiaDropi ? { garantia: garantiaDropi } : {}),
   });
+
 
   let html = renderizarEstilo(p, { host: a.host || "", accion, pago: a.pago });
   if (modelo === "fisico") html = formularioConOpciones(html, producto);

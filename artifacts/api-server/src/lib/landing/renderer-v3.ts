@@ -6,7 +6,6 @@
  */
 import { tokensDe, type FamiliaVisual } from "./design-system";
 import { elegirComposicion, tipoDeNegocio, varianteDeSeccion, type BloqueId, type Composicion } from "./composicion";
-import { renderizarLandingImagenes } from "./renderer-imagenes";
 
 import { DEPARTAMENTOS_CO, SCRIPT_GEO } from "../geo-colombia";
 
@@ -1085,7 +1084,7 @@ function renderHeroVariante(hv: HeroV, c: { heroTitle: string; heroSubtitle: str
 }
 
 export function renderizarLanding(opts: OpcionesDeRender): string {
-  if (opts.modo === "imagenes") return renderizarLandingImagenes(opts);
+  // El modo "imágenes" fue eliminado; cae a la familia por defecto.
   const familia = String(opts.familia || "ecommerce");
   const tokens = tokensDe(familia);
   const producto = opts.producto || null;

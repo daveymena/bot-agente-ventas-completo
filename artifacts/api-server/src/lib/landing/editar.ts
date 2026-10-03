@@ -118,13 +118,16 @@ export function aplicarOperaciones(
       case "add_section": {
         const s: any = o.section;
         if (!s || typeof s.type !== "string") { ignoradas.push("add_section sin type"); break; }
-        // Sin datos reales no hay prueba social: agregarla es inventarla
-        // (el modelo metió "prueba social" en la rueda abdominal, 12-09-2026).
+        // Sin datos reales no hay prueba social: agregarla es inventarla.
         if (["testimonials", "before-after", "authority"].includes(s.type)) { ignoradas.push(`no se inventa ${s.type}`); break; }
         const n = sections.filter((x) => x.type === s.type).length + 1;
         // Una sección más del mismo tipo como mucho: cuatro "benefits" seguidas
         // es un folleto, no una página.
         if (n > 2) { ignoradas.push(`ya hay ${n - 1} de ${s.type}`); break; }
+        // Rechazar secciones vacías/incompletas: sin título ni body no aportan.
+        const titleOk = !!(s.title && String(s.title).trim());
+        const bodyOk = !!(s.body && String(s.body).trim());
+        if (!titleOk && !bodyOk) { ignoradas.push(`${s.type} vacía`); break; }
         // Id único de verdad (contar por tipo repetía "benefits-2") y la
         // sección nueva va ANTES del cierre, no después del botón final.
         let k = n; while (sections.some((x) => String(x.id) === `${s.type}-${k}`)) k++;

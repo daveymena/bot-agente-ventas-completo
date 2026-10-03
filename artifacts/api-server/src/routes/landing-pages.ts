@@ -64,6 +64,17 @@ router.patch("/:id", async (req: TenantRequest, res, next) => {
     const allowed = ["name", "status", "strategy", "sections", "design", "source", "publishedUrl", "productId"] as const;
     const patch: Record<string, unknown> = {};
     for (const key of allowed) if (req.body?.[key] !== undefined) patch[key] = req.body[key];
+    if (Array.isArray(patch.sections)) {
+      patch.sections = patch.sections
+        .filter(Boolean)
+        .map((s: any) => ({ ...s, title: s.title ? String(s.title).trim() : s.title, body: s.body ? String(s.body).trim() : s.body }))
+        .filter((s: any) => {
+          // No guardar secciones vacías/incompletas sin título ni body (salvo hero/cta que tienen criterios propios).
+          if (!s) return false;
+          if (["hero", "cta"].includes(s.type)) return true;
+          return !!(String(s.title || "").trim() || String(s.body || "").trim());
+        });
+    }
     if (Object.prototype.hasOwnProperty.call(patch, "productId")) {
       if (!(await productBelongsToTenant(patch.productId, tenantId))) return res.status(400).json({ error: "El producto no pertenece al tenant actual o no es válido" });
       patch.productId = patch.productId === null || patch.productId === "" ? null : Number(patch.productId);
@@ -163,11 +174,9 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
       },
       negocio,
       cierre,
-      // Landing de imágenes (lib/landing/plan-imagenes.ts): paneles, ofertas
-      // del dueño y sellos de las condiciones reales del negocio.
       modo: (row.design as any)?.modo ?? null,
       ofertas: (row.design as any)?.ofertas ?? null,
-      sellos: (await import("../lib/landing/plan-imagenes")).sellosDelNegocio(c),
+      sellos: (await import("../lib/modelo-de-negocio")).sellosDelNegocio(c),
     });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.send(html);
@@ -253,11 +262,9 @@ router.post("/preview", async (req: TenantRequest, res, next) => {
       },
       negocio,
       cierre,
-      // Landing de imágenes (lib/landing/plan-imagenes.ts): paneles, ofertas
-      // del dueño y sellos de las condiciones reales del negocio.
       modo: (req.body?.design as any)?.modo ?? null,
       ofertas: (req.body?.design as any)?.ofertas ?? null,
-      sellos: (await import("../lib/landing/plan-imagenes")).sellosDelNegocio(c),
+      sellos: (await import("../lib/modelo-de-negocio")).sellosDelNegocio(c),
     });
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.send(html);

@@ -479,7 +479,7 @@ describe("el bucle completo", () => {
     assert.equal(r.partes[0].kind, "text");
     assert.equal(r.partes[1].kind, "card");
     assert.equal(r.estado.productoEnFoco, 1);
-    assert.equal(r.traza.length, 2);
+    assert.equal(r.traza.filter((t: any) => !t.herramienta.startsWith(`[`)).length, 2); // las HERRAMIENTAS de verdad: 2 (la revalidación del foco es un hecho del servidor, no una herramienta)
   });
 
   test("cuando una herramienta se niega, el modelo recibe el motivo y no se envía nada de más", async () => {
@@ -671,3 +671,4 @@ describe("el catálogo", () => {
     assert.match(r.mensaje, /buscar_en_catalogo/i);
   });
 });
+

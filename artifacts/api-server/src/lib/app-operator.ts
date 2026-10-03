@@ -5078,18 +5078,14 @@ ${explicarObjetivos()}` };
   },
   {
     name: "landing_imagenes_crear",
-    description: "Landing de imágenes. 11 paneles; preguntá antes ofertas, ángulo y público.",
-    args: '{ "productId": number, "ofertas"?: [{nombre,cantidad,precio}], "angulo"?, "publico"? }',
+    description: "DEPRECATED: el generador de landing de imágenes fue eliminado. Redirige a landing_crear.",
+    args: '{ "productId": number }',
     run: async (args, ctx) => {
       const id = num(args?.productId);
       if (!id) return { ok: false, summary: "Falta 'productId'." };
-      const { crearLandingImagenes } = await import("./landing/crear-landing-imagenes");
-      const r = await crearLandingImagenes(ctx.tenantId, { productId: id, ofertas: args?.ofertas, angulo: args?.angulo, publico: args?.publico });
-      if (!r.ok) return { ok: false, summary: r.error };
-      const ofertas = ((r.row.design as any)?.ofertas || []).map((o: any) => `${o.nombre} $${Number(o.precio).toLocaleString("es-CO")}`).join(" · ");
       return {
         ok: true,
-        summary: `🖼️ Landing de imágenes #${r.row.id} creada en borrador (plan por ${r.autor}). Ofertas: ${ofertas || "—"}. Para cada panel hay un prompt listo para generar la imagen gratis en Gemini y subirla; mientras tanto se ve con las fotos reales del producto. Editar: /landing-imagenes?id=${r.row.id} · publicar: landing_publicar.`,
+        summary: "🎨 El generador de landing de imágenes ya no existe. Usá landing_crear para generar una landing con renderer-estilo o renderer-v3.",
       };
     },
   },

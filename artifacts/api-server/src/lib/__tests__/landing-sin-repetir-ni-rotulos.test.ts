@@ -55,18 +55,3 @@ describe("rótulos internos del método", () => {
     expect(r.html).toContain("Así se usa");
   });
 });
-
-describe("landing de imágenes: cada foto una sola vez", () => {
-  it("con más paneles que fotos no vuelve a empezar", async () => {
-    const { renderizarLandingImagenes } = await import("../landing/renderer-imagenes");
-    const paneles = ["portada", "solucion", "beneficios", "para-quien", "cierre"].map((clave) => ({ type: "panel", clave, titulo: clave, texto: "x" }));
-    const html = renderizarLandingImagenes({
-      nombre: "Mochila",
-      producto: { name: "Mochila", price: 100000, imageUrl: "https://cdn.test/a.jpg", images: ["https://cdn.test/b.jpg"] } as any,
-      secciones: paneles as any,
-    } as any);
-    const usos = (u: string) => html.split(u).length - 1;
-    expect(usos("https://cdn.test/a.jpg")).toBeLessThanOrEqual(2); // hero + og:image como máximo
-    expect(usos("https://cdn.test/b.jpg")).toBe(1);
-  });
-});

@@ -12,7 +12,6 @@ const mainNavItems = [
 
 const baseMoreItems = [
   { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate },
-    { label: "Landing de imágenes", href: "/landing-imagenes", icon: LayoutTemplate },
   { label: "Atlas VentasPro", href: "/code-agent", icon: Wand2, highlight: true },
   { label: "Marketing", href: "/marketing", icon: Megaphone },
   { label: "Facebook", href: "/facebook", icon: Facebook },
