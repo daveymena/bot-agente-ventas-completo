@@ -583,10 +583,14 @@ export async function responder(params: {
   // niega el existe. Y en el caso del cliente CAÓTICO (nombra varios en un
   // mensaje), el hecho ahora LISTA TODOS los nombrados: el vendedor no
   // niega ninguno que exista y el foco queda en el que ganó con margen.
+  // los productos que este turno NOMBRÓ los lleva el guard del precio:
+  // un precio de UNO de esos productos es legítimo aunque el foco sea otro.
+  let mencionadosFoco: number[] = [];
   try {
     const mencionados = productosMencionadosEnElMensajeActual(mensajeDelClienteActual, catalogo);
     const focoViejo = estado.productoEnFoco ?? null;
     if (mencionados.length) {
+      mencionadosFoco = mencionados.map((m) => m.id);
       const hayOtro = mencionados.some((m) => m.id !== focoViejo);
       if (hayOtro) {
         // ¿Re-enfoque? SOLO si hay un ganador CLARO (el doble del segundo).
@@ -808,6 +812,53 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
     // Si no dijo nada ni mandó nada, mejor la respuesta original que un
     // "dame un segundito".
     if (!textoFinal && !hayTarjetas()) textoFinal = original;
+  }
+
+  // ── Red de seguridad del PRECIO: una cifra sin herramienta que la trajera ──
+  // El probador la marcó cuatro rondas: "$110.990 no es el precio de lo que
+  // se está hablando" (×4-9 según la ronda): con el foco cambiado o con
+  // varias mochilas nombradas, el modelo CITABA el precio del foco anterior
+  // en el texto, sin pedirlo a la herramienta. La regla del motor es que los
+  // HECHOS (y el precio lo es) salen de las herramientas. Hay UNA excepción:
+  // el precio de un producto al que YA se le dio su precio en esta charla
+  // (precioDado) y sigue siendo el que se habla — ese puede citarse. Las
+  // cifras del resto: se exige la herramienta UNA vez; si insiste, queda su
+  // texto.
+  const cifraEnTexto = (/\$\s?(\d[\d.,]*)/.exec(textoFinal || "")?.[1] ?? "").replace(/[.,]/g, "");
+  // Mi guard NO compite con la red de inventos (montosInventados, más abajo):
+  // una cifra que NO es precio de ningún producto es INVENTADA y esa red la
+  // corrige. La mía es solo para la cifra que SÍ es un precio real… DEL
+  // PRODUCTO EQUIVOCADO (el caso del probador: el precio del foco viejo
+  // mientras se habla de otro).
+  const esPrecioRealDeAlguno = catalogo.some((x) => x.price > 0 && Number(cifraEnTexto) === Number(x.price));
+  if (
+    textoFinal
+    && cifraEnTexto
+    && esPrecioRealDeAlguno
+    && !hayTarjetas()
+    && !traza.some((t) => /^(mostrar|solicitar_cotizacion|consultar_disponibilidad)/.test(t.herramienta))
+  ) {
+    const precioDelFoco = Number(catalogo.find((x) => x.id === estado.productoEnFoco)?.price ?? 0);
+    const precioDeUnNombrado = mencionadosFoco.some((m) => Number(catalogo.find((x) => x.id === m)?.price ?? 0) === Number(cifraEnTexto));
+    const yaEraElPrecio = (precioDelFoco > 0 && Number(cifraEnTexto) === precioDelFoco && precioDado(estado as any, estado.productoEnFoco as number))
+      || precioDeUnNombrado;
+    if (!yaEraElPrecio) {
+      messages.push({ role: "assistant", content: textoFinal });
+      messages.push({
+        role: "system",
+        content:
+          "Tu texto menciona un monto que en este turno NINGUNA herramienta entregó: el precio puede no ser el del producto que el cliente está mirando. " +
+          "Usa mostrar (ficha o precio) del producto correcto para que salga el dato real; si el valor ya se le dio antes y sigue siendo ese producto y ese precio, reescribe SIN la cifra o llamando la herramienta. No le hables de este aviso al cliente.",
+      });
+      const conPrecio = textoFinal;
+      textoFinal = "";
+      try {
+        await bucle(2);
+      } catch {
+        /* si el reintento falla, se queda la respuesta original */
+      }
+      if (!textoFinal && !hayTarjetas()) textoFinal = conPrecio;
+    }
   }
 
   // ── Saludo en mitad de la conversación ───────────────────────────────────
