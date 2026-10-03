@@ -5,6 +5,7 @@
  * El diseño cambia composición y jerarquía, no solo colores.
  */
 import { tokensDe, type FamiliaVisual } from "./design-system";
+import { elegirComposicion, tipoDeNegocio, varianteDeSeccion, type BloqueId, type Composicion } from "./composicion";
 import { renderizarLandingImagenes } from "./renderer-imagenes";
 
 import { DEPARTAMENTOS_CO, SCRIPT_GEO } from "../geo-colombia";
@@ -40,6 +41,13 @@ export interface ProductoParaRenderizar {
   paymentLink?: string | null;
   whatsapp?: string | null;
   opciones?: OpcionRender[] | null;
+  /**
+   * Precio ANTERIOR real (metadata.precioAntes).
+   * Es la ÚNICA condición para el precio tachado y el "Ahorras": sin un precio
+   * anterior que exista de verdad no se inventa ninguno (era precio × 1,45
+   * fabricado -- la regla que ya corrigieron para el anuncio).
+   */
+  precioAntes?: number | string | null;
 }
 
 export interface NegocioParaRenderizar {
@@ -71,6 +79,10 @@ export interface OpcionesDeRender {
   producto?: ProductoParaRenderizar | null;
   negocio?: NegocioParaRenderizar | null;
   cierre?: CierreDeLanding | null;
+  /** Modelo de página (composicion.ts). Sin modelo ni semilla sale "clasica". */
+  modelo?: string | null;
+  /** Semilla de la composición: misma semilla, misma página; otra semilla, otra página. */
+  semilla?: string | null;
 }
 
 export function esc(valor: unknown): string {
@@ -1026,6 +1038,24 @@ function beneficiosDe(familia: string, layout?: string | null): BeneficiosV {
   return BENEFICIOS_POR_FAMILIA[familia] || "cards";
 }
 
+/* ── Composición → vocabulario que este renderer sabe dibujar ────────────
+ * Los nombres de variantes de `composicion.ts` mapeados 1 a 1 a las variantes
+ * que YA están implementadas (HeroV/OfertaV/BeneficiosV). Las variantes que
+ * todavía no tienen dibujo propio caen a la más cercana y QUEDAN MARCADAS en
+ * data-variante: así la página es coherente y el siguiente paso (los dibujos
+ * nuevos) enchufa sin tocar el camino del render.
+ */
+const COMP_ALIAS: Record<string, Record<string, string>> = {
+  hero: { split: "split", centrado: "stack", "a-sangre": "bleed", producto: "buybox", editorial: "editorial", oferta: "offer-first" },
+  benefits: { bento: "cards", numerada: "numbered", checklist: "checklist", iconos: "cards", zigzag: "cards", "split-foto": "checklist" },
+  offer: { "tarjeta-foto": "card", ticket: "card", banda: "card", minimal: "minimal" },
+  feature: { fila: "cards", pasos: "numbered", "tarjeta-ancha": "cards" },
+  logistics: { tarjetas: "cards", "iconos-fila": "cards", lista: "checklist" },
+  faq: { "dos-columnas": "cards", acordeon: "cards", split: "split" },
+  cta: { tarjeta: "card", banda: "card", minimal: "minimal" },
+  gallery: { mosaico: "cards", carrusel: "cards", grilla: "cards" },
+};
+
 function renderHeroVariante(hv: HeroV, c: { heroTitle: string; heroSubtitle: string; heroCta: string; destino: string; wa: string; heroImage: string; heroGaleria: string[]; producto: ProductoParaRenderizar | null; fisico: boolean; tokens: any; trust: string[] }): string {
   const ojo = c.fisico ? "Compra directa" : "Acceso digital";
   const copy = `<p class="eyebrow">${ojo}</p><h1>${esc(c.heroTitle)}</h1>${c.heroSubtitle ? `<p class="lead">${esc(c.heroSubtitle)}</p>` : ""}`;
@@ -1054,6 +1084,19 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
   const negocio = opts.negocio || null;
   const modelo = String(negocio?.modelo || "").toLowerCase();
   const fisico = /fisic|physical|dropshipping/.test(modelo);
+  // ── LA COMPOSACIÓN (landing/composicion.ts) ────────────────────────────
+  // El MODELO de página (el esqueleto) + la semilla eligen la VARIANTE de
+  // cada bloque. Sin modelo ni semilla sale "clasica": lo ya publicado no
+  // cambia solo. El tipo de negocio (dropshipping/fisico/digital/servicio)
+  // decide qué modelos tienen sentido.
+  const comp = elegirComposicion({
+    modelo: opts.modelo,
+    semilla: opts.semilla,
+    familia,
+    fisico,
+    tipo: tipoDeNegocio(modelo, fisico),
+    precio: producto?.price,
+  });
   // `hidden` lo pone el editor de bloques del Landing Studio: la seccion
   // sigue guardada (se puede volver a mostrar) pero no se renderiza.
   const secciones = (Array.isArray(opts.secciones) ? opts.secciones : []).filter((s) => s && !(s as any).hidden);
@@ -1076,14 +1119,77 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
   const heroGaleria = heroImage ? [heroImage, ...heroExtras.slice(0, nExtra)] : [];
   const enHero = new Set(heroGaleria);
   const fotosLibres = todasFotos.filter((f) => !enHero.has(f));
+  // ── La variante de CADA bloque, según la COMPOSACÍON ───────────────────
+  // La sección pide la variante con `layout` (el editor); si no dijo, la que
+  // la semilla eligió para este modelo. Y donde la variante pedida no existe
+  // en el vocabulario del bloque, la composición devuelve la de la semilla
+  // (varianteDeSeccion). Se guarda en el atributo `data-variante` del bloque:
+  // así dos modelos con variantes distintas se leen distinto en el marcado,
+  // y el editor ve cuál se usó.
+  const BLOQUE_DE_TIPO: Record<string, BloqueId> = {
+    hero: "hero", benefits: "benefits", feature: "feature", "how-it-works": "feature",
+    "how_it_works": "feature", logistics: "logistics", offer: "offer", faq: "faq",
+    cta: "cta", gallery: "gallery", comparison: "feature", "before-after": "feature",
+  };
+  const repeticiones = new Map<string, number>();
+  const varianteDe = (section: SeccionParaRenderizar): { v: string; bloque: BloqueId; rep: number } => {
+    const type = String(section.type || "").toLowerCase();
+    const bloque: BloqueId = BLOQUE_DE_TIPO[type] || "feature";
+    const rep = repeticiones.get(bloque) || 0;
+    repeticiones.set(bloque, rep + 1);
+    const v = varianteDeSeccion(bloque, (section as any).layout, comp, rep);
+    return { v, bloque, rep };
+  };
+  const marcoDe = (section: SeccionParaRenderizar): string => {
+    const { v, bloque } = varianteDe(section);
+    return `data-bloque="${bloque}" data-variante="${esc(v)}" data-v="${esc((COMP_ALIAS[bloque] || {})[v] || v)}"`;
+  };
+
   let featureIndex = 0;
 
   const header = `<header class="top"><div class="top__in"><span class="brand">${esc(negocio?.nombre || opts.nombre || producto?.name || "")}</span>${btn(heroCta, destino)}</div></header>`;
-  const hv = heroDe(familia, (hero as any).layout);
-  const heroHtml = renderHeroVariante(hv, { heroTitle, heroSubtitle, heroCta, destino, wa, heroImage, heroGaleria, producto, fisico, tokens, trust });
+  // La variante del HERO la decide la COMPOSICION y se mapea al vocabulario
+  // que el renderer SABE dibujar (los 6 nombres de composición casan 1 a 1 con
+  // las HeroV): así el modelo de página cambia el hero de verdad, no solo el
+  // atributo. Sin variante conocida, el de la familia (como siempre).
+  const ALIAS_HERO: Record<string, HeroV> = {
+    split: "split", centrado: "stack", "a-sangre": "bleed", producto: "buybox", editorial: "editorial", oferta: "offer-first", ...COMP_ALIAS.hero,
+  } as Record<string, HeroV>;
+  const heroVarianteComp = varianteDeSeccion("hero", (hero as any).layout, comp);
+  // ── La composición solo manda si ALGUIEN la pidió ───────────────────────
+  // Sin modelo ni semilla, elegirComposicion devuelve "clasica" — y su
+  // variante default (split) PISA la de la familia (ecommerce → buybox):
+  // las landings que ya se publicaron cambiarían de forma sin que nadie lo
+  // pidiera. Con el gate, sin pedido la familia manda como siempre.
+  const hayComposicionPropia = !!(String(opts.modelo || "").trim() || String(opts.semilla || "").trim());
+  const hv = ((hayComposicionPropia && (ALIAS_HERO as any)[heroVarianteComp]) || heroDe(familia, (hero as any).layout)) as HeroV;
+  // La clase "lx-" del MODELO sobre el hero: es lo que un modelo (tienda-directa
+  // → lx-prod, advertorial → lx-edit) deja marcado para su CSS propio.
+  const CLASE_DE_HERO: Record<string, string> = { producto: "lx-prod", oferta: "lx-hoffer", editorial: "lx-edit", "a-sangre": "lx-bleed", split: "lx-split", centrado: "lx-center" };
+  const claseLxHero = CLASE_DE_HERO[heroVarianteComp] || "";
+  const brutoHero = renderHeroVariante(hv, { heroTitle, heroSubtitle, heroCta, destino, wa, heroImage, heroGaleria, producto, fisico, tokens, trust });
+  const heroHtml =
+    claseLxHero && brutoHero.startsWith("<section")
+      ? brutoHero.replace(/class="/i, `class="${claseLxHero} `)
+      : brutoHero;
   const sinEmoji = (x: string) => String(x || "").replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2300}-\u{23FF}\u{2B00}-\u{2BFF}\uFE0F\s]+/u, "").trim();
   const trustHtml = trust.length ? `<section class="shell"><div class="trust">${trust.map((x) => `<span>${iconoPara(x)} ${esc(sinEmoji(x))}</span>`).join("")}</div></section>` : "";
   const topbarHtml = trust.length >= 2 ? `<div class="topbar"><div class="topbar-in">${trust.slice(0, 3).map((x) => `<span>${iconoPara(x)} ${esc(sinEmoji(x))}</span>`).join("")}</div></div>` : "";
+  // ── La barra de la franja (ann-bar) ────────────────────────────────────
+  // La primera condición REAL del negocio (sin emoji, sin promesa):
+  // "Pago contra entrega", "Envío incluido"... Lo que NO está cargado no va.
+  const primeraCondiciones = sinEmoji(trust[0] || "");
+  const annBarHtml = primeraCondiciones ? `<div class="ann-bar">${esc(primeraCondiciones)}</div>` : "";
+  // ── El anclado de precio ───────────────────────────────────────────────
+  // Con un precio ANTERIOR real (metadata.precioAntes) se muestra tachado y el
+  // ahorro exacto. Sin un precio anterior que exista de verdad, NADA: no se
+  // inventa con el precio × 1,45 (la regla ya corregida para el anuncio).
+  const antesNum = Number((producto as any)?.precioAntes ?? 0);
+  const precioNum = Number(producto?.price ?? 0);
+  const precioAnchorHtml =
+    antesNum > 0 && precioNum > 0 && antesNum > precioNum
+      ? `<div class="price-anchor"><span class="price-real">${esc(precio(producto))}</span><span class="price-old">$${esc(antesNum.toLocaleString("es-CO"))} ${esc(producto?.currency || "COP")}</span><span class="price-save">Ahorras $${esc(Math.round(antesNum - precioNum).toLocaleString("es-CO"))}</span></div>`
+      : "";
 
   // ── Presupuesto de fotos ─────────────────────────────────────────────
   // Cada foto lateral se usa UNA vez y nunca la del hero: antes "rotaban"
@@ -1109,6 +1215,17 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
     return tomarFoto();
   };
 
+  // Marco de composición por sección (data-bloque/data-variante/data-v):
+  // así dos modelos con variantes distintas se leen distinto en el marcado,
+  // y el editor ve cuál se usó. Definido ANTES del map que lo usa.
+  const conMarco = (html: string, section: SeccionParaRenderizar): string => {
+    if (!html || !html.startsWith("<section")) return html;
+    return html.replace(
+      '<section class="sec"',
+      `<section class="sec" ${marcoDe(section)}`,
+    );
+  };
+
   // La galería se resuelve al FINAL, con lo que sobró del presupuesto: si se
   // dibujara en su orden, se comería fotos que las secciones de abajo
   // necesitan, o repetiría las que ya se usaron arriba.
@@ -1116,19 +1233,23 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
   const partes = secciones.filter((s) => s.type !== "hero").map((section, idx) => {
     const type = String(section.type || "").toLowerCase();
     const vacia = !section.title && !section.subtitle && !section.body && !(Array.isArray(section.images) && section.images.length);
-    if (vacia && !type.includes("gallery")) return "";
-    if (type.includes("faq")) return `<section class="sec"><div class="shell narrow">${renderFaq(section)}</div></section>`;
+    if (vacia && !type.includes("gallery")) return conMarco("", section) || "";
+    // La variante pedida con `layout` manda, si existe en el vocabulario; si
+    // no, la de la composición (elegida por la semilla del modelo) — SOLO si
+    // la composición la pidió alguien: sin eso, la familia manda como siempre.
+    const mv = varianteDe(section);
+    if (type.includes("faq")) return conMarco(`<section class="sec"><div class="shell narrow">${renderFaq(section)}</div></section>`, section);
     if (type.includes("gallery") || type.includes("visual")) { const marca = `@@GALERIA:${idx}@@`; galerias.set(marca, section); return marca; }
-    if (type.includes("benefit") || type.includes("feature")) return `<section class="sec"><div class="shell">${renderBenefitsVariante(beneficiosDe(familia, (section as any).layout), section)}</div></section>`;
-    if (["how-it-works", "how_it_works", "steps", "como-funciona", "comparison", "before-after"].some((k) => type.includes(k))) return `<section class="sec"><div class="shell">${renderFeature(section, producto, featureIndex++, fotoPara(section))}</div></section>`;
-    if (type.includes("logistic")) return `<section class="sec"><div class="shell">${renderLogistica(section)}</div></section>`;
+    if (type.includes("benefit") || type.includes("feature")) return conMarco(`<section class="sec"><div class="shell">${renderBenefitsVariante(((hayComposicionPropia && (COMP_ALIAS.benefits as any)?.[mv.v]) || beneficiosDe(familia, (section as any).layout)) as any, section)}</div></section>`, section);
+    if (["how-it-works", "how_it_works", "steps", "como-funciona", "comparison", "before-after"].some((k) => type.includes(k))) return conMarco(`<section class="sec"><div class="shell">${renderFeature(section, producto, featureIndex++, fotoPara(section))}</div></section>`, section);
+    if (type.includes("logistic")) return conMarco(`<section class="sec"><div class="shell">${renderLogistica(section)}</div></section>`, section);
     if (["photo-band", "photoband", "foto-banda", "fullbleed", "full-bleed"].some((k) => type.includes(k))) { const f = fotoPara(section); const h = renderPhotoBand(f, String(section.subtitle || section.title || "")); if (h) return h; return ""; }
-    if (type === "cta" || type.endsWith("-cta") || type.includes("cierre")) return `<section class="sec"><div class="shell">${renderCierre(section, destino)}</div></section>`;
+    if (type === "cta" || type.endsWith("-cta") || type.includes("cierre")) return conMarco(`<section class="sec"><div class="shell">${renderCierre(section, destino)}</div></section>`, section);
     if (["offer", "authority", "bundle", "guarantee"].some((k) => type.includes(k))) {
-      const ov = ofertaDe(familia, (section as any).layout);
+      const ov = (((hayComposicionPropia && (COMP_ALIAS.offer as any)?.[mv.v]) || ofertaDe(familia, (section as any).layout))) as OfertaV;
       return `<section class="sec">${renderOfertaVariante(ov, section, producto, destino, ov === "minimal" ? "" : fotoPara(section), heroTitle)}</section>`;
     }
-    return `<section class="sec"><div class="shell narrow"><div class="head"><p class="eyebrow">${rotulo(type)}</p><h2>${esc(section.title || "Más información")}</h2>${section.subtitle ? `<p class="lead">${esc(acotar(section.subtitle, 240))}</p>` : ""}${cuerpo(section.body)}</div></div></section>`;
+    return conMarco(`<section class="sec"><div class="shell narrow"><div class="head"><p class="eyebrow">${rotulo(type)}</p><h2>${esc(section.title || "Más información")}</h2>${section.subtitle ? `<p class="lead">${esc(acotar(section.subtitle, 240))}</p>` : ""}${cuerpo(section.body)}</div></div></section>`, section);
   });
   // Una sola galería por página, con lo que quedó libre; las demás marcas
   // se borran (dos galerías con las mismas fotos es justo lo que se evita).
@@ -1141,7 +1262,7 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
     if (!html) return "";
     galeriaDibujada = true;
     fotosLibres.length = 0;
-    return `<section class="sec"><div class="shell">${html}</div></section>`;
+    return conMarco(`<section class="sec"><div class="shell">${html}</div></section>`, gal);
   }).join("");
 
   const checkoutHtml = opts.cierre ? `<section class="sec"><div class="shell narrow">${renderCheckout(opts.cierre, producto, negocio)}</div></section>` : "";
@@ -1149,5 +1270,17 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
   const sticky = destino ? `<div class="sticky">${btn(heroCta + (precio(producto) ? ` · ${precio(producto)}` : ""), destino)}</div>` : "";
   const description = esc(String(producto?.description || heroSubtitle || heroTitle).replace(/\s+/g, " ").slice(0, 155));
 
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(opts.nombre || heroTitle || "Landing")}</title><meta name="description" content="${description}"><meta property="og:title" content="${esc(opts.nombre || heroTitle || "Landing")}"><meta property="og:description" content="${description}">${heroImage ? `<meta property="og:image" content="${esc(heroImage)}">` : ""}<meta name="color-scheme" content="${tokens.fondos === "oscuro" ? "dark" : "light"}"><style>${cssBase(familia)}</style></head><body>${topbarHtml}${header}<main>${heroHtml}${trustHtml}${sectionHtml}${checkoutHtml}</main>${footer}${sticky}</body></html>`;
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(opts.nombre || heroTitle || "Landing")}</title><meta name="description" content="${description}"><meta property="og:title" content="${esc(opts.nombre || heroTitle || "Landing")}"><meta property="og:description" content="${description}">${heroImage ? `<meta property="og:image" content="${esc(heroImage)}">` : ""}<meta name="color-scheme" content="${tokens.fondos === "oscuro" ? "dark" : "light"}"><style>${cssBase(familia)}${cssComposicion()}</style></head><body>${topbarHtml}${header}${annBarHtml}<main class="lx-${comp.modelo}${comp.angosto ? " lx-angosto" : ""}" data-modelo="${comp.modelo}">${heroHtml}${precioAnchorHtml}${trustHtml}${sectionHtml}${checkoutHtml}</main>${footer}${sticky}</body></html>`;
+}
+
+/** El CSS de las piezas que la COMPOSICIÓN agrega (y de las variantes nuevas). */
+function cssComposicion(): string {
+  return `
+.ann-bar{background:var(--accent);color:#fff;text-align:center;padding:9px var(--pad);font-size:.83rem;font-weight:800;letter-spacing:.03em}
+.price-anchor{display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;padding:14px var(--pad) 6px;text-align:center}
+.price-real{font-size:1.6rem;font-weight:900;color:var(--text)}
+.price-old{font-size:1rem;text-decoration:line-through;color:#9CA3AF}
+.price-save{font-size:.85rem;font-weight:800;color:var(--accent);background:color-mix(in srgb,var(--accent) 10%,transparent);padding:4px 10px;border-radius:999px}
+.lx-angosto .shell,.lx-angosto .narrow{max-width:760px}
+@media(max-width:820px){.price-anchor{gap:8px;font-size:.95rem}}`;
 }
