@@ -225,6 +225,19 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
     ? (envioIncluido ? "Envío grátis a todo el país*" : String(p.envio || "Envío nacional (se te confirma al pedir)"))
     : esServicio ? "Agenda tu cita hoy" : "Acceso inmediato";
 
+  /**
+   * El resumen de la garantía que cabe en el chip de la franja de confianza:
+   * si el proveedor escribió una política larga, el chip lleva el dato duro
+   * (los días/plazo); el texto completo va en el bloque de riesgo y la FAQ.
+   */
+  const cortoDeGarantia = (g: unknown): string => {
+    const t = String(g || "").trim();
+    const dias = t.match(/\b(\d{1,3})\s*(d|mes|seman)/i);
+    if (!dias) return "del proveedor";
+    const unidad = /mes/i.test(dias[2]) ? "mes" : /seman/i.test(dias[2]) ? "semanas" : "días";
+    return `${dias[1]} ${unidad} de garantía`;
+  };
+
   // ── Claims de confianza: usar datos reales del negocio; nunca inventar. ──
   // Si el negocio provee franjas de confianza, las usamos tal cual. Si no,
   // usamos neutros sin promesas inventadas (sin "gratis", "30 días", etc.).
@@ -240,8 +253,15 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
       ? ([
           ["🚚", "Envío", envioIncluido ? "grátis incluido*" : "nacional"],
           ["💵", "Pago contra", "entrega"],
+          // La garantía del proveedor puede ser UNA POLÍTICA LARGA (medido en
+          // el AB Roller: "En caso de recibir el producto diferente..."). En
+          // el chip de 4 celdas no cabe: la CORTA del dueño se muestra
+          // completa (es su claim exacto) y la larga se condensa al dato
+          // duro; el texto íntegro vive en la FAQ del Studio cuando existe.
           ...(String(p.garantia || "").trim()
-            ? (() => { const g = String(p.garantia).trim().split(/\s+/); return [["🛡️", g[0] || "Garantía", g.slice(1).join(" ") || "del negocio"]]; })()
+            ? (String(p.garantia).trim().length <= 40
+              ? (() => { const g = String(p.garantia).trim().split(/\s+/); return [["🛡️", g[0] || "Garantía", g.slice(1).join(" ") || ""]] as [string, string, string]; })()
+              : [["🛡️", "Garantía", cortoDeGarantia(p.garantia)]])
             : []),
           ["🔒", "Compra", "segura"],
         ] as Array<[string, string, string]>).slice(0, 4)
@@ -260,22 +280,30 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
           ];
 
   const garantiaLinea = String(p.garantia || "").trim();
+  // La barra inferior (tbar) también es una celda chica: la política larga
+  // del proveedor va como "Garantía del proveedor" + el detalle en la FAQ.
+  // La barra inferior (tbar) también es una celda chica: la garantía corta
+  // del dueño se muestra completa; la política larga del proveedor va como
+  // "Garantía del proveedor" y el detalle completo vive en la FAQ del Studio.
+  const garantiaCorta = garantiaLinea
+    ? (garantiaLinea.length <= 40 ? garantiaLinea : cortoDeGarantia(garantiaLinea))
+    : "";
   const trustBottom = itemsConfianza.length >= 3
     ? itemsConfianza.slice(0, 3).map((txt) => ["✅", String(txt).trim(), ""] as [string, string, string])
     : esFisico
       ? [
-          ["🛡️", garantiaLinea || "Garantía del negocio", garantiaLinea ? "" : "consulta términos"],
+          ["🛡️", garantiaCorta || "Garantía del negocio", garantiaCorta ? "" : "consulta términos"],
           ["💵", "Pago contra entrega", "en todo el país"],
           ["🚚", envioIncluido ? "Envío grátis" : "Envío nacional", envioIncluido ? "a todo el país*" : "se confirma al pedir"],
         ]
       : esServicio
         ? [
-            ["🛡️", garantiaLinea || "Satisfacción garantizada", garantiaLinea ? "" : "según condiciones del negocio"],
+            ["🛡️", garantiaCorta || "Satisfacción garantizada", garantiaCorta ? "" : "según condiciones del negocio"],
             ["🔒", "Pago seguro", "datos cifrados"],
             ["📅", "Reserva flexible", "cambia tu cita cuando quieras"],
           ]
         : [
-            ["🛡️", garantiaLinea || "Garantía del negocio", garantiaLinea ? "" : "consulta términos"],
+            ["🛡️", garantiaCorta || "Garantía del negocio", garantiaCorta ? "" : "consulta términos"],
             ["🔒", "Pago seguro", "datos cifrados"],
             ["⚡", "Entrega inmediata", "a tu correo o WhatsApp"],
           ];
