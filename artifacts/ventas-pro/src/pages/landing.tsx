@@ -56,6 +56,7 @@ const PILARES = [
       "Lee comprobantes de pago con visión y los deja listos para aprobar",
       "Cupones reales, seguimientos automáticos y campañas por WhatsApp o correo",
       "Hasta 8 vendedoras con distinta personalidad por negocio",
+      "Se protege de bloqueos: escribe y graba audios como humano, y baja el ritmo sola si detecta riesgo",
     ],
     img: { src: "/screens/gen/sofia.webp", alt: "Sofía vendiendo el curso de piano por WhatsApp", w: 1200, h: 1400 },
   },
@@ -330,12 +331,13 @@ export default function LandingPage() {
       <section className="border-y border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-white/[0.03]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-12 grid grid-cols-2 lg:grid-cols-4 gap-10">
           {/* Cada numero sale de SAAS_PLANS (middleware/saasValidation.ts), que
-              es el codigo que cobra de verdad. Verificado uno por uno el
-              2026-08-22: Pro = 8 agentes, 15.000 mensajes/mes; prueba gratis =
-              7 dias, 30 mensajes; canales donde el cliente puede comprar:
-              WhatsApp, Messenger, Facebook y la tienda web. */}
+              es el codigo que cobra de verdad. Reverificado el 2026-10-04 tras
+              recalcular planes con margen: Pro = 8 agentes y 9.000 mensajes/mes
+              (antes decia 15.000: falso); prueba gratis = 7 dias, 30 mensajes;
+              canales donde el cliente puede comprar: WhatsApp, Messenger,
+              Facebook y la tienda web. */}
           <StatCounter value={8} label="Vendedoras en el plan Pro" />
-          <StatCounter value={15000} label="Mensajes al mes en el plan Pro" />
+          <StatCounter value={9000} label="Mensajes al mes en el plan Pro" />
           <StatCounter value={4} label="Canales: WhatsApp, Messenger, Facebook y tienda" />
           <StatCounter value={7} label="Días de prueba gratis" />
         </div>
@@ -345,8 +347,8 @@ export default function LandingPage() {
       <section id="pilares" className="max-w-7xl mx-auto px-4 sm:px-6 py-20 sm:py-28 scroll-mt-16">
         <Encabezado
           etiqueta="Mucho más que un bot de WhatsApp"
-          titulo="Cuatro cosas que hace por tu negocio"
-          bajada="Vender, atraer, vender por la web y dirigir. Cada una funciona sola y todas juntas hacen el ciclo completo."
+          titulo="Todo lo que hace por tu negocio"
+          bajada="Vender por chat, vender por la web y dirigir el negocio. Cada pilar funciona solo y todos juntos cierran el ciclo."
         />
         <div className="mt-16 sm:mt-20 space-y-20 sm:space-y-28">
           {PILARES.map((p, i) => {
