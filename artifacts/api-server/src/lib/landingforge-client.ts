@@ -16,8 +16,6 @@ const BASE = (process.env.LANDINGFORGE_URL || "https://landings.ventasproia.com"
 const API_KEY = process.env.LANDINGFORGE_API_KEY || process.env.LANDING_API_KEY || "";
 const WHATSAPP_DEFAULT = process.env.WHATSAPP_NUMBER || process.env.ADMIN_PHONE || "573136174267";
 
-/* ------------------------- tipos (compat) ------------------------- */
-
 export interface LFProduct {
   id: string;
   name: string;
@@ -60,10 +58,21 @@ export interface MagicLandingResult {
   productName: string;
   sectionsGenerated: number;
   sections?: LFSection[];
+  editorUrl?: string;
+  exportUrl?: string;
   error?: string;
 }
 
-/* ------------------------- http ------------------------- */
+export interface ProductData {
+  description?: string;
+  price?: string;
+  currency?: string;
+  category?: string;
+  checkoutUrl?: string;
+  images?: string[];
+  videos?: string[];
+  prompt?: string;
+}
 
 async function lf<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
@@ -79,22 +88,16 @@ async function lf<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-/* ------------------------- estado y listado ------------------------- */
-
-/** Estado de LandingForge y su proveedor de IA. */
 export async function landingStatus(): Promise<any> {
   return lf("/api/landingforge/status");
 }
 
-/** Listar landings generadas. */
 export async function listLandings(): Promise<{
   landings: Array<{ landing: LFLanding; productName: string }>;
   total?: number;
 }> {
   return lf("/api/landingforge/list");
 }
-
-/* ------------------------- generacion ------------------------- */
 
 function mapGenerate(d: any, fallbackName: string): MagicLandingResult {
   return {
@@ -105,19 +108,17 @@ function mapGenerate(d: any, fallbackName: string): MagicLandingResult {
     productName: String(d.productName || fallbackName),
     sectionsGenerated: Number(d.sectionsGenerated ?? d.sections?.length ?? 0),
     sections: Array.isArray(d.sections) ? d.sections : [],
+    editorUrl: d.editorUrl || undefined,
+    exportUrl: d.exportUrl || undefined,
     error: d.error,
   };
 }
 
-/**
- * Genera (o reutiliza) una landing profesional para un producto del catalogo.
- * Si ya existe una publicada con el mismo nombre, la reutiliza.
- */
 export async function getOrCreateLanding(
   productName: string,
   productUrl: string,
   productKind: "physical" | "digital",
-  productData?: { description?: string; price?: string; currency?: string; category?: string; checkoutUrl?: string },
+  productData?: ProductData,
 ): Promise<MagicLandingResult> {
   try {
     const { landings } = await listLandings();
@@ -136,7 +137,6 @@ export async function getOrCreateLanding(
       };
     }
   } catch {
-    // Si falla el listado, se crea una nueva.
   }
 
   try {
@@ -150,6 +150,10 @@ export async function getOrCreateLanding(
         currency: productData?.currency || "COP",
         checkoutUrl: productData?.checkoutUrl || productUrl || undefined,
         whatsapp: WHATSAPP_DEFAULT,
+        description: productData?.description || undefined,
+        images: productData?.images?.length ? productData.images : undefined,
+        videos: productData?.videos?.length ? productData.videos : undefined,
+        prompt: productData?.prompt || undefined,
       }),
     });
     console.log(`[LandingForge] Landing generada: ${d.landingId} (${d.sectionsGenerated} secciones)`);
@@ -161,7 +165,6 @@ export async function getOrCreateLanding(
   }
 }
 
-/** Genera una landing directamente desde la URL del producto. */
 export async function generateMagicLanding(
   productUrl: string,
   opts?: { title?: string; size?: "section" | "square" | "story" | "wide" },

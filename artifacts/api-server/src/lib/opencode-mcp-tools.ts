@@ -90,6 +90,7 @@ const CONTRATO_COMPLETO = new Set<string>([
  */
 const TOOL_SCHEMAS: Record<string, object> = {
   agenda_ver: { type: "object", properties: {} },
+  landing_forge_pendientes: { type: "object", properties: {} },
   // ── Diagnóstico del vendedor de WhatsApp ────────────────────────────────────
   // Esquemas explícitos y no el genérico permisivo: son las herramientas que
   // Atlas tiene que poder llamar SOLO con lo que leyó del pedido, y el
@@ -1380,7 +1381,7 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // "no tengo una consulta que devuelva la lista de landings" teniéndola.
     // El patrón tolera "landipage"/"landing page"/"lp"/"Landing Studio".
     patron: /landi|landing|\bl\/|p[aá]gina de venta|\blp\b|studio/i,
-    herramientas: ["landing_listar", "list_products"],
+    herramientas: ["landing_listar", "landing_forge_pendientes", "list_products"],
   },
   {
     patron: /contenido|publicacion|publicar|org[aá]nic|calendario|estrategia|agencia|redes|instagram|posteo|postear/i,

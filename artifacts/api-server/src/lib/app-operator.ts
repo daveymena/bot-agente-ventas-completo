@@ -5163,6 +5163,95 @@ ${explicarObjetivos()}` };
     },
   },
   {
+    name: "landing_forge_crear",
+    description:
+      "Crea la landing en LandingForge, el generador bueno (https://landings.ventasproia.com, IA activa): extrae la ficha del producto, la IA arma el copy de venta con las fotos del producto colocadas y devuelve URL publica + editor + exportar HTML. Arma el prompt PRO solo con pais, precio, publico, promesa y vertical; si el admin dio instruccion se usa tal cual. La landing queda guardada y visible en landing_listar. Va por propose_action.",
+    args: '{ "productId": number (req), "instruccion"?: string (enfoque, publico o promesa con las palabras del admin), "productUrl"?: string (ficha a extraer; si no, usa la del producto) }',
+    run: async (args, ctx) => {
+      const { landingPages } = await import("@workspace/db");
+      const { getOrCreateLanding } = await import("./landingforge-client");
+      const id = num(args?.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'." };
+      const [prod] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
+      if (!prod) return { ok: false, summary: `No encontre el producto ${id}.` };
+      const p: any = prod;
+      const kind = p.kind === "digital" ? "digital" : "physical";
+      const price = p.price ? String(p.price) : "";
+      const currency = String(p.currency || "COP");
+      const productUrl = String(args?.productUrl || p.paymentLink || p.checkoutUrl || "").trim();
+      const instruccion = String(args?.instruccion || "").trim();
+      const imgRaw = p.imageUrl || (p as any).image_url || "";
+      const appBase = (process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "");
+      const images = imgRaw ? [String(imgRaw).startsWith("/") ? appBase + String(imgRaw) : String(imgRaw)] : [];
+      // Prompt PRO: lo que convierte es pais + precio + publico + promesa.
+      const prompt = [
+        `Landing para vender ${p.name}`,
+        price ? `a ${price} ${currency}` : "",
+        kind === "digital" ? "producto digital" : "con pago contra entrega en Colombia",
+        p.description ? `. ${String(p.description).slice(0, 400)}` : "",
+        productUrl ? `. El boton de compra lleva a ${productUrl}` : "",
+        instruccion ? `. Enfoque del dueno: ${instruccion}` : "",
+      ].filter(Boolean).join(" ");
+      const r = await getOrCreateLanding(p.name, productUrl, kind, {
+        description: p.description || "",
+        price: price || undefined,
+        currency,
+        category: p.category || undefined,
+        checkoutUrl: productUrl || undefined,
+        images: images.length ? images : undefined,
+        prompt,
+      });
+      if (!r.ok) return { ok: false, summary: `LandingForge fallo: ${r.error}` };
+      // Fila espejo para que figure en landing_listar / landing_estado.
+      const baseSlug = String(r.slug || p.name).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || "landing";
+      const slug = `${baseSlug}-${Date.now().toString(36)}`;
+      const [row] = await db.insert(landingPages).values({
+        tenantId: ctx.tenantId, productId: p.id,
+        name: `Landing Forge - ${p.name}`.slice(0, 200), slug,
+        status: "published",
+        strategy: { forge: true, url: r.url, landingId: r.landingId },
+        sections: [],
+        design: {},
+        source: { type: "landingforge", url: r.url, landingId: r.landingId },
+        html: null,
+        publishedUrl: r.url,
+      } as any).returning();
+      return {
+        ok: true,
+        summary:
+          `Listo: landing de "${p.name}" creada en LandingForge (${r.sectionsGenerated} secciones). ` +
+          `Publica: ${r.url}` +
+          (r.editorUrl ? ` - Editor: ${r.editorUrl}` : "") +
+          ` - Quedo guardada como [${row.id}] y ya figura en landing_listar.`,
+        data: { id: row.id, landingId: r.landingId, url: r.url, editorUrl: r.editorUrl || null, exportUrl: r.exportUrl || null, slug: r.slug },
+      };
+    },
+  },
+  {
+    name: "landing_forge_pendientes",
+    description:
+      "Productos del negocio que todavia no tienen landing de LandingForge publicada: id, nombre, precio, si tienen foto y ficha. Usala para detectar que productos necesitan landing (estilo Landing Studio) y luego crearlas con landing_forge_crear. Lectura pura.",
+    args: '{}',
+    run: async (_args, ctx) => {
+      const { landingPages } = await import("@workspace/db");
+      const prods: any[] = await db.select().from(products).where(eq(products.tenantId, ctx.tenantId));
+      const rows: any[] = await db.select().from(landingPages).where(eq(landingPages.tenantId, ctx.tenantId));
+      const conForge = new Set(rows.filter((l) => l.status === "published" && (l.source as any)?.type === "landingforge").map((l) => l.productId));
+      const pend = prods.filter((p) => !conForge.has(p.id)).map((p) => ({
+        id: p.id, nombre: p.name, precio: p.price, moneda: p.currency,
+        tieneFoto: !!((p as any).imageUrl || (p as any).image_url),
+        ficha: p.paymentLink || p.checkoutUrl || null,
+      }));
+      return {
+        ok: true,
+        summary: pend.length
+          ? `Sin landing Forge (${pend.length}): ` + pend.map((p) => `[${p.id}] ${p.nombre}${p.tieneFoto ? " (con foto)" : " (SIN FOTO)"}`).join(" - ")
+          : "Todos los productos ya tienen landing de LandingForge.",
+        data: { pendientes: pend },
+      };
+    },
+  },
+  {
     name: "landing_editar",
     description:
       "Edita una landing con una instrucción del admin (textos, secciones, botón, estilo). Por secciones: al instante. Con diseño propio (HTML): se reescribe en segundo plano (1-3 min) y hasta que landing_estado diga lista la URL muestra la versión anterior; NUNCA digas que ya cambió antes. No inventa datos. ⚠️ Va por propose_action.",
@@ -9546,7 +9635,7 @@ export const READ_ONLY_TOOLS = new Set([
   // antes de decidir.
   "producto_ganador", "dropi_roi", "espiar_tienda", "fb_estimar",
   // Leer el estado de una landing en generación y simular el reentrenamiento no cambian nada.
-  "landing_estado", "agente_reentrenar_ver",
+  "landing_estado", "landing_forge_pendientes", "agente_reentrenar_ver",
   // Diagnosticar al vendedor, ver en qué motor está y probarlo en sombra son
   // lectura: no le escriben a ningún cliente ni cambian cómo atiende el bot.
   // Diagnosticar SIN pedir permiso es el punto: si hubiera que aprobar cada
