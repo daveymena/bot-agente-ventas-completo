@@ -67,7 +67,7 @@ export function AppSidebar() {
     { label: "Personalización", href: "/branding", icon: Palette },
     { label: "Facebook", href: "/facebook", icon: Facebook },
     { label: "Marketing", href: "/marketing", icon: Megaphone },
-    { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate },
+    { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate, external: "https://landings.ventasproia.com" },
     { label: "Configuración", href: "/settings", icon: Settings },
     { label: "Diagnóstico", href: "/diagnostico", icon: Activity },
     // Oculto del menú 29-09-2026: duplicado de "Probar vendedor" (línea de arriba).
@@ -112,7 +112,7 @@ export function AppSidebar() {
                       className={`group flex items-center h-10 rounded-lg transition-colors ${isActive ? 'bg-sidebar-primary text-white font-medium' : 'text-sidebar-foreground font-medium hover:text-white hover:bg-sidebar-accent'}`}
                     >
                       {(item as any).external ? (
-                        <a href={item.href} target="_blank" rel="noopener noreferrer" className={linkClassName}>{linkContent}</a>
+                        <a href={(item as any).external} target="_blank" rel="noopener noreferrer" className={linkClassName}>{linkContent}</a>
                       ) : (
                         <Link href={item.href} className={linkClassName}>{linkContent}</Link>
                       )}
