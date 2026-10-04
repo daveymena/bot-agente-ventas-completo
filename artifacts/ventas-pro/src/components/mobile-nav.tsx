@@ -11,7 +11,7 @@ const mainNavItems = [
 ];
 
 const baseMoreItems = [
-  { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate },
+  { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate, external: "https://landings.ventasproia.com" },
   { label: "Atlas VentasPro", href: "/code-agent", icon: Wand2, highlight: true },
   { label: "Marketing", href: "/marketing", icon: Megaphone },
   { label: "Facebook", href: "/facebook", icon: Facebook },
@@ -69,7 +69,8 @@ export function MobileNav() {
             {moreItems.map((item) => {
               const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
               const isExternal = (item as any).external;
-              return <a key={item.href} href={item.href} target={isExternal ? "_blank" : undefined} rel={isExternal ? "noopener noreferrer" : undefined} onClick={(e) => { if (isExternal) { e.preventDefault(); setShowMore(false); try { window.open(item.href, "_blank", "noopener,noreferrer"); } catch { window.location.href = item.href; } return; } e.preventDefault(); setShowMore(false); setLocation(item.href); }} className={`flex flex-col items-center gap-1.5 rounded-2xl p-3 transition-all ${isActive ? "bg-indigo-50 text-indigo-600" : "text-gray-600 hover:bg-gray-50"}`}><div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isActive ? "bg-indigo-100" : "bg-gray-100"}`}><item.icon className={`w-5 h-5 ${isActive ? "text-indigo-600" : "text-gray-500"}`} /></div><span className="text-[10px] font-semibold text-center leading-tight">{item.label}</span></a>;
+              const urlExterna = typeof isExternal === "string" ? isExternal : item.href;
+              return <a key={item.href} href={isExternal ? urlExterna : item.href} target={isExternal ? "_blank" : undefined} rel={isExternal ? "noopener noreferrer" : undefined} onClick={(e) => { if (isExternal) { e.preventDefault(); setShowMore(false); try { window.open(urlExterna, "_blank", "noopener,noreferrer"); } catch { window.location.href = urlExterna; } return; } e.preventDefault(); setShowMore(false); setLocation(item.href); }} className={`flex flex-col items-center gap-1.5 rounded-2xl p-3 transition-all ${isActive ? "bg-indigo-50 text-indigo-600" : "text-gray-600 hover:bg-gray-50"}`}><div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isActive ? "bg-indigo-100" : "bg-gray-100"}`}><item.icon className={`w-5 h-5 ${isActive ? "text-indigo-600" : "text-gray-500"}`} /></div><span className="text-[10px] font-semibold text-center leading-tight">{item.label}</span></a>;
             })}
           </div>
           {/* En el celular no había forma de cerrar sesión: el botón vivía
