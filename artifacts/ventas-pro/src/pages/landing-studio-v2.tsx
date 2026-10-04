@@ -451,9 +451,9 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
   }, [landings, cargarPreview]);
 
   return (
-    <Layout>
-      <div className="flex flex-col" style={{ height: "calc(100vh - 4rem)" }}>
-        <div className="flex items-center gap-2 px-3 py-2 border-b bg-background shrink-0 flex-wrap">
+    <Layout chatCompleto>
+      <div className="flex flex-col flex-1 min-h-0">
+        <div className="flex items-center gap-2 px-3 py-2 border-b bg-background shrink-0 flex-wrap gap-y-2">
           <div className="flex items-center gap-2 mr-1">
             <div className="p-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
               <LayoutTemplate className="h-4 w-4 text-violet-500" />
@@ -462,7 +462,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
             <Badge variant="secondary" className="text-[10px] hidden sm:flex">IA</Badge>
           </div>
           <select value={productId} onChange={e => setProductId(e.target.value ? Number(e.target.value) : "")}
-            className="h-8 rounded-md border bg-background px-2 text-xs min-w-[140px] max-w-[200px]"
+            className="h-8 rounded-md border bg-background px-2 text-xs min-w-0 max-w-[200px] flex-1 sm:flex-none"
             title={productsErr ? "No se pudieron cargar los productos. Tocá para reintentar." : undefined}>
             <option value="">{productsErr ? "Error al cargar productos…" : "Producto..."}</option>
             {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -509,7 +509,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
             </div>
           )}
           <select value={landingId || ""} onChange={e => e.target.value && cargarLanding(Number(e.target.value))}
-            className="h-8 rounded-md border bg-background px-2 text-xs min-w-[120px] max-w-[180px]">
+            className="h-8 rounded-md border bg-background px-2 text-xs min-w-0 max-w-[180px] flex-1 sm:flex-none">
             <option value="">Nueva landing...</option>
             {landings.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
@@ -523,7 +523,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Wand2 className="h-3.5 w-3.5 mr-1" />}
             Generar
           </Button>
-          <div className="ml-auto flex gap-1 items-center">
+          <div className="ml-auto flex gap-1 items-center flex-wrap justify-end">
             {urlPublica ? (
               <>
                 <a href={urlPublica} target="_blank" rel="noreferrer" className="h-8 px-2 inline-flex items-center gap-1 rounded-md border text-xs text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100 max-w-[220px] truncate"
@@ -624,12 +624,12 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
           ))}
         </div>
 
-        <div className="flex flex-1 overflow-hidden">
+        <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Ancho completo en móvil; los 340px fijos recién a partir de lg.
               El `hidden` es lo que evita que los dos paneles se repartan una
               pantalla donde no entran. */}
           <div
-            className={`flex-col border-r bg-background w-full lg:w-[340px] xl:w-[400px] lg:min-w-[280px] lg:flex ${
+            className={`flex-col border-r bg-background w-full min-h-0 lg:w-[340px] xl:w-[400px] lg:min-w-[280px] lg:flex ${
               panelMovil === "chat" ? "flex" : "hidden"
             }`}
           >
@@ -727,7 +727,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                 {plantilla.startsWith("estilo") ? (plantilla === "estilo" ? "Modelo COD (IA elige)" : `Modelo: ${plantilla.slice(7)}`) : (FAMILIAS.find(f => f.value === plantilla)?.label) || "Automático"}
               </Badge>
             </div>
-            <div className={`flex-1 overflow-auto flex ${previewMode === "mobile" ? "items-start justify-center py-8" : ""}`}>
+            <div className={`flex-1 min-h-0 overflow-auto flex ${previewMode === "mobile" ? "items-start justify-center py-8" : ""}`}>
               {/* El marco de teléfono medía 390px EXACTOS -- justo el ancho de
                   un teléfono real, así que dentro de uno se salía de la
                   pantalla junto con sus 8px de borde. `w-full max-w-[390px]`
@@ -747,7 +747,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                   className={`w-full block border-0 ${
                     previewMode === "mobile"
                       ? "h-[70vh] max-h-[844px] lg:h-[844px] lg:max-h-none"
-                      : "h-[calc(100vh-12rem)] lg:h-[calc(100vh-8.5rem)]"
+                      : "h-full min-h-[420px]"
                   }`}
                   sandbox="allow-same-origin allow-scripts" />
               </div>
