@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { Sparkles, Send, User, Loader2, Monitor, Smartphone, Download, RefreshCw, LayoutTemplate, Wand2, Copy, Trash2, ExternalLink, EyeOff, MoreHorizontal } from "lucide-react";
+import { Sparkles, Send, User, Loader2, Monitor, Smartphone, Download, RefreshCw, LayoutTemplate, Wand2, Copy, Trash2, ExternalLink, EyeOff, MoreHorizontal, Truck } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import ReactMarkdown from "react-markdown";
 import { BloquesEditor } from "@/components/landing/bloques-editor";
@@ -153,11 +153,62 @@ export default function LandingStudioV2() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    Promise.all([apiFetch<Product[]>("/api/products"), apiFetch<Landing[]>("/api/landing-pages")])
-      .then(([p, l]) => { setProducts(p); setLandings(l); })
-      .catch(() => {});
+  const [productsErr, setProductsErr] = useState<string | null>(null);
+  const cargarProductos = useCallback(async () => {
+    setProductsErr(null);
+    try {
+      const p = await apiFetch<Product[]>("/api/products");
+      setProducts(Array.isArray(p) ? p : []);
+    } catch (e: any) {
+      setProductsErr(e?.message || "No se pudieron cargar los productos");
+    }
   }, []);
+  useEffect(() => {
+    cargarProductos();
+    apiFetch<Landing[]>("/api/landing-pages").then(setLandings).catch(() => {});
+  }, [cargarProductos]);
+
+  // ── Dropi en el generador ────────────────────────────────────────────────
+  // Los productos del proveedor (Dropi) también aparecen acá: se buscan por
+  // nombre vía API y se importan en un clic, sin salir del Studio. Después de
+  // importar, el producto queda en el catálogo y se selecciona solo.
+  const [dropiAbierto, setDropiAbierto] = useState(false);
+  const [dropiQ, setDropiQ] = useState("");
+  const [dropiBuscando, setDropiBuscando] = useState(false);
+  const [dropiItems, setDropiItems] = useState<any[]>([]);
+  const [dropiErr, setDropiErr] = useState<string | null>(null);
+  const [dropiImportando, setDropiImportando] = useState<number | null>(null);
+
+  const buscarDropi = useCallback(async () => {
+    const q = dropiQ.trim();
+    if (!q) { setDropiErr("Escribí qué buscar en Dropi"); return; }
+    setDropiBuscando(true); setDropiErr(null); setDropiItems([]);
+    try {
+      const r = await apiFetch<any>(`/api/dropi/buscar?q=${encodeURIComponent(q)}`);
+      if (!r.ok) { setDropiErr(r.error || "Dropi no respondió"); return; }
+      setDropiItems(r.productos || []);
+      if (!(r.productos || []).length) setDropiErr("No hay resultados (o ya están todos importados).");
+    } catch (e: any) { setDropiErr(e?.message || "No se pudo buscar en Dropi"); }
+    finally { setDropiBuscando(false); }
+  }, [dropiQ]);
+
+  const importarDropi = useCallback(async (dropiProductId: number) => {
+    setDropiImportando(dropiProductId); setDropiErr(null);
+    try {
+      const r = await apiFetch<any>("/api/dropi/importar", { method: "POST", body: JSON.stringify({ dropiProductId, curar: true }) });
+      const res = r?.resultados?.[0];
+      if (res?.ok && res?.productId) {
+        await cargarProductos();
+        setProductId(res.productId);
+        setDropiAbierto(false);
+        setDropiQ(""); setDropiItems([]);
+        toast.success(res.yaExistia ? "Producto ya estaba en tu catálogo — seleccionado." : "Producto importado y seleccionado.");
+      } else {
+        setDropiErr(res?.error || r?.error || "No se pudo importar");
+      }
+    } catch (e: any) { setDropiErr(e?.message || "No se pudo importar"); }
+    finally { setDropiImportando(null); }
+  }, [cargarProductos]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs]);
 
@@ -411,10 +462,52 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
             <Badge variant="secondary" className="text-[10px] hidden sm:flex">IA</Badge>
           </div>
           <select value={productId} onChange={e => setProductId(e.target.value ? Number(e.target.value) : "")}
-            className="h-8 rounded-md border bg-background px-2 text-xs min-w-[140px] max-w-[200px]">
-            <option value="">Producto...</option>
+            className="h-8 rounded-md border bg-background px-2 text-xs min-w-[140px] max-w-[200px]"
+            title={productsErr ? "No se pudieron cargar los productos. Tocá para reintentar." : undefined}>
+            <option value="">{productsErr ? "Error al cargar productos…" : "Producto..."}</option>
             {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
+          {productsErr && (
+            <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={cargarProductos} title="Reintentar cargar productos">
+              <RefreshCw className="h-3.5 w-3.5 mr-1" />Reintentar
+            </Button>
+          )}
+          <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={() => setDropiAbierto(true)} title="Buscar e importar un producto de Dropi">
+            <Truck className="h-3.5 w-3.5 mr-1" />Dropi
+          </Button>
+          {dropiAbierto && (
+            <div className="fixed inset-0 z-30 flex items-start justify-center bg-black/30 p-4 pt-[10vh]" onClick={() => setDropiAbierto(false)}>
+              <div className="w-full max-w-md rounded-lg border bg-background p-4 shadow-xl space-y-3" onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold">Importar producto de Dropi</p>
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setDropiAbierto(false)}>×</Button>
+                </div>
+                <div className="flex gap-2">
+                  <Input autoFocus value={dropiQ} onChange={e => setDropiQ(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); buscarDropi(); } }} placeholder="Buscar por nombre en Dropi…" className="h-8 text-xs flex-1" />
+                  <Button size="sm" onClick={buscarDropi} disabled={dropiBuscando || !dropiQ.trim()} className="h-8 px-3 text-xs">
+                    {dropiBuscando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Buscar"}
+                  </Button>
+                </div>
+                {dropiErr && <p className="text-xs text-red-600">{dropiErr}</p>}
+                {dropiItems.length > 0 && (
+                  <div className="space-y-1 max-h-[50vh] overflow-y-auto">
+                    {dropiItems.map((p) => (
+                      <div key={p.id} className="flex items-center gap-2 rounded-md border p-2">
+                        {p.foto ? <img src={p.foto} alt="" className="h-9 w-9 rounded object-cover shrink-0" /> : <div className="h-9 w-9 rounded bg-muted shrink-0" />}
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium truncate">{p.nombre}</p>
+                          <p className="text-[10px] text-muted-foreground">{p.categoria || "—"} · {p.precioSugerido ? `$${Number(p.precioSugerido).toLocaleString("es-CO")}` : "s/p"} {p.importadoComo ? "· ya importado" : ""}</p>
+                        </div>
+                        <Button size="sm" className="h-7 px-2 text-[11px]" onClick={() => importarDropi(p.id)} disabled={dropiImportando !== null}>
+                          {dropiImportando === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : (p.importadoComo ? "Usar" : "Importar")}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           <select value={landingId || ""} onChange={e => e.target.value && cargarLanding(Number(e.target.value))}
             className="h-8 rounded-md border bg-background px-2 text-xs min-w-[120px] max-w-[180px]">
             <option value="">Nueva landing...</option>

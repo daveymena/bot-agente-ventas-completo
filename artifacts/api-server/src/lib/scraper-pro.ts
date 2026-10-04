@@ -17,7 +17,13 @@ async function hostEsPrivado(hostname: string): Promise<boolean> {
     if (isIP(hostname)) return esPrivada(hostname);
     const addrs = await lookup(hostname, { all: true });
     return addrs.some((a) => esPrivada(a.address));
-  } catch { return true; }
+  } catch {
+    // Un fallo de DNS NO es "host privado": devolver `true` acá hacía que
+    // cualquier URL válida con una resolución lenta/fallida se rechazara con
+    // "Host privado/bloqueado (SSRF)", que es un diagnóstico falso. Se deja
+    // pasar y el fetch de abajo falla con el error real (ENOTFOUND, timeout…).
+    return false;
+  }
 }
 function esPrivada(ip: string): boolean {
   const v = ip.toLowerCase();

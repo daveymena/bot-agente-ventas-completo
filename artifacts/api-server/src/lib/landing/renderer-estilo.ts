@@ -712,7 +712,7 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
 :root{--a:${esc(a)};--a-d:${esc(a)}dd;--ink:#12271d;--mut:#5b6472;--bg:#f5f7f5;--ok:#0d9d58;--bad:#e2483d;--star:#f5a623;--wa:#25d366;--card:#fff}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%;scroll-behavior:smooth;scroll-padding-top:64px}
-body{margin:0;font-family:Inter,system-ui,-apple-system,sans-serif;color:var(--ink);background:var(--bg);line-height:1.55;font-size:15.5px;overflow-x:hidden}
+body{margin:0;font-family:Inter,system-ui,-apple-system,sans-serif;color:var(--ink);background:var(--bg);line-height:1.55;font-size:15.5px;overflow-x:hidden;overflow-wrap:break-word;word-break:break-word}
 img{max-width:100%;display:block}
 button,input,select{font:inherit}
 .wrap{max-width:1000px;margin:0 auto;padding:0 16px}
@@ -937,6 +937,17 @@ footer .fine{margin-top:12px;font-size:10.5px;opacity:.7}
 @media(max-width:560px){
   .two{grid-template-columns:1fr}
   section{padding:26px 0}
+  /* El comparador y la franja de confianza usaban columnas FIJAS que en un
+     teléfono angosto desbordan el ancho (dos columnas de texto lado a lado y
+     4 celdas de 1fr). Abajo de 560px se apilan/parten a 2 para que el texto
+     fluya y no se salga de la pantalla. */
+  .cmp{grid-template-columns:1fr}
+  .trust4{grid-template-columns:repeat(2,1fr);gap:10px 6px}
+  .trust4 div{font-size:10.5px}
+  .tbar{grid-template-columns:1fr;gap:8px;text-align:left}
+  .tbar div{display:flex;align-items:center;gap:8px}
+  .tbar div span{margin:0;font-size:17px}
+  .q em{white-space:normal}
 }
 @media(min-width:700px){
   .shotrow{grid-auto-flow:row;grid-template-columns:repeat(4,1fr);grid-auto-columns:auto;overflow:visible;margin:0;padding:4px 0 0;gap:14px}
