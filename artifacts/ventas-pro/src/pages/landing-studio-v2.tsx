@@ -453,120 +453,46 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
   return (
     <Layout chatCompleto>
       <div className="flex flex-col flex-1 min-h-0">
-        <div className="flex items-center gap-2 px-3 py-2 border-b bg-background shrink-0 flex-wrap gap-y-2">
-          <div className="flex items-center gap-2 mr-1">
-            <div className="p-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
-              <LayoutTemplate className="h-4 w-4 text-violet-500" />
-            </div>
-            <span className="text-sm font-bold hidden sm:block">Atlas Landing</span>
-            <Badge variant="secondary" className="text-[10px] hidden sm:flex">IA</Badge>
-          </div>
-          <select value={productId} onChange={e => setProductId(e.target.value ? Number(e.target.value) : "")}
-            className="h-8 rounded-md border bg-background px-2 text-xs min-w-0 max-w-[200px] flex-1 sm:flex-none"
-            title={productsErr ? "No se pudieron cargar los productos. Tocá para reintentar." : undefined}>
-            <option value="">{productsErr ? "Error al cargar productos…" : "Producto..."}</option>
-            {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-          {productsErr && (
-            <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={cargarProductos} title="Reintentar cargar productos">
-              <RefreshCw className="h-3.5 w-3.5 mr-1" />Reintentar
-            </Button>
-          )}
-          <Button size="sm" variant="outline" className="h-8 px-2 text-xs" onClick={() => setDropiAbierto(true)} title="Buscar e importar un producto de Dropi">
-            <Truck className="h-3.5 w-3.5 mr-1" />Dropi
-          </Button>
-          {dropiAbierto && (
-            <div className="fixed inset-0 z-30 flex items-start justify-center bg-black/30 p-4 pt-[10vh]" onClick={() => setDropiAbierto(false)}>
-              <div className="w-full max-w-md rounded-lg border bg-background p-4 shadow-xl space-y-3" onClick={e => e.stopPropagation()}>
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold">Importar producto de Dropi</p>
-                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setDropiAbierto(false)}>×</Button>
-                </div>
-                <div className="flex gap-2">
-                  <Input autoFocus value={dropiQ} onChange={e => setDropiQ(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); buscarDropi(); } }} placeholder="Buscar por nombre en Dropi…" className="h-8 text-xs flex-1" />
-                  <Button size="sm" onClick={buscarDropi} disabled={dropiBuscando || !dropiQ.trim()} className="h-8 px-3 text-xs">
-                    {dropiBuscando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Buscar"}
-                  </Button>
-                </div>
-                {dropiErr && <p className="text-xs text-red-600">{dropiErr}</p>}
-                {dropiItems.length > 0 && (
-                  <div className="space-y-1 max-h-[50vh] overflow-y-auto">
-                    {dropiItems.map((p) => (
-                      <div key={p.id} className="flex items-center gap-2 rounded-md border p-2">
-                        {p.foto ? <img src={p.foto} alt="" className="h-9 w-9 rounded object-cover shrink-0" /> : <div className="h-9 w-9 rounded bg-muted shrink-0" />}
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium truncate">{p.nombre}</p>
-                          <p className="text-[10px] text-muted-foreground">{p.categoria || "—"} · {p.precioSugerido ? `$${Number(p.precioSugerido).toLocaleString("es-CO")}` : "s/p"} {p.importadoComo ? "· ya importado" : ""}</p>
-                        </div>
-                        <Button size="sm" className="h-7 px-2 text-[11px]" onClick={() => importarDropi(p.id)} disabled={dropiImportando !== null}>
-                          {dropiImportando === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : (p.importadoComo ? "Usar" : "Importar")}
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+        <div className="shrink-0 border-b bg-background">
+          {/* Fila principal: logo + producto + landing + generar + iconos de acción */}
+          <div className="flex items-center gap-2 px-3 pt-2">
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="p-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
+                <LayoutTemplate className="h-4 w-4 text-violet-500" />
               </div>
+              <span className="text-sm font-bold hidden sm:block">Atlas Landing</span>
+              <Badge variant="secondary" className="text-[10px] hidden sm:flex">IA</Badge>
             </div>
-          )}
-          <select value={landingId || ""} onChange={e => e.target.value && cargarLanding(Number(e.target.value))}
-            className="h-8 rounded-md border bg-background px-2 text-xs min-w-0 max-w-[180px] flex-1 sm:flex-none">
-            <option value="">Nueva landing...</option>
-            {landings.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select>
-          <Button size="sm" disabled={busy || !productId} onClick={async () => {
-              if (!productId) return;
-              setInput("Genera una landing page para este producto");
-              // Trigger enviar via ref
-              setTimeout(() => enviar(), 100);
-            }}
-            className="bg-violet-600 hover:bg-violet-700 text-white h-8 px-3 text-xs">
-            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Wand2 className="h-3.5 w-3.5 mr-1" />}
-            Generar
-          </Button>
-          <div className="ml-auto flex gap-1 items-center flex-wrap justify-end">
-            {urlPublica ? (
-              <>
-                <a href={urlPublica} target="_blank" rel="noreferrer" className="h-8 px-2 inline-flex items-center gap-1 rounded-md border text-xs text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100 max-w-[220px] truncate"
-                  title={`Abrir ${urlPublica}`}>
-                  <ExternalLink className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{urlPublica.replace(/^https?:\/\//, "")}</span>
-                </a>
-                <Button size="sm" variant="ghost" onClick={despublicar} className="h-8 px-2 text-xs" title="Despublicar: la URL deja de responder">
-                  <EyeOff className="h-3.5 w-3.5 mr-1" />Despublicar
-                </Button>
-              </>
-            ) : (
-              <Button size="sm" onClick={publicar} disabled={!landingId} className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
-                title="Publicar en ventasproia.com/l/… (la URL para el anuncio)">
-                Publicar
-              </Button>
-            )}
-            {esCopiaHtml(landingActual) && (
-              <Button size="sm" onClick={adaptar} disabled={adaptando || !productId} className="h-8 px-3 text-xs bg-violet-600 hover:bg-violet-700 text-white"
-                title="Reescribir textos, fotos y botones para el producto elegido">
-                {adaptando ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Wand2 className="h-3.5 w-3.5 mr-1" />}Adaptar al producto
-              </Button>
-            )}
-            {/* Pedido del dueño (13-09): el campo de la URL se extiende a los
-                lados dentro de la misma barra, no cae en un cuadro debajo. */}
-            {urlAbierto && (
-              <div className="flex items-center gap-1 flex-1 min-w-[280px]">
-                <Input autoFocus value={urlClonar} onChange={e => setUrlClonar(e.target.value)} placeholder="Pegá la URL de la landing a clonar (HTML + CSS)…" className="h-8 text-xs flex-1"
-                  onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); clonarDesdeUrl(); } if (e.key === "Escape") setUrlAbierto(false); }} />
-                <Button size="sm" className="h-8 px-3 text-xs" onClick={clonarDesdeUrl} disabled={!urlClonar.trim()}>Clonar</Button>
-                <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setUrlAbierto(false)}>Cancelar</Button>
-              </div>
-            )}
-            <Button size="sm" variant="ghost" onClick={() => landingId && cargarPreview(landingId)} disabled={!landingId || previewBusy} className="h-8 w-8 p-0"
-              title="Actualizar la vista previa" aria-label="Actualizar la vista previa">
-              <RefreshCw className={`h-3.5 w-3.5 ${previewBusy ? "animate-spin" : ""}`} />
+            <select value={productId} onChange={e => setProductId(e.target.value ? Number(e.target.value) : "")}
+              className="h-8 rounded-md border bg-background px-2 text-xs min-w-0 flex-1 sm:flex-none sm:w-[170px]"
+              title={productsErr ? "No se pudieron cargar los productos. Tocá para reintentar." : undefined}>
+              <option value="">{productsErr ? "Error al cargar productos…" : "Producto..."}</option>
+              {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <select value={landingId || ""} onChange={e => e.target.value && cargarLanding(Number(e.target.value))}
+              className="h-8 rounded-md border bg-background px-2 text-xs min-w-0 flex-1 sm:flex-none sm:w-[150px]">
+              <option value="">Nueva landing...</option>
+              {landings.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+            </select>
+            <Button size="sm" disabled={busy || !productId} onClick={async () => {
+                if (!productId) return;
+                setInput("Genera una landing page para este producto");
+                setTimeout(() => enviar(), 100);
+              }}
+              className="bg-violet-600 hover:bg-violet-700 text-white h-8 px-3 text-xs shrink-0">
+              {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Wand2 className="h-3.5 w-3.5 mr-1" />}
+              Generar
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => setPreviewMode(m => m === "desktop" ? "mobile" : "desktop")} className="h-8 w-8 p-0"
-              title={previewMode === "desktop" ? "Ver como se ve en un celular" : "Ver como se ve en pantalla grande"}
-              aria-label={previewMode === "desktop" ? "Ver como se ve en un celular" : "Ver como se ve en pantalla grande"}>
-              {previewMode === "desktop" ? <Smartphone className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
-            </Button>
-            {/* Lo que se usa poco va en "Más": la barra queda con lo del día a día. */}
-            <div className="relative">
+            <div className="ml-auto flex items-center gap-1 shrink-0">
+              <Button size="sm" variant="ghost" onClick={() => landingId && cargarPreview(landingId)} disabled={!landingId || previewBusy} className="h-8 w-8 p-0"
+                title="Actualizar la vista previa" aria-label="Actualizar la vista previa">
+                <RefreshCw className={`h-3.5 w-3.5 ${previewBusy ? "animate-spin" : ""}`} />
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setPreviewMode(m => m === "desktop" ? "mobile" : "desktop")} className="h-8 w-8 p-0"
+                title={previewMode === "desktop" ? "Ver como se ve en un celular" : "Ver como se ve en pantalla grande"}
+                aria-label={previewMode === "desktop" ? "Ver como se ve en un celular" : "Ver como se ve en pantalla grande"}>
+                {previewMode === "desktop" ? <Smartphone className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
+              </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button size="sm" variant="ghost" className="h-8 w-8 p-0" title="Más acciones" aria-label="Más acciones">
@@ -589,24 +515,100 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-              {clonarAbierto && (
-                <div className="absolute right-0 top-9 z-20 w-64 rounded-md border bg-background p-3 shadow-lg space-y-2">
-                  <p className="text-xs font-semibold">Clonar esta landing</p>
-                  <p className="text-[11px] text-muted-foreground">Sin producto: copia exacta. Con otro producto: mismo estilo, contenido nuevo.</p>
-                  <select value={clonarProducto} onChange={e => setClonarProducto(e.target.value ? Number(e.target.value) : "")}
-                    className="h-8 w-full rounded-md border bg-background px-2 text-xs">
-                    <option value="">Copia exacta (mismo producto)</option>
-                    {products.map(p => <option key={p.id} value={p.id}>Estilo para: {p.name}</option>)}
-                  </select>
-                  <div className="flex gap-1 justify-end">
-                    <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setClonarAbierto(false)}>Cancelar</Button>
-                    <Button size="sm" className="h-7 text-xs" onClick={clonar}>Clonar</Button>
-                  </div>
+            </div>
+          </div>
+          {/* Fila de acciones secundarias: scroll horizontal en móvil, no se apilan */}
+          <div className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto overflow-y-hidden whitespace-nowrap sm:flex-wrap sm:overflow-visible">
+            <Button size="sm" variant="outline" className="h-8 px-2 text-xs shrink-0" onClick={() => setDropiAbierto(true)} title="Buscar e importar un producto de Dropi">
+              <Truck className="h-3.5 w-3.5 mr-1" />Dropi
+            </Button>
+            {productsErr && (
+              <Button size="sm" variant="outline" className="h-8 px-2 text-xs shrink-0" onClick={cargarProductos} title="Reintentar cargar productos">
+                <RefreshCw className="h-3.5 w-3.5 mr-1" />Reintentar
+              </Button>
+            )}
+            {urlPublica ? (
+              <a href={urlPublica} target="_blank" rel="noreferrer" className="h-8 px-2 inline-flex items-center gap-1 rounded-md border text-xs text-emerald-700 border-emerald-300 bg-emerald-50 hover:bg-emerald-100 max-w-[220px] truncate shrink-0"
+                title={`Abrir ${urlPublica}`}>
+                <ExternalLink className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{urlPublica.replace(/^https?:\/\//, "")}</span>
+              </a>
+            ) : (
+              <Button size="sm" onClick={publicar} disabled={!landingId} className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"
+                title="Publicar en ventasproia.com/l/… (la URL para el anuncio)">
+                Publicar
+              </Button>
+            )}
+            {urlPublica && (
+              <Button size="sm" variant="ghost" onClick={despublicar} className="h-8 px-2 text-xs shrink-0" title="Despublicar: la URL deja de responder">
+                <EyeOff className="h-3.5 w-3.5 mr-1" />Despublicar
+              </Button>
+            )}
+            {esCopiaHtml(landingActual) && (
+              <Button size="sm" onClick={adaptar} disabled={adaptando || !productId} className="h-8 px-3 text-xs bg-violet-600 hover:bg-violet-700 text-white shrink-0"
+                title="Reescribir textos, fotos y botones para el producto elegido">
+                {adaptando ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Wand2 className="h-3.5 w-3.5 mr-1" />}Adaptar al producto
+              </Button>
+            )}
+          </div>
+          {urlAbierto && (
+            <div className="flex items-center gap-1 px-3 pb-2">
+              <Input autoFocus value={urlClonar} onChange={e => setUrlClonar(e.target.value)} placeholder="Pegá la URL de la landing a clonar (HTML + CSS)…" className="h-8 text-xs flex-1"
+                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); clonarDesdeUrl(); } if (e.key === "Escape") setUrlAbierto(false); }} />
+              <Button size="sm" className="h-8 px-3 text-xs" onClick={clonarDesdeUrl} disabled={!urlClonar.trim()}>Clonar</Button>
+              <Button size="sm" variant="ghost" className="h-8 px-2 text-xs" onClick={() => setUrlAbierto(false)}>Cancelar</Button>
+            </div>
+          )}
+        </div>
+        {dropiAbierto && (
+          <div className="fixed inset-0 z-30 flex items-start justify-center bg-black/30 p-4 pt-[10vh]" onClick={() => setDropiAbierto(false)}>
+            <div className="w-full max-w-md rounded-lg border bg-background p-4 shadow-xl space-y-3" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold">Importar producto de Dropi</p>
+                <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setDropiAbierto(false)}>×</Button>
+              </div>
+              <div className="flex gap-2">
+                <Input autoFocus value={dropiQ} onChange={e => setDropiQ(e.target.value)} onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); buscarDropi(); } }} placeholder="Buscar por nombre en Dropi…" className="h-8 text-xs flex-1" />
+                <Button size="sm" onClick={buscarDropi} disabled={dropiBuscando || !dropiQ.trim()} className="h-8 px-3 text-xs">
+                  {dropiBuscando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Buscar"}
+                </Button>
+              </div>
+              {dropiErr && <p className="text-xs text-red-600">{dropiErr}</p>}
+              {dropiItems.length > 0 && (
+                <div className="space-y-1 max-h-[50vh] overflow-y-auto">
+                  {dropiItems.map((p) => (
+                    <div key={p.id} className="flex items-center gap-2 rounded-md border p-2">
+                      {p.foto ? <img src={p.foto} alt="" className="h-9 w-9 rounded object-cover shrink-0" /> : <div className="h-9 w-9 rounded bg-muted shrink-0" />}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium truncate">{p.nombre}</p>
+                        <p className="text-[10px] text-muted-foreground">{p.categoria || "—"} · {p.precioSugerido ? `$${Number(p.precioSugerido).toLocaleString("es-CO")}` : "s/p"} {p.importadoComo ? "· ya importado" : ""}</p>
+                      </div>
+                      <Button size="sm" className="h-7 px-2 text-[11px]" onClick={() => importarDropi(p.id)} disabled={dropiImportando !== null}>
+                        {dropiImportando === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : (p.importadoComo ? "Usar" : "Importar")}
+                      </Button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
           </div>
-        </div>
+        )}
+        {clonarAbierto && (
+          <div className="fixed inset-0 z-30 flex items-start justify-center bg-black/30 p-4 pt-[10vh]" onClick={() => setClonarAbierto(false)}>
+            <div className="w-full max-w-sm rounded-lg border bg-background p-4 shadow-xl space-y-2" onClick={e => e.stopPropagation()}>
+              <p className="text-sm font-semibold">Clonar esta landing</p>
+              <p className="text-xs text-muted-foreground">Sin producto: copia exacta. Con otro producto: mismo estilo, contenido nuevo.</p>
+              <select value={clonarProducto} onChange={e => setClonarProducto(e.target.value ? Number(e.target.value) : "")}
+                className="h-8 w-full rounded-md border bg-background px-2 text-xs">
+                <option value="">Copia exacta (mismo producto)</option>
+                {products.map(p => <option key={p.id} value={p.id}>Estilo para: {p.name}</option>)}
+              </select>
+              <div className="flex gap-1 justify-end">
+                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setClonarAbierto(false)}>Cancelar</Button>
+                <Button size="sm" className="h-7 text-xs" onClick={clonar}>Clonar</Button>
+              </div>
+            </div>
+          </div>
+        )}
         {/* El selector de panel, SOLO en pantalla chica (lg:hidden). En
             escritorio los dos se ven a la vez y este control estorbaría. */}
         <div className="flex lg:hidden shrink-0 border-b bg-muted/30 p-1 gap-1">
