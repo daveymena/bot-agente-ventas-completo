@@ -1138,6 +1138,20 @@ export default function CodeAgent() {
         return true;
       }
 
+      // El servidor ya NO tiene turno en esta charla y tampoco dejó respuesta:
+      // el turno se murió en el camino (se cortó por cupo o por tiempo y no
+      // quedó nada corriendo). Esperar 10 minutos no lo resucita: se avisa y
+      // se suelta, igual que al montar. Sin esto la pantalla se quedaba en
+      // "Recuperando…" hasta agotar los 150 intentos aunque no hubiera nada
+      // que esperar (05-10-2026).
+      if (data?.turnoEnCurso === false && h.length > 0 && h[h.length - 1]?.role !== "assistant") {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: "Ese pedido se cortó a mitad de camino y no llegué a responderlo. Escribímelo de nuevo y lo retomo.", at: Date.now() },
+        ]);
+        return true;
+      }
+
       await new Promise((r) => setTimeout(r, CADA));
     }
     return false;
@@ -1168,6 +1182,18 @@ export default function CodeAgent() {
           setLoading(false);
           setProgreso("");
         } else if (history[history.length - 1]?.role === "user") {
+          // Sin turno en el servidor no hay nada que esperar: se avisa y se
+          // suelta en vez de entrar a "Recuperando…", que sin esto no salía
+          // nunca porque no había nada corriendo que pudiera terminar.
+          if (data?.turnoEnCurso === false) {
+            setMessages((prev) => [
+              ...prev,
+              { role: "assistant", content: "Ese pedido se cortó a mitad de camino y no llegué a responderlo. Escribímelo de nuevo y lo retomo.", at: Date.now() },
+            ]);
+            setLoading(false);
+            setProgreso("");
+            return;
+          }
           setLoading(true);
           setProgreso("Atlas siguió trabajando. Esperando el resultado…");
           await recuperarDelCorte();
