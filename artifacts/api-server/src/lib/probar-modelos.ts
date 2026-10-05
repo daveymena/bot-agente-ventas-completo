@@ -16,7 +16,7 @@
  * que sirva.
  */
 
-import { getProviderConfig } from "@workspace/integrations-openai-ai-server";
+import { getProviderConfig, sanearParamsIA } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
 
 export interface ResultadoModelo {
@@ -57,7 +57,7 @@ async function probarUno(baseUrl: string, apiKey: string, modelo: string): Promi
     const r = await fetch(`${baseUrl.replace(/\/+$/, "")}/chat/completions`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({ model: modelo, max_tokens: 120, messages: PRUEBA }),
+      body: JSON.stringify(sanearParamsIA(modelo, { model: modelo, max_tokens: 120, messages: PRUEBA })),
       signal: AbortSignal.timeout(45_000),
     });
     const ms = Date.now() - t0;

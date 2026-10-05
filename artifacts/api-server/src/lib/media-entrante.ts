@@ -19,7 +19,7 @@
  *     inventar lo que la foto dice.
  */
 
-import { getProviderConfig } from "@workspace/integrations-openai-ai-server";
+import { getProviderConfig, sanearParamsIA } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
 import { modelosDe } from "./modelos-por-tarea";
 
@@ -247,7 +247,7 @@ export async function describirImagen(imagen: Buffer, mime = "image/jpeg", pregu
       const r = await fetch(`${cfg.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
-        body: JSON.stringify({
+        body: JSON.stringify(sanearParamsIA(modelo, {
           model: modelo,
           max_tokens: 500,
           ...opcionesDeVision(proveedor),
@@ -258,7 +258,7 @@ export async function describirImagen(imagen: Buffer, mime = "image/jpeg", pregu
               { type: "image_url", image_url: { url: `data:${mime};base64,${b64}` } },
             ],
           }],
-        }),
+        })),
         signal: AbortSignal.timeout(45_000),
       });
       if (!r.ok) {

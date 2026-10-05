@@ -161,6 +161,45 @@ const CATALOGO_PUBLICO: Record<string, string> = {
   ollama_cloud: "https://ollama.com/v1",
 };
 
+/** Los GPT-5+ / Luna rechazan `max_tokens` (400 unsupported_parameter): hay
+ *  que mandar `max_completion_tokens`. Mismo criterio que el agente y el forge. */
+function usaCompletionTokens(modelo: string): boolean {
+  return /gpt-[5-9]|gpt-6|luna/i.test(modelo || "");
+}
+
+/**
+ * Prueba REAL si un modelo sirve para chat. Devuelve null si esta bien o si el
+ * fallo no tiene que ver con el modelo (429, red): eso no debe bloquear
+ * guardarlo. Devuelve el motivo en español SOLO cuando el modelo esta roto,
+ * para que la pantalla no deje guardar una opcion que nunca va a responder
+ * (le paso al admin con gpt-5.2-pro-2025-12-11: 404 "not a chat model").
+ */
+async function motivoDeModeloRoto(proveedor: string, apiKey: string | null, model: string): Promise<string | null> {
+  if (!apiKey || !model) return null;
+  try {
+    const { getProviderConfig, createAIClient } = await import("@workspace/integrations-openai-ai-server");
+    const base = getProviderConfig(proveedor);
+    const url = base?.baseUrl || "";
+    if (!url) return null;
+    try {
+      await createAIClient({ baseUrl: url, apiKey, model, defaultHeaders: base?.defaultHeaders } as any).chat.completions.create({
+        model,
+        messages: [{ role: "user", content: "ok" }],
+        ...(usaCompletionTokens(model) ? { max_completion_tokens: 16 } : { max_tokens: 16 }),
+      });
+      return null;
+    } catch (e: any) {
+      const msg = String(e?.message || "");
+      if (/not a chat model|model_not_found|does not exist|not found in model|invalid model/i.test(msg)) {
+        return `El modelo "${model}" no sirve para chat con la API (${msg.slice(0, 150)}). Elegi otro de la lista: por ejemplo gpt-5.6-luna o gpt-4o-mini.`;
+      }
+      return null;
+    }
+  } catch {
+    return null;
+  }
+}
+
 /**
  * GET /api/ai/models/:proveedor — pregunta al proveedor QUÉ modelos ofrece.
  *
@@ -199,9 +238,13 @@ router.get("/models/:proveedor", async (req: TenantRequest, res, next) => {
     }
     const j: any = await r.json();
     // Formato OpenAI: { data: [{ id }] }. Algunos devuelven {models:[...]}.
+    // En OpenAI aparecen embeddings, transcripciones, tts, imagenes... que no
+    // sirven para charlar: probarlos o elegirlos da 404 "not a chat model".
+    const NO_ES_CHAT = /embed|transcribe|tts|whisper|dall-e|dalle|image|audio|moderation|search-preview|computer|instruct/i;
     const lista: string[] = (j?.data || j?.models || [])
       .map((m: any) => (typeof m === "string" ? m : m?.id || m?.name))
       .filter(Boolean)
+      .filter((m: string) => !(proveedor === "openai" && NO_ES_CHAT.test(m)))
       .sort();
 
     // Se devuelve también la URL consultada: variables de entorno como
@@ -260,7 +303,15 @@ router.put("/provider", async (req: TenantRequest, res, next) => {
       if (apiKey.trim()) actual.apiKey = cifrar(apiKey.trim());
       else delete actual.apiKey;
     }
-    if (typeof model === "string" && model.trim()) actual.model = model.trim();
+    if (typeof model === "string" && model.trim()) {
+      // Se prueba EN VIVO antes de guardar: un modelo que la API rechaza no
+      // sirve ni para el chat ni para las landings, y hasta ahora se quedaba
+      // guardado en verde hasta que fallaba en producción.
+      const claveParaProbar = actual.apiKey ? descifrar(actual.apiKey) : null;
+      const motivo = await motivoDeModeloRoto(proveedor, claveParaProbar, model.trim());
+      if (motivo) return res.status(400).json({ error: motivo });
+      actual.model = model.trim();
+    }
 
     if (Object.keys(actual).length === 0) delete cfg.aiProviders[proveedor];
     else cfg.aiProviders[proveedor] = actual;
@@ -388,14 +439,28 @@ router.post("/test", async (req: TenantRequest, res, next) => {
     const inicio = Date.now();
     try {
       const client = createAIClient(cfg as any);
-      const r = await client.chat.completions.create({
+      const params: any = {
         model: cfg.model,
         messages: [{ role: "user", content: "Responde exactamente: OK" }],
         // 2000 y no 20: los modelos de razonamiento gastan el presupuesto
         // "pensando" y devuelven content vacío si se les da poco margen.
         // Con un tope bajo, esta prueba los declaraba rotos sin estarlo.
-        max_tokens: 2000,
-      });
+        ...(usaCompletionTokens(cfg.model) ? { max_completion_tokens: 2000 } : { max_tokens: 2000 }),
+      };
+      let r: any;
+      try {
+        r = await client.chat.completions.create(params);
+      } catch (e: any) {
+        // GPT-5+/Luna rechazan `max_tokens`: reintenta con `max_completion_tokens`
+        // antes de darlo por roto (era el "400" que veía el admin con clave válida).
+        if (/max_tokens/i.test(String(e?.message || "")) && !("max_completion_tokens" in params)) {
+          delete params.max_tokens;
+          params.max_completion_tokens = 2000;
+          r = await client.chat.completions.create(params);
+        } else {
+          throw e;
+        }
+      }
       const texto = r.choices[0]?.message?.content || "";
       const ms = Date.now() - inicio;
       if (!texto.trim()) {
@@ -405,7 +470,13 @@ router.post("/test", async (req: TenantRequest, res, next) => {
     } catch (e: any) {
       const msg = String(e?.message || "");
       const agotado = /429|rate.?limit|FreeUsageLimit|quota/i.test(msg);
-      return res.json({ ok: false, modelo: cfg.model, agotado, error: agotado ? "Cuota agotada (429) — se restablece más tarde" : msg.slice(0, 140) });
+      const modeloRoto = /not a chat model|model_not_found|does not exist|not found in model/i.test(msg);
+      const error = agotado
+        ? "Cuota agotada (429) — se restablece más tarde"
+        : modeloRoto
+          ? `El modelo "${cfg.model}" no sirve para chat con la API (${msg.slice(0, 110)}). Cambialo por gpt-5.6-luna o gpt-4o-mini.`
+          : msg.slice(0, 140);
+      return res.json({ ok: false, modelo: cfg.model, agotado, error });
     }
   } catch (e) {
     return next(e);

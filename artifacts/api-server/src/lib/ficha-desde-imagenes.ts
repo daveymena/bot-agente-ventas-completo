@@ -16,7 +16,7 @@
  * Regla: solo lo que se ve o está escrito en las imágenes. Lo que no se ve,
  * se lista como "no se pudo confirmar" y no entra a la ficha.
  */
-import { getProviderConfig } from "@workspace/integrations-openai-ai-server";
+import { getProviderConfig, sanearParamsIA } from "@workspace/integrations-openai-ai-server";
 import { logger } from "./logger";
 import { modelosDeVision, visionDisponible, opcionesDeVision } from "./media-entrante";
 
@@ -91,7 +91,7 @@ export async function fichaDesdeImagenes(
       const r = await fetch(`${cfg.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
-        body: JSON.stringify({
+        body: JSON.stringify(sanearParamsIA(modelo, {
           model: modelo,
           temperature: 0.1,
           max_tokens: 700,
@@ -103,7 +103,7 @@ export async function fichaDesdeImagenes(
               ...bajadas.map((b) => ({ type: "image_url", image_url: { url: `data:${b.mime};base64,${b.b64}` } })),
             ],
           }],
-        }),
+        })),
         signal: AbortSignal.timeout(60_000),
       });
       if (!r.ok) {

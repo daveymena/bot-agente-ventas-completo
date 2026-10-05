@@ -43,7 +43,7 @@
  * datos en vez de mirando una foto.
  */
 import { logger } from "./logger";
-import { getProviderConfig } from "@workspace/integrations-openai-ai-server";
+import { getProviderConfig, sanearParamsIA } from "@workspace/integrations-openai-ai-server";
 import { modelosDeVision, opcionesDeVision } from "./media-entrante";
 import type { CuentaTransferencia } from "./tenant-payment-credentials";
 
@@ -204,7 +204,7 @@ export async function leerComprobante(
       const r = await fetch(`${cfg.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
-        body: JSON.stringify({
+        body: JSON.stringify(sanearParamsIA(modelo, {
           model: modelo,
           // Holgado por el mismo motivo que en media-entrante: los modelos de
           // razonamiento gastan el presupuesto en `reasoning_content` y
@@ -219,7 +219,7 @@ export async function leerComprobante(
               { type: "image_url", image_url: { url: `data:${mime};base64,${b64}` } },
             ],
           }],
-        }),
+        })),
         signal: AbortSignal.timeout(45_000),
       });
       if (!r.ok) {

@@ -331,7 +331,7 @@ export function veredictoEsSi(texto: string): boolean {
 
 export async function mismoProducto(nuestra: Buffer, candidata: Buffer): Promise<{ si: boolean; motivo: string }> {
   const { modelosDeVision, opcionesDeVision } = await import("./media-entrante");
-  const { getProviderConfig } = await import("@workspace/integrations-openai-ai-server");
+  const { getProviderConfig, sanearParamsIA } = await import("@workspace/integrations-openai-ai-server");
   // Estricta a propósito: con "el color puede variar" el modelo dio por igual una
   // mochila rígida tipo astronauta azul frente a la burbuja de tela negra (01-10-2026).
   const pregunta =
@@ -348,7 +348,7 @@ export async function mismoProducto(nuestra: Buffer, candidata: Buffer): Promise
       const r = await fetch(`${cfg.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
-        body: JSON.stringify({
+        body: JSON.stringify(sanearParamsIA(modelo, {
           model: modelo, max_tokens: 300,
           // Sin esto DeepSeek gasta los tokens razonando y devuelve vacío (medido 01-10-2026).
           ...opcionesDeVision(proveedor),
@@ -357,7 +357,7 @@ export async function mismoProducto(nuestra: Buffer, candidata: Buffer): Promise
             { type: "image_url", image_url: { url: `data:image/jpeg;base64,${nuestra.toString("base64")}` } },
             { type: "image_url", image_url: { url: `data:image/jpeg;base64,${candidata.toString("base64")}` } },
           ] }],
-        }),
+        })),
         signal: AbortSignal.timeout(60_000),
       });
       if (!r.ok) { logger.warn({ proveedor, modelo, status: r.status }, "[Fabricante] visión rechazó el pedido"); continue; }

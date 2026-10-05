@@ -1002,13 +1002,69 @@ export function getProviderConfigFromSettings(settings: {
   return null;
 }
 
+/**
+ * Los GPT-5+/Luna de OpenAI son estrictos con los parametros y rechazan con
+ * 400 cosas que antes andaban:
+ *   - `max_tokens`            -> hay que mandar `max_completion_tokens`
+ *   - `temperature` distinta de 1 -> "Unsupported value"
+ *   - `presence_penalty` / `frequency_penalty` -> "Unsupported parameter"
+ * Medido en vivo el 2026-10-05 contra la clave de production: el chat del bot
+ * manda temperature+penalties y decenas de rutas mandan `max_tokens`, asi que
+ * sin este saneado TODO call a OpenAI volvia 400 aunque clave y modelo fueran
+ * correctos (y ahi rotaba al siguiente proveedor y parecia "400 de OpenAI").
+ */
+function modeloNuevosGpt(modelo: string): boolean {
+  return /gpt-[5-9]|gpt-6|luna/i.test(modelo || "");
+}
+
+export function sanearParamsOpenAI(modelo: string, body: any): any {
+  if (!body || !modeloNuevosGpt(modelo)) return body;
+  const b: any = { ...body };
+  if ("max_tokens" in b && !("max_completion_tokens" in b)) {
+    b.max_completion_tokens = b.max_tokens;
+    delete b.max_tokens;
+  }
+  if ("presence_penalty" in b) delete b.presence_penalty;
+  if ("frequency_penalty" in b) delete b.frequency_penalty;
+  if ("temperature" in b && b.temperature !== 1) delete b.temperature;
+  return b;
+}
+
+/** Sanea proactivamente y, si aun asi la API reclama un parametro, lo saca y reintenta una vez. */
+function createSanitized(client: OpenAI): OpenAI {
+  const completions = (client as any).chat?.completions;
+  if (completions && typeof completions.create === "function") {
+    const original = completions.create.bind(completions);
+    completions.create = async (body: any, ...rest: any[]) => {
+      const saneado = sanearParamsOpenAI(String(body?.model || ""), body);
+      try {
+        return await original(saneado, ...rest);
+      } catch (e: any) {
+        const msg = String(e?.message || "");
+        if (e?.status === 400 && /Unsupported parameter|Unsupported value|not supported/i.test(msg)) {
+          const m = msg.match(/Unsupported parameter: '([^']+)'/i) || msg.match(/Unsupported value: '([^']+)'/i);
+          const clave = m?.[1];
+          if (clave && clave in saneado) {
+            delete saneado[clave];
+            return await original(saneado, ...rest);
+          }
+        }
+        throw e;
+      }
+    };
+  }
+  return client;
+}
+
 export function createAIClient(config: AIProviderConfig): OpenAI {
-  return new OpenAI({
-    apiKey: config.apiKey,
-    baseURL: config.baseUrl,
-    defaultHeaders: config.defaultHeaders,
-    dangerouslyAllowBrowser: true,
-    timeout: 60000, // 60s timeout para prompts con historial extenso
-    maxRetries: 1,
-  });
+  return createSanitized(
+    new OpenAI({
+      apiKey: config.apiKey,
+      baseURL: config.baseUrl,
+      defaultHeaders: config.defaultHeaders,
+      dangerouslyAllowBrowser: true,
+      timeout: 60000, // 60s timeout para prompts con historial extenso
+      maxRetries: 1,
+    }),
+  );
 }
