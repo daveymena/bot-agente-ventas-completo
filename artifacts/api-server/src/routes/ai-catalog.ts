@@ -280,6 +280,14 @@ router.put("/provider", async (req: TenantRequest, res, next) => {
     const tenantId = req.tenant?.id;
     if (tenantId && !esDuenoDelSistema(req)) {
       const { guardarClaveDeTenant, clavesDelTenant } = await import("../lib/ai-keys-tenant");
+      if (typeof model === "string" && model.trim()) {
+        // Mismo filtro que en la rama del dueño: un modelo que la API rechaza
+        // no se guarda (se prueba con la clave nueva si viene, si no con la suya).
+        const suya = (await clavesDelTenant(tenantId))[proveedor];
+        const claveParaProbar = (typeof apiKey === "string" && apiKey.trim() ? apiKey.trim() : null) || suya?.apiKey || null;
+        const motivo = await motivoDeModeloRoto(proveedor, claveParaProbar, model.trim());
+        if (motivo) return res.status(400).json({ error: motivo });
+      }
       await guardarClaveDeTenant(tenantId, proveedor, { apiKey, model });
       const suyas = await clavesDelTenant(tenantId);
       return res.json({
@@ -307,7 +315,11 @@ router.put("/provider", async (req: TenantRequest, res, next) => {
       // Se prueba EN VIVO antes de guardar: un modelo que la API rechaza no
       // sirve ni para el chat ni para las landings, y hasta ahora se quedaba
       // guardado en verde hasta que fallaba en producción.
-      const claveParaProbar = actual.apiKey ? descifrar(actual.apiKey) : null;
+      const { getProviderConfig } = await import("@workspace/integrations-openai-ai-server");
+      const claveParaProbar =
+        (actual.apiKey ? descifrar(actual.apiKey) : null) ||
+        getProviderConfig(proveedor as any)?.apiKey ||
+        null;
       const motivo = await motivoDeModeloRoto(proveedor, claveParaProbar, model.trim());
       if (motivo) return res.status(400).json({ error: motivo });
       actual.model = model.trim();
