@@ -13,6 +13,7 @@ const armar = (opts: {
   conectados?: string[];
   claves?: string[];
   catalogo?: Record<string, unknown>;
+  primero?: Candidato;
 }) =>
   armarCadena({
     curados: CURADOS,
@@ -20,6 +21,7 @@ const armar = (opts: {
     tenemosClave: (p) => (opts.claves || []).includes(p),
     modelosPorProveedor: new Map(Object.entries(opts.catalogo || {})),
     respaldo: RESPALDO,
+    primero: opts.primero,
   });
 
 describe("elegir un modelo del catálogo, sin inventar ids", () => {
@@ -545,5 +547,40 @@ describe("un id curado que no existe no se intenta", () => {
       respaldo,
     });
     expect(cadena[0]).toEqual({ providerID: "deepseek", modelID: "deepseek-v4-flash" });
+  });
+});
+
+
+describe("la IA activa del panel (botón \"Usar para Atlas\")", () => {
+  const OPENAI: Candidato = { providerID: "openai", modelID: "gpt-5.6-luna" };
+
+  it("va PRIMERA, antes que la lista curada", () => {
+    const cadena = armar({
+      conectados: ["deepseek"],
+      claves: ["openai"],
+      catalogo: { openai: [{ id: "gpt-5.6-luna" }] },
+      primero: OPENAI,
+    });
+    expect(cadena[0]).toEqual(OPENAI);
+    expect(cadena.slice(1).map((c) => c.providerID)).toContain("deepseek");
+  });
+
+  it("si pidió un modelo que OpenCode no lista, usa el mejor real de ese proveedor", () => {
+    const cadena = armar({
+      claves: ["openai"],
+      catalogo: { openai: [{ id: "gpt-4o-mini" }, { id: "gpt-5.6-luna" }] },
+      primero: { providerID: "openai", modelID: "gpt-5.4-nano-que-no-existe" },
+    });
+    expect(cadena[0]).toEqual({ providerID: "openai", modelID: "gpt-4o-mini" });
+  });
+
+  it("sin proveedor conectado ni clave no entra", () => {
+    const cadena = armar({ catalogo: { openai: [{ id: "gpt-5.6-luna" }] }, primero: OPENAI });
+    expect(cadena.some((c) => c.providerID === "openai")).toBe(false);
+  });
+
+  it("sin nada elegido, la cadena queda igual que siempre", () => {
+    const cadena = armar({ conectados: ["deepseek"], claves: ["openai"], catalogo: { openai: [{ id: "gpt-5.6-luna" }] } });
+    expect(cadena[0].providerID).toBe("deepseek");
   });
 });

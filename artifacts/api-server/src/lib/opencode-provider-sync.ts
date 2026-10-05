@@ -22,7 +22,7 @@ import { logger } from "./logger";
 // proveedores del catálogo -- openai, anthropic, deepseek, mistral, xai,
 // together, perplexity, fireworks, deepinfra, etc. -- ya coinciden con el id
 // real de OpenCode/models.dev sin traducción).
-const ID_HACIA_OPENCODE: Record<string, string> = {
+export const ID_HACIA_OPENCODE: Record<string, string> = {
   google_ai_studio: "google",
   nvidia_nim: "nvidia",
 };

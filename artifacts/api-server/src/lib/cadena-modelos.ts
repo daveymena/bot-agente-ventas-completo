@@ -180,8 +180,15 @@ export function armarCadena(entrada: {
   modelosPorProveedor: Map<string, unknown>;
   /** El gratis de siempre, que va último. */
   respaldo: Candidato;
+  /**
+   * La IA que el admin marcó como ACTIVA en Configuración (botón "Usar para
+   * Atlas"). Entra PRIMERA, antes que la lista curada: si el admin eligió un
+   * modelo, esa elección tiene que pesar más que cualquier preferencia
+   * hardcodeada -- si no, el botón miente. Misma validación que los curados.
+   */
+  primero?: Candidato;
 }): Candidato[] {
-  const { curados, conectados, tenemosClave, modelosPorProveedor, respaldo } = entrada;
+  const { curados, conectados, tenemosClave, modelosPorProveedor, respaldo, primero } = entrada;
 
   // Un candidato curado se intenta si está conectado O si tenemos su clave:
   // `connected` solo se enciende tras reiniciar el contenedor, así que una
@@ -222,6 +229,22 @@ export function armarCadena(entrada: {
     yaEnLaCadena.add(clave);
     disponibles.push(c);
   };
+  // ── La IA ACTIVA del panel va PRIMERA ─────────────────────────────────
+  // Mismas reglas que un curado: proveedor conectado o con clave, y el modelo
+  // tiene que existir de verdad en el catálogo (si el catálogo se sabe). Si
+  // pidió un modelo que OpenCode no lista, se cae al mejor real de ESE
+  // proveedor en vez de tirar la elección del admin a la basura; si el
+  // proveedor entero no sirve, no entra y sigue la cadena normal.
+  if (primero && (conectados.has(primero.providerID) || tenemosClave(primero.providerID))) {
+    const ids = idsDelCatalogo(modelosPorProveedor.get(primero.providerID));
+    if (!ids || ids.has(primero.modelID)) {
+      sumar(primero);
+    } else {
+      const real = elegirModelo(modelosPorProveedor.get(primero.providerID));
+      if (real) sumar({ providerID: primero.providerID, modelID: real });
+    }
+  }
+
   for (const c of conProveedor) {
     const ids = idsDelCatalogo(modelosPorProveedor.get(c.providerID));
     if (!ids || ids.has(c.modelID)) {

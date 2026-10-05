@@ -55,7 +55,7 @@ import { PIDE_FUENTES_EXTERNAS, debeInvestigarAntes, esContinuacionAutomatica as
 import { arrancaPedidoNuevo } from "../lib/es-pedido-nuevo";
 import { verloEsAutorizarlo } from "../lib/pedir-ver-el-resultado";
 import { anotarTurno, ultimosTurnos, resumirTurnos } from "../lib/diagnostico-de-turnos";
-import { db, products } from "@workspace/db";
+import { db, products, settings } from "@workspace/db";
 import { eq, desc } from "drizzle-orm";
 
 const router = Router();
@@ -506,6 +506,27 @@ function hayClavePropia(providerID: string): boolean {
   return !!(envKey && process.env[envKey]);
 }
 
+/**
+ * La IA que el admin marcó como ACTIVA en Configuración (botón "Usar para
+ * Atlas") tal cual la eligió el panel, traducida al id que usa OpenCode.
+ * null si no eligió nada o no hay modelo guardado -- así la cadena sigue
+ * exactamente como hasta ahora.
+ */
+async function iaActivaDelPanel(): Promise<{ providerID: string; modelID: string } | null> {
+  try {
+    const [fila] = await db.select().from(settings).limit(1);
+    const activa = fila?.aiProvider;
+    if (!activa) return null;
+    const { leerBusinessConfig } = await import("../lib/ai-keys");
+    const modelo = leerBusinessConfig(fila!.businessConfig).aiProviders?.[activa]?.model;
+    if (!modelo) return null;
+    const { ID_HACIA_OPENCODE } = await import("../lib/opencode-provider-sync");
+    return { providerID: ID_HACIA_OPENCODE[activa] || activa, modelID: modelo };
+  } catch {
+    return null;
+  }
+}
+
 async function pickOpencodeModelChain(host: string, authHeader: string): Promise<{ providerID: string; modelID: string }[]> {
   const conectados = await proveedoresConectados(host, authHeader);
   // `connected` NO alcanza como único criterio, y esto costó un turno entero
@@ -548,13 +569,28 @@ async function pickOpencodeModelChain(host: string, authHeader: string): Promise
   // Se saca lo que ya se sabe que no anda: sin esto Atlas reintentaba deepseek
   // sin saldo en CADA mensaje, para siempre. Si TODOS estan enfriandose se
   // intentan igual -- es una optimizacion, no un candado.
-  return filtrarEnfriados(armarCadena({
+  // La IA ACTIVA del panel (botón "Usar para Atlas") entra PRIMERA. El admin
+  // eligió un modelo: esa elección tiene que pesar más que la lista curada,
+  // o el botón miente. Si no sirve, la cadena sigue normal.
+  const primero = await iaActivaDelPanel();
+  const cadena = filtrarEnfriados(armarCadena({
     curados: CANDIDATOS_PAGOS,
     conectados,
     tenemosClave: hayClavePropia,
     modelosPorProveedor: catalogoPorProveedor,
     respaldo: MODELO_RESPALDO,
+    primero: primero ?? undefined,
   }));
+  if (primero) {
+    logger.info(
+      {
+        elegida: `${primero.providerID}/${primero.modelID}`,
+        cabeza: cadena.slice(0, 3).map((c) => `${c.providerID}/${c.modelID}`),
+      },
+      "[AtlasOpenCode] IA activa del panel: va primero en la cadena",
+    );
+  }
+  return cadena;
 }
 
 /**
