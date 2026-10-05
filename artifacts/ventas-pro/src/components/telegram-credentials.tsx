@@ -43,8 +43,22 @@ export function TelegramCredentials() {
   const guardar = async () => {
     setOcupado("guardar");
     try {
-      const r = await api("/telegram/config", { method: "PUT", body: JSON.stringify({ token, chatId }) });
-      toast({ title: "Telegram conectado", description: r.detalle || "Te mandé un mensaje de prueba." });
+      // fetch propio (y no `api`) para poder leer `chats` del error: si el chat
+      // id no es el del bot, el backend devuelve los que sí le escribieron y
+      // acá se muestran de una, con un clic, sin tener que adivinar ids.
+      const res = await fetch("/api/telegram/config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ token, chatId }),
+      });
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        if (Array.isArray(j.chats) && j.chats.length) setChats(j.chats);
+        toast({ title: "No se pudo conectar", description: j.error || `Error ${res.status}`, variant: "destructive" });
+        return;
+      }
+      toast({ title: "Telegram conectado", description: j.detalle || "Te mandé un mensaje de prueba." });
       setToken(""); setChatId(""); setChats([]);
       await cargar();
     } catch (e: any) { toast({ title: "No se pudo conectar", description: e.message, variant: "destructive" }); }
@@ -95,7 +109,7 @@ export function TelegramCredentials() {
               <Button variant="outline" onClick={descubrir} disabled={!token.trim() || ocupado === "descubrir"}>{ocupado === "descubrir" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Detectar mi chat"}</Button>
               <Button onClick={guardar} disabled={!token.trim() || !chatId.trim() || ocupado === "guardar"}>{ocupado === "guardar" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Guardar y probar"}</Button>
             </div>
-            {chats.length > 1 ? (
+            {chats.length >= 1 ? (
               <div className="text-sm space-y-1">
                 <p className="text-muted-foreground">Chats que le escribieron al bot:</p>
                 {chats.map((c) => <button key={c.chatId} type="button" className="block text-left underline" onClick={() => setChatId(c.chatId)}>{c.nombre} · {c.chatId}{c.ultimoTexto ? ` · "${c.ultimoTexto}"` : ""}</button>)}
