@@ -5197,8 +5197,8 @@ ${explicarObjetivos()}` };
   {
     name: "landing_forge_crear",
     description:
-      "Crea la landing en LandingForge, el generador bueno (https://landings.ventasproia.com, IA activa): extrae la ficha del producto, la IA arma el copy de venta con las fotos del producto colocadas y devuelve URL publica + editor + exportar HTML. Arma el prompt PRO solo con pais, precio, publico, promesa y vertical; si el admin dio instruccion se usa tal cual. La landing queda guardada y visible en landing_listar. Va por propose_action.",
-    args: '{ "productId": number (req), "instruccion"?: string (enfoque, publico o promesa con las palabras del admin), "productUrl"?: string (ficha a extraer; si no, usa la del producto) }',
+      "Crea la landing en LandingForge, el generador bueno (https://landings.ventasproia.com, IA activa): extrae la ficha del producto, la IA ANALIZA primero (avatar, dolores, promesa, angulo para trafico frio de Facebook) y despues arma el copy de venta con AIDA + las fotos colocadas; devuelve URL publica + editor + exportar HTML. Antes de llamar, piensa el marketing con lo que sabes del producto (o preguntale al admin si falta): QUIEN la compra (avatar concreto), QUE le duele (3 dolores en su lenguaje), QUE promesa la vende y QUE prueba hay (precio, pago contra entrega, garantia). Manda todo eso en 'instruccion' con las palabras del admin; el forge lo convierte en copy que vende, no en una ficha descriptiva. La landing queda guardada y visible en landing_listar. Va por propose_action.",
+    args: '{ "productId": number (req), "instruccion"?: string (BRIEF de marketing con las palabras del admin: quien la compra + que le duele + que promesa la vende + que prueba hay; mientras mas completo, mejor vende), "productUrl"?: string (ficha a extraer; si no, usa la del producto) }',
     run: async (args, ctx) => {
       const { landingPages } = await import("@workspace/db");
       const { getOrCreateLanding } = await import("./landingforge-client");
@@ -5248,10 +5248,14 @@ ${explicarObjetivos()}` };
         html: null,
         publishedUrl: r.url,
       } as any).returning();
+      const angulo = (r as any)?.analisis?.angulo;
+      const promesa = (r as any)?.analisis?.promesa;
       return {
         ok: true,
         summary:
           `Listo: landing de "${p.name}" creada en LandingForge (${r.sectionsGenerated} secciones). ` +
+          (angulo ? `Angulo: ${String(angulo).slice(0, 160)}. ` : "") +
+          (promesa ? `Promesa: ${String(promesa).slice(0, 160)}. ` : "") +
           `Publica: ${r.url}` +
           (r.editorUrl ? ` - Editor: ${r.editorUrl}` : "") +
           ` - Quedo guardada como [${row.id}] y ya figura en landing_listar.`,

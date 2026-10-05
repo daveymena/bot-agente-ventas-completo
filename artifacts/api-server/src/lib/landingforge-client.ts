@@ -61,6 +61,8 @@ export interface MagicLandingResult {
   editorUrl?: string;
   exportUrl?: string;
   error?: string;
+  /** Fase 1 del forge: el analisis previo (avatar/dolores/angulo). */
+  analisis?: { avatar?: string; promesa?: string; angulo?: string; dolores?: string[] } | null;
 }
 
 export interface ProductData {
@@ -72,6 +74,8 @@ export interface ProductData {
   images?: string[];
   videos?: string[];
   prompt?: string;
+  /** Origen del trafico ("facebook" en fisico: el forge analiza angulo y diseno para trafico frio). */
+  trafico?: string;
 }
 
 async function lf<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
@@ -111,6 +115,7 @@ function mapGenerate(d: any, fallbackName: string): MagicLandingResult {
     editorUrl: d.editorUrl || undefined,
     exportUrl: d.exportUrl || undefined,
     error: d.error,
+    analisis: d.analisis || undefined,
   };
 }
 
@@ -193,6 +198,7 @@ export async function getOrCreateLanding(
         images: productData?.images?.length ? productData.images : undefined,
         videos: productData?.videos?.length ? productData.videos : undefined,
         prompt: productData?.prompt || undefined,
+        trafico: productData?.trafico || (productKind === "physical" ? "facebook" : "organico"),
         // La misma IA que Atlas (botón «Usar para Atlas»); el forge la ignora si no la entiende.
         aiProvider: (await aiActivaParaForge()) || undefined,
       }),
