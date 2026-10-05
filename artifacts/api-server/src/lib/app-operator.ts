@@ -494,6 +494,38 @@ export function estadoDeGeneracion(l: any): { estado: "generando" | "lista" | "f
   };
 }
 
+/**
+ * Resuelve QUÉ landing de LandingForge se quiere tocar.
+ * `id` = fila espejo del negocio (bot). `landingId` = id en el forge.
+ * Sin ninguno: la última que creó este tenant.
+ */
+async function forgeDe(
+  ctx: OperatorContext,
+  args: any,
+): Promise<{ landingId: string; url: string; nombre: string; rowId: number | null; row: any } | null> {
+  const { landingPages } = await import("@workspace/db");
+  const rowId = num(args?.id);
+  const directo = String(args?.landingId || "").trim();
+  let row: any = null;
+  if (rowId) {
+    const f = await db.select().from(landingPages).where(and(eq(landingPages.id, rowId), eq(landingPages.tenantId, ctx.tenantId))).limit(1);
+    row = f[0] || null;
+  } else if (!directo) {
+    const f = await db.select().from(landingPages).where(eq(landingPages.tenantId, ctx.tenantId)).orderBy(desc(landingPages.createdAt)).limit(25);
+    row = f.find((l: any) => (l.source as any)?.type === "landingforge" || (l.strategy as any)?.forge) || null;
+  }
+  const delRow = String((row?.source as any)?.landingId || (row?.strategy as any)?.forge?.landingId || "").trim();
+  const landingId = delRow || (rowId ? "" : directo);
+  if (!landingId) return null;
+  return {
+    landingId,
+    url: String(row?.publishedUrl || (row?.strategy as any)?.forge?.url || ""),
+    nombre: String(row?.name || ""),
+    rowId: row?.id ?? null,
+    row,
+  };
+}
+
 export function lanzarGeneracionDeLandingEnSegundoPlano(
   ctx: OperatorContext,
   job: { landingId: number; slug: string; product: any; instruccion: string; familia: string | null; estilo?: "pro" | "clinico" | "libre" | null },
@@ -5252,6 +5284,77 @@ ${explicarObjetivos()}` };
     },
   },
   {
+    name: "landing_forge_ver",
+    description:
+      "Muestra una landing de LandingForge tal como esta ahora: producto, precio, bloques (tipo y titulo), fotos de producto y de personas, y URL publica. Lectura pura. Usala ANTES de landing_forge_editar para saber que hay puesto y no repetir cambios. Acepta 'id' (fila del negocio) o 'landingId' (id en el forge); sin ninguno, la ultima creada.",
+    args: '{ "id"?: number, "landingId"?: string }',
+    run: async (args, ctx) => {
+      const { getForgeSpec, resumirSpec } = await import("./landingforge-client");
+      const f = await forgeDe(ctx, args);
+      if (!f) return { ok: false, summary: "No encontre una landing de LandingForge. Creala con landing_forge_crear o pasame su 'landingId'." };
+      const g = await getForgeSpec(f.landingId);
+      if (!g.ok) return { ok: false, summary: `No pude leer la landing ${f.landingId} en el forge: ${g.error}` };
+      const r = resumirSpec(g.spec);
+      const linea = r.bloques
+        .map((b) => `${b.i}.${b.tipo}${b.titulo ? ` \"${b.titulo}\"` : ""}${b.fotos.length ? ` [${b.fotos.length} foto${b.fotos.length > 1 ? "s" : ""}]` : ""}${b.items?.length ? ` {${b.items.length} item${b.items.length > 1 ? "s" : ""}}` : ""}`)
+        .join(" | ");
+      return {
+        ok: true,
+        summary:
+          `${r.producto || "Landing"}${r.precio ? ` - ${r.precio}` : ""} | ${r.bloques.length} bloques: ${linea || "(sin bloques)"}` +
+          (f.url ? ` | Publica: ${f.url}` : ""),
+        data: { landingId: f.landingId, rowId: f.rowId, resumen: r, url: f.url || null },
+      };
+    },
+  },
+  {
+    name: "landing_forge_editar",
+    description:
+      "Cambia una landing de LandingForge con una instruccion del admin (textos, precio, boton, colores, secciones, fotos, agregar o quitar bloques). Va con la IA que Atlas tiene activa y Forge rellena con fotos lo que quede vacio. Mira primero con landing_forge_ver. Va por propose_action (el dueno aprueba el cambio).",
+    args: '{ "id"?: number, "landingId"?: string, "instruccion": string (req, con las palabras del dueno) }',
+    run: async (args, ctx) => {
+      const { editForgeSpec } = await import("./landingforge-client");
+      const instruccion = String(args?.instruccion || args?.instruction || args?.cambio || "").trim();
+      if (!instruccion) return { ok: false, summary: "Falta la 'instruccion' con lo que hay que cambiar." };
+      const f = await forgeDe(ctx, args);
+      if (!f) return { ok: false, summary: "No encontre la landing en LandingForge. Pasame 'id' o 'landingId' (la ves con landing_listar o landing_forge_pendientes)." };
+      const r = await editForgeSpec(f.landingId, instruccion);
+      if (!r.ok) return { ok: false, summary: `No pude editar la landing en el forge: ${r.error}` };
+      return {
+        ok: true,
+        summary:
+          `Cambio aplicado en LandingForge (${r.ops?.length || 0} operaciones${r.reply ? `: ${String(r.reply).slice(0, 200)}` : ""}). ` +
+          (f.url ? `Publica: ${f.url}` : "Confirma con landing_forge_estado."),
+        data: { landingId: f.landingId, rowId: f.rowId, ops: r.ops, url: f.url || null },
+      };
+    },
+  },
+  {
+    name: "landing_forge_estado",
+    description:
+      "Estado de una landing de LandingForge: existe, cuantos bloques tiene, si las fotos estan puestas y su URL. Lectura pura. Usala para responder 'ya quedo?' o despues de landing_forge_editar. Acepta 'id' o 'landingId'; sin ninguno, la ultima creada.",
+    args: '{ "id"?: number, "landingId"?: string }',
+    run: async (args, ctx) => {
+      const { getForgeSpec, resumirSpec } = await import("./landingforge-client");
+      const f = await forgeDe(ctx, args);
+      if (!f) return { ok: false, summary: "No encontre una landing de LandingForge. Creala con landing_forge_crear." };
+      const g = await getForgeSpec(f.landingId);
+      if (!g.ok) return { ok: false, summary: `La landing ${f.landingId} no responde en el forge: ${g.error}. Reintenta en un rato.` };
+      const r = resumirSpec(g.spec);
+      const sinFoto = r.bloques.filter((b) => !b.fotos.length && ["hero", "gallery", "beforeAfter"].includes(b.tipo)).length;
+      const espejo = f.row ? estadoDeGeneracion(f.row).texto : "";
+      return {
+        ok: true,
+        summary:
+          `Lista en LandingForge: "${r.producto || r.bloques.length + " bloques"}" con ${r.bloques.length} bloques` +
+          (sinFoto ? `, ${sinFoto} sin foto todavia` : ", fotos puestas") +
+          (f.url ? ` - Publica: ${f.url}` : "") +
+          (espejo ? ` - ${espejo}` : ""),
+        data: { landingId: f.landingId, rowId: f.rowId, bloques: r.bloques.length, sinFoto, url: f.url || null },
+      };
+    },
+  },
+  {
     name: "landing_editar",
     description:
       "Edita una landing con una instrucción del admin (textos, secciones, botón, estilo). Por secciones: al instante. Con diseño propio (HTML): se reescribe en segundo plano (1-3 min) y hasta que landing_estado diga lista la URL muestra la versión anterior; NUNCA digas que ya cambió antes. No inventa datos. ⚠️ Va por propose_action.",
@@ -9635,7 +9738,7 @@ export const READ_ONLY_TOOLS = new Set([
   // antes de decidir.
   "producto_ganador", "dropi_roi", "espiar_tienda", "fb_estimar",
   // Leer el estado de una landing en generación y simular el reentrenamiento no cambian nada.
-  "landing_estado", "landing_forge_pendientes", "agente_reentrenar_ver",
+  "landing_estado", "landing_forge_pendientes", "landing_forge_ver", "landing_forge_estado", "agente_reentrenar_ver",
   // Diagnosticar al vendedor, ver en qué motor está y probarlo en sombra son
   // lectura: no le escriben a ningún cliente ni cambian cómo atiende el bot.
   // Diagnosticar SIN pedir permiso es el punto: si hubiera que aprobar cada

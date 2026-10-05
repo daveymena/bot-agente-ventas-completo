@@ -55,6 +55,10 @@ export function AIProviders() {
   const [descubiertos, setDescubiertos] = useState<Record<string, string[]>>({});
   const [consultado, setConsultado] = useState<Record<string, string>>({});
   const [resultado, setResultado] = useState<Record<string, { ok: boolean; msg: string }>>({});
+  // Qué IA está usando Atlas ahora (lo escribe PUT /api/ai/active).
+  const [activa, setActiva] = useState<string | null>(null);
+  const [activaModelo, setActivaModelo] = useState<string | null>(null);
+  const [activando, setActivando] = useState<string | null>(null);
 
   const cargar = async () => {
     try {
@@ -62,6 +66,8 @@ export function AIProviders() {
       if (!r.ok) throw new Error("No se pudo cargar el catálogo");
       const d = await r.json();
       setProvs(d.proveedores || []);
+      setActiva(d.activa || null);
+      setActivaModelo(d.activaModelo || null);
     } catch (e: any) {
       toast.error(describeError(e, "No se pudo cargar el catálogo de proveedores"));
     } finally {
@@ -112,6 +118,34 @@ export function AIProviders() {
     }
   };
 
+  // Deja este proveedor como IA de Atlas: es la fila que el agente lee al
+  // armar su cola ("Elegido al frente") y la que Atlas manda a Forge al
+  // generar la landing, para que las dos usen lo mismo.
+  const activar = async (id: string) => {
+    setActivando(id);
+    try {
+      const r = await fetch("/api/ai/active", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ proveedor: id }),
+        credentials: "include",
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "No se pudo cambiar la IA");
+      setActiva(id);
+      setActivaModelo(d.modelo || null);
+      if (!d.tieneClave) {
+        toast.warning(`${provs.find((p) => p.id === id)?.nombre || id} queda activa, pero sin clave: Atlas caerá al respaldo`);
+      } else {
+        toast.success(`Atlas usará ${provs.find((p) => p.id === id)?.nombre || id}${d.modelo ? ` · ${d.modelo}` : ""}`);
+      }
+    } catch (e: any) {
+      toast.error(describeError(e, "No se pudo cambiar la IA de Atlas"));
+    } finally {
+      setActivando(null);
+    }
+  };
+
   const probar = async (id: string, model?: string) => {
     setProbando(id);
     try {
@@ -154,6 +188,11 @@ export function AIProviders() {
               </Badge>
             ) : (
               <Badge variant="outline" className="text-[10px] text-muted-foreground">sin clave</Badge>
+            )}
+            {activa === p.id && (
+              <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
+                <Check className="h-3 w-3 mr-1" /> IA activa de Atlas
+              </Badge>
             )}
           </span>
           <a href={p.alta} target="_blank" rel="noreferrer" className="text-[11px] text-primary hover:underline flex items-center gap-1 shrink-0">
@@ -227,6 +266,15 @@ export function AIProviders() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            size="sm"
+            disabled={activando === p.id || activa === p.id}
+            title="Deja esta IA como la que usan Atlas y la generación de landings"
+            onClick={() => activar(p.id)}
+          >
+            {activando === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+            {activa === p.id ? "✓ Es la de Atlas" : "Usar para Atlas"}
+          </Button>
           <Button size="sm" variant="outline" disabled={!p.tieneClave || probando === p.id} onClick={() => probar(p.id, p.modeloElegido || undefined)}>
             {probando === p.id ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Zap className="h-3.5 w-3.5 mr-1.5" />}
             Probar ahora
@@ -244,6 +292,16 @@ export function AIProviders() {
 
   return (
     <div className="space-y-6">
+      {activa && (
+        <div className="flex items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3 text-sm">
+          <Check className="h-4 w-4 text-emerald-600 shrink-0" />
+          <span>
+            <b>Atlas usa:</b> {provs.find((p) => p.id === activa)?.nombre || activa}
+            {activaModelo ? ` · ${activaModelo}` : ""}
+          </span>
+        </div>
+      )}
+
       <div>
         <h3 className="text-sm font-semibold mb-1">🆓 Proveedores gratuitos</h3>
         <p className="text-xs text-muted-foreground mb-3">

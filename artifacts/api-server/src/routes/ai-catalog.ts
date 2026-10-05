@@ -139,7 +139,15 @@ router.get("/catalog", async (req: TenantRequest, res, next) => {
       };
     });
 
-    return res.json({ proveedores: catalogo });
+    // Qué IA está ACTIVA para Atlas hoy: el admin la cambia con el botón de
+    // la tarjeta (PUT /api/ai/active) y el agente la lee en agent.ts.
+    const [fila] = await db.select().from(settings).limit(1);
+    const activa = fila?.aiProvider || null;
+    const activaModelo = activa
+      ? leerBusinessConfig(fila!.businessConfig).aiProviders?.[activa]?.model || null
+      : null;
+
+    return res.json({ proveedores: catalogo, activa, activaModelo });
   } catch (e) {
     return next(e);
   }
@@ -271,6 +279,42 @@ router.put("/provider", async (req: TenantRequest, res, next) => {
     }
 
     return res.json({ ok: true, proveedor, tieneClave: !!actual.apiKey, modelo: actual.model || null });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+/**
+ * PUT /api/ai/active — marca qué proveedor queda ACTIVO para Atlas.
+ * Body: { proveedor: string }
+ *
+ * Escribe la fila única `settings.aiProvider`, la misma que lee el agente al
+ * armar su cola de rotación (agent.ts: "Elegido al frente"). Solo el dueño
+ * del sistema puede moverla: la fila es global, así que un cliente
+ * cambiándola le cambiaría la IA a todos los chats.
+ */
+router.put("/active", async (req: TenantRequest, res, next) => {
+  try {
+    const { proveedor } = req.body || {};
+    if (!proveedor || !PROVEEDORES.some((p) => p.id === proveedor)) {
+      return res.status(400).json({ error: "Proveedor desconocido" });
+    }
+    if (req.tenant?.id && !esDuenoDelSistema(req)) {
+      return res.status(403).json({ error: "Solo el dueño del sistema puede cambiar la IA global de Atlas" });
+    }
+
+    const [row] = await db.select().from(settings).limit(1);
+    if (!row) return res.status(404).json({ error: "No hay configuración creada" });
+
+    await db.update(settings).set({ aiProvider: proveedor }).where(eq(settings.id, row.id));
+
+    // Se avisa si va a caer al respaldo (sin clave, el agente rota a DeepSeek).
+    const cfg = leerBusinessConfig(row.businessConfig).aiProviders || {};
+    const meta = PROVEEDORES.find((p) => p.id === proveedor)!;
+    const tieneClave = !!process.env[meta.envKey] || !!cfg[proveedor]?.apiKey;
+    const modelo = cfg[proveedor]?.model || null;
+    logger.info({ proveedor, modelo, tieneClave }, "[AICatalog] IA activa de Atlas cambiada");
+    return res.json({ ok: true, activa: proveedor, modelo, tieneClave });
   } catch (e) {
     return next(e);
   }

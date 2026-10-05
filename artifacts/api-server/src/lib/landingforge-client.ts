@@ -114,6 +114,45 @@ function mapGenerate(d: any, fallbackName: string): MagicLandingResult {
   };
 }
 
+/** IDs del forge para los proveedores del panel (los que no aparecen acá
+ *  hacen que el forge use su propia configuración: nunca rompe la llamada). */
+const FORGE_IDS: Record<string, string> = {
+  opencode: "opencode",
+  opencode_go: "opencode",
+  groq: "groq",
+  openrouter: "openrouter",
+  google_ai_studio: "gemini",
+  ollama_cloud: "ollama-cloud",
+  github: "github-models",
+  openai: "openai",
+  anthropic: "anthropic",
+};
+
+/**
+ * IA activa de Atlas traducida a los IDs que LandingForge entiende.
+ *
+ * El admin la elige con el botón «Usar para Atlas» (PUT /api/ai/active);
+ * con esto la landing se genera con la MISMA IA que contesta el chat, en vez
+ * de la que el forge tenga configurada por su lado. Devuelve undefined si no
+ * hay nada elegible: la generación sigue funcionando con la del forge.
+ */
+export async function aiActivaParaForge(): Promise<{ providerId: string; model?: string } | undefined> {
+  try {
+    const { db, settings } = await import("@workspace/db");
+    const { leerBusinessConfig } = await import("./ai-keys");
+    const [row] = await db.select().from(settings).limit(1);
+    const prov = (row as any)?.aiProvider as string | null | undefined;
+    const forgeId = prov ? FORGE_IDS[prov] : undefined;
+    if (!forgeId) return undefined;
+    const model = prov
+      ? leerBusinessConfig((row as any).businessConfig).aiProviders?.[prov]?.model || undefined
+      : undefined;
+    return model ? { providerId: forgeId, model } : { providerId: forgeId };
+  } catch {
+    return undefined;
+  }
+}
+
 export async function getOrCreateLanding(
   productName: string,
   productUrl: string,
@@ -154,6 +193,8 @@ export async function getOrCreateLanding(
         images: productData?.images?.length ? productData.images : undefined,
         videos: productData?.videos?.length ? productData.videos : undefined,
         prompt: productData?.prompt || undefined,
+        // La misma IA que Atlas (botón «Usar para Atlas»); el forge la ignora si no la entiende.
+        aiProvider: (await aiActivaParaForge()) || undefined,
       }),
     });
     console.log(`[LandingForge] Landing generada: ${d.landingId} (${d.sectionsGenerated} secciones)`);
@@ -192,6 +233,42 @@ export async function putForgeSpec(landingId: string, spec: any): Promise<{ ok: 
       body: JSON.stringify({ spec }),
     });
     return { ok: true, spec: d?.spec };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/**
+ * Aplica una instrucción del admin al spec de una landing con la IA del
+ * forge (la MISMA que Atlas eligió, si se la pudimos traducir) y la guarda.
+ * Guarda con save:false + PUT para que Forge corra fillSectionImages: sin
+ * eso, un bloque nuevo quedaría sin foto y el prune lo borraría.
+ */
+export async function editForgeSpec(
+  landingId: string,
+  instruction: string,
+): Promise<{ ok: boolean; spec?: any; ops?: string[]; reply?: string; error?: string }> {
+  try {
+    const get = await getForgeSpec(landingId);
+    if (!get.ok) return { ok: false, error: get.error };
+    const edit = await lf<any>("/api/ai/edit", {
+      method: "POST",
+      body: JSON.stringify({
+        spec: get.spec,
+        instruction,
+        save: false,
+        aiProvider: (await aiActivaParaForge()) || undefined,
+      }),
+    });
+    const spec = edit?.spec || get.spec;
+    const put = await putForgeSpec(landingId, spec);
+    if (!put.ok) return { ok: false, error: put.error };
+    return {
+      ok: true,
+      spec: put.spec || spec,
+      ops: Array.isArray(edit?.ops) ? edit.ops.map((o: any) => String(o?.op || o?.path || "?")).slice(0, 20) : [],
+      reply: edit?.reply,
+    };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
