@@ -172,3 +172,70 @@ export async function generateMagicLanding(
   const name = opts?.title || "Producto";
   return getOrCreateLanding(name, productUrl, "physical");
 }
+
+/** Trae el spec COMPLETO de una landing Forge (bloques, textos, imágenes). */
+export async function getForgeSpec(landingId: string): Promise<{ ok: boolean; spec?: any; error?: string }> {
+  try {
+    const d = await lf<any>(`/api/sites/${encodeURIComponent(landingId)}`, { method: "GET" });
+    if (!d?.spec) return { ok: false, error: "Forge no devolvió spec." };
+    return { ok: true, spec: d.spec };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/** Guarda el spec editado (Forge rellena con fotos lo que quede vacío). */
+export async function putForgeSpec(landingId: string, spec: any): Promise<{ ok: boolean; spec?: any; error?: string }> {
+  try {
+    const d = await lf<any>(`/api/sites/${encodeURIComponent(landingId)}`, {
+      method: "PUT",
+      body: JSON.stringify({ spec }),
+    });
+    return { ok: true, spec: d?.spec };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/** Resumen legible del spec para que Atlas sepa QUÉ hay y QUÉ falta. */
+export function resumirSpec(spec: any): {
+  producto: string;
+  precio: string;
+  fotosProducto: string[];
+  bloques: Array<{ i: number; tipo: string; titulo: string; fotos: string[]; items?: Array<{ i: number; nombre: string; foto: string }> }>;
+} {
+  const bloques: Array<{ i: number; tipo: string; titulo: string; fotos: string[]; items?: Array<{ i: number; nombre: string; foto: string }> }> = [];
+  const fotosProducto: string[] = [];
+  const verFoto = (u: unknown): string => (typeof u === "string" && /^https?:/.test(u) ? u : "");
+  const fotoCorta = (u: string): string => (u.length > 80 ? u.slice(0, 77) + "..." : u);
+  const blocks: any[] = Array.isArray(spec?.blocks) ? spec.blocks : [];
+  blocks.forEach((b: any, i: number) => {
+    if (!b) return;
+    const p = b.props || {};
+    const fotos = [p.image, p.poster, ...(Array.isArray(p.images) ? p.images : [])]
+      .map(verFoto)
+      .filter(Boolean) as string[];
+    const items = Array.isArray(p.items)
+      ? p.items.map((it: any, j: number) => ({
+        i: j,
+        nombre: String(it?.name || it?.title || "").slice(0, 40),
+        foto: verFoto(it?.avatar || it?.image),
+      }))
+      : undefined;
+    if (b.type === "hero" || b.type === "gallery") fotos.forEach((f) => { if (!fotosProducto.includes(f)) fotosProducto.push(f); });
+    bloques.push({
+      i,
+      tipo: String(b.type || "?"),
+      titulo: String(p.title || p.heading || "").slice(0, 60),
+      fotos: fotos.map(fotoCorta),
+      items,
+    });
+  });
+  const product = spec?.product || {};
+  return {
+    producto: String(product.name || spec?.title || ""),
+    precio: String(product.price || spec?.product?.price || ""),
+    fotosProducto,
+    bloques,
+  };
+}

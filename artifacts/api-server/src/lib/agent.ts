@@ -3210,20 +3210,17 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
         console.log(`🎯 [AI] G4F seleccionado como proveedor principal - ${ts()}`);
         // G4F se maneja por separado (no usa OpenAI client), se prueba primero
       } else if (isUserSelected) {
-        // ── DeepSeek va PRIMERO, y lo elegido queda justo detrás ───────────
+        // ── Lo elegido por el admin va PRIMERO; DeepSeek queda de respaldo ──
         //
-        // Acá la cola era EXCLUSIVAMENTE lo que el admin eligió en
-        // Configuración, y DeepSeek recién aparecía en la fase 2 -- o sea
-        // después de que el elegido fallara y se gastara su tiempo, con un
-        // cliente escribiendo del otro lado. Con la clave paga cargada y
-        // medida en 1,16s, eso es hacer esperar por gusto.
-        //
-        // La elección del admin NO se borra: queda segunda. Si DeepSeek se
-        // queda sin saldo, lo que él eligió contesta igual.
+        // Orden del admin (2026-10-05): el proveedor de Configuracion
+        // (hoy: openai/gpt-5.6-luna) contesta primero. Antes DeepSeek iba al
+        // frente por la regla del 2026-09-03; eso hacia esperar por gusto
+        // cuando el elegido tambien responde. Si el elegido falla, DeepSeek
+        // (rotacion completa) y el resto de la cola contestan igual.
+        rotationQueue.push({ config: dbConfig, source: activeProvider });
         const deLaCasa = candidatosDeepSeek();
         rotationQueue.push(...deLaCasa);
-        rotationQueue.push({ config: dbConfig, source: activeProvider });
-        console.log(`🎯 [AI] DeepSeek al frente (${deLaCasa.length}) + elegido: ${activeProvider} - ${ts()}`);
+        console.log(`🎯 [AI] Elegido al frente: ${activeProvider} + DeepSeek respaldo (${deLaCasa.length}) - ${ts()}`);
       } else {
         // Mismo criterio que arriba. `getOptimizedProviderOrder()` ya devuelve
         // deepseek primero, pero por la rama genérica del bucle entra con UN
