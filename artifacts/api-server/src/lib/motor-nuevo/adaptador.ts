@@ -437,6 +437,13 @@ function conCita(m: any): string {
  * automáticos en vez de reventar.
  */
 /** Un teléfono real de WhatsApp son dígitos; "sim-…" solo lo crea la ruta de prueba. */
+/** El número del contacto, solo si es un teléfono (10 a 13 dígitos). Los
+ *  LID de WhatsApp tienen 14 o más y no sirven para la transportadora. */
+export function telefonoReal(contacto: unknown): string | null {
+  const d = String(contacto ?? "").split("@")[0].replace(/\D/g, "");
+  return d.length >= 10 && d.length <= 13 ? d : null;
+}
+
 export function esConversacionDeSimulacion(telefono: unknown): boolean {
   return /^sim-/i.test(String(telefono || ""));
 }
@@ -880,7 +887,10 @@ export async function responderComoVendedor(
     tenantId,
     conversationId,
     leadId: (convo as any).leadId ?? null,
-    telefono: (convo as any).contactPhone ?? null,
+    // Un LID ("198874299904173", el id interno de WhatsApp) NO es un
+    // teléfono: en la venta real del 06-10 salió en el resumen como celular y
+    // el cliente tuvo que corregirlo. Sin teléfono real, el motor lo pide.
+    telefono: telefonoReal((convo as any).contactPhone),
     condiciones: negocio?.condiciones ?? CONDICIONES_DE_RESPALDO,
     simulacion: esConversacionDeSimulacion((convo as any).contactPhone),
   });

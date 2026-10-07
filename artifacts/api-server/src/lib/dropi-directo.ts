@@ -850,6 +850,28 @@ export function normalizarCiudadParaDropi(ciudad: string): string {
 }
 
 /**
+ * Ciudad y departamento COMO LOS NOMBRA DROPI.
+ *
+ * Venta real perdida (conversación 2, 06-10): el cliente confirmó en Bogotá y
+ * el pedido rebotó "por el nombre del departamento". Mandábamos
+ * state "BOGOTA D C" (de "Bogotá D.C.") y Dropi llama a Bogotá ciudad
+ * "BOGOTA", departamento "CUNDINAMARCA" (verificado 07-10 contra su
+ * cotizador con el token del negocio).
+ */
+export function destinoParaDropi(ciudad: string, departamento: string): { city: string; state: string } {
+  let city = normalizarCiudadParaDropi(ciudad);
+  let state = normalizarCiudadParaDropi(departamento);
+  const esBogota = (x: string) => /^(BOGOTA( D ?C)?|SANTA ?FE DE BOGOTA( D ?C)?|DISTRITO CAPITAL( DE BOGOTA)?)$/.test(x);
+  if (esBogota(city) || (esBogota(state) && (!city || esBogota(city)))) {
+    return { city: "BOGOTA", state: "CUNDINAMARCA" };
+  }
+  if (esBogota(state)) state = "CUNDINAMARCA";
+  // "Valle" a secas → el nombre completo que usa Dropi
+  if (state === "VALLE") state = "VALLE DEL CAUCA";
+  return { city, state };
+}
+
+/**
  * El mismo payload que arma Dropify (OrdersModel.php `save`), porque es el
  * que Dropi acepta. `rate_type` "CON RECAUDO" = contraentrega.
  */
@@ -891,8 +913,7 @@ export async function crearPedidoDropi(token: string, producto: { dropiProductId
     name, surname,
     dir: `${pedido.direccion}${pedido.barrio ? ` ${pedido.barrio}` : ""}`,
     country: "CO",
-    state: normalizarCiudadParaDropi(pedido.departamento),
-    city: normalizarCiudadParaDropi(pedido.ciudad),
+    ...destinoParaDropi(pedido.ciudad, pedido.departamento),
     phone: pedido.telefono,
     client_email: pedido.email || `${pedido.telefono}@whatsapp.local`,
     payment_method_id: 1,
