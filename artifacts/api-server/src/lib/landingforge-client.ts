@@ -15,7 +15,12 @@
 import { createHmac } from "node:crypto";
 
 const BASE = (process.env.LANDINGFORGE_URL || "https://landings.ventasproia.com").replace(/\/+$/, "");
-const API_KEY = process.env.LANDINGFORGE_API_KEY || process.env.LANDING_API_KEY || "";
+// Clave GENÉRICA compartida con Landing Forge (src/lib/auth.ts allá), pedido
+// del dueño 07-10: "colócalas genéricas y luego las cambio". La variable de
+// entorno manda; para cambiarla, poner el MISMO valor en LANDINGFORGE_API_KEY
+// (acá) y LANDING_API_KEY (en Forge).
+const CLAVE_FORGE_GENERICA = "vpf-generica-cambiar-7Qk2Lm9Xz4Rt";
+const API_KEY = process.env.LANDINGFORGE_API_KEY || process.env.LANDING_API_KEY || CLAVE_FORGE_GENERICA;
 const WHATSAPP_DEFAULT = process.env.WHATSAPP_NUMBER || process.env.ADMIN_PHONE || "573136174267";
 
 export interface LFProduct {

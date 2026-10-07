@@ -25,13 +25,15 @@ describe("enlaceDeEntradaForge", () => {
     vi.unstubAllEnvs();
   });
 
-  it("sin clave (Forge en modo abierto) es solo la URL", async () => {
+  it("sin variable de entorno firma con la clave GENÉRICA (la misma que trae Forge por defecto)", async () => {
     vi.resetModules();
     vi.stubEnv("LANDINGFORGE_API_KEY", "");
     vi.stubEnv("LANDING_API_KEY", "");
     vi.stubEnv("LANDINGFORGE_URL", "https://landings.ejemplo.co");
     const { enlaceDeEntradaForge } = await import("../landingforge-client");
-    expect(enlaceDeEntradaForge("/")).toBe("https://landings.ejemplo.co/");
+    const u = new URL(enlaceDeEntradaForge("/"));
+    const [, exp, firma] = String(u.searchParams.get("t")).split(".");
+    expect(firma).toBe(createHmac("sha256", "vpf-generica-cambiar-7Qk2Lm9Xz4Rt").update(`sso.${exp}`).digest("hex"));
     vi.unstubAllEnvs();
   });
 });
