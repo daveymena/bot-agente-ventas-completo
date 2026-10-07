@@ -78,6 +78,8 @@ export interface OpcionesDeTurnoDirecto {
   baseUrl?: string;
   /** Cuánto piensa el modelo antes de contestar. Default: "high" (el de la API). */
   esfuerzo?: NivelDeEsfuerzo;
+  /** Quién atiende: `effort` solo lo entiende DeepSeek nativo. */
+  proveedor?: string;
   /** Cuánto tiempo le queda al turno entero. */
   presupuestoMs: number;
   /** El botón de "Detener" del admin. */
@@ -92,6 +94,13 @@ export interface ResultadoDirecto {
   vueltas: number;
   herramientasUsadas: string[];
   ms: number;
+  /** Código HTTP cuando el modelo rechazó el pedido (429 sin cupo, 401…). */
+  status?: number;
+  /** Inicio del cuerpo del error, para decidir cuánto se aparta al proveedor. */
+  detalle?: string;
+  /** Quién atendió este turno. */
+  proveedor?: string;
+  modelo?: string;
 }
 
 /**
@@ -230,7 +239,7 @@ export async function correrTurnoDirecto(o: OpcionesDeTurnoDirecto): Promise<Res
           // OpenAI lo ignoran o lo rechazan, así que viaja únicamente cuando
           // el llamador lo pide explícito (el default "high" es el de la API
           // y no hace falta mandarlo).
-          ...(o.esfuerzo && o.esfuerzo !== "high" ? { effort: o.esfuerzo } : {}),
+          ...(o.esfuerzo && o.esfuerzo !== "high" && (o.proveedor ?? "deepseek") === "deepseek" ? { effort: o.esfuerzo } : {}),
           ...(o.herramientas.length ? { tools: o.herramientas.map(comoHerramientaDeOpenAI) } : {}),
         }),
         signal: o.cancelSignal ? AbortSignal.any([porTiempo, o.cancelSignal]) : porTiempo,
@@ -239,7 +248,7 @@ export async function correrTurnoDirecto(o: OpcionesDeTurnoDirecto): Promise<Res
       if (!res.ok) {
         const cuerpo = await res.text().catch(() => "");
         logger.warn({ status: res.status, cuerpo: cuerpo.slice(0, 300) }, "[AtlasDirecto] El modelo devolvió error");
-        return { texto: ultimoTexto, error: `el modelo respondió ${res.status}`, vueltas, herramientasUsadas, ms: Date.now() - t0 };
+        return { texto: ultimoTexto, error: `el modelo respondió ${res.status}`, status: res.status, detalle: cuerpo.slice(0, 300), vueltas, herramientasUsadas, ms: Date.now() - t0 };
       }
       datos = await res.json();
     } catch (e: any) {
@@ -385,4 +394,97 @@ export function configDirecta(env: NodeJS.ProcessEnv = process.env): ConfigDirec
  */
 export function directoDisponible(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.ATLAS_DIRECTO === "true" && configDirecta(env) !== null;
+}
+
+/* ─── Rotación del camino directo ─────────────────────────────────────────
+ *
+ * 07-10 02:42 UTC, producción: Ollama Cloud respondió 429 "you have reached
+ * your monthly usage limit" y CADA turno de Atlas cayó al puente OpenCode
+ * (14 a 25 s por turno) aunque el panel tenía otra IA activa y andando
+ * (gpt-5.6-luna) y DeepSeek con saldo. configDirecta() elegía UNA sola
+ * opción fija. Ahora se prueban en orden: la IA activa del panel, Ollama
+ * Cloud y DeepSeek; la que falla ANTES de hacer nada queda apartada un rato
+ * (el cupo mensual no vuelve en el próximo mensaje) y se pasa a la siguiente.
+ * Solo si fallan todas, el turno sigue por OpenCode como antes.
+ */
+const apartados = new Map<string, { hasta: number; motivo: string }>();
+
+/** Cuánto se aparta un proveedor según cómo falló. 0 = no se aparta. */
+export function apartarPor(status: number | undefined, detalle = ""): number {
+  const d = detalle.toLowerCase();
+  if (status === 429) return /month|usage limit|quota|credit|insufficient|billing/.test(d) ? 6 * 3_600_000 : 2 * 60_000;
+  if (status === 401 || status === 402 || status === 403) return 6 * 3_600_000;
+  if (status === 404 || status === 400) return /model/.test(d) ? 3_600_000 : 0;
+  if (status && status >= 500) return 60_000;
+  return 0;
+}
+
+export function proveedorApartado(proveedor: string, ahora = Date.now()): boolean {
+  const a = apartados.get(proveedor);
+  if (!a) return false;
+  if (a.hasta <= ahora) { apartados.delete(proveedor); return false; }
+  return true;
+}
+
+export function apartarProveedor(proveedor: string, ms: number, motivo: string, ahora = Date.now()): void {
+  if (ms > 0) apartados.set(proveedor, { hasta: ahora + ms, motivo });
+}
+
+/** Proveedores del panel que hablan el formato de OpenAI con tool-calling. */
+const DIRECTO_COMPATIBLE = new Set(["openai", "deepseek", "ollama_cloud", "opencode_go", "groq", "openrouter", "mistral", "cerebras"]);
+
+/**
+ * Candidatos en orden: la IA que el admin eligió en el panel, después los
+ * fijos del entorno. `activa` la resuelve quien llama (lee la base).
+ */
+export function candidatosDirectos(
+  activa: { proveedor: string; modelo?: string; baseUrl: string; apiKey: string } | null,
+  env: NodeJS.ProcessEnv = process.env,
+  ahora = Date.now(),
+): ConfigDirecta[] {
+  const out: ConfigDirecta[] = [];
+  if (activa && activa.apiKey && DIRECTO_COMPATIBLE.has(activa.proveedor)) {
+    out.push({ apiKey: activa.apiKey, baseUrl: endpointChat(activa.baseUrl), modelo: activa.modelo || "", proveedor: activa.proveedor });
+  }
+  if (env.OLLAMA_CLOUD_API_KEY) {
+    out.push({
+      apiKey: String(env.OLLAMA_CLOUD_API_KEY),
+      baseUrl: endpointChat(String(env.ATLAS_DIRECTO_URL || env.OLLAMA_CLOUD_URL || "https://ollama.com/v1")),
+      modelo: String(env.ATLAS_DIRECTO_MODELO || env.OLLAMA_CLOUD_MODEL || "gpt-oss:20b"),
+      proveedor: "ollama_cloud",
+    });
+  }
+  if (env.DEEPSEEK_API_KEY) {
+    out.push({
+      apiKey: String(env.DEEPSEEK_API_KEY),
+      baseUrl: endpointChat(URL_POR_DEFECTO),
+      modelo: "deepseek-v4-flash",
+      proveedor: "deepseek",
+    });
+  }
+  const vistos = new Set<string>();
+  return out.filter((c) => c.modelo && !vistos.has(c.proveedor) && (vistos.add(c.proveedor), true) && !proveedorApartado(c.proveedor, ahora));
+}
+
+/**
+ * Corre el turno con el primer candidato que conteste. Se pasa al siguiente
+ * solo si el anterior falló SIN haber hecho nada (ni texto ni herramientas):
+ * repetir un turno que ya ejecutó acciones las duplicaría.
+ */
+export async function correrTurnoDirectoConRotacion(
+  o: Omit<OpcionesDeTurnoDirecto, "apiKey" | "modelo" | "baseUrl" | "proveedor">,
+  candidatos: ConfigDirecta[],
+  correr: (x: OpcionesDeTurnoDirecto) => Promise<ResultadoDirecto> = correrTurnoDirecto,
+): Promise<ResultadoDirecto> {
+  let ultimo: ResultadoDirecto = { texto: "", error: "sin modelos para el camino directo", vueltas: 0, herramientasUsadas: [], ms: 0 };
+  for (const c of candidatos) {
+    const r = await correr({ ...o, apiKey: c.apiKey, baseUrl: c.baseUrl, modelo: c.modelo, proveedor: c.proveedor });
+    ultimo = { ...r, proveedor: c.proveedor, modelo: c.modelo };
+    const sinHacerNada = !r.texto && r.herramientasUsadas.length === 0;
+    if (!r.error || !sinHacerNada || r.error === "detenido" || o.cancelSignal?.aborted) return ultimo;
+    const ms = apartarPor(r.status, r.detalle) || (r.status ? 0 : 60_000);
+    apartarProveedor(c.proveedor, ms, r.error);
+    logger.warn({ proveedor: c.proveedor, modelo: c.modelo, status: r.status, apartadoMin: Math.round(ms / 60_000) }, "[AtlasDirecto] el modelo no atendió: se prueba el siguiente");
+  }
+  return ultimo;
 }

@@ -30,7 +30,7 @@ import { randomUUID } from "node:crypto";
 import { requireAdmin, type TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
 import { esUnSiParaEstePlan } from "../lib/es-un-si";
-import { correrTurnoDirecto, directoDisponible, configDirecta, type NivelDeEsfuerzo } from "../lib/atlas-directo";
+import { correrTurnoDirecto, correrTurnoDirectoConRotacion, candidatosDirectos, directoDisponible, configDirecta, type NivelDeEsfuerzo } from "../lib/atlas-directo";
 import { promptDeAtlas, executeAction, verifyMutation, investigacionRapida, mensajeParaAdmin, isReadOnlyTool, notaDeLandingsEnSegundoPlano, type OperatorContext } from "../lib/app-operator";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
@@ -512,6 +512,27 @@ function hayClavePropia(providerID: string): boolean {
  * null si no eligió nada o no hay modelo guardado -- así la cadena sigue
  * exactamente como hasta ahora.
  */
+/**
+ * Candidatos del camino directo para este turno: la IA activa del panel
+ * primero (la que el admin eligió y paga), después los fijos del entorno.
+ * Ver correrTurnoDirectoConRotacion en lib/atlas-directo.ts.
+ */
+async function candidatosDelTurno() {
+  let activa: { proveedor: string; modelo?: string; baseUrl: string; apiKey: string } | null = null;
+  try {
+    const [fila] = await db.select().from(settings).limit(1);
+    const prov = String(fila?.aiProvider || "");
+    if (prov) {
+      const { leerBusinessConfig } = await import("../lib/ai-keys");
+      const modelo = leerBusinessConfig(fila!.businessConfig).aiProviders?.[prov]?.model;
+      const { getProviderConfig } = await import("@workspace/integrations-openai-ai-server");
+      const cfg = getProviderConfig(prov);
+      if (cfg?.apiKey) activa = { proveedor: prov, modelo: modelo || cfg.model, baseUrl: cfg.baseUrl, apiKey: cfg.apiKey };
+    }
+  } catch { /* sin IA del panel: quedan los del entorno */ }
+  return candidatosDirectos(activa);
+}
+
 async function iaActivaDelPanel(): Promise<{ providerID: string; modelID: string } | null> {
   try {
     const [fila] = await db.select().from(settings).limit(1);
@@ -1633,7 +1654,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             if (PEDIDO_DE_ANUNCIO.test(pedidoTexto) || investigacionPrevia) return "max";
             return undefined;
           })();
-          const r = await correrTurnoDirecto({
+          const r = await correrTurnoDirectoConRotacion({
             system,
             herramientas: toolRegistry,
             mensaje: text,
@@ -1643,15 +1664,14 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             // esto es lo que evita que una herramienta se comporte distinto segun
             // por donde vino la llamada.
             ctx: { tenantId, sessionId, turnId, turnDeadline, objetivoDelAdmin: objetivoDelAdmin ?? undefined },
-            ...configDirecta()!,
             esfuerzo: esfuerzoDelTurno,
             presupuestoMs: Math.max(turnDeadline - Date.now(), 10_000),
             cancelSignal: senalDeCorte,
             onProgreso: progreso,
-          });
+          }, await candidatosDelTurno());
           marcar(`directo:${r.vueltas}v`, Date.now() - r.ms);
           logger.info(
-            { tenantId, vueltas: r.vueltas, ms: r.ms, herramientas: r.herramientasUsadas, esfuerzo: esfuerzoDelTurno ?? "high", error: r.error },
+            { tenantId, proveedor: r.proveedor, modelo: r.modelo, vueltas: r.vueltas, ms: r.ms, herramientas: r.herramientasUsadas, esfuerzo: esfuerzoDelTurno ?? "high", error: r.error },
             "[AtlasDirecto] turno terminado",
           );
           // ── Insistencia en camino directo ────────────────────────────
@@ -1665,7 +1685,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           if (!r.error && redactoAnuncioSinGuardar(r.texto || "", r.herramientasUsadas) && turnDeadline - Date.now() > 25_000) {
             logger.info({ tenantId, sessionId }, "[AtlasDirecto] Redactó sin proponer en camino directo -- se insiste una vez");
             progreso("Guardando lo que preparé...");
-            const r2 = await correrTurnoDirecto({
+            const r2 = await correrTurnoDirectoConRotacion({
               system,
               herramientas: toolRegistry,
               mensaje:
@@ -1684,12 +1704,11 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
                 "- No vuelvas a escribir el copy en el chat ni pidas confirmación otra vez: el sistema ya le muestra " +
                 "la propuesta al admin y le pide el sí. Solo hacé la llamada.",
               ctx: { tenantId, sessionId, turnId, turnDeadline, objetivoDelAdmin: objetivoDelAdmin ?? undefined },
-              ...configDirecta()!,
               esfuerzo: "max",
               presupuestoMs: Math.max(turnDeadline - Date.now(), 10_000),
               cancelSignal: senalDeCorte,
               onProgreso: progreso,
-            });
+            }, await candidatosDelTurno());
             marcar(`directo-insiste:${r2.vueltas}v`, Date.now() - r2.ms);
             logger.info(
               { tenantId, vueltas: r2.vueltas, ms: r2.ms, herramientas: r2.herramientasUsadas, error: r2.error },
@@ -2029,7 +2048,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             toolRegistry = buildMcpToolRegistry(`${pedidoParaHerramientas}\n${pedidas.nombres.join(" ")}`);
             progreso("Revisando los datos de tu cuenta...");
             try {
-              const r = await correrTurnoDirecto({
+              const r = await correrTurnoDirectoConRotacion({
                 system,
                 herramientas: toolRegistry,
                 mensaje:
@@ -2039,11 +2058,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
                   `No le pidas que escriba nada para continuar.` +
                   (pedidas.textoLimpio ? `\n\nLo que alcanzaste a responder antes (no lo repitas, completalo):\n${pedidas.textoLimpio.slice(-4_000)}` : ""),
                 ctx: { tenantId, sessionId, turnId, turnDeadline, objetivoDelAdmin: objetivoDelAdmin ?? undefined },
-                ...configDirecta()!,
                 presupuestoMs: Math.max(turnDeadline - Date.now() - 10_000, 10_000),
                 cancelSignal: senalDeCorte,
                 onProgreso: progreso,
-              });
+              }, await candidatosDelTurno());
               if (!r.error && r.texto && r.texto.trim()) {
                 // Por si volvió a pedir algo: el marcador nunca llega al admin.
                 finalReplyVerificado = herramientasQuePide(r.texto.trim(), toolRegistry.map((t) => t.name)).textoLimpio;
@@ -2131,16 +2149,15 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             `No le pidas permiso al admin para continuar: resolvela y, si hay que crear o cambiar algo, ` +
             `proponelo con propose_action.`;
           const r = directoDisponible()
-            ? await correrTurnoDirecto({
+            ? await correrTurnoDirectoConRotacion({
                 system,
                 herramientas: toolRegistry,
                 mensaje: `${text}\n\n${instruccionParte}\n\nTrabajo ya completado en este turno:\n${finalReplyVerificado.slice(-6_000)}`,
                 ctx: { tenantId, sessionId, turnId, turnDeadline, objetivoDelAdmin: objetivoDelAdmin ?? undefined },
-                ...configDirecta()!,
                 presupuestoMs: Math.max(turnDeadline - Date.now() - 10_000, 10_000),
                 cancelSignal: senalDeCorte,
                 onProgreso: progreso,
-              }).then((resultado) => ({ text: resultado.texto, error: resultado.error }))
+              }, await candidatosDelTurno()).then((resultado) => ({ text: resultado.texto, error: resultado.error }))
             : await sendOpencodeMessage(cfg.host, cfg.authHeader, sesionOpencode, {
                 system,
                 model: modeloUsado!,
