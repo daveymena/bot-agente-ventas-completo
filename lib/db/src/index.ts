@@ -75,6 +75,7 @@ export const facebookDrafts = schema.facebookDrafts;
 // leía como un artefacto de compilación viejo.
 export const landingPages = schema.landingPages;
 export const coupons = schema.coupons;
+export const pushSubscriptions = schema.pushSubscriptions;
 export const opencodeConfig = schema.opencodeConfig;
 export const adAgentLogs = schema.adAgentLogs;
 export const remarketingCampaigns = schema.remarketingCampaigns;
@@ -122,6 +123,7 @@ export type {
   MarketingBudget, InsertMarketingBudget,
   MarketingAuditLog, InsertMarketingAuditLog,
   Coupon, InsertCoupon,
+  PushSubscription, InsertPushSubscription,
 } from "./schema";
 export type { AdContext, CommercialProfile } from "./schema/leads";
 export type { AgentStage } from "./schema/agents";
@@ -377,6 +379,7 @@ async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: (
     `CREATE TABLE IF NOT EXISTS consumo_mensual (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, periodo TEXT NOT NULL, mensajes INTEGER NOT NULL DEFAULT 0, actualizado_at TEXT DEFAULT (datetime('now')), UNIQUE(tenant_id, periodo))`,
     `CREATE TABLE IF NOT EXISTS consumo_conversaciones (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, periodo TEXT NOT NULL, conversaciones INTEGER NOT NULL DEFAULT 0, actualizado_at TEXT DEFAULT (datetime('now')), UNIQUE(tenant_id, periodo))`,
     `CREATE TABLE IF NOT EXISTS coupons (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, product_id INTEGER REFERENCES products(id) ON DELETE SET NULL, code TEXT NOT NULL, tipo TEXT NOT NULL DEFAULT 'porcentaje', valor REAL NOT NULL, minimo_compra REAL, usos_max INTEGER, usos INTEGER NOT NULL DEFAULT 0, activo INTEGER DEFAULT 1, vigencia_inicio TEXT, vigencia_fin TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS push_subscriptions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, endpoint TEXT NOT NULL UNIQUE, p256dh TEXT NOT NULL, auth TEXT NOT NULL, dispositivo TEXT, activo INTEGER DEFAULT 1, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
   ];
 
   for (const sql of tables) {

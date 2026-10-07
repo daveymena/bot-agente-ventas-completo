@@ -35,3 +35,4 @@ export * from "./consumo-mensual";
 export * from "./consumo-conversaciones";
 export * from "./landing-pages";
 export * from "./coupons";
+export * from "./push-subscriptions";

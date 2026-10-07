@@ -399,6 +399,16 @@ app.use(express.urlencoded({ extended: true, limit: "12mb" }));
 // Health check endpoints (sin autenticación)
 app.use("/api", healthRouter);
 
+// Digital Asset Links para la APK (TWA): asocia ventasproia.com con la app.
+// ANDROID_SHA256 = huella SHA-256 (sin :) del keystore de firma (upload key).
+app.get("/.well-known/assetlinks.json", (_req, res) => {
+  const sha256 = String(process.env.ANDROID_SHA256 || "").replace(/:/g, "").toUpperCase();
+  const pkg = process.env.ANDROID_PACKAGE || "com.ventaspro.app";
+  if (!sha256) return res.status(404).json({ error: "assetlinks no configurado" });
+  res.setHeader("Content-Type", "application/json");
+  res.json([{ relation: ["delegate_permission/common.handle_all_urls"], target: { namespace: "android_app", package_name: pkg, sha256_cert_fingerprints: [sha256] } }]);
+});
+
 
 // Servir frontend en producción
 const __filename = fileURLToPath(import.meta.url);

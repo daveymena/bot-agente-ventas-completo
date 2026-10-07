@@ -9,6 +9,7 @@ import { PaymentCredentials } from "@/components/payment-credentials";
 import { EmailCredentials } from "@/components/email-credentials";
 import { FacebookCredentials } from "@/components/facebook-credentials";
 import { TelegramCredentials } from "@/components/telegram-credentials";
+import { PushNotifications } from "@/components/push-notifications";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -276,6 +277,7 @@ export default function Settings() {
             <EmailCredentials />
             <FacebookCredentials />
             <TelegramCredentials />
+            <PushNotifications />
             <TwoFactorSettings />
 
             <Card className="rounded-3xl border-0 shadow-lg glass-panel overflow-hidden relative">

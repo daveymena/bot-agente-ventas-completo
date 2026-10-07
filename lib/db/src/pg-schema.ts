@@ -703,5 +703,21 @@ export const ALL_TABLES = [
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `
+  },
+  {
+    name: 'push_subscriptions',
+    sql: `
+      CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL,
+        endpoint TEXT NOT NULL UNIQUE,
+        p256dh TEXT NOT NULL,
+        auth TEXT NOT NULL,
+        dispositivo TEXT,
+        activo BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
   }
 ];
