@@ -7,7 +7,9 @@ import {
   correrVencidos,
   registrarManejador,
   _limpiarManejadores,
+  proximaVuelta,
 } from "../programador";
+import { toDbDate } from "../date-utils";
 
 /**
  * El reloj del sistema.
@@ -186,5 +188,86 @@ describe("cancelar", () => {
     expect(await cancelar("kd")).toBe(false);
     const [fila] = await db.select().from(trabajosProgramados).where(eq(trabajosProgramados.clave, "kd"));
     expect(fila.estado).toBe("hecho");
+  });
+});
+
+describe("un deploy a mitad de trabajo no lo deja colgado", () => {
+  // Cada deploy mata el proceso. Si lo agarraba con un trabajo en "corriendo",
+  // la fila quedaba así para siempre: el programador solo mira "pendiente" y
+  // programar() con la misma clave no la tocaba. La ronda diaria del orgánico
+  // y el barrido de aprobadas morían en silencio.
+  const colgar = async (clave: string, minutosAtras: number) => {
+    await db.update(trabajosProgramados)
+      .set({ estado: "corriendo", actualizadoAt: toDbDate(enMinutos(-minutosAtras)) as any })
+      .where(eq(trabajosProgramados.clave, clave));
+  };
+
+  it("una ronda colgada vuelve a correr", async () => {
+    let veces = 0;
+    registrarManejador("ronda", async () => { veces++; });
+    await programar({ tenantId: T, tipo: "ronda", clave: "h1", correAt: enMinutos(-60), repiteCadaMin: 24 * 60 });
+    await colgar("h1", 45);
+
+    await correrVencidos();
+    expect(veces).toBe(1);
+    const [fila] = await db.select().from(trabajosProgramados).where(eq(trabajosProgramados.clave, "h1"));
+    expect(fila.estado).toBe("pendiente");
+  });
+
+  it("una publicación colgada queda fallada con el motivo, sin re-publicarse", async () => {
+    let veces = 0;
+    registrarManejador("post", async () => { veces++; });
+    await programar({ tenantId: T, tipo: "post", clave: "h2", correAt: enMinutos(-60) });
+    await colgar("h2", 45);
+
+    await correrVencidos();
+    expect(veces).toBe(0);
+    const [fila] = await db.select().from(trabajosProgramados).where(eq(trabajosProgramados.clave, "h2"));
+    expect(fila.estado).toBe("fallado");
+    expect(fila.error).toMatch(/reinicio/);
+  });
+
+  it("lo que está corriendo AHORA no se toca", async () => {
+    registrarManejador("ronda", async () => {});
+    await programar({ tenantId: T, tipo: "ronda", clave: "h3", correAt: enMinutos(-5), repiteCadaMin: 15 });
+    await colgar("h3", 2);
+
+    await correrVencidos();
+    const [fila] = await db.select().from(trabajosProgramados).where(eq(trabajosProgramados.clave, "h3"));
+    expect(fila.estado).toBe("corriendo");
+  });
+
+  it("volver a programar una ronda fallada la revive", async () => {
+    registrarManejador("ronda", async () => { throw new Error("caída"); });
+    await programar({ tenantId: T, tipo: "ronda", clave: "h4", correAt: enMinutos(-1), repiteCadaMin: 60 });
+    await db.update(trabajosProgramados).set({ estado: "fallado" }).where(eq(trabajosProgramados.clave, "h4"));
+
+    await programar({ tenantId: T, tipo: "ronda", clave: "h4", correAt: enMinutos(10), repiteCadaMin: 60 });
+    const [fila] = await db.select().from(trabajosProgramados).where(eq(trabajosProgramados.clave, "h4"));
+    expect(fila.estado).toBe("pendiente");
+  });
+});
+
+describe("las rondas no se corren de hora ni se apagan", () => {
+  it("la próxima vuelta se ancla a la hora pactada, no a cuándo terminó", () => {
+    const seis = new Date("2026-10-07T11:00:00Z");
+    const tarde = new Date("2026-10-07T11:07:00Z");
+    expect(proximaVuelta(seis, 24 * 60, tarde).toISOString()).toBe("2026-10-08T11:00:00.000Z");
+    // Servidor caído tres días: salta a la próxima del futuro, no corre tres veces.
+    const tresDias = new Date("2026-10-10T15:00:00Z");
+    expect(proximaVuelta(seis, 24 * 60, tresDias).toISOString()).toBe("2026-10-11T11:00:00.000Z");
+  });
+
+  it("una ronda que se rinde pierde la vuelta, no la rutina", async () => {
+    registrarManejador("ronda", async () => { throw new Error("Meta caída"); });
+    await programar({ tenantId: T, tipo: "ronda", clave: "r1", correAt: enMinutos(-1), repiteCadaMin: 24 * 60 });
+    await correrVencidos();
+    await correrVencidos(new Date(Date.now() + 60 * 60_000));
+    await correrVencidos(new Date(Date.now() + 6 * 60 * 60_000));
+
+    const [fila] = await db.select().from(trabajosProgramados).where(eq(trabajosProgramados.clave, "r1"));
+    expect(fila.estado).toBe("pendiente");
+    expect(fila.error).toContain("Meta caída");
+    expect(new Date(fila.correAt as any).getTime()).toBeGreaterThan(Date.now() + 6 * 60 * 60_000);
   });
 });
