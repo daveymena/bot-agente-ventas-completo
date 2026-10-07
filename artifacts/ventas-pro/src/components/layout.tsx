@@ -67,7 +67,7 @@ export function AppSidebar() {
     { label: "Personalización", href: "/branding", icon: Palette },
     { label: "Facebook", href: "/facebook", icon: Facebook },
     { label: "Marketing", href: "/marketing", icon: Megaphone },
-    { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate, external: "https://landings.ventasproia.com" },
+    { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate, external: "/api/landing-forge/entrar" },
     { label: "Configuración", href: "/settings", icon: Settings },
     { label: "Diagnóstico", href: "/diagnostico", icon: Activity },
     // Oculto del menú 29-09-2026: duplicado de "Probar vendedor" (línea de arriba).

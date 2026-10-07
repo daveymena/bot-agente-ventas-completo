@@ -5129,7 +5129,7 @@ ${explicarObjetivos()}` };
   {
     name: "landing_crear",
     description:
-      "Genera una landing HTML del producto. Corre en segundo plano: devuelve el id NUEVO en estado generando; hasta que landing_estado diga lista no describas ninguna landing (menos una vieja). Borrador; publicar: landing_publicar. Va por propose_action.",
+      "Genera una landing HTML NUEVA del producto (nunca reutiliza una existente; para cambiar una que ya existe: landing_editar). Corre en segundo plano: devuelve el id NUEVO en estado generando; hasta que landing_estado diga lista no describas ninguna landing (menos una vieja). Borrador; publicar: landing_publicar. Va por propose_action.",
     args: '{ "productId": number (req), "estilo"?: "pro"|"clinico"|"libre", "instruccion"?: string, "familia"?: string (solo con estilo libre: premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch, electronica, suplemento, gourmet) }',
     run: async (args, ctx) => {
       const id = num(args?.productId);
@@ -5202,7 +5202,7 @@ ${explicarObjetivos()}` };
   {
     name: "landing_forge_crear",
     description:
-      "Crea la landing en LandingForge, el generador bueno (https://landings.ventasproia.com, IA activa): extrae la ficha del producto, la IA ANALIZA primero (avatar, dolores, promesa, angulo para trafico frio de Facebook) y despues arma el copy de venta con AIDA + las fotos colocadas; devuelve URL publica + editor + exportar HTML. Antes de llamar, piensa el marketing con lo que sabes del producto (o preguntale al admin si falta): QUIEN la compra (avatar concreto), QUE le duele (3 dolores en su lenguaje), QUE promesa la vende y QUE prueba hay (precio, pago contra entrega, garantia). Manda todo eso en 'instruccion' con las palabras del admin; el forge lo convierte en copy que vende, no en una ficha descriptiva. La landing queda guardada y visible en landing_listar. Va por propose_action.",
+      "Crea una landing NUEVA en LandingForge (nunca devuelve una existente; si el admin pide CAMBIAR una que ya existe, usa landing_forge_editar), el generador bueno (https://landings.ventasproia.com, IA activa): extrae la ficha del producto, la IA ANALIZA primero (avatar, dolores, promesa, angulo para trafico frio de Facebook) y despues arma el copy de venta con AIDA + las fotos colocadas; devuelve URL publica + editor + exportar HTML. Antes de llamar, piensa el marketing con lo que sabes del producto (o preguntale al admin si falta): QUIEN la compra (avatar concreto), QUE le duele (3 dolores en su lenguaje), QUE promesa la vende y QUE prueba hay (precio, pago contra entrega, garantia). Manda todo eso en 'instruccion' con las palabras del admin; el forge lo convierte en copy que vende, no en una ficha descriptiva. La landing queda guardada y visible en landing_listar. Va por propose_action.",
     args: '{ "productId": number (req), "instruccion"?: string (BRIEF de marketing con las palabras del admin: quien la compra + que le duele + que promesa la vende + que prueba hay; mientras mas completo, mejor vende), "productUrl"?: string (ficha a extraer; si no, usa la del producto) }',
     run: async (args, ctx) => {
       const { landingPages } = await import("@workspace/db");

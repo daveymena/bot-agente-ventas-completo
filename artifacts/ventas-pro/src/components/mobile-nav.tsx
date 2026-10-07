@@ -11,7 +11,7 @@ const mainNavItems = [
 ];
 
 const baseMoreItems = [
-  { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate, external: "https://landings.ventasproia.com" },
+  { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate, external: "/api/landing-forge/entrar" },
   { label: "Atlas VentasPro", href: "/code-agent", icon: Wand2, highlight: true },
   { label: "Marketing", href: "/marketing", icon: Megaphone },
   { label: "Facebook", href: "/facebook", icon: Facebook },

@@ -12,6 +12,8 @@
  * lo exigen; el dashboard usa mismo-origen, el bot usa la key).
  */
 
+import { createHmac } from "node:crypto";
+
 const BASE = (process.env.LANDINGFORGE_URL || "https://landings.ventasproia.com").replace(/\/+$/, "");
 const API_KEY = process.env.LANDINGFORGE_API_KEY || process.env.LANDING_API_KEY || "";
 const WHATSAPP_DEFAULT = process.env.WHATSAPP_NUMBER || process.env.ADMIN_PHONE || "573136174267";
@@ -80,6 +82,10 @@ export interface ProductData {
   tenantId?: number | null;
   /** Fila del producto: su garantía real (metadata.garantia, de Dropi). */
   producto?: any;
+  /** true = devolver una landing publicada con el mismo nombre si existe.
+   *  Por defecto NO: pedir una landing nueva crea una nueva (orden del dueño
+   *  07-10). Para cambiar una existente está landing_forge_editar. */
+  reutilizar?: boolean;
 }
 
 /** Lo único que la landing puede prometer (Forge: lib/ai/hechos.ts). */
@@ -243,7 +249,10 @@ export async function getOrCreateLanding(
   productKind: "physical" | "digital",
   productData?: ProductData,
 ): Promise<MagicLandingResult> {
-  try {
+  // Antes reutilizaba SIEMPRE una landing publicada con el mismo nombre de
+  // producto -- de cualquier negocio, porque Forge no sabe de negocios --:
+  // el dueño pedía una landing nueva y recibía la vieja. Ahora solo si se pide.
+  if (productData?.reutilizar === true) try {
     const { landings } = await listLandings();
     const existing = (landings || []).find(
       (l) => l.productName?.toLowerCase() === productName.toLowerCase() && l.landing?.status === "published",
@@ -420,4 +429,15 @@ export async function extraerFichaForge(url: string, navegador = false): Promise
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
+}
+
+/** Enlace de entrada al panel de Forge con sesión ya abierta (Forge:
+ *  /api/auth/sso, token firmado HMAC-SHA256 con la MISMA LANDING_API_KEY que
+ *  este servidor usa como x-api-key; vence en 2 minutos). Sin clave, Forge
+ *  está en modo abierto y basta con la URL. */
+export function enlaceDeEntradaForge(siguiente = "/"): string {
+  if (!API_KEY) return `${BASE}${siguiente.startsWith("/") ? siguiente : "/"}`;
+  const exp = Math.floor(Date.now() / 1000) + 120;
+  const firma = createHmac("sha256", API_KEY).update(`sso.${exp}`).digest("hex");
+  return `${BASE}/api/auth/sso?t=${encodeURIComponent(`sso.${exp}.${firma}`)}&next=${encodeURIComponent(siguiente)}`;
 }
