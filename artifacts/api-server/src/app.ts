@@ -36,6 +36,10 @@ import { getImageStoreDir } from "./lib/image-store";
 // Auto-start WhatsApp bot on boot (multi-tenant: una instancia por tenant)
 (async () => {
   try {
+    // Primero la base. Sin esto, getTenantById(1) corría antes de que `db`
+    // existiera, fallaba ("[TenantManager] Failed to get tenant by ID",
+    // 07-10) y WhatsApp arrancaba con el negocio de RELLENO, no el real.
+    await ensureDbReady();
     // getDefaultTenant() devuelve un objeto placeholder hardcodeado (sin
     // credenciales de pago/Facebook reales) -- se busca el tenant 1 real en
     // la BD para que la instancia auto-iniciada tenga su brandName/agentPrompt
@@ -123,6 +127,12 @@ registrarAutoReflexion();
 // cuenta -- solo drena lo que el admin ya confirmó, ver remarketing.ts).
 import { remarketingScheduler } from "./lib/remarketing-scheduler";
 remarketingScheduler.start();
+
+// Seguimientos comerciales (follow_ups): antes se encendía solo al importar
+// followUpScheduler.ts, desde donde fuera. Ahora se enciende acá, a la vista,
+// y su primera pasada espera a la base.
+import { followUpScheduler } from "./lib/followUpScheduler";
+followUpScheduler.start(30);
 
 // Auto-start AI Processor (Orchestrator) on boot
 import { getAgentOrchestrator } from "./lib/services/agent-orchestrator";

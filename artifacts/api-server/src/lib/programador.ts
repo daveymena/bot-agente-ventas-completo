@@ -2,6 +2,7 @@ import { and, asc, eq, lte, sql } from "drizzle-orm";
 import { db, trabajosProgramados } from "@workspace/db";
 import { toDbDate } from "./date-utils";
 import { logger } from "./logger";
+import { cuandoLaBaseEsteLista } from "./esperar-base";
 
 /**
  * ============================================================
@@ -266,7 +267,7 @@ export function iniciarProgramador(): void {
   andando = true;
 
   const vuelta = () => {
-    correrVencidos().then(
+    cuandoLaBaseEsteLista().then(() => correrVencidos()).then(
       (r) => {
         if (r.corridos || r.fallados) {
           logger.info({ ...r }, "[Programador] Vuelta completa");

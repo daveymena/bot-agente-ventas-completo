@@ -5,6 +5,7 @@ import { leadScoringEngine, type LeadStage } from "./leadScoring";
 import { getWhatsAppForTenant } from "./whatsapp-factory";
 import { toDbDate } from "./date-utils";
 import { facebookMessengerService } from "./facebook-messenger";
+import { cuandoLaBaseEsteLista } from "./esperar-base";
 
 export interface PoliticaSeguimiento {
   demoraMs: number;
@@ -54,13 +55,17 @@ export class FollowUpScheduler {
     this.isRunning = true;
     logger.info({ intervalMinutes }, "[FollowUpScheduler] Starting scheduler");
 
-    this.processDueFollowUps().catch(error => {
-      logger.error({ error }, "[FollowUpScheduler] Initial processing failed");
-    });
+    // La primera pasada espera a la base: arrancaba al importar el módulo,
+    // antes de "[DB] Lista para usar", y fallaba siempre (ver esperar-base.ts).
+    cuandoLaBaseEsteLista()
+      .then(() => this.processDueFollowUps())
+      .catch(err => {
+        logger.error({ err }, "[FollowUpScheduler] Initial processing failed");
+      });
 
     this.intervalId = setInterval(() => {
-      this.processDueFollowUps().catch(error => {
-        logger.error({ error }, "[FollowUpScheduler] Scheduled processing failed");
+      this.processDueFollowUps().catch(err => {
+        logger.error({ err }, "[FollowUpScheduler] Scheduled processing failed");
       });
     }, intervalMinutes * 60 * 1000);
   }
@@ -245,7 +250,9 @@ export class FollowUpScheduler {
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
     } catch (error) {
-      logger.error({ error }, "[FollowUpScheduler] Failed to process due follow-ups");
+      // `err` y no `error`: pino solo serializa un Error bajo `err`; con
+      // `error` el log de producción decía literalmente "error: {}".
+      logger.error({ err: error }, "[FollowUpScheduler] Failed to process due follow-ups");
     }
   }
 
@@ -485,7 +492,9 @@ export async function cancelarSeguimientosPendientes(conversationId: number): Pr
 }
 
 export const followUpScheduler = new FollowUpScheduler();
-followUpScheduler.start(30);
+// Se arranca desde app.ts (bloque "relojes que tocan la base"), no al
+// importar: cualquier archivo que importara este módulo --pruebas incluidas--
+// encendía un reloj real que consultaba la base antes de que existiera.
 
 export async function scheduleIntelligentFollowUp(conversationId: number, stage: string, score: number) {
   return followUpScheduler.scheduleFollowUp(conversationId, stage, score);
