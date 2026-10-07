@@ -1,4 +1,4 @@
-import { eq, inArray, desc, and, sql } from "drizzle-orm";
+import { eq, inArray, desc, and } from "drizzle-orm";
 import { getAppUrl } from "./app-url";
 import { transcribirAudio, describirImagen } from "./media-entrante";
 import { contextoDeMoneda } from "./moneda-por-pais";
@@ -31,6 +31,7 @@ import {
 } from "@workspace/db";
 
 import { logger } from "./logger";
+import { SupervisorEnvios, pausaGrabacionMs } from "./supervisor-envios";
 import { runAgentReply } from "./agent";
 import { presentarParaWhatsApp } from "./presentacion";
 import { createAIClient, getProviderConfig } from "@workspace/integrations-openai-ai-server";
@@ -65,180 +66,67 @@ async function sleep(ms: number): Promise<void> {
 }
 
 
-// ─── Agente Supervisor: Telemetría de Salud (persistida en Postgres) ─────────
-// Vive en la tabla whatsapp_auth, clave "supervisor_health". Si el proceso
-// se reinicia en plena ola de baneos, el riesgo NO arranca en cero: el freno
-// sigue activo desde el primer mensaje del reinicio.
-const HEALTH_STATE_KEY = "supervisor_health";
-const HEALTH_SAVE_DEBOUNCE_MS = 30_000; // no escribir la DB en cada mensaje
+// ─── Supervisor anti-baneo, UNO POR NEGOCIO (ver lib/supervisor-envios.ts) ──
+// Regula solo el RITMO de los envíos de cada número; nunca toca el texto.
+// Persistido en whatsapp_auth con clave "supervisor_health:<tenantId>" para
+// que un reinicio en plena racha de restricciones no arranque en cero.
+const SUPERVISOR_KEY = (tenantId: string | number) => `supervisor_health:${tenantId}`;
+const SUPERVISOR_SAVE_DEBOUNCE_MS = 30_000;
+const supervisores = new Map<string, { sup: SupervisorEnvios; restaurado: Promise<void>; guardadoAt: number }>();
 
-const HealthManager = {
-  riskScore: 0, // 0 = Seguro, 100 = Baneo Inminente
-  consecutiveErrors: 0,
-  _lastSaveAt: 0,
-  _saving: false,
-  _tableReady: false,
-
-  /**
-   * Auto-crea whatsapp_auth si el deploy no corrio drizzle-kit push.
-   * Espejo exacto de lib/db/src/schema/whatsapp.ts. Si ya existe,
-   * IF NOT EXISTS lo deja intacto: cuesta una query en todo el arranque.
-   */
-  async _ensureTable() {
-    if (this._tableReady) return;
-    await ensureDbReady();
-    await db.execute(sql`
-      CREATE TABLE IF NOT EXISTS whatsapp_auth (
-        key TEXT PRIMARY KEY,
-        value JSONB NOT NULL,
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-      )
-    `);
-    this._tableReady = true;
-  },
-
-  async restoreState() {
-    try {
-      await this._ensureTable();
-      const [row] = await db
-        .select()
-        .from(whatsappAuth)
-        .where(eq(whatsappAuth.key, HEALTH_STATE_KEY))
-        .limit(1);
-      const value = (row as any)?.value;
-      if (value && typeof value.riskScore === "number") {
-        this.riskScore = Math.min(Math.max(value.riskScore, 0), 100);
-        this.consecutiveErrors = value.consecutiveErrors ?? 0;
-        logger.info(
-          `[Supervisor] Estado restaurado de Postgres: riskScore=${this.riskScore}, ` +
-          `erroresConsecutivos=${this.consecutiveErrors}`,
-        );
+function supervisorDe(tenantId: string | number | undefined): SupervisorEnvios {
+  const id = String(tenantId ?? "default");
+  let e = supervisores.get(id);
+  if (!e) {
+    const sup = new SupervisorEnvios();
+    const restaurado = (async () => {
+      try {
+        await ensureDbReady();
+        const [row] = await db.select().from(whatsappAuth).where(eq(whatsappAuth.key, SUPERVISOR_KEY(id))).limit(1);
+        const raw = (row as any)?.value;
+        sup.restaurar(typeof raw === "string" ? JSON.parse(raw) : raw);
+        if (sup.riesgo > 0) logger.info({ tenantId: id, riesgo: sup.riesgo }, "[Supervisor] Estado restaurado");
+      } catch (err) {
+        logger.warn({ tenantId: id, err: String(err) }, "[Supervisor] Sin estado previo (arranca en 0)");
       }
-    } catch (e) {
-      logger.warn(`[Supervisor] No se pudo restaurar el estado (arranca en 0): ${e}`);
-    }
-  },
+    })();
+    e = { sup, restaurado, guardadoAt: 0 };
+    supervisores.set(id, e);
+  }
+  return e.sup;
+}
 
-  async persistState(force = false) {
-    const now = Date.now();
-    // Debounce: updateScore se llama por CADA mensaje. Escribir la DB en cada
-    // uno saturaria Postgres antes de que Meta banee nada. Sin force, se
-    // persiste a lo sumo una vez cada 30s.
-    if (!force && now - this._lastSaveAt < HEALTH_SAVE_DEBOUNCE_MS) return;
-    if (this._saving) return;
-    this._saving = true;
-    this._lastSaveAt = now;
+function guardarSupervisor(tenantId: string | number | undefined, forzar: boolean): void {
+  const id = String(tenantId ?? "default");
+  const e = supervisores.get(id);
+  if (!e) return;
+  const ahora = Date.now();
+  if (!forzar && ahora - e.guardadoAt < SUPERVISOR_SAVE_DEBOUNCE_MS) return;
+  e.guardadoAt = ahora;
+  const value = { ...e.sup.exportar(), updatedAt: new Date().toISOString() };
+  void (async () => {
     try {
       await ensureDbReady();
-      const state = {
-        riskScore: this.riskScore,
-        consecutiveErrors: this.consecutiveErrors,
-        updatedAt: new Date().toISOString(),
-      };
       await db
         .insert(whatsappAuth)
-        .values({ key: HEALTH_STATE_KEY, value: state })
-        .onConflictDoUpdate({
-          target: whatsappAuth.key,
-          set: { value: state, updatedAt: new Date() },
-        });
-    } catch (e) {
-      logger.error(`[Supervisor] No se pudo persistir el estado de salud: ${e}`);
-    } finally {
-      this._saving = false;
+        .values({ key: SUPERVISOR_KEY(id), value } as any)
+        .onConflictDoUpdate({ target: whatsappAuth.key, set: { value, updatedAt: new Date() } as any });
+    } catch (err) {
+      logger.error({ tenantId: id, err: String(err) }, "[Supervisor] No se pudo guardar el estado");
     }
-  },
+  })();
+}
 
-  async updateScore(delta: number) {
-    const criticoAntes = this.riskScore > 70;
-    this.riskScore = Math.min(Math.max(this.riskScore + delta, 0), 100);
-    const criticoAhora = this.riskScore > 70;
-    logger.info(`[Supervisor] Risk Score actualizado: ${this.riskScore}`);
-    // Cruce de zona critica -> persistir YA. Dentro de la misma zona, el
-    // debounce de 30s alcanza.
-    void this.persistState(criticoAntes !== criticoAhora);
-    if (criticoAhora && !criticoAntes) {
-      logger.warn(`[Supervisor] ALERTA ROJA: Activando modo sigilo extremo`);
-    }
-  },
+function supervisorExito(tenantId: string | number | undefined): void {
+  if (supervisorDe(tenantId).exito()) guardarSupervisor(tenantId, true);
+}
 
-  async reportEvent(status: 'success' | 'failure', error?: any) {
-    if (status === 'success') {
-      this.consecutiveErrors = 0;
-      await this.updateScore(-1); // Baja el riesgo lentamente
-    } else {
-      this.consecutiveErrors++;
-      const isBanned = error?.message?.includes('401') || error?.message?.includes('suspended') || error?.message?.includes('blocked');
-      await this.updateScore(isBanned ? 30 : 10); // Sube el riesgo fuerte si hay baneo
-      // Un fallo SIEMPRE se persiste inmediato: si el proceso muere justo
-      // despues, el reinicio tiene que saber que la red esta en problemas.
-      void this.persistState(true);
-    }
-  },
-
-  get currentDelayMultiplier(): number {
-    if (this.riskScore < 30) return 1;
-    if (this.riskScore < 60) return 2;
-    return 4; // Multiplica los delays x4 si el riesgo es critico
-  }
-};
-
-// Restaurar el estado apenas arranca el proceso. ensureDbReady() espera a
-// que la DB este lista, asi que este fire-and-forget es seguro.
-void HealthManager.restoreState();
-// ─── Adaptación Cognitiva: reescribe mensajes cuando el riesgo es alto ───────
-// Usa el proveedor de IA que esté de turno (mismo mecanismo de rotación que
-// el agente de conversación). Si la IA falla o tarda, se envía el texto
-// original: la reescritura es una protección, nunca un bloqueo del envío.
-let lastAdaptAttemptAt = 0;
-const ADAPT_COOLDOWN_MS = 60_000; // no martillar la IA cada mensaje
-
-async function adaptMessageByRisk(text: string): Promise<string> {
-  if (HealthManager.riskScore < 60) return text; // solo interviene en riesgo alto
-  if (!text || text.length < 10) return text;    // textos cortos no se tocan
-
-  // Cooldown: un solo intento de reescritura por minuto aunque lleguen 100 envíos
-  const now = Date.now();
-  if (now - lastAdaptAttemptAt < ADAPT_COOLDOWN_MS) return text;
-  lastAdaptAttemptAt = now;
-
-  try {
-    // Toma la rotación del proveedor activo (el "de turno")
-    const { getProviderRotation, getOpenCodeRotation } = await import(
-      "@workspace/integrations-openai-ai-server"
-    );
-    const rotation = [...getProviderRotation("opencode"), ...getOpenCodeRotation()];
-    if (!rotation || rotation.length === 0) return text;
-
-    const config = rotation[0];
-    const client = createAIClient(config);
-    const completion = await client.chat.completions.create(
-      {
-        model: config.model,
-        messages: [
-          {
-            role: "system",
-            content:
-              "Eres un asistente que reescribe mensajes de ventas para que suenen casuales, humanos y no comerciales. " +
-              "Elimina lenguaje publicitario (oferta, descuento, compra ya, promoción, cupón). " +
-              "Mantén la información esencial y el emoji si lo hay. Responde SOLO con el mensaje reescrito, sin comillas ni explicaciones.",
-          },
-          { role: "user", content: `Reescribe este mensaje: ${text}` },
-        ],
-        temperature: 0.9,
-      },
-      { timeout: 8000, maxRetries: 0 },
-    );
-    const result = (completion.choices[0]?.message?.content ?? "").trim();
-    if (result && result.length >= 10) {
-      logger.info(`[Supervisor] Mensaje reescrito por IA (riesgo ${HealthManager.riskScore})`);
-      return result;
-    }
-    return text;
-  } catch (e) {
-    logger.error(`[AI-Adapt] Error reescribiendo mensaje: ${e}`);
-    return text; // SIEMPRE se devuelve algo enviable
-  }
+function supervisorFallo(tenantId: string | number | undefined, error: unknown): void {
+  const sup = supervisorDe(tenantId);
+  const { tipo, persistir } = sup.fallo(error);
+  if (!persistir) return;
+  logger.warn({ tenantId, tipo, riesgo: sup.riesgo }, "[Supervisor] Fallo de envío registrado");
+  guardarSupervisor(tenantId, true);
 }
 
 // Caché global de IDs de mensajes procesados para evitar duplicados/bucle
@@ -3068,25 +2956,22 @@ export class WhatsAppManager {
 
     // Simular lectura + escritura, con el multiplicador de riesgo del Agente
     // Supervisor: si suben los errores, el bot se vuelve mas lento solo.
-    const multiplier = HealthManager.currentDelayMultiplier;
+    const multiplier = supervisorDe(this.currentTenant?.id).multiplicador;
     await sleep(READ_DELAY_MS * multiplier);
     await this.sock.sendPresenceUpdate("composing", targetJid);
     await sleep(calcTypingDelay(text) * multiplier);
     await this.sock.sendPresenceUpdate("paused", targetJid);
 
-    // Riesgo alto -> la IA de turno reescribe el mensaje en tono casual
-    const textoFinal = await adaptMessageByRisk(text);
-
     try {
       // Se anota el id para poder distinguir despues nuestro propio eco de lo
       // que conteste otro --el dueno desde su celular, o la IA de Meta--, que
       // llega con el mismo `fromMe: true`. Ver `mensajes-propios.ts`.
-      const enviado = await this.sock.sendMessage(targetJid, { text: textoFinal });
+      const enviado = await this.sock.sendMessage(targetJid, { text });
       anotarMensajePropio(enviado?.key?.id);
-      await HealthManager.reportEvent("success");
+      supervisorExito(this.currentTenant?.id);
     } catch (e) {
       this.recordSendFailure();
-      await HealthManager.reportEvent("failure", e);
+      supervisorFallo(this.currentTenant?.id, e);
       throw e;
     }
     this.recordSendSuccess();
@@ -3112,18 +2997,17 @@ export class WhatsAppManager {
     await this.esperarEspaciadoEntreEnvios(targetJid);
     // Nota de voz humana: estado "recording..." + pausa proporcional al tamano
     // del audio, escalada por el multiplicador de riesgo del Supervisor.
-    const multiplier = HealthManager.currentDelayMultiplier;
-    const duracionEstimadaMs = Math.min(buffer.length * 8, 15000); // ~8ms por byte, tope 15s
+    const multiplier = supervisorDe(this.currentTenant?.id).multiplicador;
     try {
       await this.sock.sendPresenceUpdate("recording", targetJid);
-      await sleep(Math.round(duracionEstimadaMs * (0.8 + Math.random() * 0.4) * multiplier));
+      await sleep(pausaGrabacionMs(buffer.length, multiplier));
       await this.sock.sendPresenceUpdate("paused", targetJid);
       const enviado = await this.sock.sendMessage(targetJid, { audio: buffer, mimetype });
       anotarMensajePropio(enviado?.key?.id);
-      await HealthManager.reportEvent("success");
+      supervisorExito(this.currentTenant?.id);
     } catch (e) {
       this.recordSendFailure();
-      await HealthManager.reportEvent("failure", e);
+      supervisorFallo(this.currentTenant?.id, e);
       throw e;
     }
     this.recordSendSuccess();
@@ -3427,7 +3311,7 @@ export class WhatsAppManager {
 
     // Simular lectura + escritura (basado en el caption), escalada por el
     // multiplicador de riesgo del Agente Supervisor.
-    const multiplier = HealthManager.currentDelayMultiplier;
+    const multiplier = supervisorDe(this.currentTenant?.id).multiplicador;
     await sleep(READ_DELAY_MS * multiplier);
     await this.sock.sendPresenceUpdate("composing", jid);
     await sleep(calcTypingDelay(caption) * multiplier);
@@ -3494,10 +3378,10 @@ export class WhatsAppManager {
     // restringiendo el número.
     if (sentSomething) {
       this.recordSendSuccess();
-      await HealthManager.reportEvent("success");
+      supervisorExito(this.currentTenant?.id);
     } else {
       this.recordSendFailure();
-      await HealthManager.reportEvent("failure", new Error("imagen y texto de respaldo fallaron"));
+      supervisorFallo(this.currentTenant?.id, new Error("imagen y texto de respaldo fallaron"));
     }
     trackWhatsAppCost(this.currentTenant.id.toString());
     // Y en la base, que es lo que sobrevive a un reinicio. El de arriba vive en
