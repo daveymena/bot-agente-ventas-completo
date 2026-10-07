@@ -460,6 +460,8 @@ async function generateLandingViaForge(
       currency: product.currency || "COP",
       category: product.category || undefined,
       checkoutUrl: product.paymentLink || undefined,
+      tenantId: product.tenantId ?? null,
+      producto: product,
     },
   );
 

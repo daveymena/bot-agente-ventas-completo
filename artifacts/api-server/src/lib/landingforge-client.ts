@@ -76,6 +76,72 @@ export interface ProductData {
   prompt?: string;
   /** Origen del trafico ("facebook" en fisico: el forge analiza angulo y diseno para trafico frio). */
   trafico?: string;
+  /** Negocio dueño: con esto se mandan sus HECHOS (marca, envío, garantía). */
+  tenantId?: number | null;
+  /** Fila del producto: su garantía real (metadata.garantia, de Dropi). */
+  producto?: any;
+}
+
+/** Lo único que la landing puede prometer (Forge: lib/ai/hechos.ts). */
+export interface HechosLanding {
+  marca?: string;
+  cobertura?: string;
+  entrega?: { metodo?: string; plazo?: string; detalle?: string } | null;
+  garantia?: { dias?: number; descripcion?: string } | null;
+  envioGratis?: boolean | null;
+  pago?: string;
+  trato?: "tu" | "usted";
+  whatsapp?: string;
+}
+
+function diasDeGarantia(t: string): number | undefined {
+  const d = /(\d{1,3})\s*d[ií]as?/i.exec(t);
+  if (d) return Number(d[1]);
+  const m = /(\d{1,2})\s*mes(es)?/i.exec(t);
+  return m ? Number(m[1]) * 30 : undefined;
+}
+
+/**
+ * Hechos del negocio para la landing, de la MISMA fuente que usa el vendedor
+ * de WhatsApp (getBusinessContext + condiciones). Antes Forge recibía solo
+ * nombre/precio/fotos y el LLM completaba marca, envío y garantía de memoria
+ * ("Tu Marca", la marca de otra tienda, "garantía de 30 días" inventada).
+ */
+export async function hechosParaLanding(tenantId: number | null | undefined, producto?: any): Promise<HechosLanding> {
+  const { getBusinessContext, normalizarMetadata } = await import("./business-context");
+  const ctx = await getBusinessContext(tenantId ?? null);
+  const fisico = (producto?.kind ?? "physical") !== "digital";
+  const c = ctx.condiciones;
+  const meta = normalizarMetadata(producto?.metadata);
+  const gProd = typeof meta?.garantia === "string" && meta.garantia.trim() ? meta.garantia.trim() : "";
+  const garantia = gProd
+    ? { dias: diasDeGarantia(gProd), descripcion: gProd.slice(0, 300) }
+    : ctx.garantia
+      ? { dias: ctx.garantia.dias || undefined, descripcion: ctx.garantia.descripcion || undefined }
+      : null;
+  let whatsapp: string | undefined;
+  try {
+    const { db, tenants } = await import("@workspace/db");
+    const { eq } = await import("drizzle-orm");
+    const [t] = tenantId ? await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1) : [];
+    const tel = String((t as any)?.contactPhone || "").replace(/\D/g, "");
+    if (tel.length >= 10) whatsapp = tel;
+  } catch { /* sin teléfono propio: el de la plataforma */ }
+  return {
+    marca: ctx.businessName || undefined,
+    cobertura: fisico ? [c.envio.cobertura, c.pais && /^co$/i.test(c.pais) ? "Colombia" : c.pais].filter(Boolean).join(", ") : ctx.cobertura || undefined,
+    entrega: fisico
+      ? { metodo: "envío a domicilio", plazo: c.envio.plazo }
+      : ctx.entrega ? { metodo: ctx.entrega.metodo, plazo: ctx.entrega.plazo, detalle: ctx.entrega.detalle } : null,
+    garantia,
+    // "incluido" = el flete va en el precio: para el cliente, envío gratis.
+    envioGratis: fisico ? c.envio.costo === "incluido" : null,
+    pago: fisico
+      ? c.envio.pago === "contraentrega" ? "pago contra entrega" : c.envio.pago === "anticipado" ? "pago anticipado" : "pago contra entrega o anticipado"
+      : undefined,
+    trato: /usted/i.test(ctx.tono || "") ? "usted" : "tu",
+    whatsapp,
+  };
 }
 
 async function lf<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
@@ -183,6 +249,13 @@ export async function getOrCreateLanding(
   } catch {
   }
 
+  const hechos = productData?.tenantId !== undefined
+    ? await hechosParaLanding(productData.tenantId, productData.producto).catch((e) => {
+        console.warn(`[LandingForge] Sin hechos del negocio: ${(e as Error).message}`);
+        return undefined;
+      })
+    : undefined;
+
   try {
     const d = await lf<any>("/api/landingforge/generate", {
       method: "POST",
@@ -193,7 +266,8 @@ export async function getOrCreateLanding(
         price: productData?.price,
         currency: productData?.currency || "COP",
         checkoutUrl: productData?.checkoutUrl || productUrl || undefined,
-        whatsapp: WHATSAPP_DEFAULT,
+        whatsapp: hechos?.whatsapp || WHATSAPP_DEFAULT,
+        hechos,
         description: productData?.description || undefined,
         images: productData?.images?.length ? productData.images : undefined,
         videos: productData?.videos?.length ? productData.videos : undefined,

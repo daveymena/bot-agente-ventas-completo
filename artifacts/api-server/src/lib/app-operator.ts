@@ -5232,6 +5232,8 @@ ${explicarObjetivos()}` };
         checkoutUrl: productUrl || undefined,
         images: images.length ? images : undefined,
         prompt,
+        tenantId: ctx.tenantId,
+        producto: p,
       });
       if (!r.ok) return { ok: false, summary: `LandingForge fallo: ${r.error}` };
       // Fila espejo para que figure en landing_listar / landing_estado.

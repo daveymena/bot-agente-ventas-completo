@@ -36,6 +36,7 @@ router.post("/generate", async (req, res) => {
       productName || "Producto",
       productUrl,
       productKind || "physical",
+      { tenantId: (req as any).tenant?.id ?? null },
     );
 
     res.json(result);
