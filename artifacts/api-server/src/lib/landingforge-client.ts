@@ -150,7 +150,20 @@ async function lf<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
     ...((opts.headers as Record<string, string>) || {}),
   };
   if (API_KEY) headers["x-api-key"] = API_KEY;
-  const res = await fetch(`${BASE}${path}`, { ...opts, headers });
+  // Sin tope, una generacion de Forge colgada dejaba a Atlas esperando para
+  // siempre (06-10: "se quedo 6 minutos y nunca resolvio"). Generar (IA +
+  // fotos + revision) tarda 1 a 4 min; editar ~40 s; el resto es lectura.
+  const tope = path.includes("/generate") ? 300_000 : path.includes("/ai/") ? 180_000 : 30_000;
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, { ...opts, headers, signal: opts.signal ?? AbortSignal.timeout(tope) });
+  } catch (e) {
+    const err = e as Error;
+    if (err.name === "TimeoutError" || err.name === "AbortError") {
+      throw new Error(`LandingForge no respondio en ${Math.round(tope / 1000)} s (${path})`);
+    }
+    throw err;
+  }
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(`LandingForge ${opts.method || "GET"} ${path}: ${res.status} ${body.slice(0, 200)}`);
@@ -395,4 +408,16 @@ export function resumirSpec(spec: any): {
     fotosProducto,
     bloques,
   };
+}
+
+/** Ficha de cualquier tienda (Shopify, Woo, AliExpress…) con el extractor de
+ *  Forge. `navegador` abre Chromium real para páginas que cargan por JS. */
+export async function extraerFichaForge(url: string, navegador = false): Promise<{ ok: boolean; product?: any; confidence?: number; warnings?: string[]; error?: string }> {
+  try {
+    const d = await lf<any>("/api/extract", { method: "POST", body: JSON.stringify({ url, ...(navegador ? { mode: "browser" } : {}) }) });
+    if (!d?.ok || !d.product) return { ok: false, error: d?.error || "Forge no pudo leer la página" };
+    return { ok: true, product: d.product, confidence: d.confidence, warnings: d.warnings || [] };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
 }

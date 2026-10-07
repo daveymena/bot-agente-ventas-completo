@@ -477,6 +477,11 @@ export function estadoDeGeneracion(l: any): { estado: "generando" | "lista" | "f
   if (st.error && !l.html && !(Array.isArray(l.sections) && l.sections.length)) {
     return { estado: "fallo", texto: `❌ La landing [${l.id}] no se pudo generar: ${String(st.error).slice(0, 300)}. Decíselo al admin y ofrecé reintentar.`, vistaPrevia: null };
   }
+  if (st.forge && (l.publishedUrl || st.url)) {
+    const u = String(l.publishedUrl || st.url);
+    const cambio = st.ultimoCambio ? ` Ultimo cambio aplicado: "${String(st.ultimoCambio.instruccion)}" (${st.ultimoCambio.ops} operaciones).` : "";
+    return { estado: "lista", texto: `✅ La landing [${l.id}] "${l.name}" esta LISTA en LandingForge: ${u}${st.editorUrl ? ` - Editor: ${st.editorUrl}` : ""}.${cambio}`, vistaPrevia: u };
+  }
   const motor = st.motor ? ` con ${st.motor}` : "";
   const saneado = Array.isArray(st.saneado) && st.saneado.length ? `; se quitó lo repetido: ${st.saneado.join(", ")}` : "";
   const gen = st.generador === "opencode" ? `diseño completo (HTML) por el agente de landings${motor}${saneado}` : "generador por secciones (AIDA con las fotos reales)";
@@ -5224,44 +5229,64 @@ ${explicarObjetivos()}` };
         productUrl ? `. El boton de compra lleva a ${productUrl}` : "",
         instruccion ? `. Enfoque del dueno: ${instruccion}` : "",
       ].filter(Boolean).join(" ");
-      const r = await getOrCreateLanding(p.name, productUrl, kind, {
-        description: p.description || "",
-        price: price || undefined,
-        currency,
-        category: p.category || undefined,
-        checkoutUrl: productUrl || undefined,
-        images: images.length ? images : undefined,
-        prompt,
-        tenantId: ctx.tenantId,
-        producto: p,
-      });
-      if (!r.ok) return { ok: false, summary: `LandingForge fallo: ${r.error}` };
-      // Fila espejo para que figure en landing_listar / landing_estado.
-      const baseSlug = String(r.slug || p.name).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || "landing";
+      // Generar en Forge tarda 1 a 4 minutos (IA + fotos + revision): mas que
+      // un turno de Atlas. Antes se esperaba adentro del turno y el admin veia
+      // a Atlas "trabajando" 6 minutos sin respuesta (06-10). Ahora la fila
+      // espejo nace en `generando` y landing_estado cuenta como va, igual que
+      // landing_crear.
+      const baseSlug = String(p.name).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || "landing";
       const slug = `${baseSlug}-${Date.now().toString(36)}`;
       const [row] = await db.insert(landingPages).values({
         tenantId: ctx.tenantId, productId: p.id,
         name: `Landing Forge - ${p.name}`.slice(0, 200), slug,
-        status: "published",
-        strategy: { forge: true, url: r.url, landingId: r.landingId },
+        status: "draft",
+        strategy: { forge: true, generando: true, desde: new Date().toISOString() },
         sections: [],
         design: {},
-        source: { type: "landingforge", url: r.url, landingId: r.landingId },
+        source: { type: "landingforge" },
         html: null,
-        publishedUrl: r.url,
+        publishedUrl: null,
       } as any).returning();
-      const angulo = (r as any)?.analisis?.angulo;
-      const promesa = (r as any)?.analisis?.promesa;
+      const rowId = row.id;
+      void (async () => {
+        try {
+          const r = await getOrCreateLanding(p.name, productUrl, kind, {
+            description: p.description || "",
+            price: price || undefined,
+            currency,
+            category: p.category || undefined,
+            checkoutUrl: productUrl || undefined,
+            images: images.length ? images : undefined,
+            prompt,
+            tenantId: ctx.tenantId,
+            producto: p,
+          });
+          if (!r.ok) throw new Error(r.error || "LandingForge no devolvio la landing");
+          await db.update(landingPages).set({
+            status: "published",
+            strategy: {
+              forge: true, url: r.url, landingId: r.landingId,
+              angulo: (r as any)?.analisis?.angulo || null, promesa: (r as any)?.analisis?.promesa || null,
+              editorUrl: r.editorUrl || null, secciones: r.sectionsGenerated,
+            },
+            source: { type: "landingforge", url: r.url, landingId: r.landingId },
+            publishedUrl: r.url,
+            updatedAt: new Date(),
+          } as any).where(eq(landingPages.id, rowId));
+        } catch (e) {
+          await db.update(landingPages).set({
+            strategy: { forge: true, error: `LandingForge fallo: ${(e as Error).message}`.slice(0, 400) },
+            updatedAt: new Date(),
+          } as any).where(eq(landingPages.id, rowId)).catch(() => undefined);
+        }
+      })();
       return {
         ok: true,
         summary:
-          `Listo: landing de "${p.name}" creada en LandingForge (${r.sectionsGenerated} secciones). ` +
-          (angulo ? `Angulo: ${String(angulo).slice(0, 160)}. ` : "") +
-          (promesa ? `Promesa: ${String(promesa).slice(0, 160)}. ` : "") +
-          `Publica: ${r.url}` +
-          (r.editorUrl ? ` - Editor: ${r.editorUrl}` : "") +
-          ` - Quedo guardada como [${row.id}] y ya figura en landing_listar.`,
-        data: { id: row.id, landingId: r.landingId, url: r.url, editorUrl: r.editorUrl || null, exportUrl: r.exportUrl || null, slug: r.slug },
+          `🛠️ Landing NUEVA [${rowId}] para "${p.name}" en generacion en LandingForge (tarda 1 a 4 minutos). ` +
+          `Todavia NO esta lista: decile al admin que la estas armando y que en un momento se la mostras; no describas su contenido. ` +
+          `Para saber si termino: landing_estado con id ${rowId}.`,
+        data: { id: rowId, estado: "generando" },
       };
     },
   },
@@ -5324,6 +5349,29 @@ ${explicarObjetivos()}` };
       if (!instruccion) return { ok: false, summary: "Falta la 'instruccion' con lo que hay que cambiar." };
       const f = await forgeDe(ctx, args);
       if (!f) return { ok: false, summary: "No encontre la landing en LandingForge. Pasame 'id' o 'landingId' (la ves con landing_listar o landing_forge_pendientes)." };
+      // Con fila espejo, el cambio corre en segundo plano y landing_estado lo
+      // sigue: la IA de Forge puede tardar mas que el turno de Atlas.
+      if (f.rowId) {
+        const { landingPages } = await import("@workspace/db");
+        const st0: any = { ...(f.row?.strategy || {}) };
+        delete st0.error;
+        delete st0.generando;
+        delete st0.editando;
+        await db.update(landingPages).set({ strategy: { ...st0, generando: true, editando: instruccion.slice(0, 160), desde: new Date().toISOString() }, updatedAt: new Date() } as any).where(eq(landingPages.id, f.rowId));
+        const rowIdEd = f.rowId;
+        void (async () => {
+          const r = await editForgeSpec(f.landingId, instruccion);
+          const st: any = { ...st0 };
+          if (r.ok) st.ultimoCambio = { instruccion: instruccion.slice(0, 160), ops: r.ops?.length || 0, nota: r.reply ? String(r.reply).slice(0, 200) : null, en: new Date().toISOString() };
+          else st.error = `No se pudo editar el HTML en LandingForge: ${r.error}`.slice(0, 400);
+          await db.update(landingPages).set({ strategy: st, updatedAt: new Date() } as any).where(eq(landingPages.id, rowIdEd)).catch(() => undefined);
+        })();
+        return {
+          ok: true,
+          summary: `🛠️ Aplicando el cambio en la landing [${rowIdEd}] (tarda menos de un minuto). Decile al admin que ya lo estas aplicando; para confirmar: landing_estado con id ${rowIdEd}.`,
+          data: { landingId: f.landingId, rowId: rowIdEd, estado: "editando" },
+        };
+      }
       const r = await editForgeSpec(f.landingId, instruccion);
       if (!r.ok) return { ok: false, summary: `No pude editar la landing en el forge: ${r.error}` };
       return {
@@ -5799,6 +5847,34 @@ ${explicarObjetivos()}` };
       // Solo el texto: `data` viaja entero en JSON al modelo (textoDelResultado)
       // y duplicaba la lista con URLs de fotos que nadie lee.
       return { ok: true, summary: lista.length ? `📦 ${lista.length} productos en Dropi para "${args?.query || ""}":\n${lista.map(lineaProductoDropi).join("\n")}` : `Sin resultados en Dropi para "${args?.query || ""}"` };
+    },
+  },
+  {
+    name: "competencia_a_dropi",
+    description: "URL de OTRA tienda -> el mismo producto en Dropi (busca sin su marca y confirma con fotos). Solo lee. Luego dropi_importar + landing_forge_crear con productUrl = esa URL (queda de referencia).",
+    args: '{ "url": string (req), "navegador"?: boolean (paginas que cargan por JS) }',
+    run: async (args, ctx) => {
+      const url = String(args?.url || "").trim();
+      if (!/^https?:\/\//i.test(url)) return { ok: false, summary: "Falta 'url' (la pagina del producto en la otra tienda)." };
+      const { buscarEnDropiDesdeCompetencia } = await import("./competencia-a-dropi");
+      const r = await buscarEnDropiDesdeCompetencia(ctx.tenantId, url, { navegador: !!args?.navegador });
+      if (!r.ok || !r.ficha) return { ok: false, summary: r.error || "No se pudo analizar la pagina." };
+      const f = (v: number | null) => (v == null ? "—" : `$${Math.round(v).toLocaleString("es-CO")}`);
+      const linea = (c: any) =>
+        `#${c.id} ${c.nombre} — costo ${f(c.costo)} · sugerido ${f(c.precioSugerido)} · stock ${c.stock ?? "?"}` +
+        (c.vision === true ? " · ✅ mismo producto (foto)" : c.vision === false ? " · ❌ otro producto (foto)" : "") +
+        ` · texto ${Math.round(c.texto * 100)}%`;
+      const comp = `🔎 ${r.ficha.host}: "${r.ficha.nombre}"${r.ficha.precio ? ` a ${f(r.ficha.precio)} ${r.ficha.moneda}` : ""}. Busque en Dropi: ${r.consultas!.map((q) => `"${q}"`).join(", ")}.`;
+      if (!r.candidatos?.length) return { ok: true, summary: `${comp}
+No aparece en el catalogo de Dropi con esas palabras. Proba dropi_buscar con otro nombre.` };
+      const confirmados = r.candidatos.filter((c) => c.vision === true).length;
+      return {
+        ok: true,
+        summary: `${comp}
+${confirmados ? `${confirmados} confirmado(s) por foto.` : "Ninguno confirmado por foto: revisa a ojo antes de importar."}
+${r.candidatos.map(linea).join("\n")}
+Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { productId, productUrl: "${url}" }.`,
+      };
     },
   },
   {
@@ -9735,7 +9811,7 @@ export const READ_ONLY_TOOLS = new Set([
   // El método de venta: reglas y cuentas puras, no toca Meta ni la base.
   "metodo_de_venta",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
-  "dropi_status", "dropi_margen", "dropi_pedidos", "dropi_buscar", "video_anuncio_estado", "fabricante_ver", "dropi_search_products", "woocommerce_estado", "integraciones_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
+  "dropi_status", "dropi_margen", "dropi_pedidos", "dropi_buscar", "competencia_a_dropi", "video_anuncio_estado", "fabricante_ver", "dropi_search_products", "woocommerce_estado", "integraciones_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
   "dropi_verificar_producto", "dropi_con_ordenes", "dropi_importar_lote_estado", "dropi_cotizar_envio",
   // Radar de ganadores + calculadora de rentabilidad + espía de tiendas +
   // estimación previa: las cuatro son lectura pura (cruzan datos y calculan,

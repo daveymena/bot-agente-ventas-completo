@@ -428,6 +428,15 @@ const TOOL_SCHEMAS: Record<string, object> = {
     required: ["query"],
     additionalProperties: false,
   },
+  competencia_a_dropi: {
+    type: "object",
+    properties: {
+      url: { type: "string", description: "Página del producto en la otra tienda" },
+      navegador: { type: "boolean", description: "Abrir con navegador real (páginas que cargan por JS)" },
+    },
+    required: ["url"],
+    additionalProperties: false,
+  },
   dropi_con_ordenes: {
     type: "object",
     properties: {
@@ -1366,7 +1375,7 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // los 3 turnos de Dropi de ese día contestó "el catálogo directo rechaza el
     // token" (el error del puente) con el directo respondiendo.
     patron: /dropi|proveedor|dropshipping|transportadora|flete|cotiz|stock|woo\s?commerce|wordpress|dropify|pedidos? (llega|recib)|descripci[oó]n|ficha|ganador|radar|potencial|qu[eé] (vender|importar|producto)|rentab|roi|equilibrio|vale la pena|m[aá]s vendid|shopify|mercado\s?libre|meli|falabella|aliexpress|tienda externa/i,
-    herramientas: ["dropi_status", "dropi_buscar", "dropi_con_ordenes", "dropi_margen", "dropi_pedidos", "dropi_verificar_producto", "dropi_importar_lote_estado", "dropi_cotizar_envio", "woocommerce_estado", "integraciones_estado", "dropi_transportadoras_sondeo", "producto_ficha_desde_imagenes_ver", "producto_ficha_desde_imagenes_guardar", "producto_ganador", "dropi_roi"],
+    herramientas: ["dropi_status", "dropi_buscar", "competencia_a_dropi", "dropi_con_ordenes", "dropi_margen", "dropi_pedidos", "dropi_verificar_producto", "dropi_importar_lote_estado", "dropi_cotizar_envio", "woocommerce_estado", "integraciones_estado", "dropi_transportadoras_sondeo", "producto_ficha_desde_imagenes_ver", "producto_ficha_desde_imagenes_guardar", "producto_ganador", "dropi_roi"],
   },
   {
     patron: /copy|texto|redact|descripci|t[ií]tulo/i,
