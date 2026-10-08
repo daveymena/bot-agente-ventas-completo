@@ -1535,8 +1535,17 @@ Responde SOLO con este JSON exacto:
         // En PARALELO: una por una eran hasta 10 × 12 s y se comían el turno
         // de Atlas (revisión 08-10). Se conserva el orden de las fotos.
         const absolutas = [...new Set(fotosCarrusel)].slice(0, 10).map((u) => absoluteImageUrl(u)).filter(Boolean) as string[];
-        const validas = await Promise.all(absolutas.map((abs) => this.imagenParaMeta(abs).then((r) => r.ok).catch(() => false)));
-        absolutas.forEach((abs, i) => { if (validas[i]) tarjetas.push(abs); });
+        // Rechazada por medida o formato (Dropi: 573-598 px, o WebP) → se
+        // convierte a 1080×1080 JPEG en vez de perder la foto.
+        const { prepararFotoParaMeta } = await import("./image-store");
+        const listas = await Promise.all(absolutas.map(async (abs) => {
+          const r = await this.imagenParaMeta(abs).catch(() => ({ ok: false, motivo: null as string | null }));
+          if (r.ok) return abs;
+          if (!r.motivo) return null;
+          const arreglada = absoluteImageUrl(await prepararFotoParaMeta(abs));
+          return arreglada && (await this.imagenParaMeta(arreglada).catch(() => ({ ok: false }))).ok ? arreglada : null;
+        }));
+        for (const u of listas) if (u) tarjetas.push(u);
         if (tarjetas.length < 2) {
           logger.warn({ pedidas: fotosCarrusel.length, validas: tarjetas.length }, "[Facebook] Carrusel pedido pero hay menos de 2 fotos que Meta pueda descargar: sale con imagen única");
           this.avisoDelCreativo = `Pediste carrusel, pero solo ${tarjetas.length} foto(s) se pueden descargar desde Meta: salió con imagen única.`;

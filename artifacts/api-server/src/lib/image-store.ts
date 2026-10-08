@@ -140,6 +140,39 @@ async function comprimirParaWeb(buffer: Buffer): Promise<Buffer> {
 }
 
 /**
+ * Una foto que Meta rechaza por medida o formato, convertida a lo que acepta:
+ * 1080×1080 JPEG, sin recortar (relleno blanco).
+ *
+ * 08-10: el carrusel del corrector 155 salió con 2 de 6 fotos. Las de Dropi
+ * miden 573-598 px (Meta pide 600 de lado mínimo) y una era WebP; se
+ * descartaban en vez de arreglarse. Devuelve la ruta pública o null.
+ */
+export async function prepararFotoParaMeta(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0" }, redirect: "follow", signal: AbortSignal.timeout(20000) });
+    if (!res.ok) return null;
+    const entrada = Buffer.from(await res.arrayBuffer());
+    if (entrada.length < 2000) return null;
+    const sharp = (await import("sharp")).default;
+    const salida = await sharp(entrada)
+      .rotate()
+      .resize({ width: 1080, height: 1080, fit: "contain", background: { r: 255, g: 255, b: 255 } })
+      .flatten({ background: { r: 255, g: 255, b: 255 } })
+      .jpeg({ quality: 85, mozjpeg: true })
+      .toBuffer();
+    const { createHash } = await import("node:crypto");
+    const nombre = `${createHash("sha1").update(url).digest("hex").slice(0, 16)}.jpg`;
+    const dir = path.join(getImageStoreDir(), "meta");
+    await mkdir(dir, { recursive: true });
+    await writeFile(path.join(dir, nombre), salida);
+    return `/uploads/meta/${nombre}`;
+  } catch (e: any) {
+    logger.warn({ err: e?.message, url }, "[ImageStore] No se pudo preparar la foto para Meta");
+    return null;
+  }
+}
+
+/**
  * Guarda una variante numerada de imagen de producto en disco.
  * Permite almacenar varias versiones generadas por IA con nombres distintos
  * ({productId}-v0.jpg, {productId}-v1.jpg, ...) para usarlas en asset_feed_spec
