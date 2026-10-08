@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useStore } from '../store/useStore';
-import { ChevronLeft, CreditCard, Lock, Package, MessageCircle, ShieldCheck, Truck, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, Lock, Package, MessageCircle, ShieldCheck, Truck, CheckCircle2, AlertTriangle } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { trackInitiateCheckout, trackContact } from '../lib/pixel';
 import { useMoneda } from '@/lib/moneda';
@@ -10,6 +10,7 @@ import {
   CIUDADES_POR_DEPARTAMENTO,
   faltantes, errorDeFormato, departamentoDeCiudad,
 } from '../lib/envio';
+import { LogoTienda } from '../components/PaymentIcons';
 
 /** Un producto de dropshipping es físico: se despacha y se paga al recibir. */
 const esFisico = (tipo: string) => tipo === 'physical' || tipo === 'dropshipping';
@@ -409,7 +410,7 @@ export default function Checkout() {
                   disabled={isProcessing !== null || mixto}
                   className="w-full bg-[#009EE3] hover:bg-[#0088c4] text-white py-4 rounded-full font-bold transition-all flex items-center justify-center gap-2.5 disabled:opacity-50"
                 >
-                  <CreditCard className="w-5 h-5" />
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white"><LogoTienda archivo="mercadopago.png" className="w-5 h-5" /></span>
                   {isProcessing === 'mp' ? 'Abriendo MercadoPago…' : 'Pagar con MercadoPago'}
                 </button>
                 <button
@@ -417,6 +418,7 @@ export default function Checkout() {
                   disabled={isProcessing !== null || mixto}
                   className="w-full bg-[#FFC439] hover:bg-[#eab308] text-[#003087] py-4 rounded-full font-bold transition-all flex items-center justify-center gap-2.5 disabled:opacity-50"
                 >
+                  <LogoTienda archivo="paypal.svg" className="w-5 h-5" />
                   {isProcessing === 'pp' ? 'Abriendo PayPal…' : 'Pagar con PayPal'}
                 </button>
               </>

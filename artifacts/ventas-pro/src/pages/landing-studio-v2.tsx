@@ -9,6 +9,7 @@ import { Sparkles, Send, User, Loader2, Monitor, Smartphone, Download, RefreshCw
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import ReactMarkdown from "react-markdown";
 import { BloquesEditor } from "@/components/landing/bloques-editor";
+import { LogoMarca } from "@/components/logo-marca";
 
 type Product = { id: number; name: string; description?: string; price?: string; currency?: string };
 type Landing = { id: number; name: string; productId?: number | null; design?: any; sections?: any[]; strategy?: any; status?: string; publishedUrl?: string | null; source?: any };
@@ -525,7 +526,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
           {/* Fila de acciones secundarias: scroll horizontal en móvil, no se apilan */}
           <div className="flex items-center gap-1.5 px-3 py-2 overflow-x-auto overflow-y-hidden whitespace-nowrap sm:flex-wrap sm:overflow-visible">
             <Button size="sm" variant="outline" className="h-8 px-2 text-xs shrink-0" onClick={() => setDropiAbierto(true)} title="Buscar e importar un producto de Dropi">
-              <Truck className="h-3.5 w-3.5 mr-1" />Dropi
+              <LogoMarca marca="dropi" className="h-3.5 w-3.5 mr-1" />Dropi
             </Button>
             {productsErr && (
               <Button size="sm" variant="outline" className="h-8 px-2 text-xs shrink-0" onClick={cargarProductos} title="Reintentar cargar productos">

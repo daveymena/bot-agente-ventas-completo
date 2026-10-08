@@ -2,6 +2,7 @@ import { useLocation } from "wouter";
 import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store, Activity, Crown, Megaphone, HelpCircle, BadgeCheck, LayoutTemplate, LogOut , Truck, MessageSquareText, GraduationCap, Plug } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "@/App";
+import { iconoMarca } from "@/components/logo-marca";
 
 const mainNavItems = [
   { label: "Inicio", href: "/", icon: LayoutDashboard },
@@ -14,7 +15,7 @@ const baseMoreItems = [
   { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate, external: "/api/landing-forge/entrar" },
   { label: "Atlas VentasPro", href: "/code-agent", icon: Wand2, highlight: true },
   { label: "Marketing", href: "/marketing", icon: Megaphone },
-  { label: "Facebook", href: "/facebook", icon: Facebook },
+  { label: "Facebook", href: "/facebook", icon: iconoMarca("facebook") },
   { label: "Agentes IA", href: "/agents", icon: Bot },
   { label: "Probar vendedor", href: "/probar-vendedor", icon: MessageSquareText },
   { label: "Enseñar con ejemplo", href: "/ensenar-con-ejemplo", icon: GraduationCap },
@@ -23,10 +24,10 @@ const baseMoreItems = [
   // siguen vivas para quien las necesite.
   // { label: "Agent Lab", href: "/agent-lab", icon: FlaskConical },
   // { label: "Lab Dashboard", href: "/agent-lab-dashboard", icon: BarChart3 },
-  { label: "WhatsApp", href: "/whatsapp", icon: Phone },
+  { label: "WhatsApp", href: "/whatsapp", icon: iconoMarca("whatsapp") },
   { label: "Integraciones", href: "/integraciones", icon: Plug },
-  { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
-  { label: "Dropi", href: "/dropi", icon: Truck },
+  { label: "WooCommerce", href: "/woocommerce", icon: iconoMarca("woocommerce") },
+  { label: "Dropi", href: "/dropi", icon: iconoMarca("dropi") },
   { label: "Personalización", href: "/branding", icon: Palette },
   { label: "Configuración", href: "/settings", icon: Settings },
   { label: "Ayuda", href: "/ayuda", icon: HelpCircle },

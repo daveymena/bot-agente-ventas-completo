@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { CreditCard, CheckCircle2, AlertTriangle, Loader, ShieldCheck } from "lucide-react";
 import { SecretInput } from "@/components/ui/secret-input";
+import { LogoMarca } from "@/components/logo-marca";
 
 /**
  * Credenciales de cobro del negocio.
@@ -185,7 +186,7 @@ export function PaymentCredentials() {
         <div className="space-y-3">
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-2">
-              <h3 className="font-bold">MercadoPago</h3>
+              <LogoMarca marca="mercadopago" className="h-6 w-6" /><h3 className="font-bold">MercadoPago</h3>
               {estado?.mercadopago.configurado
                 ? <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">Configurado</Badge>
                 : <Badge variant="outline" className="text-muted-foreground">Sin configurar</Badge>}
@@ -223,7 +224,7 @@ export function PaymentCredentials() {
         <div className="space-y-3 pt-2 border-t border-border/50">
           <div className="flex items-center justify-between gap-3 flex-wrap pt-5">
             <div className="flex items-center gap-2">
-              <h3 className="font-bold">PayPal</h3>
+              <LogoMarca marca="paypal" className="h-5 w-5" /><h3 className="font-bold">PayPal</h3>
               {estado?.paypal.configurado
                 ? <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">Configurado</Badge>
                 : <Badge variant="outline" className="text-muted-foreground">Sin configurar</Badge>}
@@ -274,7 +275,7 @@ export function PaymentCredentials() {
         <div className="space-y-3 pt-2 border-t border-border/50">
           <div className="flex items-center justify-between gap-3 flex-wrap pt-5">
             <div className="flex items-center gap-2">
-              <h3 className="font-bold">Nequi, Daviplata y bancos</h3>
+              <LogoMarca marca="nequi" className="h-6 w-6" /><LogoMarca marca="daviplata" className="h-6 w-6 -ml-1" /><h3 className="font-bold">Nequi, Daviplata y bancos</h3>
               {estado?.transfer.configurado
                 ? <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">Configurado</Badge>
                 : <Badge variant="outline" className="text-muted-foreground">Sin configurar</Badge>}

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ShoppingCart, Menu, X, User, Search, Heart, MessageCircle, ChevronDown, Flame, ArrowRight, Store } from 'lucide-react';
 import { useStore } from '../store/useStore';
+import { MercadoPagoBadge, NequiBadge } from './PaymentIcons';
 
 const Header = () => {
   const { cart, config, products } = useStore();
@@ -232,8 +233,8 @@ const Footer = () => {
           <div>
             <p className="text-white text-xs font-bold uppercase tracking-widest mb-3">Pagos seguros</p>
             <div className="flex flex-wrap gap-2">
-              <span className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white/10 text-slate-300">MercadoPago</span>
-              <span className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white/10 text-slate-300">Nequi</span>
+              <MercadoPagoBadge />
+              <NequiBadge />
               <span className="text-xs font-bold px-3 py-1.5 rounded-lg bg-white/10 text-slate-300">Contra entrega</span>
             </div>
           </div>

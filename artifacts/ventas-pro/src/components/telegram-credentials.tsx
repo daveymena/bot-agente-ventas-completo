@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, CheckCircle2, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { LogoMarca } from "@/components/logo-marca";
 
 /**
  * Telegram como canal de avisos: pedidos, rechazos de Dropi, lanzamientos,
@@ -81,7 +82,7 @@ export function TelegramCredentials() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base"><Send className="h-4 w-4" /> Telegram (avisos)</CardTitle>
+        <CardTitle className="flex items-center gap-2 text-base"><LogoMarca marca="telegram" className="h-5 w-5" /> Telegram (avisos)</CardTitle>
         <CardDescription>Pedidos, rechazos de Dropi, lanzamientos, auditorías e informes te llegan también por Telegram, y si le escribís al bot (texto o nota de voz) te contesta Atlas. Creá un bot con @BotFather, pegá el token, escribile "hola" al bot y elegí tu chat.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

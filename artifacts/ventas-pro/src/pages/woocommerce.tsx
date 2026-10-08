@@ -12,6 +12,7 @@ import { Layout } from "@/components/layout";
 import { HelpTourButton } from "@/components/HelpTourButton";
 import { useAutoTour } from "@/hooks/use-auto-tour";
 import { getHelpGuide } from "@/data/help-guides";
+import { LogoMarca } from "@/components/logo-marca";
 
 const HELP_GUIDE = getHelpGuide("woocommerce")!;
 
@@ -216,8 +217,8 @@ export default function WooCommercePage() {
         <div className="flex flex-col md:flex-row md:justify-between md:items-end gap-6 mb-8">
           <div className="space-y-1">
             <div className="flex items-center gap-3">
-              <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center border border-primary/20 shadow-inner">
-                <ShoppingCart className="h-6 w-6 text-primary" />
+              <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center border border-border shadow-sm">
+                <LogoMarca marca="woocommerce" className="h-8 w-8" />
               </div>
               <h1 className="text-4xl font-extrabold tracking-tight bg-gradient-to-br from-foreground to-foreground/60 bg-clip-text text-transparent">
                 WooCommerce
@@ -407,7 +408,7 @@ export default function WooCommercePage() {
               <div className="absolute top-0 right-0 w-32 h-32 bg-primary/5 rounded-full -mr-16 -mt-16 blur-2xl group-hover:bg-primary/10 transition-all duration-500" />
               <CardHeader className="pb-2">
                 <CardTitle className="text-xl flex items-center gap-3 text-primary">
-                  <ShoppingCart className="h-6 w-6" />
+                  <LogoMarca marca="woocommerce" className="h-6 w-6" />
                   Guía de Conexión
                 </CardTitle>
               </CardHeader>

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Facebook, CheckCircle2, AlertTriangle, Loader, ShieldCheck } from "lucide-react";
 import { SecretInput } from "@/components/ui/secret-input";
+import { LogoMarca } from "@/components/logo-marca";
 
 interface Estado {
   propias: boolean;
@@ -142,7 +143,7 @@ export function FacebookCredentials() {
       <div className="absolute top-0 right-0 w-full h-2 bg-gradient-to-r from-blue-500 to-indigo-500" />
       <CardHeader className="pt-8">
         <CardTitle className="text-xl flex items-center gap-2">
-          <div className="p-2 bg-blue-500/10 rounded-lg text-blue-600"><Facebook className="h-5 w-5" /></div>
+          <div className="p-2 bg-white ring-1 ring-border rounded-lg"><LogoMarca marca="facebook" className="h-5 w-5" /></div>
           Facebook — tu cuenta
         </CardTitle>
         <CardDescription>
