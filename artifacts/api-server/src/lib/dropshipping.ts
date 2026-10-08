@@ -472,7 +472,7 @@ export function pedidoCompleto(d: DatosDeEnvio): boolean {
 
 // ─── Persistencia ────────────────────────────────────────────────────────────
 
-function aPedido(r: any): PedidoDropshipping {
+export function aPedido(r: any): PedidoDropshipping {
   return {
     id: r.id, tenantId: r.tenant_id, conversationId: r.conversation_id,
     productId: r.product_id, productName: r.product_name, quantity: r.quantity,

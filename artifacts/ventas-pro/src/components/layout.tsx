@@ -54,6 +54,7 @@ export function AppSidebar() {
     { label: "Probar vendedor", href: "/probar-vendedor", icon: MessageSquareText },
     { label: "Enseñar con ejemplo", href: "/ensenar-con-ejemplo", icon: GraduationCap },
     { label: "Prospectos", href: "/leads", icon: Users },
+    { label: "Pedidos", href: "/pedidos", icon: ShoppingCart },
     { label: "Productos", href: "/products", icon: Package },
     { label: "WhatsApp", href: "/whatsapp", icon: Phone },
     ...(isAdmin ? [

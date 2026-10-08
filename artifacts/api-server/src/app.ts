@@ -93,6 +93,8 @@ registrarAgencia();
 import("./lib/marketing-team/task-executor").then((m) => m.iniciarEjecutorDeTareas()).catch(() => undefined);
 // Tokens de Dropify por producto: se auditan y reparan solos (ver lib/dropify-auditoria.ts).
 import("./lib/dropify-auditoria").then((m) => m.iniciarAuditoriaDropify()).catch(() => undefined);
+// Pedidos que Dropi rechazó: se reintentan solos y se le avisa al cliente (ver lib/reintento-pedidos.ts).
+import("./lib/reintento-pedidos").then((m) => m.iniciarReintentoDePedidos()).catch(() => undefined);
 import("./lib/telegram-atlas").then((m) => m.iniciarAtlasEnTelegramParaTodos()).catch(() => undefined);
 // Productos importados (Dropi/Woo) sin categoría real → se enlazan solos (ver lib/categorias.ts).
 import("./lib/categorias").then((m) => m.iniciarVinculoDeCategorias()).catch(() => undefined);
