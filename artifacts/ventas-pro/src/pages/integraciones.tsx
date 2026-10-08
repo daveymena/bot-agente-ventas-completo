@@ -15,7 +15,7 @@
  *    servidor y nunca vuelven al navegador.
  */
 import { SecretInput } from "@/components/ui/secret-input";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -83,10 +83,20 @@ function TarjetaPlataforma({ p, estado, recargar }: { p: Plataforma; estado?: Es
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [abierta, setAbierta] = useState(!estado?.conectada);
   const [webhook, setWebhook] = useState<string | null>(null);
+  const [consulta, setConsulta] = useState("");
+  // Enlace directo: /integraciones?abrir=aliexpress abre ESTA tarjeta y la
+  // trae a la vista (08-10: "llévame directo a configurarlo").
+  const pedida = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("abrir") === p;
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!pedida) return;
+    setAbierta(true);
+    setTimeout(() => ref.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 150);
+  }, [pedida]);
   const info = INFO[p];
   const oauth = p === "mercadolibre";
 
-  useEffect(() => { if (estado) setAbierta(!estado.conectada); }, [estado?.conectada]);
+  useEffect(() => { if (estado) setAbierta(!estado.conectada || pedida); }, [estado?.conectada]);
 
   const correr = async (accion: string, fn: () => Promise<void>) => {
     setOcupado(accion);
@@ -102,15 +112,24 @@ function TarjetaPlataforma({ p, estado, recargar }: { p: Plataforma; estado?: Es
     for (const c of CAMPOS[p]) if (String(valores[c.clave] || "").trim()) cuerpo[c.clave] = valores[c.clave].trim();
     const r: any = await api(`/integraciones/${p}`, { method: "PUT", body: JSON.stringify({ ...cuerpo, activa: true }) });
     setValores({});
-    toast({ title: `${info.titulo} guardado`, description: r?.tienda?.nombre ? `Tienda: ${r.tienda.nombre} (${r.tienda.moneda})` : oauth ? "Ahora toca «Autorizar con Mercado Libre»." : "Credenciales guardadas y cifradas." });
+    toast({ title: `${info.titulo} guardado`, description: r?.aliexpress
+      ? `Claves probadas con AliExpress ✅${r.aliexpress.ejemplo ? ` — ejemplo: «${String(r.aliexpress.ejemplo).slice(0, 60)}» a ${r.aliexpress.precio} ${r.aliexpress.moneda}` : ""}`
+      : r?.tienda?.nombre ? `Tienda: ${r.tienda.nombre} (${r.tienda.moneda})` : oauth ? "Ahora toca «Autorizar con Mercado Libre»." : "Credenciales guardadas y cifradas." });
     recargar();
   });
 
   const autorizarMl = () => { window.location.href = "/api/integraciones/mercadolibre/autorizar"; };
 
   const importar = () => correr("importar", async () => {
-    const r: any = await api(`/integraciones/${p}/importar`, { method: "POST", body: JSON.stringify({ limite: 50 }) });
-    toast({ title: `${info.titulo}: productos`, description: `${r.importados ?? 0} nuevos, ${r.actualizados ?? 0} actualizados${r.errores ? `, ${r.errores} con error` : ""}.` });
+    // AliExpress no es TU tienda: hay que decirle qué buscar. Antes el botón
+    // mandaba solo {limite} y el servidor respondía "necesita consulta".
+    if (p === "aliexpress" && !consulta.trim()) throw new Error("Escribe qué productos buscar (ej: corrector de postura).");
+    const r: any = await api(`/integraciones/${p}/importar`, { method: "POST", body: JSON.stringify({ limite: p === "aliexpress" ? 10 : 50, consulta: consulta.trim() || undefined }) });
+    toast({
+      title: `${info.titulo}: productos`,
+      description: `${r.importados ?? 0} nuevos, ${r.actualizados ?? 0} actualizados${r.errores ? `, ${r.errores} con error` : ""}.`
+        + (p === "aliexpress" ? " Quedaron como BORRADOR en Productos: ponles tu precio de venta y actívalos." : ""),
+    });
   });
 
   const pedidos = () => correr("pedidos", async () => {
@@ -133,7 +152,7 @@ function TarjetaPlataforma({ p, estado, recargar }: { p: Plataforma; estado?: Es
   const listo = !!estado?.conectada && (!oauth || estado.autorizada) && estado.activa;
 
   return (
-    <Card>
+    <Card ref={ref} className={pedida ? "ring-2 ring-primary scroll-mt-4" : "scroll-mt-4"}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
@@ -150,6 +169,7 @@ function TarjetaPlataforma({ p, estado, recargar }: { p: Plataforma; estado?: Es
       <CardContent className="space-y-4">
         {abierta ? (
           <div className="space-y-3">
+            {p === "aliexpress" && <GuiaAliExpress />}
             {CAMPOS[p].map((c) => (
               <div key={c.clave} className="space-y-1">
                 <Label htmlFor={`${p}-${c.clave}`}>{c.etiqueta}{c.opcional ? " (opcional)" : ""}</Label>
@@ -181,7 +201,7 @@ function TarjetaPlataforma({ p, estado, recargar }: { p: Plataforma; estado?: Es
               </p>
             )}
             <div className="flex flex-wrap gap-2">
-              <Button onClick={guardar} disabled={!!ocupado}>{ocupado === "guardar" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Guardar{p === "shopify" ? " y probar" : ""}</Button>
+              <Button onClick={guardar} disabled={!!ocupado}>{ocupado === "guardar" && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}Guardar{p === "shopify" || p === "aliexpress" ? " y probar" : ""}</Button>
               {estado?.conectada && <Button variant="ghost" onClick={() => setAbierta(false)}>Cancelar</Button>}
             </div>
           </div>
@@ -195,6 +215,13 @@ function TarjetaPlataforma({ p, estado, recargar }: { p: Plataforma; estado?: Es
           </Button>
         )}
 
+        {listo && p === "aliexpress" && (
+          <div className="space-y-1 border-t pt-4">
+            <Label htmlFor="ali-consulta">¿Qué productos buscar?</Label>
+            <Input id="ali-consulta" placeholder="Ej: corrector de postura" value={consulta} onChange={(e) => setConsulta(e.target.value)} />
+            <p className="text-xs text-muted-foreground">Trae los 10 que más se venden, con fotos y video del fabricante. Entran como borrador con el costo del proveedor.</p>
+          </div>
+        )}
         {listo && (
           <div className="flex flex-wrap gap-2 border-t pt-4">
             {info.importar && (
@@ -225,6 +252,19 @@ function TarjetaPlataforma({ p, estado, recargar }: { p: Plataforma; estado?: Es
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/** Cómo sacar las claves de AliExpress, paso a paso, con los enlaces reales. */
+function GuiaAliExpress() {
+  return (
+    <ol className="rounded-md bg-muted p-3 text-xs space-y-1.5 list-decimal list-inside">
+      <li>Regístrate gratis como afiliado en <a className="underline" href="https://portals.aliexpress.com" target="_blank" rel="noopener noreferrer">portals.aliexpress.com</a> (con tu cuenta de AliExpress).</li>
+      <li>Entra a <a className="underline" href="https://openservice.aliexpress.com" target="_blank" rel="noopener noreferrer">openservice.aliexpress.com</a> → <b>App Console</b> → <b>Create App</b> → tipo <b>Affiliates</b> (afiliados). Completa los datos y envíala.</li>
+      <li>Cuando la aprueben (suele tardar 1–3 días), abre la app y copia <b>App Key</b> y <b>App Secret</b> aquí abajo.</li>
+      <li>Opcional: en Portals → <b>Tracking ID</b>, crea uno para ganar comisión por los enlaces.</li>
+      <li>Toca <b>Guardar y probar</b>: VentasPro hace una búsqueda real y solo guarda si AliExpress acepta las claves.</li>
+    </ol>
   );
 }
 

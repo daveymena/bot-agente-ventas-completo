@@ -76,7 +76,13 @@ export async function importarProductos(
         .where(and(eq(products.tenantId, tenantId), eq(products.sku, sku)))
         .limit(1);
       if (previo) {
-        await db.update(products).set(fila).where(eq(products.id, previo.id));
+        // Fuente de COMPRA (AliExpress): su precio es el costo. Reimportar solo
+        // refresca fotos/video/costo; el precio de venta, el nombre y si está
+        // activo los decidió el dueño y no se pisan.
+        const soloDatosDelProveedor = (ext.extra as any)?.requierePrecioDeVenta === true;
+        await db.update(products)
+          .set(soloDatosDelProveedor ? ({ imageUrl: fila.imageUrl, metadata: fila.metadata } as any) : fila)
+          .where(eq(products.id, previo.id));
         res.actualizados++;
       } else {
         await db.insert(products).values(fila);
