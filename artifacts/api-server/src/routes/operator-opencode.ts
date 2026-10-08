@@ -51,6 +51,7 @@ import { afirmaHaberloHecho } from "../lib/afirma-haberlo-hecho";
 import { mensajeDeCierre } from "../lib/entrega-por-partes";
 import { partirElPedido } from "../lib/partir-el-pedido";
 import { avisoDeArranque } from "../lib/aviso-de-arranque";
+import { programarContinuacion, reiniciarRondas } from "../lib/continuacion-servidor";
 import { PIDE_FUENTES_EXTERNAS, debeInvestigarAntes, esContinuacionAutomatica as esContinuacionAutomaticaDelPanel } from "../lib/investigacion-previa";
 import { arrancaPedidoNuevo } from "../lib/es-pedido-nuevo";
 import { verloEsAutorizarlo } from "../lib/pedir-ver-el-resultado";
@@ -786,6 +787,9 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
     // seguía gastando los 135s del turno.
     const claveTurno = claveDeTurno(tenantId, sessionId);
     const senalDeCorte = empezarTurno(claveTurno);
+    // Un pedido nuevo del admin (no una continuación) reinicia la cuenta de
+    // tramos que el servidor sigue solo cuando el admin se fue.
+    if (!esContinuacionAutomaticaDelPanel(String(promptCrudo || ""))) reiniciarRondas(claveTurno);
 
     const sse = (event: string, data: any) => {
       if (!streaming || clienteSeFue || res.writableEnded || res.destroyed) return;
@@ -799,6 +803,16 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
     };
     const progreso = (texto: string) => sse("progress", { texto });
     const finish = (payload: any, status = 200) => {
+      // ── Atlas sigue aunque el admin cierre la app (07-10) ─────────────────
+      // El tramo siguiente lo pedía SOLO la página: con la app cerrada o en
+      // segundo plano, el trabajo quedaba congelado. Si la página no lo pide
+      // en unos segundos, lo pide el servidor. Ver lib/continuacion-servidor.ts.
+      if (status === 200 && payload?.needsContinuation === true) {
+        const cabeceras: Record<string, string> = {};
+        if (req.headers.cookie) cabeceras.cookie = String(req.headers.cookie);
+        if (req.headers.authorization) cabeceras.authorization = String(req.headers.authorization);
+        programarContinuacion({ clave: claveTurno, sessionId, cabeceras });
+      }
       if (streaming) {
         sse(status === 200 ? "result" : "error", payload);
         res.end();

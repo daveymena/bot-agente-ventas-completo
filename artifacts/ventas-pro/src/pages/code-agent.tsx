@@ -430,6 +430,15 @@ export default function CodeAgent() {
         //
         // Se retoma solo. Escribirlo a mano no solo es innecesario: arranca un
         // turno NUEVO y paga la vuelta entera otra vez.
+        // Si el SERVIDOR ya está con el tramo siguiente (la app estaba cerrada
+        // y él siguió solo, ver lib/continuacion-servidor.ts), no se arranca
+        // otro: cortaría el que está corriendo. Se espera su resultado.
+        if (data.hayAlgoPendiente && data.turnoEnCurso === true) {
+          setLoading(true);
+          setProgreso("Atlas siguió trabajando mientras no estabas. Esperando el resultado…");
+          void recuperarDelCorte().finally(() => { setLoading(false); setProgreso(""); });
+          return;
+        }
         if (data.hayAlgoPendiente) {
           void seguirPendiente(data.history);
           return;
@@ -1125,6 +1134,13 @@ export default function CodeAgent() {
       // Quedó a medio hacer: se sigue solo, igual que al montar. Se espera con
       // await --y no `void`-- porque el `finally` de quien llama apaga el
       // spinner: soltándolo, la pantalla se veía quieta mientras Atlas seguía.
+      // El servidor sigue solo con el tramo siguiente: se muestra lo que hay
+      // y se sigue esperando, sin arrancar otro turno encima.
+      if (data?.hayAlgoPendiente && data?.turnoEnCurso === true) {
+        pintarHistorial(h);
+        await new Promise((r) => setTimeout(r, CADA));
+        continue;
+      }
       if (data?.hayAlgoPendiente) {
         pintarHistorial(h);
         await seguirPendiente(h);
@@ -1170,6 +1186,15 @@ export default function CodeAgent() {
         const data: any = await leerHistorial();
         const history = Array.isArray(data?.history) ? data.history : [];
         if (history.length === 0) return;
+        if (data?.hayAlgoPendiente && data?.turnoEnCurso === true) {
+          pintarHistorial(history);
+          setLoading(true);
+          setProgreso("Atlas siguió trabajando mientras no estabas. Esperando el resultado…");
+          await recuperarDelCorte();
+          setLoading(false);
+          setProgreso("");
+          return;
+        }
         if (data?.hayAlgoPendiente) {
           pintarHistorial(history);
           setLoading(true);
