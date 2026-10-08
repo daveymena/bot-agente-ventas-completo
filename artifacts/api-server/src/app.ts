@@ -1252,7 +1252,7 @@ app.use((req, res, next) => {
 // una imagen faltante "cargue bien" y el navegador muestre un roto sin causa
 // visible — y peor, el bot llegaba a mandar ese HTML por WhatsApp creyendo
 // que era la foto del producto. Un 404 dice la verdad.
-const ASSET_EXT = /\.(jpe?g|png|gif|webp|avif|svg|ico|bmp|mp4|webm|mp3|wav|pdf|zip|css|js|mjs|map|woff2?|ttf|eot|json|txt|xml)$/i;
+const ASSET_EXT = /\.(jpe?g|png|gif|webp|avif|svg|ico|bmp|mp4|webm|mp3|wav|pdf|zip|apk|css|js|mjs|map|woff2?|ttf|eot|json|txt|xml)$/i;
 
 app.use((req, res, next) => {
   // Solo manejar rutas que NO son API

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Bell, BellOff, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import { estadoPush, activarPush, desactivarPush, probarPush, type EstadoPush } from "@/lib/pwa";
+import { DescargarAppAndroid } from "@/components/app-android";
 
 /** Notificaciones push del negocio en el celular (Web Push, sin Firebase).
  *  Avisa: mensajes nuevos de clientes, pedidos, comprobantes y alertas del
@@ -71,9 +72,9 @@ export function PushNotifications() {
             </Button>
           )}
         </div>
-        <p className="text-xs text-muted-foreground">
-          En Android/Chrome usa ⋮ → “Instalar app” para tener el icono VentasPro. La APK de Play Store llega con esto ya integrado.
-        </p>
+        <div className="border-t pt-4">
+          <DescargarAppAndroid />
+        </div>
       </CardContent>
     </Card>
   );

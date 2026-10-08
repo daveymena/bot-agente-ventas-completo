@@ -50,6 +50,8 @@ android-project/.gradle/
 android-project/**/*.keystore
 android-project/**/*.jks
 *.apk
+# El APK de VentasPro se descarga desde la app (Ajustes). Las llaves de firma NUNCA.
+!artifacts/ventas-pro/public/descargas/*.apk
 *.keystore
 *.jks
 

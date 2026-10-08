@@ -1,3 +1,4 @@
+import { AvisoAppAndroid } from "@/components/app-android";
 import { Link, useLocation } from "wouter";
 import {
   LayoutDashboard,
@@ -155,6 +156,7 @@ export function Layout({ children, chatCompleto = false }: { children: React.Rea
             <div className="flex-1 min-w-0" />
             <div className="flex items-center gap-2"><UiBadge variant="outline" className="bg-primary/5 text-primary border-primary/20 hidden sm:flex text-xs">V1.5 PREMIUM</UiBadge></div>
           </header>
+          {!chatCompleto && <AvisoAppAndroid />}
           <main className={`flex-1 ${chatCompleto ? "p-0 md:p-6 overflow-hidden md:overflow-y-auto" : "p-3 sm:p-4 md:p-6 overflow-y-auto"} overflow-x-hidden animate-enter scroll-smooth flex flex-col h-full min-h-0`}>
             <div className={`max-w-7xl mx-auto w-full break-words min-w-0 md:flex-1 md:flex md:flex-col md:min-h-0 ${chatCompleto ? "flex-1 flex flex-col min-h-0 pb-[calc(80px+env(safe-area-inset-bottom))] md:pb-4" : "pb-[calc(184px+env(safe-area-inset-bottom))] md:pb-4"}`}>
               {children}
