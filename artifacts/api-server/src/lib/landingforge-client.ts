@@ -335,6 +335,33 @@ export async function getForgeSpec(landingId: string): Promise<{ ok: boolean; sp
   }
 }
 
+/**
+ * Pone el píxel de la cuenta publicitaria en ESA landing (no en todas: Forge
+ * no separa negocios y un píxel global mezclaría los de distintos clientes).
+ *
+ * 08-10: la landing del corrector salió sin píxel; Meta no veía quién entraba
+ * ni quién compraba, y la campaña de ventas terminó comprando clics.
+ * Devuelve qué pasó, para decírselo al dueño.
+ */
+export async function ponerPixelEnLanding(urlLanding: string, pixelId: string): Promise<{ ok: boolean; motivo: string }> {
+  const slug = /\/l\/([^/?#]+)/.exec(String(urlLanding || ""))?.[1];
+  if (!slug || !pixelId) return { ok: false, motivo: "no es una landing de Forge o no hay píxel" };
+  try {
+    const { landings } = await listLandings();
+    const fila = (landings || []).find((x) => x.landing?.slug === slug);
+    if (!fila) return { ok: false, motivo: `no encontré la landing ${slug} en Forge` };
+    const actual = await getForgeSpec(fila.landing.id);
+    if (!actual.ok || !actual.spec) return { ok: false, motivo: actual.error || "Forge no devolvió la landing" };
+    const pixeles = actual.spec.settings?.pixels || {};
+    if (pixeles.metaPixelId === pixelId) return { ok: true, motivo: "ya lo tenía" };
+    const spec = { ...actual.spec, settings: { ...(actual.spec.settings || {}), pixels: { ...pixeles, metaPixelId: pixelId } } };
+    const r = await putForgeSpec(fila.landing.id, spec);
+    return r.ok ? { ok: true, motivo: "puesto" } : { ok: false, motivo: r.error || "no se pudo guardar" };
+  } catch (e) {
+    return { ok: false, motivo: (e as Error).message };
+  }
+}
+
 /** Guarda el spec editado (Forge rellena con fotos lo que quede vacío). */
 export async function putForgeSpec(landingId: string, spec: any): Promise<{ ok: boolean; spec?: any; error?: string }> {
   try {

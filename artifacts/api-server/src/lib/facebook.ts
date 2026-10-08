@@ -153,6 +153,19 @@ export function esErrorTransitorioDeMeta(err: any): boolean {
  * link_data de un anuncio CARRUSEL: una tarjeta por foto, mismo destino y
  * mismo botón en todas. Sin `picture` en la raíz (eso lo haría imagen única).
  */
+/**
+ * ¿Qué píxel usar? 08-10: VentasPro tenía guardado 1193902929595904, que NO
+ * es de la cuenta publicitaria; la cuenta tenía uno solo (1064770976005166).
+ * Resultado: ninguna campaña de ventas podía medir compras. Si el guardado es
+ * de la cuenta, ese; si no y la cuenta tiene exactamente uno, ese; con varios
+ * no se adivina (null: que el dueño elija).
+ */
+export function elegirPixel(guardado: string, deLaCuenta: string[]): { pixelId: string | null; corregido: boolean } {
+  if (guardado && deLaCuenta.includes(guardado)) return { pixelId: guardado, corregido: false };
+  if (deLaCuenta.length === 1) return { pixelId: deLaCuenta[0]!, corregido: !!guardado };
+  return { pixelId: null, corregido: false };
+}
+
 export function linkDataDeCarrusel(ld: Record<string, any>, fotos: string[], titulo: string): Record<string, any> {
   const { picture: _unaSola, ...resto } = ld;
   return {
@@ -1109,6 +1122,32 @@ Responde SOLO con este JSON exacto:
       // texto placeholder no mejora nada -- puede terminar generando un
       // fondo que se parece todavía menos al curso real.
 
+      // ── Ventas SIN píxel: se corta acá, ANTES de crear nada en Meta ──────
+      // 08-10, campaña del corrector: el dueño pidió VENTAS, no había píxel
+      // de esta cuenta y el conjunto salía en silencio optimizando CLICS
+      // (LINK_CLICKS): 123 clics a $46, cero pedidos. Atlas decía "creé tu
+      // campaña de ventas" y Meta buscaba a quien hace clic, no a quien compra.
+      // Lo pedido o nada: la salida la elige el dueño, no el código.
+      const pixelDeLaCuenta = await this.pixelUsable(adAccount);
+      if (objetivo === "ventas" && !pixelDeLaCuenta) {
+        throw new Error(
+          "Pediste una campaña de VENTAS, pero esta cuenta publicitaria no tiene un píxel suyo conectado: sin píxel Meta no puede buscar compradores " +
+          "y la campaña terminaría comprando clics baratos (así pasó con el corrector: 123 clics, 0 pedidos). No se creó nada. " +
+          "Opciones: (1) conectar el píxel de esta cuenta y ponerlo en la landing, (2) hacerla de MENSAJES a WhatsApp (no necesita píxel), " +
+          "o (3) hacerla de TRÁFICO sabiendo que optimiza clics.",
+        );
+      }
+      // La landing de destino tiene que DISPARAR ese mismo píxel: sin él,
+      // Meta no ve visitas ni compras aunque la cuenta lo tenga.
+      if (pixelDeLaCuenta && /\/l\/[^/?#]+/.test(destinoWeb)) {
+        const { ponerPixelEnLanding } = await import("./landingforge-client");
+        const r = await ponerPixelEnLanding(destinoWeb, pixelDeLaCuenta);
+        logger.info({ destinoWeb, pixel: pixelDeLaCuenta, ...r }, "[Facebook] Píxel de la cuenta en la landing de destino");
+        if (!r.ok && objetivo === "ventas") {
+          throw new Error(`No pude poner el píxel ${pixelDeLaCuenta} en la landing (${r.motivo}): sin él la campaña de ventas no mide compras. No se creó nada.`);
+        }
+      }
+
       // Campaña.
       // special_ad_categories: [] daba error 100 / subcódigo 4834011 --
       // Meta viene exigiendo que TODA campaña declare explícitamente "NONE"
@@ -1310,9 +1349,8 @@ Responde SOLO con este JSON exacto:
       // crear campaña y conjunto. Para no desperdiciar esas llamadas, se
       // verifica ANTES que el pixel realmente esté en la lista de pixeles de
       // ESTA cuenta.
-      const hasUsablePixel = this.config.pixelId
-        ? await this.pixelBelongsToAccount(adAccount, this.config.pixelId)
-        : false;
+      // Ya resuelto arriba (pixelUsable corrige el guardado si no es de la cuenta).
+      const hasUsablePixel = !!pixelDeLaCuenta;
 
       // El monto llega en COP (así razona toda la app); Meta lo quiere en la
       // moneda de la CUENTA. Ver presupuestoDiarioParaMeta().
@@ -1835,12 +1873,13 @@ Responde SOLO con este JSON exacto:
    * sus anuncios) para la verificación posterior. Ver
    * lib/verificar-anuncio-en-meta.ts.
    */
-  async leerConjuntoParaVerificar(adSetId: string): Promise<{ targeting?: any; status?: string; effective_status?: string; ads?: any[] }> {
+  async leerConjuntoParaVerificar(adSetId: string): Promise<{ targeting?: any; optimization_goal?: string; status?: string; effective_status?: string; ads?: any[] }> {
     const token = this.config.userAccessToken || this.config.accessToken;
-    const conjunto = await this.fbGet(adSetId, { fields: "targeting,status,effective_status" }, token);
+    const conjunto = await this.fbGet(adSetId, { fields: "targeting,status,effective_status,optimization_goal" }, token);
     const ads = await this.fbGet(`${adSetId}/ads`, { fields: "creative{object_story_spec,asset_feed_spec}", limit: "10" }, token).catch(() => null);
     return {
       targeting: conjunto?.targeting,
+      optimization_goal: conjunto?.optimization_goal,
       status: conjunto?.status,
       effective_status: conjunto?.effective_status,
       ads: Array.isArray(ads?.data) ? ads.data : [],
@@ -2797,6 +2836,27 @@ Responde SOLO con este JSON exacto:
     } catch (e: any) {
       return { ok: false, message: `No se pudo crear el píxel en ${adAccount}: ${e?.message || e}` };
     }
+  }
+
+  /**
+   * El píxel que de verdad sirve en ESTA cuenta (o null). Si el guardado no
+   * es de la cuenta pero la cuenta tiene uno solo, se usa ese (ver elegirPixel).
+   */
+  async pixelUsable(adAccount: string): Promise<string | null> {
+    let deLaCuenta: string[] = [];
+    try {
+      const res = await this.fbGet(`${adAccount}/adspixels`, { fields: "id" }, this.config.userAccessToken);
+      deLaCuenta = (res.data || []).map((p: any) => String(p.id));
+    } catch (err: any) {
+      logger.warn({ err: err?.message }, "[Facebook] No se pudo listar los píxeles de la cuenta");
+      return null;
+    }
+    const r = elegirPixel(String(this.config.pixelId || ""), deLaCuenta);
+    if (r.corregido && r.pixelId) {
+      logger.warn({ guardado: this.config.pixelId, deLaCuenta: r.pixelId }, "[Facebook] El píxel guardado no es de esta cuenta: se usa el único que la cuenta tiene");
+      this.config.pixelId = r.pixelId;
+    }
+    return r.pixelId;
   }
 
   private async pixelBelongsToAccount(adAccount: string, pixelId: string): Promise<boolean> {

@@ -10257,7 +10257,7 @@ export async function verifyMutation(tool: string, args: any, ctx: OperatorConte
       const { compararConLoPedido } = await import("./verificar-anuncio-en-meta");
       const leido = await fb.leerConjuntoParaVerificar(adSetId);
       return compararConLoPedido(
-        { ageMin: st.ageMin, ageMax: st.ageMax, ciudades: st.ciudades, genders: st.genders, formato: String(args?.formato || st.formato || "") || undefined },
+        { ageMin: st.ageMin, ageMax: st.ageMax, ciudades: st.ciudades, genders: st.genders, formato: String(args?.formato || st.formato || "") || undefined, objetivo: String(args?.objetivo || st.objetivo || "") || undefined },
         leido,
       ).linea;
     }

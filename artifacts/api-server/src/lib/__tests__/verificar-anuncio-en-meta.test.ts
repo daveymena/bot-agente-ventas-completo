@@ -61,3 +61,32 @@ describe("subida a Meta: el carrusel se arma de verdad", () => {
     expect(r.linea).toContain("carrusel de 3 fotos");
   });
 });
+
+// 08-10, datos reales: VentasPro tenía guardado un píxel que NO es de la cuenta.
+describe("qué píxel usa la campaña", () => {
+  it("el guardado no es de la cuenta y la cuenta tiene uno solo → ese (el caso real)", async () => {
+    const { elegirPixel } = await import("../facebook");
+    expect(elegirPixel("1193902929595904", ["1064770976005166"])).toEqual({ pixelId: "1064770976005166", corregido: true });
+  });
+  it("el guardado sí es de la cuenta → se respeta", async () => {
+    const { elegirPixel } = await import("../facebook");
+    expect(elegirPixel("1064770976005166", ["1064770976005166", "2"])).toEqual({ pixelId: "1064770976005166", corregido: false });
+  });
+  it("varios en la cuenta y el guardado no es ninguno → no adivina", async () => {
+    const { elegirPixel } = await import("../facebook");
+    expect(elegirPixel("999", ["1", "2"]).pixelId).toBeNull();
+  });
+});
+
+describe("verificación: qué optimiza el conjunto", () => {
+  it("pediste ventas y busca clics → NO verificado (la campaña real del corrector)", async () => {
+    const { compararConLoPedido } = await import("../verificar-anuncio-en-meta");
+    const r = compararConLoPedido({ objetivo: "ventas" }, { optimization_goal: "LINK_CLICKS", targeting: { age_min: 18, age_max: 65 } });
+    expect(r.ok).toBe(false);
+    expect(r.linea).toContain("pediste VENTAS y el conjunto busca CLICS");
+  });
+  it("ventas que busca compras → bien", async () => {
+    const { compararConLoPedido } = await import("../verificar-anuncio-en-meta");
+    expect(compararConLoPedido({ objetivo: "ventas" }, { optimization_goal: "OFFSITE_CONVERSIONS" }).ok).toBe(true);
+  });
+});

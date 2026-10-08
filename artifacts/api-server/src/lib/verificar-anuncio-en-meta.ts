@@ -17,10 +17,13 @@ export interface LoPedido {
   ciudades?: string[];
   genders?: number[];
   formato?: string;
+  /** "ventas" | "trafico" | "mensajes"… — qué tiene que optimizar el conjunto. */
+  objetivo?: string;
 }
 
 export interface LoLeidoDeMeta {
   targeting?: any;
+  optimization_goal?: string;
   status?: string;
   effective_status?: string;
   /** Los anuncios del conjunto, con su creative. */
@@ -68,6 +71,14 @@ export function compararConLoPedido(pedido: LoPedido, leido: LoLeidoDeMeta): { o
     if (pedido.formato === "carrusel" && fotos < 2) distinto.push("salió como UNA imagen, no como carrusel");
   } else if (pedido.formato) {
     distinto.push("no se pudo leer el anuncio para confirmar el formato");
+  }
+
+  // 08-10: se pidió VENTAS y el conjunto optimizaba CLICS (sin píxel):
+  // 123 clics a $46, cero pedidos, y nadie lo marcó.
+  const opt = String(leido.optimization_goal || "");
+  if (opt) {
+    quedo.push(opt === "OFFSITE_CONVERSIONS" ? "busca compras" : opt === "LINK_CLICKS" ? "busca CLICS" : opt === "CONVERSATIONS" ? "busca conversaciones" : opt === "LANDING_PAGE_VIEWS" ? "busca visitas a la página" : opt.toLowerCase());
+    if (pedido.objetivo === "ventas" && opt !== "OFFSITE_CONVERSIONS" && opt !== "VALUE") distinto.push(`pediste VENTAS y el conjunto busca ${opt === "LINK_CLICKS" ? "CLICS" : opt}`);
   }
 
   const estado = String(leido.effective_status || leido.status || "");
