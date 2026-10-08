@@ -1015,10 +1015,23 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         const encabezado = allOk
           ? "✅ Plan ejecutado y verificado"
           : "⚠️ El plan terminó con errores; no voy a decir que quedó listo";
-        const reply = paraMarkdown(toEmojiStyle(`${encabezado}${cuerpo || "."}`));
-        await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
-        logger.info({ tenantId, executed: executed.length }, "[AtlasOpenCode] Plan aprobado y ejecutado");
-        return finish({ reply, executed, actionsCount: executed.length, status: allOk ? "executed" : "partial_failure" });
+        // 08-10: una falla ya no cierra el turno en "no quedó". Si Atlas la
+        // puede arreglar, sigue solo (needsContinuation) a diagnosticar y
+        // traer la corrección; si depende del dueño, se le dice qué hacer.
+        // Ver lib/plan-fallido.ts.
+        const { queHacerConLaFalla } = await import("../lib/plan-fallido");
+        const falla = allOk ? null : queHacerConLaFalla(
+          executed.filter((item) => !item.ok || String(item.verification || "").startsWith("⚠️"))
+            .map((item) => `${item.summary || ""} ${item.verification || ""}`),
+        );
+        const reply = paraMarkdown(toEmojiStyle(`${encabezado}${cuerpo || "."}${falla ? `\n\n${falla.linea}` : ""}`));
+        await saveArchitectTurn(tenantId, sessionId, "assistant", reply, falla?.seResuelveSolo ? { parcial: true } : undefined);
+        logger.info({ tenantId, executed: executed.length, sigueSolo: !!falla?.seResuelveSolo }, "[AtlasOpenCode] Plan aprobado y ejecutado");
+        return finish({
+          reply, executed, actionsCount: executed.length,
+          status: allOk ? "executed" : "partial_failure",
+          needsContinuation: !!falla?.seResuelveSolo,
+        });
       }
       // ── Respuesta ambigua: PREGUNTAR, no descartar ──────────────────────
       // Antes, cualquier cosa que no fuera una aprobación exacta borraba el
@@ -1525,6 +1538,14 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // del panel: ver lib/investigacion-previa.ts (medido 29-09-2026).
       const pedidoTexto = String(prompt);
       const esContinuacionAutomatica = esContinuacionAutomaticaDelPanel(pedidoTexto);
+      // Viene de un plan que FALLÓ y Atlas dijo "no lo dejo así" (ver
+      // lib/plan-fallido.ts): este tramo es para resolverlo, no para contarlo.
+      if (esContinuacionAutomatica) {
+        const ultimoDeAtlas = [...convo].reverse().find((m: any) => m?.role === "assistant");
+        if (/No lo dejo así: estoy revisando la causa/.test(String(ultimoDeAtlas?.content || ""))) {
+          text += `\n\n[SISTEMA] El plan que el admin aprobó FALLÓ (el motivo exacto está en tu mensaje anterior). Diagnosticá la causa con herramientas de LECTURA y proponé con propose_action la corrección concreta: los MISMOS datos que pidió el admin, cambiando solo lo que hizo fallar. Contale en una línea qué falló y qué corregís. No le pidas que lo intente él ni repitas el error sin cambiar nada; si de verdad no tiene arreglo desde acá, decí exactamente qué tiene que hacer él.`;
+        }
+      }
       const investigacionPrevia = debeInvestigarAntes(pedidoTexto);
       // Investigar varios productos o nichos no entra en un turno: se hace
       // UNO por turno y el modelo declara qué falta. El servidor encadena

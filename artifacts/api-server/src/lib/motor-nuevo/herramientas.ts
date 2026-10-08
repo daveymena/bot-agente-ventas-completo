@@ -523,6 +523,19 @@ export const definicionesDeHerramientas = [
   {
     type: "function" as const,
     function: {
+      name: "guia_de_tallas",
+      description:
+        "Preguntas de TALLA o medida (qué talla me sirve, peso X kg, mido Y, ¿me queda?, ¿es ajustable?). " +
+        "Trae la tabla REAL de la ficha, las tallas que existen y si es ajustable, para razonar la recomendación. Úsala antes de decir 'lo confirmo'.",
+      parameters: {
+        type: "object",
+        properties: { productoId: { type: "number", description: "Si no lo pasás, el producto en foco." } },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
       name: "cancelar_mi_pedido",
       description:
         "El cliente pide CANCELAR un pedido que ya hizo. Lo cancela de verdad si todavía no salió a Dropi, o avisa al dueño si ya está allá. " +
@@ -1305,6 +1318,30 @@ export const ejecutores: Record<string, Ejecutor> = {
     const r = await ctx.pedidos.estado();
     if (!r.hay) return { ok: true, mensaje: "Esta conversación no tiene ningún pedido hecho. Pregúntale con qué nombre o número lo hizo, sin inventar." };
     return { ok: true, mensaje: `${r.texto} Díselo con tus palabras; si no hay guía todavía, dile que se la pasas apenas la transportadora la asigne.` };
+  },
+
+  async guia_de_tallas(ctx, args) {
+    const id = Number(args?.productoId) || ctx.focoFijo || ctx.estado.productoEnFoco;
+    const p = id ? ctx.catalogo.find((x) => x.id === id) : null;
+    if (!p) return { ok: false, mensaje: "No sé de qué producto pregunta la talla. Ubícalo con buscar_en_catalogo o enfocar_producto." };
+    const { lineasDeTallas, esAjustable, medidasDelTexto, mensajeDeTallas } = await import("./guia-de-tallas");
+    const conocimiento = (ctx.conocimiento || [])
+      .filter((k) => (k.productId == null || k.productId === p.id) && k.respuesta)
+      .map((k) => `${k.pregunta}: ${k.respuesta}`);
+    const fuentes = [
+      p.description,
+      ...(p.caracteristicas || []),
+      ...((p.preguntas || []).map((q) => `${q.p}: ${q.r}`)),
+      ...conocimiento,
+    ];
+    marcarPaso(ctx.estado, `tallas_${p.id}`);
+    return mensajeDeTallas({
+      nombre: p.name,
+      opciones: (p.opciones || []).filter(Boolean),
+      lineas: lineasDeTallas(fuentes),
+      ajustable: esAjustable(fuentes),
+      medidas: medidasDelTexto(ctx.mensajeDelCliente || ""),
+    });
   },
 
   async cancelar_mi_pedido(ctx) {
