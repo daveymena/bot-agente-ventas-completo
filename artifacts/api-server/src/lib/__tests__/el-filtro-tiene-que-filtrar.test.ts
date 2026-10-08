@@ -268,6 +268,11 @@ describe("ningún tipo de pedido se pasa del presupuesto", () => {
   //
   // 3850 → 3950 el mismo día: integraciones_estado (lectura + esquema) en el
   // grupo de tienda externa. Medido 3.923. Mismo techo real (~8000).
+  //
+  // 3950 → 4000 el 08-10-2026: fb_segmentacion_editar (corregir edades y
+  // ciudades de un anuncio ya publicado; sin ella Atlas dijo "no tengo
+  // habilitada la edición" y el anuncio siguió 18-65 a todo el país). La base
+  // ya medía 3.952 antes. Mismo techo real (~8000).
   const PEDIDOS: Array<[string, string]> = [
     ["ventas del día", "cómo van las ventas hoy"],
     ["facturación", "cuánto facturé este mes"],
@@ -283,7 +288,7 @@ describe("ningún tipo de pedido se pasa del presupuesto", () => {
   for (const [nombre, pedido] of PEDIDOS) {
     it(`"${nombre}" entra en el minuto de Groq`, () => {
       const t = tokens(buildMcpToolRegistry(pedido));
-      expect(t, `"${pedido}" pesa ~${t} tokens`).toBeLessThan(3950);
+      expect(t, `"${pedido}" pesa ~${t} tokens`).toBeLessThan(4000);
     });
   }
 });

@@ -656,7 +656,24 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
       // Meta: si `subirAMeta` no va, esto guarda un borrador local y el
       // objetivo todavía no decide nada. Anunciar un destino ahí sería
       // prometer algo que este paso no hace.
-      return `📢 Crear el anuncio de "${valorLegible(g.producto, 60)}" con $${Number(g.dailyBudget || 0).toLocaleString("es-CO")}/día — el sistema busca el producto, escribe el copy con sus datos reales, lo valida y guarda el borrador${g.subirAMeta === true ? `, y ADEMÁS crea la campaña en Meta EN PAUSA (no gasta hasta que la actives)\n   ➡️ Destino: ${destinoLegible(g.objetivo)}` : " (no toca Meta)"}`;
+      {
+        // Lo que se APRUEBA tiene que mostrar el formato y a quién se muestra:
+        // el 07-10 Atlas prometió "carrusel, 25-55, 6 ciudades" en su texto y
+        // el plan (sin esos datos) se aprobó igual: una imagen, 18-65, todo
+        // el país. Si no van en la acción, el plan lo dice.
+        const fmt = String(g.formato || "").toLowerCase();
+        const ciudades = Array.isArray(g.ciudades) ? g.ciudades : typeof g.ciudades === "string" ? String(g.ciudades).split(",") : [];
+        const edades = g.edadMin || g.edadMax ? `${g.edadMin ?? 18}–${g.edadMax ?? 65} años` : "";
+        const quien = [edades, g.generos && g.generos !== "todos" ? String(g.generos) : "", ciudades.length ? `en ${ciudades.map((c: unknown) => String(c).trim()).join(", ")}` : ""].filter(Boolean).join(" · ");
+        return `📢 Crear el anuncio de "${valorLegible(g.producto, 60)}" con $${Number(g.dailyBudget || 0).toLocaleString("es-CO")}/día — el sistema busca el producto, escribe el copy con sus datos reales, lo valida y guarda el borrador${g.subirAMeta === true ? `, y ADEMÁS crea la campaña en Meta EN PAUSA (no gasta hasta que la actives)\n   ➡️ Destino: ${destinoLegible(g.objetivo)}` : " (no toca Meta)"}` +
+          `\n   🖼️ Formato: ${fmt === "carrusel" ? "carrusel con las fotos reales del producto" : fmt === "imagen" ? "una sola imagen" : "el de siempre (no se pidió formato)"}` +
+          `\n   🎯 Se muestra a: ${quien || "lo que Meta decida (no se pidió edades ni ciudades)"}`;
+      }
+    case "fb_segmentacion_editar": {
+      const ciudades = Array.isArray(g.ciudades) ? g.ciudades : typeof g.ciudades === "string" ? String(g.ciudades).split(",") : [];
+      const partes = [g.edadMin || g.edadMax ? `${g.edadMin ?? "?"}–${g.edadMax ?? "?"} años` : "", g.generos ? String(g.generos) : "", ciudades.length ? `en ${ciudades.join(", ")}` : "", g.advantagePlus !== undefined ? `Advantage+ ${g.advantagePlus ? "encendido" : "apagado"}` : ""].filter(Boolean);
+      return `🎯 Corregir A QUIÉN se muestra el anuncio ${g.draftId ? `(borrador ${g.draftId})` : g.adSetId ? `(conjunto ${g.adSetId})` : ""} en Meta: ${partes.join(" · ") || "?"} — cambia en vivo un anuncio que puede estar gastando`;
+    }
     case "fb_ad_draft":
       // El TEXTO REAL va en el plan, no solo "generar borrador para el
       // producto 76".
@@ -1353,7 +1370,14 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // Un "¿cómo va mi campaña de Facebook?" matchea los dos grupos y recibe la
     // unión, que es lo correcto: ahí sí hacen falta las dos mitades.
     patron: /m[eé]trica|rendimiento|resultado|c[oó]mo va|c[oó]mo est[aá]|gast|roas|cpa|cpc|conversion|analiz|diagn[oó]stic|atribuci|aprendiz|optimiz|competencia|competidor|estructura|configur|armad|replic|como (las|los) (que|activ)|en pausa|pausad/i,
-    herramientas: ["fb_campaign_metrics", "fb_list_adsets", "fb_agent_logs", "fb_ad_library", "embudo_de_ventas", "marketing_attribution", "marketing_diagnostico", "marketing_aprendizajes", "ad_brief", "fb_radiografia_campana", "metodo_de_venta"],
+    herramientas: ["fb_campaign_metrics", "fb_list_adsets", "fb_agent_logs", "fb_ad_library", "embudo_de_ventas", "marketing_attribution", "marketing_diagnostico", "marketing_aprendizajes", "ad_brief", "fb_radiografia_campana", "metodo_de_venta", "fb_segmentacion_editar"],
+  },
+  {
+    // ── Anuncios: CORREGIR A QUIÉN SE MUESTRA ─────────────────────────────
+    // 08-10: el anuncio salió 18-65 a todo el país y Atlas dijo "no tengo
+    // habilitada la edición de a quién se le muestra el anuncio". Sí la hay.
+    patron: /segment|ciudad|edad|rango de edad|p[uú]blico|a qui[eé]n se (le )?muestra|corrig|cambi[aá] (las|los) (ciudades|edades)/i,
+    herramientas: ["fb_segmentacion_editar", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics"],
   },
   {
     // El método de venta (curso condensado el 01-10-2026): cómo pautar,

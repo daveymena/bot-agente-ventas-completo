@@ -7233,7 +7233,7 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
       "LA FORMA CORRECTA DE CREAR UN ANUNCIO. Hace TODO el trabajo de una sola vez: busca el producto por su nombre, arma el brief con sus datos reales, escribe el copy, lo valida y guarda el borrador. " +
       "Usala SIEMPRE que te pidan un anuncio (\"anunciá mi curso\", \"creá un anuncio para X\") en vez de encadenar list_products + ad_brief + fb_ad_draft: eso son muchas idas y vueltas y el turno se corta antes de terminar. " +
       "Con esto solo tenés que pasar el nombre del producto tal como lo dijo el admin y el presupuesto. Todo lo demás lo resuelve el servidor.",
-    args: '{ "producto": string (req, como lo dijo el admin), "dailyBudget": number (req, diario), "destinoWeb"?: "landing"|"tienda", "objetivo"?: "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — decide A DÓNDE va la gente y A QUIÉN le muestra Meta el anuncio: "mensajes" abre WhatsApp, "trafico" lleva a la web buscando clics, "ventas" lleva a la web buscando compradores. Si el admin dijo WhatsApp, mensajes, tráfico o alcance, PASALO; sin ese dato sale de ventas a la web, que es otra campaña distinta), "subirAMeta"?: boolean (por defecto false; si es true, además crea la campaña en Meta EN PAUSA), "nueva"?: boolean (solo si el admin pide EXPLÍCITAMENTE otra campaña aunque ya exista una del mismo producto al mismo destino), "ignorarMargen"?: boolean (solo si el admin, sabiendo que el producto pierde plata por pedido, pide anunciarlo igual) }',
+    args: '{ "producto": string (req, como lo dijo el admin), "dailyBudget": number (req, diario), "destinoWeb"?: "landing"|"tienda", "objetivo"?: "ventas"|"trafico"|"mensajes"|"reconocimiento" (IMPORTANTE: "mensajes"=WhatsApp, "trafico"/"ventas"=web; si el admin dijo WhatsApp/tráfico/alcance, PASALO. A/B web+WhatsApp = DOS llamadas), "subirAMeta"?: boolean (por defecto false; si es true, además crea la campaña en Meta EN PAUSA), "formato"?: "carrusel"|"imagen", "edadMin"?: number, "edadMax"?: number, "ciudades"?: string[], "generos"?: "mujeres"|"hombres", "intereses"?: string[] (formato y público acordados van ACÁ o no se aplican), "nueva"?: boolean (solo si pide EXPLÍCITAMENTE otra campaña igual a una existente), "ignorarMargen"?: boolean (solo si el admin, sabiendo que el producto pierde plata por pedido, pide anunciarlo igual) }',
     run: async (args, ctx) => {
       {
         const { rechazoPorObjetivoNoCreable } = await import("./objetivos-campana");
@@ -7555,6 +7555,44 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
       if (!guardado.ok) return { ok: false, summary: `Escribí el anuncio pero no se pudo guardar: ${guardado.summary}` };
       const draftId = Number((guardado as any)?.data?.id) || null;
 
+      // ── 5b. Formato y segmentación que pidió el admin ────────────────────
+      // Producción 07/08-10: Atlas le confirmó al dueño "carrusel" y
+      // "25-55 años en Bogotá, Medellín, Cali…", pero esta herramienta no
+      // recibía ninguno de los dos: salió UNA imagen, 18-65, a todo el país.
+      // Ahora se guardan en el borrador (la subida los lleva a Meta) y el
+      // resumen dice lo que QUEDÓ guardado, no lo que se conversó.
+      const lineasDeFormato: string[] = [];
+      if (draftId) {
+        const { segmentacionPedida, describirSegmentacion } = await import("./anuncio-segmentacion-pedida");
+        const seg = segmentacionPedida(args);
+        const [fila] = await db.select().from(facebookDrafts).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, ctx.tenantId))).limit(1);
+        const st: any = { ...((fila as any)?.strategy || {}) };
+        Object.assign(st, seg.estrategia);
+        const set: any = { strategy: st };
+        const formato = String(args?.formato || "").toLowerCase();
+        if (formato === "carrusel" || formato === "imagen") {
+          const { fotosUnicasDelProducto } = await import("./fotos-de-producto");
+          const fotos: string[] = (await fotosUnicasDelProducto(prod as any).catch(() => [] as string[])).filter(Boolean);
+          if (formato === "carrusel") {
+            if (fotos.length >= 2) {
+              set.images = fotos.slice(0, 10);
+              set.imageUrl = fotos[0];
+              lineasDeFormato.push(`🖼️ Formato: carrusel de ${set.images.length} fotos reales del producto`);
+            } else {
+              lineasDeFormato.push(`⚠️ Pediste carrusel, pero el producto tiene ${fotos.length} foto(s) real(es): sale como imagen única. Subí más fotos al producto para el carrusel.`);
+            }
+          } else if (fotos[0]) {
+            set.images = [fotos[0]];
+            set.imageUrl = fotos[0];
+            lineasDeFormato.push("🖼️ Formato: una sola imagen");
+          }
+          st.formato = formato;
+        }
+        await db.update(facebookDrafts).set(set).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, ctx.tenantId)));
+        const desc = describirSegmentacion(st);
+        lineasDeFormato.push(desc ? `🎯 Se muestra a: ${desc}` : "🎯 Se muestra a: lo que Meta decida (no se pidió segmentación)");
+      }
+
       // ── 6. Subir a Meta, si lo pidieron (4 llamadas a Graph, sin IA) ─────
       let meta = "";
       if (args.subirAMeta === true && draftId) {
@@ -7595,6 +7633,7 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
           copy.primaryText,
           ``,
           `💰 Presupuesto: $${presupuesto.toLocaleString("es-CO")}/día`,
+          ...lineasDeFormato,
           lineaDeMargen,
           `⭐ Calidad del copy: ${nota.puntaje}/100${nota.notas.length ? `\n${nota.notas.map((n: string) => `   ⚠️ ${n}`).join("\n")}` : ""}`,
           meta,
@@ -8290,6 +8329,43 @@ ${r.texto}`, data: r.grupos };
       ].filter(Boolean).join(" ");
 
       return { ok: true, summary: `🗑️ Campaña borrada de Meta: ${detalle}. Se llevó también sus conjuntos y anuncios. Verificado contra la cuenta: ya no aparece.` };
+    },
+  },
+  {
+    name: "fb_segmentacion_editar",
+    description:
+      "Corrige A QUIÉN se muestra un anuncio ya publicado (edades, ciudades, género, Advantage+) sin rehacerlo.",
+    args: '{ "draftId"?: number, "adSetId"?: string, "edadMin"?: number, "edadMax"?: number, "ciudades"?: string[], "generos"?: "mujeres"|"hombres"|"todos", "advantagePlus"?: boolean }',
+    run: async (args, ctx) => {
+      let adSetId = String(args?.adSetId || "").trim();
+      const draftId = num(args?.draftId);
+      let fila: any = null;
+      if (draftId) {
+        [fila] = await db.select().from(facebookDrafts).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, ctx.tenantId))).limit(1);
+        if (!fila) return { ok: false, summary: `No existe el borrador ${draftId}.` };
+        adSetId = adSetId || String(fila.adSetId || "");
+      }
+      if (!adSetId) return { ok: false, summary: "Ese anuncio todavía no está en Meta (no tiene conjunto). Pasame el borrador ya subido o el id del conjunto." };
+      const { segmentacionPedida, describirSegmentacion } = await import("./anuncio-segmentacion-pedida");
+      const seg = segmentacionPedida(args);
+      if (!Object.keys(seg.estrategia).length && args?.advantagePlus === undefined) {
+        return { ok: false, summary: "No me dijiste qué cambiar (edades, ciudades o género)." };
+      }
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado." };
+      const r = await fb.editarSegmentacionDeConjunto(adSetId, {
+        edadMin: seg.estrategia.ageMin, edadMax: seg.estrategia.ageMax,
+        ciudades: seg.estrategia.ciudades, generos: seg.estrategia.genders,
+        advantagePlus: typeof args?.advantagePlus === "boolean" ? args.advantagePlus : undefined,
+      });
+      if (!r.ok) return { ok: false, summary: `Meta no aceptó el cambio: ${r.message}` };
+      if (fila) {
+        await db.update(facebookDrafts).set({ strategy: { ...((fila.strategy as any) || {}), ...seg.estrategia } } as any)
+          .where(and(eq(facebookDrafts.id, fila.id), eq(facebookDrafts.tenantId, ctx.tenantId)));
+      }
+      return { ok: true, summary: `✅ Segmentación del conjunto ${adSetId} corregida en Meta: ${describirSegmentacion(seg.estrategia)}. Advantage+ ${r.aplicado?.targeting_automation?.advantage_audience ? "encendido" : "apagado"}.` };
     },
   },
   {

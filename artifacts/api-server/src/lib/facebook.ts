@@ -45,9 +45,11 @@ export function usarAdvantagePlus(targeting?: {
   genders?: unknown[];
   ageMin?: number;
   ageMax?: number;
+  geoLocations?: { cities?: unknown[] };
 }): boolean {
   const pidioPublicoConcreto =
-    (targeting?.interests?.length ?? 0) > 0
+    (targeting?.geoLocations?.cities?.length ?? 0) > 0
+    || (targeting?.interests?.length ?? 0) > 0
     || (targeting?.genders?.length ?? 0) > 0
     || (targeting?.ageMin != null && targeting.ageMin > 18)
     || (targeting?.ageMax != null && targeting.ageMax < 65);
@@ -176,6 +178,49 @@ export async function resolveInterestIds(accessToken: string, names: string[]): 
     }
   }
   return resolved;
+}
+
+/**
+ * Ciudades por NOMBRE → la clave numérica que exige Meta.
+ *
+ * Producción 07/08-10: el dueño pidió Bogotá, Medellín, Cali, Barranquilla,
+ * Bucaramanga y Cartagena y el anuncio salió a TODO el país. Dos fallas:
+ * se mandaba `{ key: "Bogotá" }` (Meta exige la clave de su taxonomía) y el
+ * país iba junto con las ciudades (en geo_locations eso SUMA: país completo).
+ */
+export async function resolverCiudades(
+  accessToken: string,
+  nombres: string[],
+  pais = "CO",
+): Promise<{ resueltas: Array<{ key: string; name: string }>; faltan: string[] }> {
+  const resueltas: Array<{ key: string; name: string }> = [];
+  const faltan: string[] = [];
+  for (const nombre of nombres.map((n) => String(n || "").trim()).filter(Boolean)) {
+    // Ya viene una clave (numérica): se respeta.
+    if (/^\d+$/.test(nombre)) { resueltas.push({ key: nombre, name: nombre }); continue; }
+    try {
+      const params = new URLSearchParams({
+        type: "adgeolocation", location_types: JSON.stringify(["city"]), q: nombre,
+        country_code: pais, limit: "1", access_token: accessToken,
+      });
+      const res = await fetch(`${FB_GRAPH_URL}/search?${params}`, { signal: AbortSignal.timeout(10000) });
+      const data: any = await res.json();
+      const m = data?.data?.[0];
+      if (m?.key) resueltas.push({ key: String(m.key), name: String(m.name || nombre) });
+      else faltan.push(nombre);
+    } catch {
+      faltan.push(nombre);
+    }
+  }
+  return { resueltas, faltan };
+}
+
+/** geo_locations: con ciudades van SOLO las ciudades (con país sumaría todo el país). */
+export function geoConCiudades(paises: string[], ciudades: Array<{ key: string }>): Record<string, any> {
+  if (ciudades.length) {
+    return { cities: ciudades.map((c) => ({ key: c.key, radius: 20, distance_unit: "kilometer" })), location_types: ["home", "recent"] };
+  }
+  return { countries: paises };
 }
 
 export interface FacebookConfig {
@@ -1083,12 +1128,19 @@ Responde SOLO con este JSON exacto:
         age_max: targetingResolved?.ageMax || 65,
       };
 
-      // Ciudades específicas
+      // Ciudades específicas: por su CLAVE de Meta y SIN el país (ver
+      // resolverCiudades / geoConCiudades). Si alguna no existe, se corta
+      // con el nombre exacto: nada de salir a todo el país en silencio.
       if (targetingResolved?.geoLocations?.cities && targetingResolved.geoLocations.cities.length > 0) {
-        fbTargeting.geo_locations = {
-          ...fbTargeting.geo_locations,
-          cities: targetingResolved.geoLocations.cities.map(name => ({ key: name })),
-        };
+        const { resueltas, faltan } = await resolverCiudades(
+          this.config.userAccessToken || this.config.accessToken,
+          targetingResolved.geoLocations.cities,
+          paisDelNegocio,
+        );
+        if (faltan.length) {
+          throw new Error(`Meta no reconoce estas ciudades: ${faltan.join(", ")}. Revisá el nombre o quitalas; no se publica a todo el país fingiendo que se aplicaron.`);
+        }
+        fbTargeting.geo_locations = geoConCiudades([paisDelNegocio], resueltas);
       }
 
       // Radio alrededor de ubicación
@@ -1690,6 +1742,43 @@ Responde SOLO con este JSON exacto:
    * mudo: si Meta rechaza el monto (mínimos por moneda, cuenta sin método de
    * pago), el admin tiene que poder enterarse de por qué.
    */
+  /**
+   * Corrige la segmentación de un CONJUNTO ya publicado (edades, ciudades,
+   * géneros, Advantage+). Atlas no tenía cómo (08-10: "no tengo habilitada
+   * la edición de a quién se le muestra el anuncio") y el anuncio siguió
+   * saliendo 18-65 a todo el país. Se lee la segmentación actual y se cambia
+   * solo lo pedido.
+   */
+  async editarSegmentacionDeConjunto(
+    adSetId: string,
+    cambios: { edadMin?: number; edadMax?: number; ciudades?: string[]; generos?: number[]; advantagePlus?: boolean },
+    pais = "CO",
+  ): Promise<{ ok: boolean; message?: string; aplicado?: Record<string, any> }> {
+    const token = this.config.userAccessToken || this.config.accessToken;
+    try {
+      const actual = await this.fbGet(adSetId, { fields: "targeting" }, token);
+      const t: Record<string, any> = { ...(actual?.targeting || {}) };
+      if (cambios.edadMin) t.age_min = Math.max(18, Math.min(65, Math.round(cambios.edadMin)));
+      if (cambios.edadMax) t.age_max = Math.max(18, Math.min(65, Math.round(cambios.edadMax)));
+      if (t.age_min && t.age_max && t.age_min > t.age_max) return { ok: false, message: "La edad mínima no puede ser mayor que la máxima." };
+      if (cambios.generos?.length) t.genders = cambios.generos;
+      if (cambios.ciudades?.length) {
+        const { resueltas, faltan } = await resolverCiudades(token, cambios.ciudades, pais);
+        if (faltan.length) return { ok: false, message: `Meta no reconoce estas ciudades: ${faltan.join(", ")}.` };
+        t.geo_locations = geoConCiudades([pais], resueltas);
+      }
+      const pidioConcreto = !!(cambios.ciudades?.length || cambios.generos?.length || (cambios.edadMin ?? 18) > 18 || (cambios.edadMax ?? 65) < 65);
+      if (cambios.advantagePlus !== undefined || pidioConcreto) {
+        t.targeting_automation = { advantage_audience: cambios.advantagePlus === true ? 1 : 0 };
+      }
+      await this.fbPost(adSetId, { targeting: JSON.stringify(t) }, "editar segmentación", token);
+      return { ok: true, aplicado: t };
+    } catch (err: any) {
+      logger.warn({ err: err?.message, adSetId }, "[Facebook] Error editando la segmentación del conjunto");
+      return { ok: false, message: err?.message || "Meta no aceptó el cambio de segmentación." };
+    }
+  }
+
   async setAdSetBudget(adSetId: string, dailyBudget: number): Promise<{ ok: boolean; message?: string }> {
     // El monto viene en COP y se convierte a la moneda real de la cuenta,
     // con techo de seguridad (ver presupuestoDiarioParaMeta).
