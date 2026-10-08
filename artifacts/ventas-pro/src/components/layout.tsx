@@ -33,6 +33,7 @@ import { useSession } from "@/App";
 import { MobileNav } from "./mobile-nav";
 import { HelpChatWidget } from "./HelpChatWidget";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { iconoMarca } from "@/components/logo-marca";
 
 export function AppSidebar() {
   const [location] = useLocation();
@@ -55,17 +56,17 @@ export function AppSidebar() {
     { label: "Enseñar con ejemplo", href: "/ensenar-con-ejemplo", icon: GraduationCap },
     { label: "Prospectos", href: "/leads", icon: Users },
     { label: "Productos", href: "/products", icon: Package },
-    { label: "WhatsApp", href: "/whatsapp", icon: Phone },
+    { label: "WhatsApp", href: "/whatsapp", icon: iconoMarca("whatsapp") },
     ...(isAdmin ? [
       { label: "Monitor WA", href: "/whatsapp-monitor", icon: Activity },
       { label: "Administrador", href: "/admin/tenants", icon: Crown },
     ] : []),
     { label: "Integraciones", href: "/integraciones", icon: Plug },
-    { label: "WooCommerce", href: "/woocommerce", icon: ShoppingCart },
-    { label: "Dropi", href: "/dropi", icon: Truck },
+    { label: "WooCommerce", href: "/woocommerce", icon: iconoMarca("woocommerce") },
+    { label: "Dropi", href: "/dropi", icon: iconoMarca("dropi") },
     { label: "Atlas VentasPro", href: "/code-agent", icon: Wand2 },
     { label: "Personalización", href: "/branding", icon: Palette },
-    { label: "Facebook", href: "/facebook", icon: Facebook },
+    { label: "Facebook", href: "/facebook", icon: iconoMarca("facebook") },
     { label: "Marketing", href: "/marketing", icon: Megaphone },
     { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate, external: "https://landings.ventasproia.com" },
     { label: "Configuración", href: "/settings", icon: Settings },

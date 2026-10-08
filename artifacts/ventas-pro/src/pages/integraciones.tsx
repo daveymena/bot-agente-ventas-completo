@@ -26,6 +26,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Layout } from "@/components/layout";
 import { describeError } from "@/lib/utils";
 import { urlLoginFacebook, type ConfigAppFacebook } from "@/lib/facebook-login";
+import { LogoMarca } from "@/components/logo-marca";
 
 type Plataforma = "shopify" | "aliexpress" | "mercadolibre" | "falabella";
 interface EstadoIntegracion { conectada: boolean; autorizada: boolean; tienda?: string; activa: boolean; actualizadaEn?: string }
@@ -134,9 +135,12 @@ function TarjetaPlataforma({ p, estado, recargar }: { p: Plataforma; estado?: Es
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <CardTitle className="text-lg">{info.titulo}</CardTitle>
-            <CardDescription>{info.descripcion}</CardDescription>
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white ring-1 ring-border shadow-sm"><LogoMarca marca={p} className="h-7 w-7" /></span>
+            <div className="min-w-0">
+              <CardTitle className="text-lg">{info.titulo}</CardTitle>
+              <CardDescription>{info.descripcion}</CardDescription>
+            </div>
           </div>
           <EstadoBadge e={estado} oauth={oauth} />
         </div>
@@ -227,9 +231,13 @@ function TarjetaFacebook() {
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <CardTitle className="text-lg">Facebook e Instagram</CardTitle>
-            <CardDescription>Página, Messenger, anuncios y catálogo de Meta.</CardDescription>
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white ring-1 ring-border shadow-sm"><LogoMarca marca="meta" className="h-7 w-7" /></span>
+            <div className="min-w-0">
+              <CardTitle className="text-lg">Facebook e Instagram</CardTitle>
+              <CardDescription>Página, Messenger, anuncios y catálogo de Meta.</CardDescription>
+              <div className="mt-2 flex gap-1.5"><LogoMarca marca="facebook" className="h-4 w-4" /><LogoMarca marca="messenger" className="h-4 w-4" /><LogoMarca marca="instagram" className="h-4 w-4" /></div>
+            </div>
           </div>
           {conectada
             ? <Badge className="gap-1 bg-emerald-600 hover:bg-emerald-600"><CheckCircle2 className="h-3 w-3" />Conectada</Badge>
@@ -280,8 +288,8 @@ export default function IntegracionesPage() {
                 <CardDescription>Ya tienen su propia página de configuración.</CardDescription>
               </CardHeader>
               <CardContent className="flex flex-wrap gap-2">
-                <Button variant="outline" asChild><Link href="/woocommerce">WooCommerce</Link></Button>
-                <Button variant="outline" asChild><Link href="/dropi">Dropi</Link></Button>
+                <Button variant="outline" asChild><Link href="/woocommerce"><LogoMarca marca="woocommerce" className="mr-2 h-5 w-5" />WooCommerce</Link></Button>
+                <Button variant="outline" asChild><Link href="/dropi"><LogoMarca marca="dropi" className="mr-2 h-5 w-5" />Dropi</Link></Button>
               </CardContent>
             </Card>
           </div>

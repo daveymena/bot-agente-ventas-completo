@@ -16,6 +16,7 @@ import { useAutoTour } from "@/hooks/use-auto-tour";
 import { getHelpGuide } from "@/data/help-guides";
 import { describeError } from "@/lib/utils";
 import { urlLoginFacebook } from "@/lib/facebook-login";
+import { LogoMarca } from "@/components/logo-marca";
 
 const HELP_GUIDE = getHelpGuide("facebook")!;
 
@@ -865,7 +866,7 @@ export default function FacebookAdsPage() {
               <div className="grid grid-cols-1 gap-6">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><Globe className="h-5 w-5" /> Conectar con Facebook</CardTitle>
+                    <CardTitle className="flex items-center gap-2"><LogoMarca marca="facebook" className="h-5 w-5" /> Conectar con Facebook</CardTitle>
                     <CardDescription>
                       Recomendado: hace login real con Facebook y guarda un token de página de larga
                       duración (prácticamente no vence). El campo manual de abajo es solo un respaldo —
@@ -909,7 +910,7 @@ export default function FacebookAdsPage() {
                 {connected && (
                   <Card>
                     <CardHeader>
-                      <CardTitle className="flex items-center gap-2"><Package className="h-5 w-5" /> Catálogo de productos en Meta</CardTitle>
+                      <CardTitle className="flex items-center gap-2"><LogoMarca marca="meta" className="h-5 w-5" /> Catálogo de productos en Meta</CardTitle>
                       <CardDescription>
                         Sube TODO el catálogo a Meta con un FEED que se descarga solo cada día. Con el catálogo se
                         desbloquean los anuncios de Advantage+ Catálogo (la IA de Meta genera fondos detrás del producto),
@@ -1359,13 +1360,13 @@ export default function FacebookAdsPage() {
                               <DropdownMenuContent align="end" className="w-52">
                                 {!d.adId && d.status !== "published" && (
                                   <DropdownMenuItem onClick={() => uploadDraft(d.id)}>
-                                    <Globe className="h-4 w-4 mr-2" /> Subir a Meta (en pausa)
+                                    <LogoMarca marca="meta" className="h-4 w-4 mr-2" /> Subir a Meta (en pausa)
                                   </DropdownMenuItem>
                                 )}
                                 <DropdownMenuItem onClick={() => openEditDraft(d)}><Pencil className="h-4 w-4 mr-2" /> Editar</DropdownMenuItem>
                                 {d.adId && (
                                   <DropdownMenuItem onClick={() => window.open(`https://www.facebook.com/adsmanager/manage/ads?act=${config.adAccountId}&selected_ad_ids=${d.adId}`, "_blank")}>
-                                    <Globe className="h-4 w-4 mr-2" /> Ver en Facebook
+                                    <LogoMarca marca="facebook" className="h-4 w-4 mr-2" /> Ver en Facebook
                                   </DropdownMenuItem>
                                 )}
                                 <DropdownMenuSeparator />
@@ -1422,7 +1423,7 @@ export default function FacebookAdsPage() {
               <div className="grid gap-6">
                 <Card>
                   <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><MessageCircle className="h-5 w-5" /> Facebook Messenger Bot</CardTitle>
+                    <CardTitle className="flex items-center gap-2"><LogoMarca marca="messenger" className="h-5 w-5" /> Facebook Messenger Bot</CardTitle>
                     <CardDescription>Configura el bot para responder automáticamente mensajes de Messenger con la misma IA de WhatsApp.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">

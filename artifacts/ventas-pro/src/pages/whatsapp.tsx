@@ -17,6 +17,7 @@ import { useState } from "react";
 import { HelpTourButton } from "@/components/HelpTourButton";
 import { useAutoTour } from "@/hooks/use-auto-tour";
 import { getHelpGuide } from "@/data/help-guides";
+import { LogoMarca } from "@/components/logo-marca";
 
 const HELP_GUIDE = getHelpGuide("whatsapp-connect")!;
 
@@ -309,8 +310,8 @@ export default function WhatsAppConnection() {
               <div className="absolute top-0 inset-x-0 h-4 bg-muted w-1/3 mx-auto rounded-b-xl" />
               <div className="flex flex-col gap-4 mt-6">
                 <div className="flex items-center gap-3 bg-muted/50 p-3 rounded-2xl">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
-                    <Phone className="h-5 w-5" />
+                  <div className="w-10 h-10 rounded-full bg-white ring-1 ring-border flex items-center justify-center shrink-0">
+                    <LogoMarca marca="whatsapp" className="h-6 w-6" />
                   </div>
                   <div className="min-w-0">
                     <p className="text-xs text-muted-foreground font-medium mb-0.5">Línea vinculada</p>

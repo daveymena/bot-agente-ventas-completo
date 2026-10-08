@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, CheckCircle2, XCircle, Search, Package, Truck, RefreshCw, Link2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Layout } from "@/components/layout";
+import { LogoMarca } from "@/components/logo-marca";
 
 /**
  * Dropi directo: el negocio pega su token de integración, trae su catálogo
@@ -307,7 +308,7 @@ export default function DropiPage() {
       <div className="max-w-5xl mx-auto p-4 md:p-6 space-y-6">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2"><Truck className="h-6 w-6" /> Dropi</h1>
+            <h1 className="text-2xl font-bold flex items-center gap-2"><LogoMarca marca="dropi" className="h-7 w-7" /> Dropi</h1>
             <p className="text-muted-foreground text-sm mt-1">Conectá tu cuenta de Dropi con el token de integración: el bot trae tu catálogo y crea los pedidos directo en Dropi, sin pasar por WooCommerce.</p>
           </div>
         </div>

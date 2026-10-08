@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Facebook, CheckCircle2, AlertTriangle, Loader, Eye, EyeOff } from "lucide-react";
+import { LogoMarca } from "@/components/logo-marca";
 
 interface Estado {
   propias: boolean;
@@ -145,7 +146,7 @@ export default function FacebookCredentialsPage() {
           <div className="absolute top-0 right-0 w-full h-2 bg-gradient-to-r from-blue-500 to-cyan-500" />
           <CardHeader className="pt-8">
             <CardTitle className="text-3xl flex items-center gap-3">
-              <div className="p-3 bg-blue-500/10 rounded-lg text-blue-500"><Facebook className="h-6 w-6" /></div>
+              <div className="p-3 bg-white ring-1 ring-border rounded-lg"><LogoMarca marca="facebook" className="h-6 w-6" /></div>
               Facebook & Anuncios
             </CardTitle>
             <CardDescription className="text-base">

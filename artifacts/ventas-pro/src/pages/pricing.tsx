@@ -19,6 +19,7 @@ import { getHelpGuide } from "@/data/help-guides";
 
 const HELP_GUIDE = getHelpGuide("pricing")!;
 import { useSaasStatus } from "@/hooks/useSaasStatus";
+import { LogoMarca } from "@/components/logo-marca";
 
 interface Plan {
   id: string;
@@ -227,13 +228,13 @@ export default function PricingPage() {
                 <SelectContent className="glass-panel border-white/10">
                   <SelectItem value="mercadopago" className="focus:bg-primary/10">
                     <div className="flex items-center gap-2">
-                      <CreditCard className="h-4 w-4 text-primary" />
+                      <LogoMarca marca="mercadopago" className="h-4 w-4" />
                       MercadoPago
                     </div>
                   </SelectItem>
                   <SelectItem value="paypal" className="focus:bg-primary/10">
                     <div className="flex items-center gap-2">
-                      <DollarSign className="h-4 w-4 text-primary" />
+                      <LogoMarca marca="paypal" className="h-4 w-4" />
                       PayPal
                     </div>
                   </SelectItem>

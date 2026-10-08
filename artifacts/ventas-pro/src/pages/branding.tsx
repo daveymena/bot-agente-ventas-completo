@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { HelpTourButton } from "@/components/HelpTourButton";
 import { useAutoTour } from "@/hooks/use-auto-tour";
 import { getHelpGuide } from "@/data/help-guides";
+import { LogoMarca } from "@/components/logo-marca";
 
 const HELP_GUIDE = getHelpGuide("branding")!;
 
@@ -530,7 +531,7 @@ export default function Branding() {
 
               <div className="space-y-2">
                 <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px] flex items-center gap-2">
-                  <Facebook className="h-3 w-3" /> Facebook
+                  <LogoMarca marca="facebook" className="h-3.5 w-3.5" /> Facebook
                 </Label>
                 <Input
                   value={formData.brandSocial.facebook || ""}
@@ -542,7 +543,7 @@ export default function Branding() {
 
               <div className="space-y-2">
                 <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px] flex items-center gap-2">
-                  <Instagram className="h-3 w-3" /> Instagram
+                  <LogoMarca marca="instagram" className="h-3.5 w-3.5" /> Instagram
                 </Label>
                 <Input
                   value={formData.brandSocial.instagram || ""}
@@ -578,7 +579,7 @@ export default function Branding() {
 
               <div className="space-y-2">
                 <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px] flex items-center gap-2">
-                  <Phone className="h-3 w-3" /> WhatsApp
+                  <LogoMarca marca="whatsapp" className="h-3.5 w-3.5" /> WhatsApp
                 </Label>
                 <Input
                   value={formData.brandSocial.whatsapp || ""}

@@ -5,23 +5,17 @@ import { Button } from "@/components/ui/button";
 import {
   Bot,
   MessageCircle,
-  Store,
   LayoutDashboard,
-  Facebook,
-  BarChart3,
   ShieldCheck,
   Zap,
   Check,
   ArrowRight,
-  CreditCard,
+  Mail,
   Menu,
   X,
   Globe,
   Megaphone,
   Receipt,
-  Search,
-  Ticket,
-  Truck,
 } from "lucide-react";
 
 // ─── Datos ──────────────────────────────────────────────────────────────
@@ -90,20 +84,65 @@ const PILARES = [
   },
 ];
 
-// Con qué se conecta. Antes eran 12 tarjetas que repetían los pilares; acá va
-// solo lo nuevo: los servicios con los que ya viene integrado.
-const INTEGRACIONES = [
-  { icon: MessageCircle, nombre: "WhatsApp" },
-  { icon: Facebook, nombre: "Messenger y Facebook" },
-  { icon: Megaphone, nombre: "Meta Ads (Facebook e Instagram)" },
-  { icon: Search, nombre: "Biblioteca de Anuncios de Meta" },
-  { icon: CreditCard, nombre: "MercadoPago y PayPal" },
-  { icon: Receipt, nombre: "Nequi y Daviplata (comprobantes)" },
-  { icon: Truck, nombre: "Dropi" },
-  { icon: Store, nombre: "WooCommerce" },
-  { icon: Ticket, nombre: "Cupones y correo" },
-  { icon: BarChart3, nombre: "Píxel de Meta" },
+// Con qué se conecta, con el logo oficial de cada servicio
+// (public/integraciones/). Cada una existe en la app (07-10-2026): Integraciones
+// (Shopify, Mercado Libre, AliExpress, Falabella, Facebook e Instagram),
+// /woocommerce, /dropi, Telegram (avisos y Atlas) y el webhook de Meta
+// (Messenger, Instagram Direct y comentarios). Lo que hace cada una sale de
+// su pantalla: no se promete nada que no esté.
+type Integracion = { nombre: string; que: string; logo?: string };
+const INTEGRACIONES: { grupo: string; items: Integracion[] }[] = [
+  {
+    grupo: "Vende por chat",
+    items: [
+      { logo: "whatsapp.svg", nombre: "WhatsApp", que: "Sofía atiende y vende" },
+      { logo: "messenger.svg", nombre: "Messenger", que: "Los mensajes de tu página" },
+      { logo: "instagram.svg", nombre: "Instagram", que: "Mensajes directos" },
+      { logo: "facebook.svg", nombre: "Facebook", que: "Responde los comentarios" },
+    ],
+  },
+  {
+    grupo: "Tiendas y marketplaces",
+    items: [
+      { logo: "shopify.svg", nombre: "Shopify", que: "Trae tus productos y pedidos" },
+      { logo: "mercadolibre.png", nombre: "Mercado Libre", que: "Publica, importa y trae ventas" },
+      { logo: "woocommerce.png", nombre: "WooCommerce", que: "Sincroniza tu catálogo" },
+      { logo: "falabella.png", nombre: "Falabella", que: "Pedidos del Seller Center" },
+      { logo: "aliexpress.png", nombre: "AliExpress", que: "Lo más vendido, con fotos y video" },
+    ],
+  },
+  {
+    grupo: "Cobros",
+    items: [
+      { logo: "mercadopago.png", nombre: "Mercado Pago", que: "Pago en línea" },
+      { logo: "paypal.svg", nombre: "PayPal", que: "Pago en línea" },
+      { logo: "nequi.png", nombre: "Nequi", que: "Lee el comprobante" },
+      { logo: "daviplata.png", nombre: "Daviplata", que: "Lee el comprobante" },
+    ],
+  },
+  {
+    grupo: "Envíos, anuncios y avisos",
+    items: [
+      { logo: "dropi.png", nombre: "Dropi", que: "Dropshipping contraentrega" },
+      { logo: "meta.svg", nombre: "Meta Ads y Píxel", que: "Campañas y qué anuncio vendió" },
+      { logo: "telegram.svg", nombre: "Telegram", que: "Avisos y Atlas en tu chat" },
+      { nombre: "Correo", que: "Cupones y campañas" },
+    ],
+  },
 ];
+const LOGOS = INTEGRACIONES.flatMap((g) => g.items).filter((i) => i.logo);
+
+function LogoIntegracion({ i, tam = "md" }: { i: Integracion; tam?: "sm" | "md" }) {
+  const caja = tam === "sm" ? "h-11 w-11 rounded-xl" : "h-14 w-14 rounded-2xl";
+  const img = tam === "sm" ? "h-6 w-6" : "h-8 w-8";
+  return (
+    <span className={`flex shrink-0 items-center justify-center bg-white ring-1 ring-slate-200 shadow-sm ${caja}`}>
+      {i.logo
+        ? <img src={`/integraciones/${i.logo}`} alt="" className={`${img} object-contain${i.logo.endsWith(".png") ? " rounded-lg" : ""}`} loading="lazy" decoding="async" />
+        : <Mail className={`${img} text-primary`} />}
+    </span>
+  );
+}
 
 // ─── Fondo del hero: un solo resplandor índigo arriba + trama de puntos que
 // se desvanece. Reemplaza las manchas de color en movimiento y los iconos
@@ -328,6 +367,16 @@ export default function LandingPage() {
         </motion.div>
       </section>
 
+      {/* ── Se conecta con ── */}
+      <section aria-label="Se conecta con" className="max-w-6xl mx-auto px-4 sm:px-6 pb-14 sm:pb-20 -mt-4">
+        <p className="text-center text-sm font-semibold uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">Se conecta con lo que ya usas</p>
+        <ul className="mt-6 flex flex-wrap justify-center gap-3 sm:gap-4">
+          {LOGOS.map((i) => (
+            <li key={i.nombre} title={i.nombre}><LogoIntegracion i={i} tam="sm" /><span className="sr-only">{i.nombre}</span></li>
+          ))}
+        </ul>
+      </section>
+
       {/* ── Cifras ── */}
       <section className="border-y border-slate-200 bg-slate-50 dark:border-white/10 dark:bg-white/[0.03]">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-12 grid grid-cols-2 lg:grid-cols-4 gap-10">
@@ -445,15 +494,28 @@ export default function LandingPage() {
           <Encabezado
             etiqueta="Ya viene conectado"
             titulo="Integraciones listas"
-            bajada="Sin configuraciones técnicas: conectas tu cuenta y funciona."
+            bajada="Tus canales, tiendas, cobros y envíos en un solo panel. Las conectas desde Integraciones, sin programar."
           />
-          <ul className="mt-12 flex flex-wrap justify-center gap-3">
-            {INTEGRACIONES.map((x) => (
-              <li key={x.nombre} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-[15px] font-semibold text-slate-700 dark:border-white/10 dark:bg-slate-900 dark:text-slate-200">
-                <x.icon className="h-4 w-4 text-primary" /> {x.nombre}
-              </li>
+          <div className="mt-14 grid gap-6 md:grid-cols-2">
+            {INTEGRACIONES.map((g, gi) => (
+              <Reveal key={g.grupo} delay={gi * 0.06}>
+                <div className="h-full rounded-3xl border border-slate-200 bg-white p-6 sm:p-7 dark:border-white/10 dark:bg-slate-900/60">
+                  <h3 className="text-lg font-bold">{g.grupo}</h3>
+                  <ul className="mt-5 grid gap-4 sm:grid-cols-2">
+                    {g.items.map((i) => (
+                      <li key={i.nombre} className="flex items-center gap-3.5">
+                        <LogoIntegracion i={i} />
+                        <div className="min-w-0">
+                          <p className="font-semibold leading-tight">{i.nombre}</p>
+                          <p className="mt-0.5 text-[15px] leading-snug text-slate-600 dark:text-slate-300">{i.que}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </Reveal>
             ))}
-          </ul>
+          </div>
         </div>
       </section>
 

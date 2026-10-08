@@ -19,6 +19,7 @@ import { motion } from "framer-motion";
 import { HelpTourButton } from "@/components/HelpTourButton";
 import { useAutoTour } from "@/hooks/use-auto-tour";
 import { getHelpGuide } from "@/data/help-guides";
+import { LogoMarca } from "@/components/logo-marca";
 
 const HELP_GUIDE = getHelpGuide("panel")!;
 
@@ -113,7 +114,7 @@ const itemVariants = {
               <Plus className="h-4 w-4" /> Crear Producto
             </Link>
             <Link href="/whatsapp" className="inline-flex h-9 items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 font-medium px-5 transition-colors gap-2 text-sm">
-              <Smartphone className="h-4 w-4" /> Conectar WhatsApp
+              <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white"><LogoMarca marca="whatsapp" className="h-3.5 w-3.5" /></span> Conectar WhatsApp
             </Link>
           </div>
         </motion.div>

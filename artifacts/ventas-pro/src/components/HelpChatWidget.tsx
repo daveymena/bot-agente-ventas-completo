@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Sparkles, X, Send, Loader2, Phone, BookOpen, PlayCircle } from "lucide-react";
 import { getHelpGuide } from "@/data/help-guides";
+import { LogoMarca } from "@/components/logo-marca";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -223,7 +224,7 @@ export function HelpChatWidget({ ocultoEnMovil = false }: { ocultoEnMovil?: bool
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1.5 text-xs font-bold text-[#16a34a] bg-[#eafaf0] rounded-full px-3 py-[7px] w-fit mt-0.5 hover:bg-[#dcf5e6] transition-colors"
                     >
-                      <Phone className="w-3 h-3" /> Hablar por WhatsApp
+                      <LogoMarca marca="whatsapp" className="w-3.5 h-3.5" /> Hablar por WhatsApp
                     </a>
                   )}
                 </div>

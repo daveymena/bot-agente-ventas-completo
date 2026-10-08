@@ -2,9 +2,10 @@ import { Fragment, useEffect, useRef, useState } from 'react';
 import { DEPARTAMENTOS, ORDEN_DEPARTAMENTOS, departamentoDe } from '../../lib/departamentos';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  ChevronDown, Heart, LayoutDashboard, Menu, MessageCircle, Pencil,
+  ChevronDown, Heart, LayoutDashboard, Menu, Pencil,
   Search, ShoppingBag, ShoppingCart, Truck, User, X, Zap,
 } from 'lucide-react';
+import { LogoTienda } from '../PaymentIcons';
 
 /**
  * ============================================================
@@ -289,7 +290,7 @@ export default function Encabezado({
           {waHref && (
             <a href={waHref} target="_blank" rel="noopener noreferrer" onClick={() => setMenuMovil(false)}
               className="flex items-center gap-2 px-5 py-3 text-sm font-semibold text-[var(--mk-ink)] border-b border-[var(--mk-border)]">
-              <MessageCircle className="w-4 h-4 text-[#25D366]" /> Escríbenos por WhatsApp
+              <LogoTienda archivo="whatsapp.svg" className="w-4 h-4" /> Escríbenos por WhatsApp
             </a>
           )}
           {grupos.map((g) => (
