@@ -277,6 +277,13 @@ export default function CodeAgent() {
 
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  // 08-10: tarea larga que agotó los tramos automáticos (o el admin volvió
+  // tarde): el parcial viejo NO se relanza solo, pero se ofrece "Retomar
+  // donde quedó" en vez de dejar el pedido a medias. Y si el turno murió sin
+  // dejar respuesta (deploy a mitad de camino), "Reintentar pedido" reenvía
+  // el mismo texto sin que el admin tenga que reescribirlo.
+  const [retomarHistorial, setRetomarHistorial] = useState<any[] | null>(null);
+  const [reintentarTexto, setReintentarTexto] = useState<string | null>(null);
   // Lo que Atlas está haciendo ahora mismo, en lenguaje llano (llega por SSE,
   // ver callAtlas). Sin esto el admin solo veía tres puntitos rebotando y no
   // podía distinguir "está trabajando" de "se colgó".
@@ -443,6 +450,16 @@ export default function CodeAgent() {
           void seguirPendiente(data.history);
           return;
         }
+        // Parcial VIEJO: no se relanza solo (regla 08-10), pero se ofrece
+        // retomarlo con un botón en vez de mostrarlo como si estuviera listo.
+        if (data.parcialViejo) {
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: "Esto había quedado a medias (me fui a hacer otra cosa o se acabó el tiempo automático). Si quieres, lo retomo donde quedó.", at: Date.now() },
+          ]);
+          setRetomarHistorial(data.history);
+          return;
+        }
 
         if (data.history[data.history.length - 1]?.role !== "user") return;
 
@@ -457,6 +474,8 @@ export default function CodeAgent() {
             ...prev,
             { role: "assistant", content: "Ese último pedido se cortó (el servidor se reinició mientras lo atendía) y no llegué a responderlo. Escribímelo de nuevo y lo retomo.", at: Date.now() },
           ]);
+          const ultimoUser = [...data.history].reverse().find((m: any) => m?.role === "user")?.content;
+          if (typeof ultimoUser === "string" && ultimoUser.trim()) setReintentarTexto(ultimoUser);
           return;
         }
 
@@ -468,10 +487,10 @@ export default function CodeAgent() {
         setProgreso("Retomando lo que Atlas estaba haciendo");
         detenidoRef.current = false;
 
-        // Un turno pesado puede encadenar hasta 4 continuaciones de ~150s, así
-        // que el techo son ~10 min. Pasado eso se suelta el campo en vez de
-        // dejar al admin mirando un reloj para siempre: si de verdad se cayó,
-        // tiene que poder volver a pedirlo.
+        // Un turno pesado encadena tramos en el servidor (~18 min) y acá otros
+        // 4. Pasado eso se ofrece Retomar en vez de dejar al admin mirando
+        // un reloj para siempre: si de verdad se cayó, tiene que poder volver
+        // a pedirlo.
         const CADA = 4000;
         const INTENTOS = 150;
         for (let i = 0; i < INTENTOS && !cancelled; i++) {
@@ -1113,8 +1132,8 @@ export default function CodeAgent() {
   const recuperarDelCorte = async (): Promise<boolean> => {
     setProgreso("Se cayó la conexión, pero Atlas sigue trabajando. Recuperando…");
 
-    // El mismo techo que al montar: un turno pesado encadena hasta 4
-    // continuaciones de ~150s, así que ~10 min.
+    // El mismo techo que al montar: el servidor encadena solo hasta 8 tramos
+    // de ~135s (~18 min); la página, otros 4. Pasado eso se ofrece Retomar.
     const CADA = 4000;
     const INTENTOS = 150;
     for (let i = 0; i < INTENTOS; i++) {
@@ -1284,6 +1303,8 @@ export default function CodeAgent() {
   const handleSubmit = async (audio?: { dataUrl: string; mime: string }, textoDirecto?: string) => {
     const escrito = (textoDirecto ?? input).trim();
     if ((!audio && !escrito) || loading) return;
+    setRetomarHistorial(null);
+    setReintentarTexto(null);
     const userMsg = audio ? "" : escrito;
     if (!audio) {
       setInput("");
@@ -1630,6 +1651,32 @@ export default function CodeAgent() {
                 onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}
                 className="mx-auto w-full max-w-3xl"
               >
+                {(retomarHistorial || reintentarTexto) && !loading && (
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {retomarHistorial && (
+                      <Button
+                        type="button"
+                        variant="default"
+                        size="sm"
+                        className="rounded-full"
+                        onClick={() => { const h = retomarHistorial; setRetomarHistorial(null); void seguirPendiente(h); }}
+                      >
+                        ▶ Retomar donde quedó
+                      </Button>
+                    )}
+                    {reintentarTexto && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="rounded-full"
+                        onClick={() => { const t = reintentarTexto; setReintentarTexto(null); void handleSubmit(undefined, t); }}
+                      >
+                        ↻ Reintentar pedido
+                      </Button>
+                    )}
+                  </div>
+                )}
                 <input
                   ref={fileInputRef}
                   type="file"

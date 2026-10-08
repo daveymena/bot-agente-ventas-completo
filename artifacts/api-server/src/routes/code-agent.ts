@@ -2271,6 +2271,8 @@ router.get("/history", async (req: TenantRequest, res, next) => {
     // dejar escribir ni detener. Con esto la página sabe que no hay nada
     // que esperar.
     const { claveDeTurno, hayTurnoEnVuelo } = await import("../lib/turnos-en-vuelo");
+    const ultimoAt = Number((ultimo as any)?.at || 0);
+    const esParcial = ultimo?.role === "assistant" && (ultimo as any)?.parcial === true;
     return res.json({
       history,
       awaitingConfirmation: !!pending,
@@ -2278,8 +2280,11 @@ router.get("/history", async (req: TenantRequest, res, next) => {
       // la página retomó sola un pedido a medias de hace 6 días (01-10) y
       // Atlas contestó sobre algo que el admin ya ni recordaba. Lo viejo se
       // muestra, pero no se relanza sin que el admin lo pida.
-      hayAlgoPendiente: ultimo?.role === "assistant" && ultimo?.parcial === true
-        && Date.now() - Number((ultimo as any)?.at || 0) < 30 * 60_000,
+      hayAlgoPendiente: esParcial && Date.now() - ultimoAt < 30 * 60_000,
+      // 08-10: parcial VIEJO (tarea larga que agotó los tramos automáticos o
+      // volvió el admin tarde). No se relanza solo, pero la página ofrece
+      // "Retomar donde quedó" en vez de dejar el pedido a medias.
+      parcialViejo: esParcial && Date.now() - ultimoAt >= 30 * 60_000,
       turnoEnCurso: hayTurnoEnVuelo(claveDeTurno(String(tenantId), sessionId)),
     });
   } catch (e) {

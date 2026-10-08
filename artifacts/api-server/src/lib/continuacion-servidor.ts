@@ -14,13 +14,18 @@
  * instante: si la página pidió el tramo (hay turno en vuelo), ella sigue
  * manejándolo como siempre, con el avance en vivo; si no, el servidor lo pide
  * solo, con la misma sesión del admin, hasta MAX_RONDAS tramos seguidos.
+ *
+ * 08-10: MAX_RONDAS 4→8. Medido en vivo: tareas largas (landings + borradores
+ * + anuncios) pasan de ~9 min y quedaban a medias con "queda para cuando el
+ * admin vuelva"; si el admin volvía después de 30 min, la página ni ofrecía
+ * retomar. ~18 min de autonomía + botón Retomar en la página.
  */
 import { logger } from "./logger";
 import { hayTurnoEnVuelo } from "./turnos-en-vuelo";
 
 /** El mismo texto que manda la página: el turno lo reconoce como continuación. */
 export const TEXTO_CONTINUAR = "Continuá con lo que ya tenías, sin repetir lo que ya hiciste.";
-export const MAX_RONDAS = 4;
+export const MAX_RONDAS = 8;
 const ESPERA_MS = 8_000;
 
 const rondas = new Map<string, number>();
