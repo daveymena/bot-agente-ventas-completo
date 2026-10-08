@@ -67,6 +67,23 @@ const EXCLUDED_FROM_MCP = new Set<string>(["research_start", "research_check", "
  * nombre -- que es lo que evita el otro fallo conocido, Atlas diciendo "no
  * tengo cómo" sobre algo que sí puede.
  */
+/**
+ * El contrato recortado SIN perder ningún nombre de campo.
+ *
+ * 08-10: el corte seco a 200 caracteres caía en la explicación de `objetivo`
+ * de crear_anuncio, y `formato`, `edadMin`, `edadMax`, `ciudades` (que van
+ * detrás) nunca le llegaban al modelo. Lo crítico de cada contrato va PRIMERO (crear_anuncio: objetivo, formato, edades, ciudades): el admin pedía carrusel y 25-55 en seis
+ * ciudades, Atlas lo prometía, y la acción salía sin esos datos. Primero se
+ * sacan las explicaciones entre paréntesis y tras guion largo (los nombres,
+ * tipos y enums quedan todos); recién si sigue largo se corta.
+ */
+export function contratoQueEntra(contrato: string, max = 200): string {
+  if (contrato.length <= max) return contrato;
+  const sinExplicaciones = contrato.replace(/\s*\([^()]*\)/g, "").replace(/\s+—[^,}]*/g, "");
+  if (sinExplicaciones.length <= max) return sinExplicaciones;
+  return sinExplicaciones.slice(0, max) + " …}";
+}
+
 const CONTRATO_COMPLETO = new Set<string>([
   // Anuncios: `crear_anuncio` hace el trabajo entero y es donde viaja el
   // `objetivo` que decide si el anuncio va a WhatsApp o a la web -- el dato
@@ -74,6 +91,8 @@ const CONTRATO_COMPLETO = new Set<string>([
   "crear_anuncio",
   "fb_upload_draft_to_meta",
   "fb_create_ad",
+  // 08-10: sin contrato adivinaba los nombres de edades y ciudades.
+  "fb_segmentacion_editar",
   // Productos y agente: los otros lugares donde un campo mal nombrado
   // termina en un plan que el admin aprueba y falla después.
   "create_product",
@@ -1656,8 +1675,7 @@ export function buildMcpToolRegistry(pedido?: string): McpToolDef[] {
       //
       // Por debajo de 200 se ahorran ~100 tokens y se pierde justamente el
       // dato por el que existe todo esto.
-      const contrato = String(t.args);
-      return `${t.name}: ${resumen}\n    args: ${contrato.length > 200 ? contrato.slice(0, 200) + " …}" : contrato}`;
+      return `${t.name}: ${resumen}\n    args: ${contratoQueEntra(String(t.args))}`;
     });
 
   const proposeTool: McpToolDef = {

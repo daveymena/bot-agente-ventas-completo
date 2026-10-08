@@ -273,6 +273,11 @@ describe("ningún tipo de pedido se pasa del presupuesto", () => {
   // ciudades de un anuncio ya publicado; sin ella Atlas dijo "no tengo
   // habilitada la edición" y el anuncio siguió 18-65 a todo el país). La base
   // ya medía 3.952 antes. Mismo techo real (~8000).
+  //
+  // 4000 → 4100 el mismo día: contratos limpios (sin explicaciones) para que
+  // crear_anuncio muestre formato/edades/ciudades, que el corte seco dejaba
+  // fuera, + contrato de fb_segmentacion_editar. Medido 4.054 en "sin
+  // familia" (el peor caso: manda todo). Mismo techo real (~8000).
   const PEDIDOS: Array<[string, string]> = [
     ["ventas del día", "cómo van las ventas hoy"],
     ["facturación", "cuánto facturé este mes"],
@@ -288,7 +293,7 @@ describe("ningún tipo de pedido se pasa del presupuesto", () => {
   for (const [nombre, pedido] of PEDIDOS) {
     it(`"${nombre}" entra en el minuto de Groq`, () => {
       const t = tokens(buildMcpToolRegistry(pedido));
-      expect(t, `"${pedido}" pesa ~${t} tokens`).toBeLessThan(4000);
+      expect(t, `"${pedido}" pesa ~${t} tokens`).toBeLessThan(4100);
     });
   }
 });
