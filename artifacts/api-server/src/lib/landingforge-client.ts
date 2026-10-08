@@ -343,7 +343,24 @@ export async function getForgeSpec(landingId: string): Promise<{ ok: boolean; sp
  * ni quién compraba, y la campaña de ventas terminó comprando clics.
  * Devuelve qué pasó, para decírselo al dueño.
  */
+/** ¿Esta URL es una landing pública de Forge? Las de VentasPro también usan
+ *  /l/:slug, así que se mira el HOST, no solo la ruta (revisión 08-10). */
+export function esLandingDeForge(url: string): boolean {
+  try {
+    const u = new URL(String(url || ""));
+    if (!/^\/l\/[^/]+/.test(u.pathname)) return false;
+    // BASE puede ser la dirección INTERNA de EasyPanel; la pública es la que
+    // va en los anuncios. Cualquiera de las dos cuenta como Forge.
+    const hosts = new Set([new URL(BASE).host, "landings.ventasproia.com"]);
+    if (process.env.LANDINGFORGE_PUBLIC_URL) hosts.add(new URL(process.env.LANDINGFORGE_PUBLIC_URL).host);
+    return hosts.has(u.host);
+  } catch {
+    return false;
+  }
+}
+
 export async function ponerPixelEnLanding(urlLanding: string, pixelId: string): Promise<{ ok: boolean; motivo: string }> {
+  if (!esLandingDeForge(urlLanding)) return { ok: false, motivo: "no es una landing de Forge" };
   const slug = /\/l\/([^/?#]+)/.exec(String(urlLanding || ""))?.[1];
   if (!slug || !pixelId) return { ok: false, motivo: "no es una landing de Forge o no hay píxel" };
   try {

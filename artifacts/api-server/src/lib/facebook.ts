@@ -154,6 +154,37 @@ export function esErrorTransitorioDeMeta(err: any): boolean {
  * mismo botón en todas. Sin `picture` en la raíz (eso lo haría imagen única).
  */
 /**
+ * La plantilla (estructura de la campaña más reciente) COMPLETA lo que el
+ * pedido no trae; nunca pisa lo que sí trae.
+ *
+ * 08-10, revisión de punta a punta: la plantilla pisaba las edades pedidas con
+ * las de la campaña vieja (18-65), imponía su Advantage+ aunque se pidieran
+ * ciudades y, peor, le sumaba el PAÍS a las ciudades pedidas — en Meta ciudades
+ * + país = todo el país. El arreglo de ciudades se deshacía acá mismo.
+ */
+export function aplicarPlantillaSinPisar(
+  fbTargeting: Record<string, any>,
+  primero: { paises?: string[] | null; tiposDeUbicacion?: string[] | null; edadMin?: number | null; edadMax?: number | null; advantagePlus?: boolean | null },
+  pedido?: { ageMin?: number; ageMax?: number; genders?: unknown[]; interests?: unknown[]; geoLocations?: { countries?: unknown[]; cities?: unknown[] } } | null,
+): void {
+  const pidioCiudades = (pedido?.geoLocations?.cities?.length ?? 0) > 0;
+  const pidioPaises = (pedido?.geoLocations?.countries?.length ?? 0) > 0;
+  if (primero.paises?.length && !pidioPaises && !pidioCiudades) {
+    fbTargeting.geo_locations = { ...(fbTargeting.geo_locations || {}), countries: primero.paises };
+  }
+  if (primero.tiposDeUbicacion?.length && !pidioCiudades) {
+    fbTargeting.geo_locations = { ...(fbTargeting.geo_locations || {}), location_types: primero.tiposDeUbicacion };
+  }
+  if (primero.edadMin && pedido?.ageMin == null) fbTargeting.age_min = primero.edadMin;
+  if (primero.edadMax && pedido?.ageMax == null) fbTargeting.age_max = primero.edadMax;
+  const pidioPublicoConcreto = pidioCiudades || pedido?.ageMin != null || pedido?.ageMax != null
+    || (pedido?.genders?.length ?? 0) > 0 || (pedido?.interests?.length ?? 0) > 0;
+  if (primero.advantagePlus != null && !pidioPublicoConcreto) {
+    fbTargeting.targeting_automation = { advantage_audience: primero.advantagePlus ? 1 : 0 };
+  }
+}
+
+/**
  * ¿Qué píxel usar? 08-10: VentasPro tenía guardado 1193902929595904, que NO
  * es de la cuenta publicitaria; la cuenta tenía uno solo (1064770976005166).
  * Resultado: ninguna campaña de ventas podía medir compras. Si el guardado es
@@ -1139,7 +1170,8 @@ Responde SOLO con este JSON exacto:
       }
       // La landing de destino tiene que DISPARAR ese mismo píxel: sin él,
       // Meta no ve visitas ni compras aunque la cuenta lo tenga.
-      if (pixelDeLaCuenta && /\/l\/[^/?#]+/.test(destinoWeb)) {
+      const { esLandingDeForge } = await import("./landingforge-client");
+      if (pixelDeLaCuenta && esLandingDeForge(destinoWeb)) {
         const { ponerPixelEnLanding } = await import("./landingforge-client");
         const r = await ponerPixelEnLanding(destinoWeb, pixelDeLaCuenta);
         logger.info({ destinoWeb, pixel: pixelDeLaCuenta, ...r }, "[Facebook] Píxel de la cuenta en la landing de destino");
@@ -1358,13 +1390,7 @@ Responde SOLO con este JSON exacto:
       if (!presu.ok) throw new Error(presu.message);
 
       const primero = plantilla?.conjuntos?.[0] || null;
-      if (primero) {
-        if (primero.paises?.length && !targeting?.geoLocations?.countries) fbTargeting.geo_locations = { ...(fbTargeting.geo_locations || {}), countries: primero.paises };
-        if (primero.tiposDeUbicacion?.length) fbTargeting.geo_locations = { ...(fbTargeting.geo_locations || {}), location_types: primero.tiposDeUbicacion };
-        if (primero.edadMin) fbTargeting.age_min = primero.edadMin;
-        if (primero.edadMax) fbTargeting.age_max = primero.edadMax;
-        if (primero.advantagePlus !== undefined) fbTargeting.targeting_automation = { advantage_audience: primero.advantagePlus ? 1 : 0 };
-      }
+      if (primero) aplicarPlantillaSinPisar(fbTargeting, primero, targetingResolved ?? targeting);
       const adSetBody: Record<string, any> = {
         name: `${campaignName} - ${nombreDeConjunto(primero?.nombre)}`,
         campaign_id: campaign.id,
@@ -1499,12 +1525,11 @@ Responde SOLO con este JSON exacto:
       // ── Carrusel: cada foto una tarjeta, todas validadas como la principal ──
       const tarjetas: string[] = [];
       if (Array.isArray(fotosCarrusel) && fotosCarrusel.length >= 2) {
-        for (const u of [...new Set(fotosCarrusel)].slice(0, 10)) {
-          const abs = absoluteImageUrl(u);
-          if (!abs) continue;
-          const r = await this.imagenParaMeta(abs);
-          if (r.ok) tarjetas.push(abs);
-        }
+        // En PARALELO: una por una eran hasta 10 × 12 s y se comían el turno
+        // de Atlas (revisión 08-10). Se conserva el orden de las fotos.
+        const absolutas = [...new Set(fotosCarrusel)].slice(0, 10).map((u) => absoluteImageUrl(u)).filter(Boolean) as string[];
+        const validas = await Promise.all(absolutas.map((abs) => this.imagenParaMeta(abs).then((r) => r.ok).catch(() => false)));
+        absolutas.forEach((abs, i) => { if (validas[i]) tarjetas.push(abs); });
         if (tarjetas.length < 2) {
           logger.warn({ pedidas: fotosCarrusel.length, validas: tarjetas.length }, "[Facebook] Carrusel pedido pero hay menos de 2 fotos que Meta pueda descargar: sale con imagen única");
           this.avisoDelCreativo = `Pediste carrusel, pero solo ${tarjetas.length} foto(s) se pueden descargar desde Meta: salió con imagen única.`;

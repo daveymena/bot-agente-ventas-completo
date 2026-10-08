@@ -90,3 +90,47 @@ describe("verificación: qué optimiza el conjunto", () => {
     expect(compararConLoPedido({ objetivo: "ventas" }, { optimization_goal: "OFFSITE_CONVERSIONS" }).ok).toBe(true);
   });
 });
+
+// Revisión de punta a punta 08-10: la plantilla (campaña más reciente) pisaba
+// lo pedido. Esto es lo que salía mal en el corrector.
+describe("la plantilla completa, nunca pisa lo pedido", () => {
+  const plantillaVieja = { paises: ["CO"], tiposDeUbicacion: ["home", "recent", "frequently_in"], edadMin: 18, edadMax: 65, advantagePlus: true };
+
+  it("ciudades pedidas: NO se le suma el país (eso sería todo el país)", async () => {
+    const { aplicarPlantillaSinPisar, geoConCiudades } = await import("../facebook");
+    const t: any = { geo_locations: geoConCiudades(["CO"], [{ key: "2673660" }]), age_min: 25, age_max: 55 };
+    aplicarPlantillaSinPisar(t, plantillaVieja, { ageMin: 25, ageMax: 55, geoLocations: { cities: ["Bogotá"] } });
+    expect(t.geo_locations.countries).toBeUndefined();
+    expect(t.geo_locations.cities).toHaveLength(1);
+  });
+  it("edades pedidas 25-55: la plantilla 18-65 NO las pisa", async () => {
+    const { aplicarPlantillaSinPisar } = await import("../facebook");
+    const t: any = { age_min: 25, age_max: 55 };
+    aplicarPlantillaSinPisar(t, plantillaVieja, { ageMin: 25, ageMax: 55 });
+    expect([t.age_min, t.age_max]).toEqual([25, 55]);
+  });
+  it("público concreto pedido: la plantilla NO prende Advantage+", async () => {
+    const { aplicarPlantillaSinPisar } = await import("../facebook");
+    const t: any = { targeting_automation: { advantage_audience: 0 } };
+    aplicarPlantillaSinPisar(t, plantillaVieja, { geoLocations: { cities: ["Cali"] } });
+    expect(t.targeting_automation.advantage_audience).toBe(0);
+  });
+  it("sin nada pedido: la plantilla sí completa", async () => {
+    const { aplicarPlantillaSinPisar } = await import("../facebook");
+    const t: any = {};
+    aplicarPlantillaSinPisar(t, plantillaVieja, {});
+    expect(t.geo_locations.countries).toEqual(["CO"]);
+    expect([t.age_min, t.age_max]).toEqual([18, 65]);
+    expect(t.targeting_automation.advantage_audience).toBe(1);
+  });
+});
+
+describe("el píxel solo se pone en landings de Forge", () => {
+  it("Forge sí; las landings propias de VentasPro (/l/ también) no", async () => {
+    const { esLandingDeForge } = await import("../landingforge-client");
+    expect(esLandingDeForge("https://landings.ventasproia.com/l/corrector-zxf-25-landing")).toBe(true);
+    expect(esLandingDeForge("https://ventasproia.com/l/corrector")).toBe(false);
+    expect(esLandingDeForge("https://ventasproia.com/tienda/x/producto/1")).toBe(false);
+    expect(esLandingDeForge("")).toBe(false);
+  });
+});

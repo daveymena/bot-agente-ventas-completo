@@ -872,6 +872,14 @@ export class AdStrategist {
       if (plantilla === undefined) {
         const reciente = await fb.campanaModelo();
         if (reciente) plantillaUsada = await fb.plantillaDesdeCampana(reciente.id);
+        // Plantilla IMPLÍCITA (nadie la pidió): se toma su forma (Instagram,
+        // mejoras), NO sus conjuntos extra. Antes replicaba en silencio, por
+        // ejemplo, un conjunto "Internacional" con su propio presupuesto que
+        // el dueño no había pedido (revisión 08-10). Con `comoCampana`
+        // explícito sí se replica todo.
+        if (plantillaUsada?.conjuntos && plantillaUsada.conjuntos.length > 1) {
+          plantillaUsada = { ...plantillaUsada, conjuntos: plantillaUsada.conjuntos.slice(0, 1) };
+        }
       }
       // ── Borradores con el texto de la plantilla VIEJA ────────────────────
       // Hasta el 23-09-2026 todo borrador salía con el texto de curso digital

@@ -49,8 +49,13 @@ describe("el prompt de Atlas entra en el límite del proveedor", () => {
     // herramientas del día (audiencias fb_* ×4, metodo_de_venta,
     // oferta_2x_sugerir, integraciones_* ×4: +163). La conclusión no cambia:
     // sigue sin entrar en Groq con system + catálogo + historial.
+    //
+    // 6150 → 6250 el 08-10-2026: medido 6.199. crear_anuncio ahora recibe
+    // formato/edades/ciudades/géneros/intereses (sin ellos el carrusel 25-55
+    // en seis ciudades salía como imagen 18-65 a todo el país) + la
+    // herramienta fb_segmentacion_editar. Misma conclusión sobre Groq.
     const tokens = TOKENS(buildToolsDoc("hazme una campaña en facebook"));
-    expect(tokens).toBeLessThan(6150);
+    expect(tokens).toBeLessThan(6250);
     expect(tokens).toBeGreaterThan(3000);
   });
 
