@@ -141,6 +141,10 @@ export class AgentOrchestrator {
           .limit(1);
         if (ultimo?.role !== "customer") continue;
         if (c.tenantId == null) continue;
+        // Solo WhatsApp: esta cola contesta por WhatsApp. Una conversación de
+        // Messenger, Instagram o comentarios ("fb:123", "ig_comment:9") se
+        // encolaba igual y se intentaba mandar a "fb:123@s.whatsapp.net".
+        if (/^(fb|ig|fb_comment|ig_comment):/.test(String(c.phone || ""))) continue;
         // Ya está en la cola o atendiéndose: no se duplica la respuesta.
         if (this.enCurso.has(`c${c.id}`) || this.queue.pendingForConversation(Number(c.id)).length) continue;
 
