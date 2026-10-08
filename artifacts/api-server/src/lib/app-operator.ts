@@ -7437,6 +7437,19 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
         if (utiles.length) investigacion = utiles.map((f: any) => String(f.content).slice(0, 2500)).join("\n\n---\n\n");
       } catch { /* sin investigación reciente: el copy sale igual, con el brief */ }
 
+      // Ángulo distinto al de los borradores anteriores de este producto (ver
+      // angulos-de-anuncio.ts: el A/B salía con dos anuncios casi iguales).
+      const { elegirAngulo, bloqueDeAngulo, ganchoDe } = await import("./angulos-de-anuncio");
+      const anteriores = await db
+        .select({ primaryText: facebookDrafts.primaryText, headline: facebookDrafts.headline, strategy: facebookDrafts.strategy })
+        .from(facebookDrafts)
+        .where(and(eq(facebookDrafts.tenantId, ctx.tenantId), eq(facebookDrafts.productId, prod.id)))
+        .orderBy(desc(facebookDrafts.createdAt))
+        .limit(6)
+        .catch(() => [] as Array<{ primaryText: string | null; headline: string | null; strategy: unknown }>);
+      const angulo = elegirAngulo(anteriores.map((a: any) => a?.strategy?.angulo));
+      const textoDelAngulo = bloqueDeAngulo(angulo, anteriores.map((a: any) => ({ headline: a.headline, gancho: ganchoDe(a.primaryText) })));
+
       const { callMarketingAI, tryParseJson } = await import("./marketing-team/ai");
       const { FORMATO_COPY } = await import("./publicidad-persuasiva");
       const pedirCopy = async (reparo?: string) => {
@@ -7456,8 +7469,9 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
             (investigacion
               ? `🔍 LO QUE ESTÁ FUNCIONANDO HOY EN ESTE NICHO (investigación real de este turno). Usalo para el ÁNGULO y el gancho, NUNCA para copiar condiciones comerciales de la competencia: sus garantías, cupos y formatos de entrega no son los de este negocio.\n${investigacion}\n\n`
               : "") +
+            `${textoDelAngulo}\n\n` +
             `Escribí el anuncio para este producto.\n` +
-            `- primaryText: el texto del anuncio EN BLOQUES separados por una línea en blanco (\\n\\n), con la forma de arriba: ` +
+            `- primaryText: el texto del anuncio EN BLOQUES separados por una línea en blanco (\\n\\n), con la forma de arriba adaptada al ángulo: ` +
             // El emoji de cada punto NO se fija acá: sale del catálogo. Ver el
             // punto 3 de FORMATO_COPY -- este renglón decía "3-5 puntos con ✅"
             // y era la cuarta instrucción que empujaba al mismo ✅ repetido.
@@ -7575,6 +7589,7 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
         const [fila] = await db.select().from(facebookDrafts).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, ctx.tenantId))).limit(1);
         const st: any = { ...((fila as any)?.strategy || {}) };
         Object.assign(st, seg.estrategia);
+        st.angulo = angulo.id;
         const set: any = { strategy: st };
         const formato = String(args?.formato || "").toLowerCase();
         if (formato === "carrusel" || formato === "imagen") {
