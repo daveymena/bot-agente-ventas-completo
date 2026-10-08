@@ -1727,7 +1727,11 @@ export function esConfirmacionBreve(mensaje: string): boolean {
     .replace(/\s+/g, " ")
     .trim();
   if (!t || t.includes("?") || esDudaONegativa(t)) return false;
-  return /^(si+|s+|sip|sep|dale|listo|de una|ok|okay|okey|oki|va|bueno|claro|hagale|hagamole|perfecto|confirmo)$/.test(t);
+  // Un "sí" puede venir acompañado: "sii claro", "sí por favor", "dale de una"
+  // (venta real 05-10: "Sii claro" a "¿lo programamos?" no contaba como sí y
+  // el bot volvió a preguntar tres veces; el cliente volvió al otro día).
+  const SI = "(si+|s+|sip|sep|dale|listo|de una|ok|okay|okey|oki|va|bueno|claro|hagale|hagamole|perfecto|confirmo|por favor|porfa|seguro|obvio|of course|de acuerdo|esta bien)";
+  return new RegExp(`^${SI}( ${SI})*$`).test(t);
 }
 
 /**
