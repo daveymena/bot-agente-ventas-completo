@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { CAMPOS_WEBHOOK_PAGINA } from "./meta-campos-webhook";
 import { getAppUrl } from "./app-url";
 import { destinoWebDelProducto } from "./landing/destino-del-producto";
 import { db, products } from "@workspace/db";
@@ -2380,7 +2381,10 @@ Responde SOLO con este JSON exacto:
   /** Sin esta suscripción Meta no avisa los leads al webhook. */
   private async suscribirPaginaALeads(tokenDePagina: string): Promise<void> {
     try {
-      await this.fbPost(`${this.config.pageId}/subscribed_apps`, { subscribed_fields: ["leadgen"] }, "suscripción a leads", tokenDePagina);
+      // La lista COMPLETA, no solo "leadgen": este POST reemplaza los campos
+      // suscritos, y con ["leadgen"] crear un formulario apagaba los mensajes
+      // y los comentarios de la página (ver meta-campos-webhook.ts).
+      await this.fbPost(`${this.config.pageId}/subscribed_apps`, { subscribed_fields: [...CAMPOS_WEBHOOK_PAGINA] }, "suscripción a leads", tokenDePagina);
     } catch (e: any) {
       logger.warn({ err: e?.message, pageId: this.config.pageId }, "[Facebook] No se pudo suscribir la página a leadgen: los leads no llegarán solos al webhook");
     }

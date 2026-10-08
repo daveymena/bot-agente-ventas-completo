@@ -1,11 +1,15 @@
 import { logger } from "./logger";
-import { db, tenants, conversations, messages } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
 import { runAgentReply } from "./agent";
 import { getWhatsAppForTenant } from "./whatsapp-factory";
-import { facebookMessengerService } from "./facebook-messenger";
-import { facebookCommentsService } from "./facebook-comments";
-import { tenantManager } from "./tenantManager";
+import { FacebookMessengerService } from "./facebook-messenger";
+import { FacebookCommentsService } from "./facebook-comments";
+import { tenantManager, type TenantContext } from "./tenantManager";
+
+async function negocio(tenantId: number): Promise<TenantContext | null> {
+  const t = await tenantManager.getTenantById(tenantId).catch(() => null);
+  if (!t) logger.warn({ tenantId }, "[ChannelManager] negocio no encontrado");
+  return t;
+}
 
 export type Channel = "whatsapp" | "facebook_messenger" | "facebook_comment" | "facebook_marketplace";
 
@@ -52,8 +56,14 @@ export class ChannelManager {
         }
       }
 
+      // Los servicios se arman con el negocio del mensaje. Los singletons
+      // `facebookMessengerService` / `facebookCommentsService` están hechos
+      // con el negocio de RELLENO: contestaban con el token del dueño de la
+      // plataforma sin importar de qué página venía el mensaje.
       case "facebook_messenger": {
-        return await facebookMessengerService.handleIncomingMessage(
+        const t = await negocio(tenantId);
+        if (!t) return null;
+        return await new FacebookMessengerService(t).handleIncomingMessage(
           msg.contactId,
           msg.text,
           msg.contactName,
@@ -62,7 +72,9 @@ export class ChannelManager {
       }
 
       case "facebook_comment": {
-        return await facebookCommentsService.handleIncomingComment(
+        const t = await negocio(tenantId);
+        if (!t) return null;
+        return await new FacebookCommentsService(t).handleIncomingComment(
           {
             id: msg.metadata?.commentId || `comment_${Date.now()}`,
             message: msg.text,
@@ -94,19 +106,22 @@ export class ChannelManager {
         }
       }
       case "facebook_messenger": {
-        return await facebookMessengerService.sendText(contactId, text);
+        const t = await negocio(tenantId);
+        return t ? await new FacebookMessengerService(t).sendText(contactId, text) : false;
       }
       case "facebook_comment": {
-        return await facebookCommentsService.replyToComment(contactId, text);
+        const t = await negocio(tenantId);
+        return t ? await new FacebookCommentsService(t).replyToComment(contactId, text) : false;
       }
       default:
         return false;
     }
   }
 
-  async sendProductCard(channel: Channel, contactId: string, product: any): Promise<boolean> {
+  async sendProductCard(channel: Channel, contactId: string, product: any, tenantId: number = Number(product?.tenantId) || 0): Promise<boolean> {
     if (channel === "facebook_messenger") {
-      return await facebookMessengerService.sendProductCard(contactId, product);
+      const t = tenantId ? await negocio(tenantId) : null;
+      return t ? await new FacebookMessengerService(t).sendProductCard(contactId, product) : false;
     }
     return false;
   }
@@ -120,15 +135,16 @@ export class ChannelManager {
       label: "WhatsApp",
     });
 
+    const t = await negocio(tenantId);
     statuses.push({
       channel: "facebook_messenger",
-      connected: facebookMessengerService.isConfigured(),
+      connected: t ? new FacebookMessengerService(t).isConfigured() : false,
       label: "Facebook Messenger",
     });
 
     statuses.push({
       channel: "facebook_comment",
-      connected: facebookCommentsService.isConfigured(),
+      connected: t ? new FacebookCommentsService(t).isConfigured() : false,
       label: "Facebook Comments",
     });
 
@@ -141,39 +157,29 @@ export class ChannelManager {
 
     logger.info({ intervalMs, tenantId }, "[ChannelManager] Starting Facebook comments polling");
 
+    // Solo lo que se comente DESPUÉS de encender el sondeo. Antes miraba la
+    // última hora y decidía "ya atendido" comparando el texto del comentario
+    // con el ÚLTIMO mensaje de la conversación: después de contestar, el
+    // último era el nuestro, así que el mismo comentario se volvía a contestar
+    // cada minuto durante una hora. Ahora el registro de atendidos vive en
+    // FacebookCommentsService (lo comparte con el webhook).
+    const desde = new Date().toISOString();
+
     const interval = setInterval(async () => {
       try {
-        if (!facebookCommentsService.isConfigured()) return;
+        const t = await negocio(tenantId);
+        if (!t) return;
+        const svc = new FacebookCommentsService(t);
+        if (!svc.isConfigured()) return;
 
-        const recentComments = await facebookCommentsService.getRecentComments(undefined, 1);
-        const ownPageId = process.env.FB_PAGE_ID || "";
+        const recentComments = await svc.getRecentComments(undefined, 1);
+        const ownPageId = String(t.facebook?.pageId || process.env.FB_PAGE_ID || "");
 
         for (const comment of recentComments) {
           // No responder comentarios de la propia página (evita bucles)
           if (ownPageId && comment.from?.id === ownPageId) continue;
-
-          const convoKey = `fb_comment:${comment.from.id}`;
-          const existing = await db
-            .select()
-            .from(conversations)
-            .where(eq(conversations.contactPhone, convoKey))
-            .limit(1);
-
-          if (existing.length > 0) {
-            // Comparar contra el ÚLTIMO mensaje del cliente (no el más antiguo)
-            const lastMsg = await db
-              .select()
-              .from(messages)
-              .where(eq(messages.conversationId, existing[0].id))
-              .orderBy(desc(messages.createdAt))
-              .limit(1);
-
-            if (lastMsg.length > 0 && lastMsg[0].content === comment.message) {
-              continue;
-            }
-          }
-
-          await facebookCommentsService.handleIncomingComment(comment, tenantId);
+          if (!comment.createdTime || comment.createdTime < desde) continue;
+          await svc.handleIncomingComment(comment, tenantId);
         }
       } catch (err: any) {
         logger.error({ err }, "[ChannelManager] Error polling comments");

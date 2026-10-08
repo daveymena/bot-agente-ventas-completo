@@ -1,6 +1,6 @@
 import { logger } from "./logger";
 import { db, conversations, messages, leads } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import { runAgentReply } from "./agent";
 import { tenantManager, type TenantContext } from "./tenantManager";
 import { respaldoEnvFacebook } from "./tenant-facebook-credentials";
@@ -38,13 +38,19 @@ export class FacebookCommentsService {
     return !!cfg.pageId && !!cfg.pageAccessToken;
   }
 
-  async replyToComment(commentId: string, message: string): Promise<boolean> {
+  /**
+   * Respuesta PÚBLICA bajo el comentario.
+   * Facebook: POST /{comment-id}/comments. Instagram: POST /{comment-id}/replies
+   * (en Instagram el edge `/comments` de un comentario no existe).
+   */
+  async replyToComment(commentId: string, message: string, canal: CanalDeComentario = "facebook"): Promise<boolean> {
     const { pageAccessToken } = this.getConfig();
     if (!pageAccessToken) return false;
 
     try {
+      const edge = canal === "instagram" ? "replies" : "comments";
       const res = await fetch(
-        `${FB_GRAPH_URL}/${commentId}/comments?access_token=${pageAccessToken}`,
+        `${FB_GRAPH_URL}/${commentId}/${edge}?access_token=${pageAccessToken}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -72,12 +78,17 @@ export class FacebookCommentsService {
     const { pageAccessToken } = this.getConfig();
     if (!pageAccessToken) return false;
     try {
+      // Por la Send API con `recipient.comment_id` (Private Replies de la
+      // Messenger Platform), que vale para Facebook Y para Instagram. El edge
+      // viejo `/{comment-id}/private_replies` está retirado de la Graph API:
+      // fallaba siempre y el código caía al respaldo de publicar la respuesta
+      // COMPLETA en público, bajo el comentario.
       const res = await fetch(
-        `${FB_GRAPH_URL}/${commentId}/private_replies?access_token=${pageAccessToken}`,
+        `${FB_GRAPH_URL}/me/messages?access_token=${pageAccessToken}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message }),
+          body: JSON.stringify({ recipient: { comment_id: commentId }, message: { text: message } }),
         }
       );
       const data = await res.json();
@@ -119,22 +130,44 @@ export class FacebookCommentsService {
     }
   }
 
-  async handleIncomingComment(comment: CommentData, tenantId: number = 1): Promise<string | null> {
+  /**
+   * Un comentario nuevo (Facebook o Instagram): se guarda, el vendedor lo
+   * contesta por privado y se deja una respuesta pública corta.
+   *
+   * `tenantId` ya no vale 1 por defecto: el servicio se construye con el
+   * negocio dueño de la página (ver meta-webhook-pagina.ts).
+   */
+  async handleIncomingComment(
+    comment: CommentData,
+    tenantId: number = this.tenant.id,
+    canal: CanalDeComentario = "facebook",
+  ): Promise<string | null> {
     const { pageAccessToken } = this.getConfig();
-    if (!pageAccessToken) return null;
+    if (!pageAccessToken) {
+      logger.warn({ tenantId, canal }, "[FB-Comments] El negocio no tiene token de página: el comentario no se puede contestar");
+      return null;
+    }
 
     if (!comment.message || !comment.from?.id) return null;
 
+    // Un comentario se contesta UNA vez. Meta reintenta el webhook si tarda,
+    // y el sondeo del panel volvía a encontrar el mismo comentario cada
+    // minuto durante una hora (comparaba contra el ÚLTIMO mensaje, que
+    // después de contestar ya era el nuestro): cada vuelta, otra respuesta
+    // pública y otro privado al mismo cliente.
+    if (!primeraVezQueSeVe(`${canal}:${comment.id}`)) return null;
+
     const userId = comment.from.id;
-    const userName = comment.from.name;
+    const userName = comment.from.name || "Usuario";
     const text = comment.message;
+    const contacto = `${canal === "instagram" ? "ig_comment" : "fb_comment"}:${userId}`;
 
     let conversationId: number;
 
     const existing = await db
       .select()
       .from(conversations)
-      .where(eq(conversations.contactPhone, `fb_comment:${userId}`))
+      .where(and(eq(conversations.contactPhone, contacto), eq(conversations.tenantId, tenantId)))
       .orderBy(desc(conversations.createdAt))
       .limit(1);
 
@@ -144,19 +177,19 @@ export class FacebookCommentsService {
       const [lead] = await db.insert(leads).values({
         tenantId,
         name: userName,
-        phone: `fb_comment:${userId}`,
-        source: "facebook_comment",
+        phone: contacto,
+        source: canal === "instagram" ? "instagram_comment" : "facebook_comment",
         stage: "new",
       }).returning();
 
       const [convo] = await db.insert(conversations).values({
         tenantId,
         contactName: userName,
-        contactPhone: `fb_comment:${userId}`,
+        contactPhone: contacto,
         status: "ai",
         currentStage: "greeting",
         leadId: lead.id,
-        channel: "facebook_comment",
+        channel: canal === "instagram" ? "instagram_comment" : "facebook_comment",
       }).returning();
       conversationId = convo.id;
     }
@@ -167,20 +200,25 @@ export class FacebookCommentsService {
       content: text,
     });
 
+    // Una persona tomó la conversación desde el panel: el bot no contesta.
+    const [estado] = await db.select({ status: conversations.status }).from(conversations)
+      .where(eq(conversations.id, conversationId)).limit(1);
+    if (String(estado?.status || "") === "human") return null;
+
     const reply = await runAgentReply(conversationId);
 
     if (reply?.content) {
       // Patrón profesional: DM con la respuesta completa + comentario público breve.
-      // 1) Intentar respuesta privada (abre conversación en Messenger).
+      // 1) Respuesta privada (abre la conversación en Messenger / Instagram Direct).
       const privateOk = await this.sendPrivateReply(comment.id, reply.content);
 
       // 2) Respuesta pública: si el DM funcionó, dejar un mensaje corto que invite
       //    al inbox; si falló, publicar la respuesta completa como respaldo.
       if (privateOk) {
         const shortPublic = `¡Hola ${userName.split(" ")[0] || ""}! 😊 Te acabo de enviar toda la información por mensaje privado 📩`;
-        await this.replyToComment(comment.id, shortPublic);
+        await this.replyToComment(comment.id, shortPublic, canal);
       } else {
-        await this.replyToComment(comment.id, reply.content);
+        await this.replyToComment(comment.id, reply.content, canal);
       }
     }
 
@@ -226,6 +264,30 @@ export class FacebookCommentsService {
       return [];
     }
   }
+}
+
+export type CanalDeComentario = "facebook" | "instagram";
+
+/**
+ * Comentarios ya atendidos en este proceso (webhook, reintentos de Meta y
+ * sondeo comparten este registro). Acotado para no crecer sin fin.
+ */
+const VISTOS = new Map<string, number>();
+const VISTOS_MAX = 5000;
+
+export function primeraVezQueSeVe(clave: string): boolean {
+  if (VISTOS.has(clave)) return false;
+  VISTOS.set(clave, Date.now());
+  if (VISTOS.size > VISTOS_MAX) {
+    const masViejo = VISTOS.keys().next().value;
+    if (masViejo !== undefined) VISTOS.delete(masViejo);
+  }
+  return true;
+}
+
+/** Solo para las pruebas. */
+export function _olvidarVistos(): void {
+  VISTOS.clear();
 }
 
 export const facebookCommentsService = new FacebookCommentsService();

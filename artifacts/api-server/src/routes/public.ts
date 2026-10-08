@@ -448,7 +448,27 @@ router.post("/fb-connect", rateLimitPublico(10, 10 * 60 * 1000, "fb-connect"), a
     const permData: any = await permRes.json();
     const granted = (permData.data || []).filter((p: any) => p.status === "granted").map((p: any) => p.permission);
 
-    logger.info({ tenantId, pageId: page.id, pageName: page.name }, "[FB-Connect] Página conectada al tenant");
+    // 5. Suscribir la página a los eventos de la app (mensajes, comentarios,
+    // leads). Sin esto Meta no le avisa NADA a nuestro webhook de esta página:
+    // conectar dejaba al negocio publicando pero sin recibir un solo mensaje
+    // ni comentario. La lista es la completa (cada POST reemplaza la anterior).
+    let webhookSuscrito = false;
+    try {
+      const { CAMPOS_WEBHOOK_PAGINA } = await import("../lib/meta-campos-webhook");
+      const subRes = await fetch(`${graph}/${page.id}/subscribed_apps`, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({ subscribed_fields: CAMPOS_WEBHOOK_PAGINA.join(","), access_token: page.access_token }).toString(),
+        signal: AbortSignal.timeout(15000),
+      });
+      const subData: any = await subRes.json().catch(() => ({}));
+      webhookSuscrito = !!subData?.success;
+      if (!webhookSuscrito) logger.warn({ tenantId, pageId: page.id, err: subData?.error }, "[FB-Connect] No se pudo suscribir la página al webhook");
+    } catch (e: any) {
+      logger.warn({ tenantId, pageId: page.id, err: e?.message }, "[FB-Connect] No se pudo suscribir la página al webhook");
+    }
+
+    logger.info({ tenantId, pageId: page.id, pageName: page.name, webhookSuscrito }, "[FB-Connect] Página conectada al tenant");
 
     // Nunca se devuelve el token en la respuesta
     return res.json({
@@ -456,6 +476,8 @@ router.post("/fb-connect", rateLimitPublico(10, 10 * 60 * 1000, "fb-connect"), a
       page: { id: page.id, name: page.name, tasks: page.tasks },
       canPost: granted.includes("pages_manage_posts"),
       permissions: granted,
+      // ¿Meta le va a avisar a la app los mensajes y comentarios de esta página?
+      webhookSuscrito,
       otrasPaginas: pages.filter(p => p.id !== page.id).map(p => ({ id: p.id, name: p.name })),
       // Para que la pantalla pueda decir si quedó listo para anuncios pagos o
       // solo para responder mensajes. Sin este dato, el negocio se enteraba

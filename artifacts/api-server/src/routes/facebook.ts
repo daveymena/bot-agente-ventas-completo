@@ -2,8 +2,7 @@ import { Router, type IRouter, type Request, type Response, type NextFunction } 
 import { createHmac, timingSafeEqual } from "crypto";
 import { eq, and } from "drizzle-orm";
 import { db, tenants, leads, conversations, messages, products, facebookDrafts } from "@workspace/db";
-import { facebookMessengerService as fbMessenger } from "../lib/facebook-messenger";
-import { facebookCommentsService as fbComments } from "../lib/facebook-comments";
+import { procesarWebhookDeMeta } from "../lib/meta-webhook-pagina";
 import { channelManager } from "../lib/channel-manager";
 import { tenantManager } from "../lib/tenantManager";
 import { adStrategist } from "../lib/ad-strategist";
@@ -84,37 +83,26 @@ router.get("/lead-ads/webhook", (req: Request, res: Response) => {
   return res.status(403).json({ error: "Verification failed" });
 });
 
-// POST /facebook/lead-ads/webhook — Recibir leads de Facebook Lead Ads
-router.post("/lead-ads/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
-  try {
-    const body = req.body;
-    logger.info({ entryCount: body.entry?.length }, "[Facebook] Lead webhook recibido");
+/**
+ * Las tres rutas de webhook de página hacen lo mismo: Meta manda TODO lo de un
+ * objeto a la URL que esté en el panel de la app, así que cualquiera de las
+ * tres tiene que entender mensajes, comentarios y leads, de Facebook y de
+ * Instagram (ver lib/meta-webhook-pagina.ts).
+ *
+ * Se responde 200 ANTES de atender: una respuesta de IA tarda más de lo que
+ * Meta espera, y entonces reintenta el mismo evento (respuesta duplicada).
+ */
+function atenderWebhookDeMeta(req: Request, res: Response) {
+  res.status(200).json({ received: true });
+  const body = req.body;
+  setImmediate(() => {
+    procesarWebhookDeMeta(body).catch((error) =>
+      logger.error({ err: error }, "[MetaWebhook] Error procesando el webhook"));
+  });
+}
 
-    for (const entry of body.entry || []) {
-      for (const change of entry.changes || []) {
-        if (change.field === "leadgen") {
-          const leadgenId = change.value?.leadgen_id;
-          const pageId = change.value?.page_id;
-          const formId = change.value?.form_id;
-
-          if (!leadgenId) continue;
-
-          logger.info({ leadgenId, pageId, formId }, "[Facebook] Nuevo lead recibido");
-          // El negocio sale de la PÁGINA del lead (antes: tenantId = 1 fijo,
-          // y los leads de todos los negocios le llegaban al dueño).
-          const { procesarLeadDeFormulario } = await import("../lib/facebook-leads");
-          const r = await procesarLeadDeFormulario({ leadgenId: String(leadgenId), pageId: String(pageId || ""), formId: formId ? String(formId) : null, adId: change.value?.ad_id ? String(change.value.ad_id) : null });
-          logger.info({ leadgenId, pageId, ...r }, "[Facebook] Lead de formulario procesado");
-        }
-      }
-    }
-
-    res.status(200).json({ received: true });
-  } catch (error) {
-    logger.error({ error }, "[Facebook] Error procesando lead webhook");
-    res.status(200).json({ received: true });
-  }
-});
+// POST /facebook/lead-ads/webhook — leads (y, si es la URL del panel, todo lo demás)
+router.post("/lead-ads/webhook", verifyFacebookSignature, atenderWebhookDeMeta);
 
 // ─── Facebook Messenger Webhook ────────────────────────────────────────────
 // GET /facebook/messenger/webhook — Facebook verification challenge
@@ -135,78 +123,8 @@ router.get("/messenger/webhook", (req: Request, res: Response) => {
   return res.status(403).json({ error: "Verification failed" });
 });
 
-// POST /facebook/messenger/webhook — Receive messages from Messenger
-router.post("/messenger/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
-  try {
-    const body = req.body;
-    if (body.object !== "page") {
-      return res.status(200).json({ received: true });
-    }
-
-    for (const entry of body.entry || []) {
-      for (const event of entry.messaging || []) {
-        const senderPsid = event.sender?.id;
-        const messageText = event.message?.text;
-        const senderName = event.sender?.name || event.message?.from?.name || "Facebook User";
-        const postback = event.postback?.payload;
-
-        if (!senderPsid) continue;
-
-        // Ignorar ecos (mensajes enviados por la propia página) para evitar bucles infinitos
-        if (event.message?.is_echo) continue;
-        // Ignorar acuses de entrega/lectura (no son mensajes entrantes)
-        if (event.delivery || event.read) continue;
-
-        if (messageText) {
-          await fbMessenger.handleIncomingMessage(senderPsid, messageText, senderName);
-        } else if (postback) {
-          await fbMessenger.handleIncomingMessage(senderPsid, postback, senderName);
-        }
-      }
-
-      for (const event of entry.standby || []) {
-        const senderPsid = event.sender?.id;
-        const messageText = event.message?.text;
-        if (senderPsid && messageText) {
-          await fbMessenger.handleIncomingMessage(
-            senderPsid,
-            messageText,
-            event.message?.from?.name || "Facebook User"
-          );
-        }
-      }
-
-      // Facebook envía TODOS los eventos de la página a UNA sola URL de callback.
-      // Además de mensajes (entry.messaging), aquí llegan los comentarios en
-      // publicaciones/anuncios como entry.changes con field "feed". Los procesamos
-      // en el mismo endpoint para que una única URL de webhook cubra Messenger + comentarios.
-      for (const change of entry.changes || []) {
-        if (change.field === "feed") {
-          const value = change.value || {};
-          if (value.item === "comment" && value.verb === "add") {
-            const fromId = value.from?.id || "";
-            const ownPageId = process.env.FB_PAGE_ID || "";
-            // No responder los comentarios de la propia página (evita bucles)
-            if (fromId && fromId !== ownPageId && value.comment_id && value.message) {
-              await channelManager.processMessage({
-                channel: "facebook_comment",
-                contactId: fromId,
-                contactName: value.from?.name || "Usuario",
-                text: value.message,
-                metadata: { commentId: value.comment_id, postId: value.post_id || "" },
-              });
-            }
-          }
-        }
-      }
-    }
-
-    res.status(200).json({ received: true });
-  } catch (error) {
-    logger.error({ error }, "[FB-Messenger] Error processing webhook");
-    res.status(200).json({ received: true });
-  }
-});
+// POST /facebook/messenger/webhook — Messenger, Instagram Direct, comentarios y leads
+router.post("/messenger/webhook", verifyFacebookSignature, atenderWebhookDeMeta);
 
 // ─── Facebook Marketplace Webhook ──────────────────────────────────────────
 router.post("/marketplace/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
@@ -300,42 +218,7 @@ router.get("/comments/webhook", (req: Request, res: Response) => {
   return res.status(403).json({ error: "Verification failed" });
 });
 
-router.post("/comments/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
-  try {
-    const body = req.body;
-    if (body.object !== "page") return res.status(200).json({ received: true });
-
-    for (const entry of body.entry || []) {
-      for (const change of entry.changes || []) {
-        if (change.field === "feed") {
-          const value = change.value || {};
-          if (value.item === "comment" && value.verb === "add") {
-            const commentId = value.comment_id;
-            const message = value.message || "";
-            const fromId = value.from?.id || "";
-            const fromName = value.from?.name || "Usuario";
-            const postId = value.post_id || "";
-
-            if (commentId && message && fromId) {
-              await channelManager.processMessage({
-                channel: "facebook_comment",
-                contactId: fromId,
-                contactName: fromName,
-                text: message,
-                metadata: { commentId, postId },
-              });
-            }
-          }
-        }
-      }
-    }
-
-    res.status(200).json({ received: true });
-  } catch (error) {
-    logger.error({ error }, "[FB-Comments] Error processing webhook");
-    res.status(200).json({ received: true });
-  }
-});
+router.post("/comments/webhook", verifyFacebookSignature, atenderWebhookDeMeta);
 
 // ─── Messenger & Marketplace Management Endpoints ──────────────────────────
 // Mismo motivo que /validate, /create-ad, etc.: el singleton `fbMessenger`
@@ -1086,16 +969,22 @@ router.get("/channels/status", async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
-router.post("/channels/polling/start", async (_req, res, next) => {
+router.post("/channels/polling/start", async (req, res, next) => {
   try {
-    channelManager.startPollingFacebookComments();
+    // Del negocio que lo pide: antes encendía siempre el sondeo del negocio 1.
+    const tenantId = Number((req as any).tenant?.id);
+    if (!tenantId) return res.status(401).json({ error: "Tenant no autenticado" });
+    channelManager.startPollingFacebookComments(60000, tenantId);
     return res.json({ ok: true, message: "Polling de comentarios iniciado" });
   } catch (e) { return next(e); }
 });
 
-router.post("/channels/polling/stop", async (_req, res, next) => {
+router.post("/channels/polling/stop", async (req, res, next) => {
   try {
-    channelManager.stopAll();
+    // Solo el sondeo de ESTE negocio (stopAll apagaba el de todos).
+    const tenantId = Number((req as any).tenant?.id);
+    if (!tenantId) return res.status(401).json({ error: "Tenant no autenticado" });
+    channelManager.stopPolling(tenantId);
     return res.json({ ok: true, message: "Polling detenido" });
   } catch (e) { return next(e); }
 });
