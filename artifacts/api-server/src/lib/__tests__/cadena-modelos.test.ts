@@ -584,3 +584,36 @@ describe("la IA activa del panel (botón \"Usar para Atlas\")", () => {
     expect(cadena[0].providerID).toBe("deepseek");
   });
 });
+
+// 08-10-2026, error REAL de producción: el respaldo de Copilot fallaba siempre
+// porque el catálogo local decía claude-opus-4.7-fast y ya no existe.
+describe("modelo retirado: se aprende el vigente del propio error", () => {
+  const ERROR = 'The requested model is not available for integrator "opencode". Available models: [gpt-4.1 claude-fable-5.1 claude-fable-5 claude-haiku-5.5 claude-opus-4.8-fast claude-opus-4.8 claude-opus-5.5 claude-opus-5 claude-sonnet-5.5 claude-sonnet-5 copilot-search-a copilot-search-b copilot-search-c exec-age';
+  const copilot: Candidato = { providerID: "github-copilot", modelID: "claude-opus-4.7-fast" };
+
+  it("lee la lista aunque el mensaje venga cortado", async () => {
+    const { modelosDisponiblesDelError } = await import("../cadena-modelos");
+    const lista = modelosDisponiblesDelError(ERROR);
+    expect(lista).toContain("claude-opus-4.8-fast");
+    expect(lista).toContain("gpt-4.1");
+  });
+
+  it("elige el de la MISMA familia (opus-*-fast), no cualquiera", async () => {
+    const { reemplazoVigente, modelosDisponiblesDelError } = await import("../cadena-modelos");
+    expect(reemplazoVigente("claude-opus-4.7-fast", modelosDisponiblesDelError(ERROR))).toBe("claude-opus-4.8-fast");
+  });
+
+  it("el turno siguiente ya llama al vigente", async () => {
+    const { aprenderModeloVigente, conNombresVigentes, olvidarFallos } = await import("../cadena-modelos");
+    olvidarFallos();
+    expect(aprenderModeloVigente(copilot, ERROR)).toBe("claude-opus-4.8-fast");
+    const [c] = conNombresVigentes([copilot]);
+    expect(c).toEqual({ providerID: "github-copilot", modelID: "claude-opus-4.8-fast" });
+    olvidarFallos();
+  });
+
+  it("un error que no es 'modelo retirado' no cambia nada", async () => {
+    const { aprenderModeloVigente } = await import("../cadena-modelos");
+    expect(aprenderModeloVigente(copilot, "Rate limit exceeded")).toBeNull();
+  });
+});

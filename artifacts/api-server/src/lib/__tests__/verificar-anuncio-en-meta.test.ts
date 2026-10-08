@@ -42,3 +42,22 @@ describe("verificación posterior: lo que Meta guardó vs lo pedido", () => {
     expect(r.ok).toBe(false);
   });
 });
+
+// 08-10: el carrusel se guardaba en el borrador pero la subida armaba UNA foto.
+describe("subida a Meta: el carrusel se arma de verdad", () => {
+  it("una tarjeta por foto, mismo destino y botón, sin foto única en la raíz", async () => {
+    const { linkDataDeCarrusel } = await import("../facebook");
+    const ld = linkDataDeCarrusel(
+      { link: "https://ventasproia.com/l/corrector", message: "x", picture: "https://f/1.jpg", call_to_action: { type: "SHOP_NOW" } },
+      ["https://f/1.jpg", "https://f/2.jpg", "https://f/3.jpg"],
+      "Corrector",
+    );
+    expect(ld.picture).toBeUndefined();
+    expect(ld.child_attachments).toHaveLength(3);
+    expect(ld.child_attachments[1]).toEqual({ link: "https://ventasproia.com/l/corrector", picture: "https://f/2.jpg", name: "Corrector", call_to_action: { type: "SHOP_NOW" } });
+    // Y la verificación posterior lo reconoce como carrusel.
+    const { compararConLoPedido } = await import("../verificar-anuncio-en-meta");
+    const r = compararConLoPedido({ formato: "carrusel" }, { ads: [{ creative: { object_story_spec: { link_data: ld } } }] });
+    expect(r.linea).toContain("carrusel de 3 fotos");
+  });
+});

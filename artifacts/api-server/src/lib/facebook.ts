@@ -149,6 +149,26 @@ export function esErrorTransitorioDeMeta(err: any): boolean {
  * pública absoluta -- Facebook descarga la imagen desde sus servidores, una
  * ruta relativa no le sirve. Mismo helper que facebook-marketplace.ts.
  */
+/**
+ * link_data de un anuncio CARRUSEL: una tarjeta por foto, mismo destino y
+ * mismo botón en todas. Sin `picture` en la raíz (eso lo haría imagen única).
+ */
+export function linkDataDeCarrusel(ld: Record<string, any>, fotos: string[], titulo: string): Record<string, any> {
+  const { picture: _unaSola, ...resto } = ld;
+  return {
+    ...resto,
+    child_attachments: fotos.slice(0, 10).map((picture) => ({
+      link: ld.link,
+      picture,
+      name: titulo,
+      call_to_action: ld.call_to_action,
+    })),
+    // Meta reordena las tarjetas según rendimiento; sin tarjeta final de perfil.
+    multi_share_optimized: true,
+    multi_share_end_card: false,
+  };
+}
+
 function absoluteImageUrl(pathOrUrl?: string | null): string | null {
   if (!pathOrUrl) return null;
   if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
@@ -864,6 +884,13 @@ Responde SOLO con este JSON exacto:
     plantilla?: PlantillaDeCampana | null,
     /** A dónde lleva el anuncio web: "landing" (y solo landing), "tienda", o sin preferencia. */
     preferenciaWeb?: import("./landing/destino-del-producto").PreferenciaWeb | null,
+    /**
+     * Fotos del CARRUSEL (2 a 10). 08-10: el borrador guardaba el carrusel
+     * pero acá solo se usaba UNA foto (`picture`): child_attachments no se
+     * armaba nunca, y el anuncio salía de imagen única aunque se pidiera
+     * galería. Sin esto (o con menos de 2 fotos válidas), imagen única.
+     */
+    fotosCarrusel?: string[] | null,
   ): Promise<FbCampaignResult | null> {
     if (!this.config.adAccountId || !this.config.accessToken) return null;
 
@@ -1430,7 +1457,29 @@ Responde SOLO con este JSON exacto:
         degrees_of_freedom_spec: { creative_features_spec: creativeFeaturesSpec },
       };
       if (instagramUserId) creativePayload.object_story_spec.instagram_user_id = instagramUserId;
-      if (creativeImageUrl) {
+
+      // ── Carrusel: cada foto una tarjeta, todas validadas como la principal ──
+      const tarjetas: string[] = [];
+      if (Array.isArray(fotosCarrusel) && fotosCarrusel.length >= 2) {
+        for (const u of [...new Set(fotosCarrusel)].slice(0, 10)) {
+          const abs = absoluteImageUrl(u);
+          if (!abs) continue;
+          const r = await this.imagenParaMeta(abs);
+          if (r.ok) tarjetas.push(abs);
+        }
+        if (tarjetas.length < 2) {
+          logger.warn({ pedidas: fotosCarrusel.length, validas: tarjetas.length }, "[Facebook] Carrusel pedido pero hay menos de 2 fotos que Meta pueda descargar: sale con imagen única");
+          this.avisoDelCreativo = `Pediste carrusel, pero solo ${tarjetas.length} foto(s) se pueden descargar desde Meta: salió con imagen única.`;
+        }
+      }
+      if (tarjetas.length >= 2) {
+        creativePayload.object_story_spec.link_data = linkDataDeCarrusel(creativePayload.object_story_spec.link_data, tarjetas, adCopy.headline);
+        // Los retoques de imagen de Advantage+ son para una sola foto: en
+        // carrusel se mandan solo las mejoras de texto/entrega.
+        creativePayload.degrees_of_freedom_spec = {
+          creative_features_spec: mejorasDelCreativo({ hayFotoReal: false, mejorasCompletas: plantilla?.mejorasCompletas !== false }),
+        };
+      } else if (creativeImageUrl) {
         creativePayload.object_story_spec.link_data.picture = creativeImageUrl;
       }
       const creative = await this.fbPost(`${adAccount}/adcreatives`, creativePayload, "creativo", this.config.userAccessToken);
@@ -1532,6 +1581,8 @@ Responde SOLO con este JSON exacto:
    * asumiendo `| null`), así que sin esto el llamador solo sabe "falló", no
    * por qué. */
   lastAdError: string | null = null;
+  /** Aviso no fatal del creativo (ej. carrusel que salió de imagen única). */
+  avisoDelCreativo: string | null = null;
 
   // ── Agente de crecimiento: lectura de métricas y control de campañas ───────
 

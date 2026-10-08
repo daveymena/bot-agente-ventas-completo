@@ -464,8 +464,15 @@ async function anotarFalloDeCandidato(
   error?: string,
 ): Promise<void> {
   try {
-    const { anotarFallo } = await import("../lib/cadena-modelos");
+    const { anotarFallo, aprenderModeloVigente } = await import("../lib/cadena-modelos");
     const { clasificarFallo } = await import("../lib/optimized-rotation");
+    // Modelo retirado: el error trae los vigentes. Se aprende el nombre nuevo
+    // y NO se castiga: el turno siguiente ya lo llama bien.
+    const nuevo = aprenderModeloVigente(model, String(error || ""));
+    if (nuevo) {
+      logger.warn({ retirado: model.modelID, vigente: nuevo, proveedor: model.providerID }, "[AtlasOpenCode] Modelo retirado: se usa el vigente desde ahora");
+      return;
+    }
     anotarFallo(model, String(error || ""), clasificarFallo);
   } catch {
     // Recordar el fallo es una mejora, no parte del camino de la respuesta.
@@ -583,7 +590,7 @@ async function pickOpencodeModelChain(host: string, authHeader: string): Promise
   //
   // El modelo sale del catálogo que OpenCode ya devuelve, no de un id
   // hardcodeado: un id inventado es un candidato más que quemar.
-  const { armarCadena, filtrarEnfriados, diagnosticarRapidos } = await import("../lib/cadena-modelos");
+  const { armarCadena, filtrarEnfriados, diagnosticarRapidos, conNombresVigentes } = await import("../lib/cadena-modelos");
 
   // Los rápidos que el admin configuró y que igual quedaron afuera se DICEN.
   // Antes desaparecían sin dejar rastro y no había forma de distinguir "no lo
@@ -600,14 +607,14 @@ async function pickOpencodeModelChain(host: string, authHeader: string): Promise
   // eligió un modelo: esa elección tiene que pesar más que la lista curada,
   // o el botón miente. Si no sirve, la cadena sigue normal.
   const primero = await iaActivaDelPanel();
-  const cadena = filtrarEnfriados(armarCadena({
+  const cadena = filtrarEnfriados(conNombresVigentes(armarCadena({
     curados: CANDIDATOS_PAGOS,
     conectados,
     tenemosClave: hayClavePropia,
     modelosPorProveedor: catalogoPorProveedor,
     respaldo: MODELO_RESPALDO,
     primero: primero ?? undefined,
-  }));
+  })));
   if (primero) {
     logger.info(
       {

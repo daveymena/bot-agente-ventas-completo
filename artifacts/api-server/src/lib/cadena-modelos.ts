@@ -414,8 +414,52 @@ export function filtrarEnfriados(cadena: Candidato[], ahora = Date.now()): Candi
   return vivos.length > 0 ? vivos : cadena;
 }
 
+// ── Modelo retirado: aprender el nombre vigente del propio error ─────────
+//
+// 08-10: Copilot entraba a la cadena como `claude-opus-4.7-fast`, sacado del
+// catálogo LOCAL de OpenCode, que estaba viejo. El servidor real contestaba
+// "The requested model is not available for integrator "opencode". Available
+// models: [gpt-4.1 claude-fable-5.1 … claude-opus-4.8-fast …]" — o sea, el
+// respaldo fallaba SIEMPRE, y con el principal colgado el turno se cortaba.
+// El error trae la lista buena: se elige de ahí y se recuerda.
+const vigentes = new Map<string, string>();
+
+/** Lee la lista "Available models: [...]" de un error. Pura (testeable). */
+export function modelosDisponiblesDelError(error: string): string[] {
+  const m = /available models?:\s*\[([^\]]*)\]?/i.exec(String(error || ""));
+  if (!m) return [];
+  return m[1]!.split(/[\s,]+/).map((s) => s.replace(/["']/g, "").trim()).filter(Boolean);
+}
+
+/** El reemplazo más parecido: misma familia (claude-opus-*-fast → claude-opus-4.8-fast). */
+export function reemplazoVigente(retirado: string, disponibles: string[]): string | null {
+  if (!disponibles.length) return null;
+  if (disponibles.includes(retirado)) return null;
+  const familia = new RegExp(`^${retirado.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\d+(\\\.\d+)*/g, "[\\d.]+")}$`, "i");
+  const mismaFamilia = disponibles.filter((id) => familia.test(id)).sort().reverse();
+  if (mismaFamilia[0]) return mismaFamilia[0];
+  return elegirModelo(disponibles.filter((id) => !/search|exec|embed/i.test(id)));
+}
+
+/** Si el error dice "modelo no disponible", recuerda el nombre vigente. */
+export function aprenderModeloVigente(candidato: Candidato, error: string): string | null {
+  if (!/not available|not supported|model.*(not found|does not exist|unknown)/i.test(String(error || ""))) return null;
+  const nuevo = reemplazoVigente(candidato.modelID, modelosDisponiblesDelError(error));
+  if (nuevo) vigentes.set(claveDe(candidato), nuevo);
+  return nuevo;
+}
+
+/** Cambia en la cadena los modelos retirados por su nombre vigente. */
+export function conNombresVigentes(cadena: Candidato[]): Candidato[] {
+  return cadena.map((c) => {
+    const nuevo = vigentes.get(claveDe(c));
+    return nuevo ? { providerID: c.providerID, modelID: nuevo } : c;
+  });
+}
+
 /** Para diagnóstico y para los tests. */
 export function olvidarFallos(): void {
   enPenitencia.clear();
   fallosNoTerminales.clear();
+  vigentes.clear();
 }

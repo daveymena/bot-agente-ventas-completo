@@ -940,6 +940,10 @@ export class AdStrategist {
         objetivo,
         plantillaUsada,
         preferenciaWeb,
+        // El carrusel guardado en el borrador ahora SÍ viaja a Meta (08-10).
+        estrategiaGuardada.formato === "carrusel" && Array.isArray((draft as any).images) && (draft as any).images.length >= 2
+          ? ((draft as any).images as string[])
+          : null,
       );
       // El motivo REAL, no "no aceptó".
       //
