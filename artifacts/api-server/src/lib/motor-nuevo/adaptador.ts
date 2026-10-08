@@ -1099,6 +1099,34 @@ async function aplicarEfecto(
     return;
   }
 
+  // Pregunta que el vendedor no pudo responder: queda como conocimiento
+  // PENDIENTE (respuesta NULL) y le llega al dueño UNA vez por pregunta. Con
+  // la respuesta cargada (panel o Atlas), el vendedor la usa siempre.
+  if (efecto.tipo === "pregunta_al_dueno") {
+    try {
+      const { esPreguntaRepetida, disparadoresDe } = await import("./preguntas-al-dueno");
+      const existentes = await cargarConocimiento(ctx.tenantId);
+      if (esPreguntaRepetida(efecto.pregunta, existentes)) return;
+      await db.insert(productKnowledge).values({
+        tenantId: ctx.tenantId,
+        productId: efecto.productoId,
+        pregunta: efecto.pregunta,
+        disparadores: disparadoresDe(efecto.pregunta),
+        respuesta: null,
+      } as any);
+      const { avisarAlDueno } = await import("../avisos");
+      await avisarAlDueno(
+        ctx.tenantId,
+        `❓ *Pregunta sin respuesta* — ${ctx.convo?.contactName || "un cliente"} preguntó: "${efecto.pregunta}". ` +
+          `El vendedor le dijo que lo consultaba. Respondéle por WhatsApp y cargá la respuesta para la próxima: ` +
+          `decíle a Atlas "la respuesta a «${efecto.pregunta.slice(0, 80)}» es …".`,
+      );
+    } catch (e: any) {
+      logger.warn({ err: e?.message }, "[MotorV2] no se pudo registrar la pregunta para el dueño");
+    }
+    return;
+  }
+
   if (efecto.tipo === "escalar") {
     await db
       .update(conversations)

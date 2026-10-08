@@ -134,6 +134,7 @@ export type Seccion =
 export type Efecto =
   | { tipo: "pago_reportado"; medio?: string; referencia?: string }
   | { tipo: "escalar"; motivo: string }
+  | { tipo: "pregunta_al_dueno"; pregunta: string; productoId: number | null }
   | { tipo: "dato"; campo: string; valor: string };
 
 export interface ContextoHerramientas {
@@ -542,6 +543,25 @@ export const definicionesDeHerramientas = [
           referencia: { type: "string", description: "Número de referencia, si lo mandó." },
         },
         required: [],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "preguntar_al_dueno",
+      description:
+        "Le pasa al DUEÑO una pregunta del cliente que NO se puede responder con la ficha, los hechos del " +
+        "negocio ni la lógica (ej. '¿tienen tienda física?' sin dato cargado). El dueño la recibe y su respuesta " +
+        "queda guardada para siempre. Úsala SOLO después de consultar_conocimiento y solo si no la pudiste " +
+        "responder razonando; no la uses para dudas del producto que se responden con criterio general.",
+      parameters: {
+        type: "object",
+        properties: {
+          pregunta: { type: "string", description: "La pregunta del cliente, corta y clara." },
+          productoId: { type: "number", description: "Si es sobre un producto concreto." },
+        },
+        required: ["pregunta"],
       },
     },
   },
@@ -1185,17 +1205,30 @@ export const ejecutores: Record<string, Ejecutor> = {
       // inventar. Ver __tests__/razonar-sin-respuesta-cargada.test.ts.
       const producto = enFoco ? ctx.catalogo.find((p) => p.id === enFoco) : null;
       const puntos = producto ? puntosDeLaFicha(producto) : [];
+      // Los HECHOS del negocio (pago, envío, cobertura, plazos, datos que cargó
+      // el dueño) van acá: muchas preguntas "fuera del tema" se responden con
+      // lógica de negocio a partir de ellos (07-10, pedido del dueño: "le hacen
+      // preguntas que no son directas del tema pero que sí se pueden responder
+      // con lógica de negocio, y las omite o no sabe qué decir"). Antes solo le
+      // llegaba la ficha, y la regla final le prohibía decir que lo consultaba.
+      const hechos = [...(ctx.guion?.hechos ?? []), ...(ctx.guion?.datosDelNegocio ?? [])].filter(Boolean).slice(0, 10);
       return {
         ok: true,
         mensaje:
           `El dueño no cargó nada sobre "${pregunta}". ` +
           (puntos.length ? `Lo que dice la ficha de ${producto!.name}: ${puntos.join(" · ")}. ` : "") +
-          `Responde RAZONANDO: afirma lo que diga la ficha o los datos del negocio; lo que sepas de cómo funciona ` +
-          `este TIPO de producto dilo como criterio general ("en general, las cámaras que van conectadas…"), nunca ` +
-          `como una característica de este modelo. Si es una condición comercial (garantía, devolución, descuento, ` +
-          `stock, plazo) y no está cargada, no la afirmes. Si la respuesta depende de un dato que no tienes, dilo con ` +
-          `honestidad en una frase y sigue ayudando. No prometas que alguien del equipo le va a responder: nadie ` +
-          `recibe esa pregunta.`,
+          (hechos.length ? `Hechos del negocio: ${hechos.join(" · ")}. ` : "") +
+          `Responde RAZONANDO y responde SIEMPRE algo útil:\n` +
+          `1) Lo que digan la ficha o los hechos, afírmalo.\n` +
+          `2) Lo que se DEDUCE de esos hechos, dilo como consecuencia lógica (ej.: si es contraentrega, "pagas cuando ` +
+          `te llega, y si no estás puede recibirlo y pagarlo quien esté en casa"; si el envío es a todo el país, la ` +
+          `respuesta a "¿llega a mi pueblo?" sale de ahí).\n` +
+          `3) Lo que sepas de cómo funciona este TIPO de producto, dilo como criterio general ("en general…"), nunca ` +
+          `como característica de este modelo.\n` +
+          `4) Una condición comercial (garantía, devolución, descuento, stock, plazo) que no está cargada: no la afirmes.\n` +
+          `Si aun así la respuesta depende de un dato del negocio que no tienes, llama preguntar_al_dueno y dile al ` +
+          `cliente en una frase que ya se lo consultaste al equipo y que le confirmas por acá; y sigue ayudando con lo ` +
+          `demás. Nunca lo dejes sin respuesta ni cambies de tema.`,
       };
     }
 
@@ -1489,6 +1522,20 @@ export const ejecutores: Record<string, Ejecutor> = {
         "IMPORTANTE: no le digas que el pago está confirmado ni que ya lo verificaste — no lo está. " +
         "Dile que ya está en verificación y que en cuanto quede confirmado le llega el acceso. " +
         "No prometas un tiempo exacto.",
+    };
+  },
+
+  preguntar_al_dueno(ctx, { pregunta, productoId }) {
+    const q = String(pregunta || "").trim().slice(0, 240);
+    if (!q) return { ok: false, mensaje: "Falta la pregunta del cliente." };
+    const pid = Number(productoId) || ctx.estado.productoEnFoco || null;
+    ctx.efectos.push({ tipo: "pregunta_al_dueno", pregunta: q, productoId: pid ?? null });
+    return {
+      ok: true,
+      mensaje:
+        `Pregunta enviada al dueño ("${q}"); su respuesta queda guardada para las próximas veces. Dile al ` +
+        `cliente en UNA frase que ya lo consultaste con el equipo y que le confirmas por acá, sin prometer un ` +
+        `tiempo exacto, y sigue ayudando con lo que sí sabes.`,
     };
   },
 

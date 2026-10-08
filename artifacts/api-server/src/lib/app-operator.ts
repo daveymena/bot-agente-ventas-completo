@@ -8594,11 +8594,17 @@ ${r.texto}`, data: r.grupos };
           .select()
           .from(productKnowledge)
           .where(eq(productKnowledge.tenantId, ctx.tenantId));
+        // Las que dejaron los CLIENTES (preguntar_al_dueno) y siguen sin
+        // respuesta van primero: son las que el vendedor ya prometió consultar.
+        const pendientes = filas.filter((f: any) => !f.respuesta);
         return {
           ok: true,
-          summary: filas.length
+          summary: (filas.length
             ? `El agente tiene ${filas.length} respuesta${filas.length === 1 ? "" : "s"} cargada${filas.length === 1 ? "" : "s"} por vos.`
-            : "Todavía no le cargaste ninguna respuesta propia al agente. Responde solo con lo genérico (garantía, envío, stock).",
+            : "Todavía no le cargaste ninguna respuesta propia al agente. Responde solo con lo genérico (garantía, envío, stock).") +
+            (pendientes.length
+              ? ` ⚠️ ${pendientes.length} pregunta${pendientes.length === 1 ? "" : "s"} de clientes sin responder: ${pendientes.slice(0, 5).map((f: any) => `«${f.pregunta}» (id ${f.id})`).join(", ")}.`
+              : ""),
           data: filas.map((f: any) => ({
             id: f.id,
             productId: f.productId,
@@ -8640,6 +8646,28 @@ ${r.texto}`, data: r.grupos };
 
       const respuesta = String(args?.respuesta || "").trim();
       const productId = args?.productId ? Number(args.productId) : null;
+
+      // Si un cliente ya la había preguntado (quedó PENDIENTE por
+      // preguntar_al_dueno), se completa esa fila en vez de duplicarla.
+      if (respuesta) {
+        const { esPreguntaRepetida } = await import("./motor-nuevo/preguntas-al-dueno");
+        const pendientes: any[] = (await db.select().from(productKnowledge).where(eq(productKnowledge.tenantId, ctx.tenantId)))
+          .filter((f: any) => !f.respuesta);
+        const igual = pendientes.find((f: any) =>
+          esPreguntaRepetida(pregunta, [{ productId: f.productId ?? null, pregunta: String(f.pregunta || ""), disparadores: String(f.disparadores || "").split(",").map((d: string) => d.trim()).filter(Boolean), respuesta: null }]),
+        );
+        if (igual) {
+          await db
+            .update(productKnowledge)
+            .set({ respuesta, disparadores: [...new Set([...String(igual.disparadores || "").split(",").map((d: string) => d.trim()), ...utiles])].filter(Boolean).join(", "), updatedAt: new Date() } as any)
+            .where(and(eq(productKnowledge.id, igual.id), eq(productKnowledge.tenantId, ctx.tenantId)));
+          return {
+            ok: true,
+            summary: `Listo: completé la pregunta que había dejado un cliente («${igual.pregunta}»). Desde ahora el agente la responde sola.`,
+            data: { id: igual.id, completada: true },
+          };
+        }
+      }
 
       const [fila] = await db
         .insert(productKnowledge)
