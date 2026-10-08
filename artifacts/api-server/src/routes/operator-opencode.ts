@@ -30,6 +30,7 @@ import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { requireAdmin, type TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
+import { anotarExito, respondioHacePoco } from "../lib/cadena-modelos";
 import { esUnSiParaEstePlan } from "../lib/es-un-si";
 import { correrTurnoDirecto, correrTurnoDirectoConRotacion, candidatosDirectos, directoDisponible, configDirecta, type NivelDeEsfuerzo } from "../lib/atlas-directo";
 import { promptDeAtlas, executeAction, verifyMutation, investigacionRapida, mensajeParaAdmin, isReadOnlyTool, notaDeLandingsEnSegundoPlano, type OperatorContext } from "../lib/app-operator";
@@ -1877,7 +1878,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           // queda menos la reserva del respaldo. Se prueban menos candidatos y
           // se termina el trabajo.
           const anteriorSeQuedoSinTiempo = /timeout|timed out|abort|sin tiempo/i.test(String(ultimo.error || ""));
-          const techo = anteriorSeQuedoSinTiempo
+          // Un candidato que contestó hace poco tampoco se corta a los 30 s:
+          // si tarda es por la tarea (ver respondioHacePoco en cadena-modelos).
+          const vieneRespondiendo = respondioHacePoco(model);
+          const techo = anteriorSeQuedoSinTiempo || vieneRespondiendo
             ? Math.max(restante - RESERVA_RESPALDO_MS, PISO_UTIL_MS)
             : TECHO_POR_CANDIDATO_MS;
           if (anteriorSeQuedoSinTiempo) {
@@ -1930,7 +1934,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             // se puede mirar desde el chat. "Falló porque X" es accionable;
             // un número de segundos a secas manda a diagnosticar de nuevo.
             marcar(`modelo:${model.modelID}${ultimo.error ? `(descartado: ${resumirMotivo(ultimo.error)})` : ""}`, tModelo);
-            if (!ultimo.error) break; // Respuesta real -- no seguir rotando.
+            if (!ultimo.error) {
+              anotarExito(model);
+              break; // Respuesta real -- no seguir rotando.
+            }
             logger.warn({ tenantId, model, error: ultimo.error }, "[AtlasOpenCode] Candidato falló, rotando al siguiente");
             void anotarFalloDeCandidato(model, ultimo.error);
           } catch (err: any) {

@@ -486,8 +486,29 @@ export function conNombresVigentes(cadena: Candidato[]): Candidato[] {
   });
 }
 
+// ── Quien viene respondiendo no se corta a los 30 s ──────────────────────
+//
+// 08-10, atlas-diagnostico: gpt-5.6-luna contestó TODOS los turnos completos
+// (4-28 s), pero los pedidos grandes (A/B de anuncios, borrar campañas) le
+// piden más de 30 s; el techo lo cortaba y el resto del turno se iba en
+// respaldos muertos (mistral 77 s para decir "sin cupo"). El techo corto sirve
+// para no esperar a un desconocido; a uno que viene respondiendo hay que
+// dejarlo terminar.
+const VENTANA_EXITO_MS = 30 * 60_000;
+const exitos = new Map<string, number>();
+
+export function anotarExito(candidato: Candidato, ahora = Date.now()): void {
+  exitos.set(claveDe(candidato), ahora);
+}
+
+export function respondioHacePoco(candidato: Candidato, ahora = Date.now()): boolean {
+  const t = exitos.get(claveDe(candidato));
+  return t !== undefined && ahora - t <= VENTANA_EXITO_MS;
+}
+
 /** Para diagnóstico y para los tests. */
 export function olvidarFallos(): void {
+  exitos.clear();
   enPenitencia.clear();
   fallosNoTerminales.clear();
   vigentes.clear();

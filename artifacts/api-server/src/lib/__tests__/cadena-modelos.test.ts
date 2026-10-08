@@ -636,6 +636,18 @@ describe("modelo retirado: se aprende el vigente del propio error", () => {
     expect(aprenderModeloVigente(copilot, "The requested model is not supported.")).toBeNull();
   });
 
+  it("quien contestó hace poco se recuerda 30 min (no se le corta a los 30 s)", async () => {
+    const { anotarExito, respondioHacePoco, olvidarFallos } = await import("../cadena-modelos");
+    olvidarFallos();
+    const luna: Candidato = { providerID: "opencode", modelID: "gpt-5.6-luna" };
+    expect(respondioHacePoco(luna)).toBe(false);
+    anotarExito(luna, 1_000_000);
+    expect(respondioHacePoco(luna, 1_000_000 + 29 * 60_000)).toBe(true);
+    expect(respondioHacePoco(luna, 1_000_000 + 31 * 60_000)).toBe(false);
+    expect(respondioHacePoco(copilot, 1_000_000)).toBe(false);
+    olvidarFallos();
+  });
+
   it("un error que no es 'modelo retirado' no cambia nada", async () => {
     const { aprenderModeloVigente } = await import("../cadena-modelos");
     expect(aprenderModeloVigente(copilot, "Rate limit exceeded")).toBeNull();
