@@ -7251,8 +7251,15 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
       // Misma búsqueda por palabras que list_products: frase exacta primero,
       // y si no hay nada, palabras sueltas contra nombre y descripción.
       const soloTenant = eq(products.tenantId, ctx.tenantId);
-      let filas = await db.select().from(products).where(and(soloTenant, ilike(products.name, `%${texto}%`))).orderBy(products.id).limit(10);
-      if (filas.length === 0) {
+      // 08-10: Atlas mandó producto "155" (el id que dijo el admin) y la
+      // búsqueda por texto lo buscaba dentro de nombres y descripciones.
+      const porId = /^\d+$/.test(texto)
+        ? await db.select().from(products).where(and(soloTenant, eq(products.id, Number(texto)))).limit(1)
+        : [];
+      let filas = porId.length
+        ? porId
+        : await db.select().from(products).where(and(soloTenant, ilike(products.name, `%${texto}%`))).orderBy(products.id).limit(10);
+      if (filas.length === 0 && !/^\d+$/.test(texto)) {
         const VACIAS = new Set(["del", "las", "los", "una", "unos", "unas", "para", "por", "con", "que", "mis", "tus", "sus", "curso", "producto"]);
         const raices = (texto.toLowerCase().match(/[a-záéíóúñ0-9]{3,}/g) || [])
           .filter((w) => !VACIAS.has(w))

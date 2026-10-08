@@ -232,10 +232,17 @@ export async function resolveInterestIds(accessToken: string, names: string[]): 
   const resolved: Array<{ id: string; name: string }> = [];
   for (const name of names) {
     try {
-      const params = new URLSearchParams({ type: "adinterest", q: name, limit: "1", access_token: accessToken });
-      const res = await fetch(`${FB_GRAPH_URL}/search?${params}`, { signal: AbortSignal.timeout(10000) });
-      const data: any = await res.json();
-      const match = data?.data?.[0];
+      // 08-10: "dolor de espalda", "postura" y "trabajo de oficina" volvían
+      // vacíos (la búsqueda sin locale es en inglés). Primero en español.
+      let match: any = null;
+      for (const locale of ["es_LA", ""]) {
+        const params = new URLSearchParams({ type: "adinterest", q: name, limit: "1", access_token: accessToken });
+        if (locale) params.set("locale", locale);
+        const res = await fetch(`${FB_GRAPH_URL}/search?${params}`, { signal: AbortSignal.timeout(10000) });
+        const data: any = await res.json();
+        match = data?.data?.[0];
+        if (match?.id) break;
+      }
       if (match?.id) resolved.push({ id: match.id, name: match.name || name });
     } catch (err: any) {
       logger.warn({ err, name }, "[Facebook] No se pudo resolver el interés en la taxonomía de Facebook");
