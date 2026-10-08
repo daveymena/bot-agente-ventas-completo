@@ -637,6 +637,9 @@ const publicRoutes = [
   // lista y el pedido le daba 401 a todo cliente real (30-09-2026): solo
   // funcionaba al probarlo con la sesión del dueño abierta.
   "/landing-publica",
+  // Pedidos de las landings de Landing Forge: los autentica la x-api-key
+  // compartida, no una sesión (routes/landing-forge-entrada.ts).
+  "/landing-forge/pedido",
   // "/landing-studio" ya NO es pública (29-09-2026): sin sesión, cualquiera
   // podía reescribir la landing de cualquier negocio (/design, /chat con otro
   // landingId) y gastar los proveedores de IA del negocio 1. El panel la

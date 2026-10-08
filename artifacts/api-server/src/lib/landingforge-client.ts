@@ -293,6 +293,11 @@ export async function getOrCreateLanding(
         checkoutUrl: productData?.checkoutUrl || productUrl || undefined,
         whatsapp: hechos?.whatsapp || WHATSAPP_DEFAULT,
         hechos,
+        // Negocio + producto: el pedido del formulario vuelve acá y sale a
+        // Dropi con el token del negocio (routes/landing-forge-entrada.ts).
+        ventaspro: productData?.tenantId && productData?.producto?.id
+          ? { tenantId: productData.tenantId, productId: Number(productData.producto.id) }
+          : undefined,
         description: productData?.description || undefined,
         images: productData?.images?.length ? productData.images : undefined,
         videos: productData?.videos?.length ? productData.videos : undefined,
