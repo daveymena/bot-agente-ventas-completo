@@ -41,8 +41,9 @@ const ECOSYSTEM_STEPS = [
 /**
  * Los cuatro pilares de la plataforma. Cada punto existe en el código
  * (rutas y herramientas de Atlas verificadas el 2026-09-18); nada aspiracional.
- * `img` son las escenas generadas con scripts/generar-imagenes-portada.mjs a
- * partir de las capturas reales del producto.
+ * `img` son las escenas de scripts/portada-fotos.mjs: fotos reales (Pexels)
+ * con las capturas reales del producto puestas en la pantalla. Cada sección
+ * muestra una pantalla distinta.
  */
 const PILARES = [
   {
@@ -58,7 +59,7 @@ const PILARES = [
       "Hasta 8 vendedoras con distinta personalidad por negocio",
       "Se protege de bloqueos: escribe y graba audios como humano, y baja el ritmo sola si detecta riesgo",
     ],
-    img: { src: "/screens/gen/sofia.webp", alt: "Sofía vendiendo el curso de piano por WhatsApp", w: 1200, h: 1400 },
+    img: { src: "/screens/gen/sofia.webp", alt: "Celular con Sofía pasando el precio y el Nequi, y recibiendo el comprobante de pago", w: 1200, h: 1400 },
   },
   {
     icon: Globe,
@@ -72,7 +73,7 @@ const PILARES = [
       "Dropshipping: importas de Dropi en lote, cotizas el envío y el pedido sale contraentrega",
       "Fichas de producto escritas solas desde una foto o un Excel",
     ],
-    img: { src: "/screens/gen/tienda.webp", alt: "Tu tienda online con el catálogo en vivo", w: 1200, h: 1400 },
+    img: { src: "/screens/gen/tienda.webp", alt: "Mujer mostrando en su celular la página de venta del curso de piano", w: 1200, h: 1400 },
   },
   {
     icon: LayoutDashboard,
@@ -85,7 +86,7 @@ const PILARES = [
       "Prospectos, embudo, tiempo de respuesta y valor generado",
       "Diagnóstico de qué le falta a tu negocio y ruta guiada paso a paso",
     ],
-    img: { src: "/screens/gen/inbox-web.webp", alt: "Bandeja de entrada con control manual", w: 1600, h: 1000 },
+    img: { src: "/screens/gen/inbox-web.webp", alt: "Laptop con la bandeja de entrada de VentasPro y las conversaciones en vivo", w: 1600, h: 1000 },
   },
 ];
 
@@ -321,9 +322,9 @@ export default function LandingPage() {
           transition={{ duration: 0.7, delay: 0.15 }}
           className="max-w-6xl mx-auto px-4 sm:px-6 pb-16 sm:pb-24"
         >
-          {/* La escena de portada: Atlas armando la campaña, Sofía vendiendo y
-              la página de venta que salió. Generada de capturas reales. */}
-          <Escena src="/screens/gen/hero.webp" alt="Atlas, Sofía y la página de venta, con capturas reales del producto" w={1600} h={1100} eager movil={{ src: "/screens/gen/hero-m.webp", w: 1000, h: 1250 }} className="max-w-md mx-auto sm:max-w-none" />
+          {/* La escena de portada: Sofía respondiendo en un celular real.
+              Foto real (Pexels) + captura real del producto. */}
+          <Escena src="/screens/gen/hero.webp" alt="Mano sosteniendo un celular con Sofía respondiendo por WhatsApp la consulta por el curso de piano" w={1600} h={1100} eager movil={{ src: "/screens/gen/hero-m.webp", w: 1000, h: 1250 }} className="max-w-md mx-auto sm:max-w-none" />
         </motion.div>
       </section>
 
@@ -407,8 +408,8 @@ export default function LandingPage() {
             </Reveal>
           </div>
           <Reveal delay={0.15}>
-            {/* El chat de Atlas y la página que salió de él, lado a lado. */}
-            <Escena src="/screens/gen/atlas-duo.webp" alt="Atlas paso a paso y la página de venta que armó" w={1600} h={1150} className="ring-white/15" />
+            {/* Atlas en una laptop real, armando la campaña paso a paso. */}
+            <Escena src="/screens/gen/atlas-duo.webp" alt="Laptop con Atlas armando la página de venta y el anuncio paso a paso" w={1600} h={1150} className="ring-white/15" />
           </Reveal>
         </div>
       </section>

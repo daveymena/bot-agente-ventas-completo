@@ -1,4 +1,8 @@
 /**
+ * OBSOLETO (07-10-2026): estas escenas salían genéricas (teléfonos idénticos,
+ * burbujas vacías, precios en dólares, texto en inglés). La portada usa ahora
+ * scripts/portada-fotos.mjs (fotos reales + capturas reales).
+ *
  * Genera las 7 escenas de la portada (/) con gpt-image-1 (OpenAI) y las
  * convierte a WebP con las dimensiones exactas de public/screens/gen/.
  *
