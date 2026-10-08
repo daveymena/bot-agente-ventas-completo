@@ -2274,7 +2274,12 @@ router.get("/history", async (req: TenantRequest, res, next) => {
     return res.json({
       history,
       awaitingConfirmation: !!pending,
-      hayAlgoPendiente: ultimo?.role === "assistant" && ultimo?.parcial === true,
+      // Solo si quedó a medias hace POCO. Medido 08-10: al abrir la pantalla,
+      // la página retomó sola un pedido a medias de hace 6 días (01-10) y
+      // Atlas contestó sobre algo que el admin ya ni recordaba. Lo viejo se
+      // muestra, pero no se relanza sin que el admin lo pida.
+      hayAlgoPendiente: ultimo?.role === "assistant" && ultimo?.parcial === true
+        && Date.now() - Number((ultimo as any)?.at || 0) < 30 * 60_000,
       turnoEnCurso: hayTurnoEnVuelo(claveDeTurno(String(tenantId), sessionId)),
     });
   } catch (e) {
