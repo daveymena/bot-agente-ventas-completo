@@ -8,6 +8,7 @@
 import React, { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { describeError } from "@/lib/utils";
+import { SecretInput } from "@/components/ui/secret-input";
 
 interface Provider {
   id: string;
@@ -208,12 +209,10 @@ export default function ProviderConfig() {
           {/* API Key */}
           <div>
             <label className="block text-sm font-medium mb-2">API Key</label>
-            <input
-              type="password"
+            <SecretInput
               value={formData.apiKey}
-              onChange={(e) => setFormData({ ...formData, apiKey: e.target.value })}
+              onChange={(v) => setFormData({ ...formData, apiKey: v })}
               placeholder="Pega tu API key aquí"
-              className="w-full border rounded-lg px-3 py-2"
             />
             <p className="text-xs text-gray-500 mt-1">
               Tu key será encriptada y almacenada de forma segura

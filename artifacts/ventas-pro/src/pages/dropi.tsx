@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { SecretInput } from "@/components/ui/secret-input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -353,7 +354,7 @@ export default function DropiPage() {
                 ) : null}
                 <div className="space-y-2">
                   <Label htmlFor="token">Token de integración de Dropi</Label>
-                  <Input id="token" value={token} onChange={(e) => setToken(e.target.value)} placeholder="eyJ0eXAiOiJKV1QiLCJhbGci…" autoComplete="off" />
+                  <SecretInput id="token" value={token} onChange={setToken} guardado={config?.conectado ? (config.tokenHuella || true) : false} placeholder="eyJ0eXAiOiJKV1QiLCJhbGci" />
                 </div>
                 {prueba ? (
                   <Alert variant={prueba.ok ? "default" : "destructive"}>

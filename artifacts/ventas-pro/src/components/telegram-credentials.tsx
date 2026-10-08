@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { SecretInput } from "@/components/ui/secret-input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -99,7 +100,7 @@ export function TelegramCredentials() {
           <>
             <div className="space-y-1">
               <Label htmlFor="tg-token">Token del bot</Label>
-              <Input id="tg-token" value={token} onChange={(e) => setToken(e.target.value)} placeholder="123456789:AAH…" autoComplete="off" />
+              <SecretInput id="tg-token" value={token} onChange={setToken} guardado={!!cfg?.conectado} placeholder="123456789:AAH-tu-token" />
             </div>
             <div className="flex gap-2 flex-wrap items-end">
               <div className="space-y-1 flex-1 min-w-[200px]">

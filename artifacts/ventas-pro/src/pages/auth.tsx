@@ -686,6 +686,9 @@ export default function AuthPage() {
                         className="pl-10"
                         required
                         minLength={8}
+                        autoComplete="new-password"
+                        spellCheck={false}
+                        autoCapitalize="off"
                         value={forgotPasswordData.newPassword}
                         onChange={(e) => setForgotPasswordData({ ...forgotPasswordData, newPassword: e.target.value })}
                       />
@@ -701,6 +704,9 @@ export default function AuthPage() {
                         className="pl-10"
                         required
                         minLength={8}
+                        autoComplete="new-password"
+                        spellCheck={false}
+                        autoCapitalize="off"
                         value={forgotPasswordData.confirmPassword}
                         onChange={(e) => setForgotPasswordData({ ...forgotPasswordData, confirmPassword: e.target.value })}
                       />

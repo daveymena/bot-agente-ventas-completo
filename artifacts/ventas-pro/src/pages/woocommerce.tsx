@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { SecretInput } from "@/components/ui/secret-input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -305,24 +306,24 @@ export default function WooCommercePage() {
                   <div className="grid md:grid-cols-2 gap-6">
                     <div className="space-y-2.5">
                       <Label htmlFor="consumerKey" className="text-sm font-semibold uppercase tracking-wider text-muted-foreground ml-1">Consumer Key</Label>
-                      <Input
+                      <SecretInput
                         id="consumerKey"
-                        type="password"
-                        placeholder={config.hasCredentials ? "••••••••••••••••" : "ck_..."}
+                        guardado={config.hasCredentials && ((config as any).consumerKeyUltimos4 || true)}
+                        placeholder="ck_..."
                         value={config.consumerKey}
-                        onChange={(e) => setConfig({ ...config, consumerKey: e.target.value })}
+                        onChange={(v) => setConfig({ ...config, consumerKey: v })}
                         disabled={!config.enabled}
                         className="bg-background/40 h-12 rounded-xl border-border/40 focus:ring-primary/20"
                       />
                     </div>
                     <div className="space-y-2.5">
                       <Label htmlFor="consumerSecret" className="text-sm font-semibold uppercase tracking-wider text-muted-foreground ml-1">Consumer Secret</Label>
-                      <Input
+                      <SecretInput
                         id="consumerSecret"
-                        type="password"
-                        placeholder={config.hasCredentials ? "••••••••••••••••" : "cs_..."}
+                        guardado={config.hasCredentials && ((config as any).consumerSecretUltimos4 || true)}
+                        placeholder="cs_..."
                         value={config.consumerSecret}
-                        onChange={(e) => setConfig({ ...config, consumerSecret: e.target.value })}
+                        onChange={(v) => setConfig({ ...config, consumerSecret: v })}
                         disabled={!config.enabled}
                         className="bg-background/40 h-12 rounded-xl border-border/40 focus:ring-primary/20"
                       />

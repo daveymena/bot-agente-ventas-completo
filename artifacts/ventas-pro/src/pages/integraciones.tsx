@@ -14,6 +14,7 @@
  *    una app aprobada de cada plataforma). Los secretos se cifran en el
  *    servidor y nunca vuelven al navegador.
  */
+import { SecretInput } from "@/components/ui/secret-input";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -148,14 +149,24 @@ function TarjetaPlataforma({ p, estado, recargar }: { p: Plataforma; estado?: Es
             {CAMPOS[p].map((c) => (
               <div key={c.clave} className="space-y-1">
                 <Label htmlFor={`${p}-${c.clave}`}>{c.etiqueta}{c.opcional ? " (opcional)" : ""}</Label>
-                <Input
-                  id={`${p}-${c.clave}`}
-                  type={c.secreto ? "password" : "text"}
-                  autoComplete="off"
-                  placeholder={c.secreto && estado?.conectada ? "•••••••• (guardado; escribe solo para cambiarlo)" : c.ayuda}
-                  value={valores[c.clave] || ""}
-                  onChange={(e) => setValores((v) => ({ ...v, [c.clave]: e.target.value }))}
-                />
+                {c.secreto ? (
+                  <SecretInput
+                    id={`${p}-${c.clave}`}
+                    guardado={!!estado?.conectada}
+                    placeholder={c.ayuda}
+                    value={valores[c.clave] || ""}
+                    onChange={(nuevo) => setValores((v) => ({ ...v, [c.clave]: nuevo }))}
+                  />
+                ) : (
+                  <Input
+                    id={`${p}-${c.clave}`}
+                    type="text"
+                    autoComplete="off"
+                    placeholder={c.ayuda}
+                    value={valores[c.clave] || ""}
+                    onChange={(e) => setValores((v) => ({ ...v, [c.clave]: e.target.value }))}
+                  />
+                )}
                 <p className="text-xs text-muted-foreground">{c.ayuda}</p>
               </div>
             ))}

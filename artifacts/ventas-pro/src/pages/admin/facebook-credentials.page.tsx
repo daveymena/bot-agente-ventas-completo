@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { SecretInput } from "@/components/ui/secret-input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -55,7 +56,7 @@ export default function FacebookCredentialsPage() {
       setAdAccountId(data.adAccountId || "");
       setPixelId(data.pixelId || "");
       setCatalogId(data.catalogId || "");
-      setMessengerVerifyToken(data.messengerVerifyToken || "");
+      setMessengerVerifyToken(""); // nunca se carga el guardado
     } catch {
       toast.error("No se pudo cargar la configuración de Facebook");
     } finally {
@@ -175,10 +176,7 @@ export default function FacebookCredentialsPage() {
                 <div>
                   <Label className="text-xs font-semibold uppercase tracking-wider">App Secret</Label>
                   <div className="relative mt-1">
-                    <Input type={verSecret ? "text" : "password"} value={appSecret} onChange={e => setAppSecret(e.target.value)} placeholder="abc123..." className="font-mono text-sm bg-slate-900 border-slate-700 pr-10" />
-                    <button type="button" onClick={() => setVerSecret(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200">
-                      {verSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
+                    <SecretInput value={appSecret} onChange={setAppSecret} placeholder="abc123..." className="font-mono text-sm bg-slate-900 border-slate-700" />
                   </div>
                 </div>
               </div>
@@ -188,10 +186,7 @@ export default function FacebookCredentialsPage() {
             <div className="space-y-3 p-5 rounded-2xl bg-slate-800/50 border border-slate-700/50">
               <Label className="text-xs font-semibold uppercase tracking-wider block">Access Token (Page Token)</Label>
               <div className="relative">
-                <Input type={verAccess ? "text" : "password"} value={accessToken} onChange={e => setAccessToken(e.target.value)} placeholder="EAAB..." className="font-mono text-sm bg-slate-900 border-slate-700 pr-10" />
-                <button type="button" onClick={() => setVerAccess(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200">
-                  {verAccess ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
+                <SecretInput value={accessToken} onChange={setAccessToken} placeholder="EAAB..." className="font-mono text-sm bg-slate-900 border-slate-700" />
               </div>
               <div className="flex items-center gap-2 mt-3">
                 <Button variant="outline" size="sm" onClick={probar} disabled={probando}>
@@ -230,15 +225,12 @@ export default function FacebookCredentialsPage() {
               <div>
                 <Label className="text-xs font-semibold uppercase tracking-wider block">Messenger Page Token</Label>
                 <div className="relative mt-1">
-                  <Input type={verMessenger ? "text" : "password"} value={messengerPageToken} onChange={e => setMessengerPageToken(e.target.value)} placeholder="EAAB..." className="font-mono text-sm bg-slate-900 border-slate-700 pr-10" />
-                  <button type="button" onClick={() => setVerMessenger(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200">
-                    {verMessenger ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
+                  <SecretInput value={messengerPageToken} onChange={setMessengerPageToken} placeholder="EAAB..." className="font-mono text-sm bg-slate-900 border-slate-700" />
                 </div>
               </div>
               <div>
                 <Label className="text-xs font-semibold uppercase tracking-wider block">Messenger Verify Token</Label>
-                <Input value={messengerVerifyToken} onChange={e => setMessengerVerifyToken(e.target.value)} placeholder="mi_verify_token_secreto" className="font-mono text-sm bg-slate-900 border-slate-700 mt-1" />
+                <SecretInput value={messengerVerifyToken} onChange={setMessengerVerifyToken} placeholder="mi_verify_token_secreto" className="font-mono text-sm bg-slate-900 border-slate-700 mt-1" />
                 <p className="text-xs text-slate-400 mt-1">Token para verificar webhooks (texto plano)</p>
               </div>
             </div>

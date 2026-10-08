@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { SecretInput } from "@/components/ui/secret-input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -180,11 +181,8 @@ export default function PaymentCredentialsPage() {
                 <div>
                   <Label className="text-xs font-semibold uppercase tracking-wider">Access Token {estado?.mercadopago.pista && <span className="normal-case">· {estado.mercadopago.pista}</span>}</Label>
                   <div className="relative mt-1">
-                    <Input type={verMp ? "text" : "password"} value={mpToken} onChange={e => setMpToken(e.target.value)}
-                      placeholder="APP_USR-..." className="font-mono text-sm bg-slate-900 border-slate-700 pr-10" />
-                    <button type="button" onClick={() => setVerMp(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200">
-                      {verMp ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
+                    <SecretInput value={mpToken} onChange={setMpToken}
+                      placeholder="APP_USR-..." className="font-mono text-sm bg-slate-900 border-slate-700" />
                   </div>
                   <p className="text-xs text-slate-400 mt-1">De Panel MercadoPago → Tus integraciones → Credenciales</p>
                 </div>
@@ -229,10 +227,7 @@ export default function PaymentCredentialsPage() {
                 <div>
                   <Label className="text-xs font-semibold uppercase tracking-wider">Client Secret {estado?.paypal.pista && <span className="normal-case">· {estado.paypal.pista}</span>}</Label>
                   <div className="relative mt-1">
-                    <Input type={verPp ? "text" : "password"} value={ppSecret} onChange={e => setPpSecret(e.target.value)} placeholder="EG7..." className="font-mono text-sm bg-slate-900 border-slate-700 pr-10" />
-                    <button type="button" onClick={() => setVerPp(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200">
-                      {verPp ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
+                    <SecretInput value={ppSecret} onChange={setPpSecret} placeholder="EG7..." className="font-mono text-sm bg-slate-900 border-slate-700" />
                   </div>
                 </div>
               </div>

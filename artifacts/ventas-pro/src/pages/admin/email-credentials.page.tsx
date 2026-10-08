@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { SecretInput } from "@/components/ui/secret-input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -177,10 +178,7 @@ export default function EmailCredentialsPage() {
                 <div>
                   <Label className="text-xs font-semibold uppercase tracking-wider">Contraseña</Label>
                   <div className="relative mt-1">
-                    <Input type={verPass ? "text" : "password"} value={pass} onChange={e => setPass(e.target.value)} placeholder="••••••••" className="font-mono text-sm bg-slate-900 border-slate-700 pr-10" />
-                    <button type="button" onClick={() => setVerPass(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200">
-                      {verPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
+                    <SecretInput value={pass} onChange={setPass} placeholder="Contraseña" className="font-mono text-sm bg-slate-900 border-slate-700" />
                   </div>
                   <p className="text-xs text-slate-400 mt-1">Para Gmail, usa contraseña de aplicación</p>
                 </div>
