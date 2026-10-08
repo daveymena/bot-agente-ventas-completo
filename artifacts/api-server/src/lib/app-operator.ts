@@ -3996,7 +3996,9 @@ ${explicarObjetivos()}` };
           num(args.dailyBudget) || undefined,
           // Un borrador es un borrador: a Meta se sube una sola vez, con el
           // objetivo pedido (fb_upload_draft_to_meta / crear_anuncio).
-          { subirSolo: false },
+          // El objetivo viaja: decide la acción del texto y queda en la
+          // estrategia para que la subida vaya al mismo destino.
+          { subirSolo: false, objetivo: wa ? "mensajes" : (await import("./objetivos-campana")).interpretarObjetivo(String(args.objetivo || "")) || undefined },
         );
         // Que el admin sepa SIEMPRE sobre qué base se escribió el anuncio.
         // Si se hizo sin investigación externa (porque falló o no había), se
@@ -7349,9 +7351,45 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
       // ── 2. El brief lo arma el SERVIDOR ──────────────────────────────────
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
       const { construirBrief, puntuarCopy } = await import("./anuncio-inteligente");
+      // ── A DÓNDE va el anuncio, ANTES de escribirlo (07-10-2026) ─────────
+      // El copy pedía "una sola acción con 👉" sin saber el destino: el
+      // modelo escribía "Escríbenos por WhatsApp" y la subida lo mandaba a la
+      // landing. El objetivo pedido manda; sin pedido, la misma regla que la
+      // subida (landing publicada → tráfico; si no, mensajes). Y el enlace del
+      // brief es el que de verdad recibe el clic, no la `/p/:id` vieja.
+      const { interpretarObjetivo: leerObjetivo } = await import("./objetivos-campana");
+      const { destinoPorDefecto, enlaceParaVerElProducto } = await import("./landing/destino-del-producto");
+      const { destinoDeObjetivo, lineaDeAccion, planDeAnuncio, ajustarCopyAMeta, modeloDelProducto: modeloDe } = await import("./anuncio-por-modelo");
+      const objetivoFinal: string =
+        leerObjetivo(String(ctx.objetivoDelAdmin || "")) || leerObjetivo(String(args.objetivo || "")) ||
+        (await destinoPorDefecto(ctx.tenantId, prod.id, "mensajes").catch(() => ({ objetivo: "mensajes" as const }))).objetivo;
+      const destinoDelCopy = destinoDeObjetivo(objetivoFinal);
+      let condicionesNegocio: any = null;
+      let garantiaNegocio = false;
+      try {
+        const { getBusinessContext } = await import("./business-context");
+        const bc: any = await getBusinessContext(ctx.tenantId);
+        condicionesNegocio = bc?.condiciones ?? null;
+        garantiaNegocio = !!bc?.garantia;
+      } catch { /* sin contexto: el brief sale sin oferta del negocio */ }
+      const modeloDelProd = modeloDe(prod as any);
+      const accionExacta = lineaDeAccion(modeloDelProd, destinoDelCopy, condicionesNegocio?.envio?.pago);
+      const planDeRespaldo = planDeAnuncio(prod as any, condicionesNegocio, { destino: destinoDelCopy });
+      const enlaceReal = (await enlaceParaVerElProducto({ id: prod.id, tenantId: ctx.tenantId }).catch(() => null))?.url
+        || `${getAppUrl().replace(/\/+$/, "")}/p/${prod.id}`;
       const brief = construirBrief(prod, {
-        enlace: `${getAppUrl().replace(/\/+$/, "")}/p/${prod.id}`,
+        enlace: enlaceReal,
         whatsapp: (tenant as any)?.whatsappNumber || undefined,
+        destino: destinoDelCopy,
+        // La oferta del NEGOCIO (envío/pago) solo para lo que se despacha:
+        // sin esto el modelo no podía decir "pagas al recibir" y el plan sí.
+        oferta: modeloDelProd === "fisico" && condicionesNegocio?.envio
+          ? [
+              condicionesNegocio.envio.pago === "contraentrega" ? "Se paga al recibir (contraentrega)." : "",
+              condicionesNegocio.envio.costo === "incluido" ? "El envío está incluido en el precio (decir \"envío incluido\", nunca \"gratis\")." : condicionesNegocio.envio.costo ? `Envío: ${condicionesNegocio.envio.costo}.` : "",
+              condicionesNegocio.envio.plazo ? `Llega en ${condicionesNegocio.envio.plazo}.` : "",
+            ].filter(Boolean)
+          : [],
       });
 
       // ── 3. UNA sola llamada al modelo: escribir el copy ──────────────────
@@ -7398,7 +7436,7 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
           tenantId: ctx.tenantId,
           systemPrompt:
             "Sos un copywriter senior de publicidad digital, especializado en Meta Ads (Facebook e Instagram). " +
-            "Escribís en español rioplatense, directo y sin relleno.\n\n" +
+            "Escribes en español neutro de Colombia y le hablas al cliente de TÚ (\"tienes\", \"pide\", \"escríbenos\"), nunca de vos (\"tenés\", \"pedí\", \"escribinos\"). Directo y sin relleno.\n\n" +
             "Tu objetivo NO es escribir mucho: es que alguien que está haciendo scroll PARE, ENTIENDA, SE INTERESE y ACTÚE. " +
             "Cada línea tiene que ganarse el lugar. Si una frase no aporta atención, beneficio, confianza o acción, no va.\n\n" +
             "Claridad antes que cantidad. Beneficio antes que característica. Que se pueda escanear antes que párrafos lindos.\n\n" +
@@ -7418,8 +7456,10 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
             `gancho con emoji → beneficio → 3-5 puntos (cada uno con el emoji que esa característica trae en el catálogo, ✅ solo si no trae) → precio con 🔥 → una sola acción con 👉. ` +
             `Arrancá interpelando con un problema o deseo real del cliente (nunca "Tenemos disponible" ni "Comprá ahora"). ` +
             `NO lo entregues como un párrafo corrido: un bloque de texto sin saltos se rechaza automáticamente.\n` +
-            `- headline: título corto, máximo 40 caracteres.\n` +
-            `- description: una línea de refuerzo.\n\n` +
+            `- headline: título corto, máximo 40 caracteres, DISTINTO de la primera línea del texto (el gancho no repite el título).\n` +
+            `- description: máximo 30 caracteres (Meta corta ahí), por ejemplo "${planDeRespaldo.description}".\n` +
+            `- La acción final (👉) es UNA y va a ${destinoDelCopy === "web" ? "la página del producto (el botón abre el enlace, NO WhatsApp)" : "WhatsApp (el botón abre el chat)"}. Usa esta o una equivalente: "${accionExacta}".\n` +
+            `- El único precio que puede aparecer es el del brief.\n\n` +
             `PROHIBIDO inventar: nada que no esté en el brief. Ni garantías, ni plazos, ni cupos, ni estadísticas ("el 80% de..."), ni cuánta gente lo compró, ni testimonios.` +
             (reparo ? `\n\nTu intento anterior fue RECHAZADO por esto: ${reparo}\nCorregilo y devolvé el JSON de nuevo.` : ""),
           json: true,
@@ -7476,10 +7516,39 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
       }
       if (problema) return { ok: false, summary: `No pude escribir un copy que pase la validación: ${problema}` };
 
+      // ── 4b. La rúbrica de anuncio profesional (anuncio-rubrica.ts) ──────
+      // Lo que el validador no mira: la acción contra el destino, un precio
+      // que no es el del producto, garantías/testimonios sin dato. Una sola
+      // vuelta de corrección; si el modelo insiste, manda el plan
+      // determinístico (datos reales) en vez de guardar un anuncio incoherente.
+      {
+        const { evaluarBorrador, reparosDeRedaccion } = await import("./anuncio-rubrica");
+        const ajustado = () => ajustarCopyAMeta(
+          { primaryText: String(copy.primaryText || ""), headline: String(copy.headline || ""), description: String(copy.description || "") },
+          { esFisico: modeloDelProd === "fisico", pais: condicionesNegocio?.pais, respaldo: planDeRespaldo },
+        );
+        const reparoDe = () => reparosDeRedaccion(evaluarBorrador(ajustado(), { producto: prod, destino: destinoDelCopy, negocioTieneGarantia: garantiaNegocio }));
+        let reparo = reparoDe();
+        if (reparo && !salioDelRespaldo) {
+          const otro = await pedirCopy(reparo);
+          if (otro?.primaryText) {
+            const prev = copy;
+            copy = otro;
+            if (await validarContenidoAnuncio({ productId: prod.id, primaryText: copy.primaryText, headline: copy.headline, description: copy.description }, ctx)) copy = prev;
+            reparo = reparoDe();
+          }
+        }
+        if (reparo) {
+          logger.warn({ tenantId: ctx.tenantId, producto: prod.id, reparo }, "[CrearAnuncio] el copy del modelo no pasa la rúbrica: se usa el plan con datos reales");
+          copy = { primaryText: planDeRespaldo.primaryText, headline: planDeRespaldo.headline, description: planDeRespaldo.description };
+        }
+        copy = { ...copy, ...ajustado() };
+      }
+
       // ── 5. Guardar el borrador (INSERT, sin IA) ──────────────────────────
       const guardado = await executeAction(
         "fb_ad_draft",
-        { productId: prod.id, primaryText: copy.primaryText, headline: copy.headline, description: copy.description, dailyBudget: presupuesto },
+        { productId: prod.id, primaryText: copy.primaryText, headline: copy.headline, description: copy.description, dailyBudget: presupuesto, objetivo: objetivoFinal },
         ctx,
       );
       if (!guardado.ok) return { ok: false, summary: `Escribí el anuncio pero no se pudo guardar: ${guardado.summary}` };
@@ -7500,7 +7569,9 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
         // piso. Toda campaña creada por este camino salía de ventas a la web,
         // que es exactamente lo que el admin viene reportando ("todo lo lanza
         // a la web y eso está mal").
-        const subida = await executeAction("fb_upload_draft_to_meta", { draftId, objetivo: args.objetivo, destinoWeb: args.destinoWeb }, ctx);
+        // Sin objetivo pedido, el MISMO que decidió el texto (antes caía a
+        // "ventas" a la web aunque el copy se hubiera escrito para WhatsApp).
+        const subida = await executeAction("fb_upload_draft_to_meta", { draftId, objetivo: args.objetivo || objetivoFinal, destinoWeb: args.destinoWeb }, ctx);
         meta = subida.ok
           ? `\n\n📤 ${subida.summary}`
           : `\n\n⚠️ El borrador quedó guardado, pero NO se pudo subir a Meta: ${subida.summary}`;

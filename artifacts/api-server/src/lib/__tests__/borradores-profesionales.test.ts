@@ -205,6 +205,21 @@ describe("copy del MODELO (crear_anuncio) simulado: lo que se guarda es lo que M
   });
 });
 
+describe("brief de crear_anuncio: el modelo escribe sabiendo el destino y la oferta del negocio", () => {
+  it("con destino web el CTA del brief es el enlace real, no WhatsApp aunque haya número", async () => {
+    const { construirBrief } = await import("../anuncio-inteligente");
+    const b = construirBrief(producto(163) as any, { enlace: "https://ventasproia.com/l/panalera", whatsapp: "573001112233", destino: "web", oferta: ["Se paga al recibir (contraentrega)."] });
+    expect(b.cta).toMatch(/entrar al enlace \(https:\/\/ventasproia\.com\/l\/panalera\)/);
+    expect(b.cta).toMatch(/NO a WhatsApp/);
+    expect(b.texto).toMatch(/Condición del negocio: Se paga al recibir/);
+  });
+  it("sin destino, como antes: WhatsApp si hay número", async () => {
+    const { construirBrief } = await import("../anuncio-inteligente");
+    const b = construirBrief(producto(163) as any, { enlace: "x", whatsapp: "573001112233" });
+    expect(b.cta).toMatch(/escribir por WhatsApp \(573001112233\)/);
+  });
+});
+
 describe("piezas deterministas", () => {
   it("titularDelProducto: siglas, gritos, fichas técnicas con |", () => {
     expect(titularDelProducto("CURSO REVIT BIM")).toBe("Curso revit BIM");

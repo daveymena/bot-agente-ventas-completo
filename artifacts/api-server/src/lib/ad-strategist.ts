@@ -1110,7 +1110,7 @@ export class AdStrategist {
     return `https://wa.me/${digitos}`;
   }
 
-  async createDraftAd(adAccountParam: string, accessTokenParam: string, productId: number, grounded?: ResearchGroundedCopy, manualImages?: string[], destino?: { tipo: "whatsapp"; numero: string }, presupuestoDiario?: number, opts: { subirSolo?: boolean; subirAhora?: boolean } = {}): Promise<DraftAd> {
+  async createDraftAd(adAccountParam: string, accessTokenParam: string, productId: number, grounded?: ResearchGroundedCopy, manualImages?: string[], destino?: { tipo: "whatsapp"; numero: string }, presupuestoDiario?: number, opts: { subirSolo?: boolean; subirAhora?: boolean; objetivo?: string } = {}): Promise<DraftAd> {
     // Las credenciales se resuelven SIEMPRE acá, no se confía en las que
     // manda quien llama: los tres llamadores (la ruta HTTP, la herramienta
     // fb_ad_draft de Atlas y createDraftsForAllProducts) armaban su propio
@@ -1139,7 +1139,7 @@ export class AdStrategist {
       strategy.budget = Math.round(presupuestoDiario as number);
     }
     if (grounded?.researchNote) strategy.researchNote = grounded.researchNote;
-    const adCopy = await this.generateAdCopy(strategy, product, grounded);
+    const adCopy = await this.generateAdCopy(strategy, product, grounded, { objetivo: opts.objetivo || (destino?.tipo === "whatsapp" ? "mensajes" : undefined) });
     // El gancho corregido vuelve acá: lo que se guarda es lo que se publica.
     strategy = adCopy.strategy;
 
@@ -1174,6 +1174,13 @@ export class AdStrategist {
     const galeriaDelProducto = fotosDelProducto(product, getAppUrl(), 6)
       .map((u) => this.toAbsoluteUrl(u))
       .filter(Boolean);
+    // Sin imageUrl pero con galería (Dropi la guarda en metadata.imageUrls):
+    // la principal es la primera foto REAL de la galería. Antes se saltaba
+    // directo a generar una imagen con IA teniendo las fotos del producto.
+    if (!imageUrl && galeriaDelProducto[0]) {
+      imageUrl = galeriaDelProducto[0];
+      hasRealProductImage = true;
+    }
 
     // Sin foto real del producto: antes de caer al cartel de texto gris, se
     // intenta generar una con IA a partir del nombre y la descripción REALES
@@ -1184,7 +1191,10 @@ export class AdStrategist {
     // asset_feed_spec no se usa (ver más abajo, no funciona sin /adimages).
     // Se guarda como archivo real (no data: URI) y se persiste en el
     // producto para no regenerarla cada vez, y para que se vea en la tienda.
-    if (!imageUrl) {
+    // Un producto FÍSICO no se anuncia con una foto inventada: el cliente
+    // espera recibir lo que vio (y Meta lo cuenta como engañoso). Sin foto,
+    // queda el cartel y la rúbrica del panel lo marca para que se suba una.
+    if (!imageUrl && String(product.kind || "") !== "physical") {
       const appUrl = getAppUrl();
       if (/^https:\/\//i.test(appUrl)) {
         const generatedPath = await generateProductImage({ id: product.id, name: product.name, description: product.description });

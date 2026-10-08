@@ -903,7 +903,7 @@ Responde SOLO con este JSON exacto:
             headline: copyAprobado.headline || "",
             description: copyAprobado.description || "",
           }
-        : await this.generateAdCopy(product);
+        : await this.generateAdCopy(product, vaAWhatsApp ? "whatsapp" : "web");
       // Última barrera antes de Meta, la cruzan TODOS los caminos: un texto
       // que promete algo que este producto no entrega no sale (físico con
       // "acceso de por vida", digital con "pagás al recibir").
@@ -912,7 +912,7 @@ Responde SOLO con este JSON exacto:
         const motivo = copyDeOtroModelo(`${adCopy.primaryText} ${adCopy.headline} ${adCopy.description}`, modeloDelProducto(product as any));
         if (motivo) {
           logger.warn({ productId, motivo }, "[Facebook] El copy no corresponde al producto: se usa el del plan por modelo");
-          adCopy = await this.generateAdCopy(product);
+          adCopy = await this.generateAdCopy(product, vaAWhatsApp ? "whatsapp" : "web");
         }
       }
       // ── Pulido final: registro y coherencia ────────────────────────────
@@ -926,6 +926,23 @@ Responde SOLO con este JSON exacto:
           esFisico: String((product as any).kind || "") === "physical",
           pais: String((this.tenant as any)?.country || "CO"),
         });
+      }
+      // ── La acción del texto = el destino del botón (07-10-2026) ──────────
+      // Un borrador escrito para WhatsApp subido como tráfico a la landing
+      // salía diciendo "Escríbenos por WhatsApp" con el botón a la página.
+      // Se corrige SOLO la línea 👉, y solo si contradice el destino.
+      if (OBJ.destino !== "formulario") {
+        const { accionCoherenteConDestino, modeloDelProducto: modeloDe } = await import("./anuncio-por-modelo");
+        let pago: string | null = null;
+        try {
+          const { getBusinessContext } = await import("./business-context");
+          pago = (await getBusinessContext(Number((this.tenant as any)?.id)))?.condiciones?.envio?.pago ?? null;
+        } catch { pago = null; }
+        const r = accionCoherenteConDestino(adCopy.primaryText, modeloDe(product as any), vaAWhatsApp ? "whatsapp" : "web", pago);
+        if (r.corregido) {
+          logger.warn({ productId, destino: vaAWhatsApp ? "whatsapp" : "web" }, "[Facebook] La acción del texto contradecía el destino: se cambió la línea 👉");
+          adCopy = { ...adCopy, primaryText: r.texto };
+        }
       }
 
       // Bug de capacidad: /{adAccount}/adimages requiere la capacidad
@@ -2275,14 +2292,14 @@ Responde SOLO con este JSON exacto:
    * responde y caía a "Aprende X desde casa. Acceso de por vida" para
    * CUALQUIER producto -- así salió el corrector a Meta el 24-09-2026.
    */
-  private async generateAdCopy(product: any): Promise<{ primaryText: string; headline: string; description: string }> {
+  private async generateAdCopy(product: any, destino: "whatsapp" | "web" = "whatsapp"): Promise<{ primaryText: string; headline: string; description: string }> {
     const { planDeAnuncio } = await import("./anuncio-por-modelo");
     let condiciones: any = null;
     try {
       const { getBusinessContext } = await import("./business-context");
       condiciones = (await getBusinessContext(Number((this.tenant as any)?.id)))?.condiciones ?? null;
     } catch { condiciones = null; }
-    const plan = planDeAnuncio(product, condiciones);
+    const plan = planDeAnuncio(product, condiciones, { destino });
     return { primaryText: plan.primaryText, headline: plan.headline, description: plan.description };
   }
 

@@ -90,20 +90,31 @@ interface PageInfo {
   picture?: string;
 }
 
-/** El renglón gris de destino del anuncio (lo que Meta muestra bajo la foto). */
-function destinoDelAnuncio(d: DraftAd | null): string {
-  const st: any = d?.strategy || {};
-  if (Array.isArray(st.ciudades) && st.ciudades.length) return st.ciudades.join(", ");
-  return "En ventasproia.com";
+/**
+ * El renglón gris bajo la foto: en Meta es el DOMINIO del enlace (o
+ * "WhatsApp" en una campaña de mensajes). Antes mostraba las ciudades de la
+ * segmentación, que el cliente nunca ve en el anuncio.
+ */
+function destinoDelAnuncio(objetivo: string): string {
+  if (objetivo === "mensajes") return "WHATSAPP";
+  try { return window.location.hostname.toUpperCase(); } catch { return "TU PÁGINA"; }
 }
 
-/** El texto del botón, según el CTA de la estrategia (como lo llama Meta en el feed). */
-function ctaDelAnuncio(d: DraftAd | null): string {
+/** El texto del botón como lo muestra Meta: depende del OBJETIVO, no solo del ctaType. */
+function ctaDelAnuncio(d: DraftAd | null, objetivo: string): string {
+  if (objetivo === "mensajes") return "Enviar mensaje";
   const st: any = d?.strategy || {};
-  if (st.ctaType === "SIGN_UP") return "Registrarse";
+  if (st.ctaType === "SIGN_UP") return "Registrarte";
   if (st.ctaType === "CONTACT_US") return "Contactarnos";
-  // SHOP_NOW o WHATSAPP_MESSAGE: el feed de Meta lo muestra como "Comprar".
   return "Comprar";
+}
+
+/** Lo que Meta muestra antes del "Ver más" (≈125 letras o 3 renglones). */
+function primeraVista(texto: string): { visible: string; cortado: boolean } {
+  const lineas = texto.split("\n");
+  let visible = lineas.slice(0, 3).join("\n");
+  if (visible.length > 125) visible = visible.slice(0, 125).replace(/\s+\S*$/, "");
+  return { visible, cortado: visible.length < texto.trimEnd().length };
 }
 
 interface DraftAd {
@@ -122,7 +133,9 @@ interface DraftAd {
   niche: string | null;
   budget: number | null;
   /** La estrategia del borrador: ahí viaja la segmentación (interests/edad). */
-  strategy?: { ageMin?: number; ageMax?: number; genders?: number[]; interests?: string[]; ciudades?: string[]; city?: string; angle?: string; hook?: string } | null;
+  strategy?: { ageMin?: number; ageMax?: number; genders?: number[]; interests?: string[]; ciudades?: string[]; city?: string; angle?: string; hook?: string; objetivo?: string; destino?: string } | null;
+  /** La rúbrica de anuncio profesional (backend: lib/anuncio-rubrica.ts). */
+  calidad?: { puntaje: number; criterios: Array<{ id: string; nombre: string; ok: boolean; detalle: string }> } | null;
   createdAt: string;
 }
 
@@ -1272,6 +1285,23 @@ export default function FacebookAdsPage() {
                                 {d.fbStatus && <span className="shrink-0 px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-500">{d.fbStatus}</span>}
                               </div>
                               {d.niche && <p className="text-xs text-muted-foreground break-words">Estrategia: {d.niche}</p>}
+                              {/* La rúbrica: qué le falta a este borrador para ser profesional. */}
+                              {d.calidad && (
+                                <details className="mt-2">
+                                  <summary className={`text-xs cursor-pointer font-medium ${d.calidad.puntaje >= 100 ? "text-green-600" : d.calidad.puntaje >= 75 ? "text-amber-600" : "text-red-600"}`}>
+                                    Calidad del anuncio: {d.calidad.criterios.filter((c) => c.ok).length}/{d.calidad.criterios.length}
+                                    {d.calidad.criterios.some((c) => !c.ok) ? ` · falta: ${d.calidad.criterios.filter((c) => !c.ok).map((c) => c.nombre.toLowerCase()).join(", ")}` : " · listo para subir"}
+                                  </summary>
+                                  <ul className="mt-2 space-y-1">
+                                    {d.calidad.criterios.map((c) => (
+                                      <li key={c.id} className="text-xs flex gap-1.5 break-words">
+                                        <span className={c.ok ? "text-green-600" : "text-red-600"}>{c.ok ? "✓" : "✗"}</span>
+                                        <span><span className="font-medium">{c.nombre}:</span> <span className="text-muted-foreground">{c.detalle}</span></span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </details>
+                              )}
                               <div className="flex flex-wrap gap-3 mt-2 text-xs">
                                 {d.budget && <span className="text-muted-foreground">💰 ${d.budget.toLocaleString("es-CO")} COP/día</span>}
                                 {d.headline && <span className="text-foreground font-medium break-words min-w-0">📝 {d.headline}</span>}
@@ -1739,12 +1769,16 @@ export default function FacebookAdsPage() {
                   rows={6}
                   placeholder="Ej: Aprende a tocar piano desde cero..."
                 />
-                <p className="text-xs text-muted-foreground mt-1">{editPrimaryText.length} caracteres (max 500 recomendado)</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {editPrimaryText.length} caracteres · lo que se ve antes de "Ver más" son las primeras ~125: ahí tiene que estar el gancho.
+                </p>
               </div>
               <div>
                 <Label>Descripción (línea del enlace)</Label>
-                <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} maxLength={60} placeholder="Ej: Pago contra entrega en toda Colombia" />
-                <p className="text-xs text-muted-foreground mt-1">Se muestra bajo el titular en Meta.</p>
+                <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} maxLength={60} placeholder="Ej: $45.000 · Pagas al recibir" />
+                <p className={`text-xs mt-1 ${editDescription.length > 30 ? "text-amber-600" : "text-muted-foreground"}`}>
+                  {editDescription.length}/30 caracteres · se muestra bajo el titular{editDescription.length > 30 ? " — Meta la corta pasando los 30" : ""}.
+                </p>
               </div>
               <div>
                 <Label>Presupuesto diario (COP)</Label>
@@ -1868,7 +1902,17 @@ export default function FacebookAdsPage() {
                       </div>
                     </div>
                     {editPrimaryText ? (
-                      <p className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words px-2.5 pb-2 text-[13px]">{editPrimaryText}</p>
+                      // Como el feed: solo la primera vista y el "Ver más" (lo de
+                      // después lo lee únicamente quien toca).
+                      (() => {
+                        const { visible, cortado } = primeraVista(editPrimaryText);
+                        return (
+                          <p className="whitespace-pre-wrap break-words px-2.5 pb-2 text-[13px]">
+                            {visible}
+                            {cortado ? <span className="text-muted-foreground">… Ver más</span> : null}
+                          </p>
+                        );
+                      })()
                     ) : (
                       <p className="px-2.5 pb-2 text-[13px] text-muted-foreground">(sin texto todavía)</p>
                     )}
@@ -1884,11 +1928,13 @@ export default function FacebookAdsPage() {
                     ) : null}
                     <div className="flex items-center justify-between border-t p-2.5">
                       <div className="min-w-0">
-                        <p className="truncate text-[11px] text-muted-foreground">{destinoDelAnuncio(editingDraft)}</p>
-                        {editDescription ? <p className="truncate text-[12px]">{editDescription}</p> : null}
+                        <p className="truncate text-[11px] text-muted-foreground">{destinoDelAnuncio(editObjetivo)}</p>
+                        {/* El TITULAR va acá, en negrita: antes el mock no lo mostraba. */}
+                        {editHeadline ? <p className="truncate text-[13px] font-semibold">{editHeadline}</p> : <p className="text-[12px] text-amber-600">(sin titular)</p>}
+                        {editDescription ? <p className="truncate text-[12px] text-muted-foreground">{editDescription}</p> : null}
                       </div>
                       <span className="ml-2 shrink-0 rounded bg-primary/10 px-2.5 py-1.5 text-[12px] font-semibold text-primary">
-                        {ctaDelAnuncio(editingDraft)}
+                        {ctaDelAnuncio(editingDraft, editObjetivo)}
                       </span>
                     </div>
                   </div>

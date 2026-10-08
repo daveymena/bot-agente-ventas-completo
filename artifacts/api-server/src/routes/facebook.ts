@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { createHmac, timingSafeEqual } from "crypto";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db, tenants, leads, conversations, messages, products, facebookDrafts } from "@workspace/db";
 import { procesarWebhookDeMeta } from "../lib/meta-webhook-pagina";
 import { channelManager } from "../lib/channel-manager";
@@ -628,6 +628,39 @@ router.get("/strategist/drafts", async (req, res, next) => {
     const tenantId = Number((req as any).tenant?.id);
     if (!tenantId) return res.status(401).json({ error: "Tenant no autenticado" });
     const drafts = await adStrategist.getDrafts(tenantId);
+    // ── La RÚBRICA de cada borrador (anuncio-rubrica.ts) ─────────────────
+    // El dueño aprobaba a ojo: ahora cada borrador trae sus 8 criterios
+    // (gancho, beneficio, prueba, precio, acción vs destino, largos de Meta,
+    // fotos reales, segmentación) para ver QUÉ le falta antes de subirlo.
+    // Lectura pura: si algo falla, la lista sale igual, sin calidad.
+    try {
+      const { evaluarBorrador } = await import("../lib/anuncio-rubrica");
+      const { destinoDeObjetivo } = await import("../lib/anuncio-por-modelo");
+      const { fotosDelProducto } = await import("../lib/fotos-de-producto");
+      const { getAppUrl } = await import("../lib/app-url");
+      const ids = [...new Set(drafts.map((d: any) => Number(d.productId)).filter(Boolean))] as number[];
+      const prods = ids.length ? await db.select().from(products).where(and(eq(products.tenantId, tenantId), inArray(products.id, ids))) : [];
+      const porId = new Map(prods.map((p: any) => [Number(p.id), p]));
+      let garantia = false;
+      try {
+        const { getBusinessContext } = await import("../lib/business-context");
+        garantia = !!(await getBusinessContext(tenantId))?.garantia;
+      } catch { garantia = false; }
+      for (const d of drafts as any[]) {
+        const p = porId.get(Number(d.productId));
+        if (!p) continue;
+        const st: any = d.strategy && typeof d.strategy === "object" ? d.strategy : {};
+        const destino = st.destino ? (st.destino === "whatsapp" ? "whatsapp" : "web") : destinoDeObjetivo(st.objetivo || st.objetivoRecomendado);
+        d.calidad = evaluarBorrador(d, {
+          producto: p,
+          destino,
+          fotosDelProducto: fotosDelProducto(p, getAppUrl()),
+          negocioTieneGarantia: garantia,
+        });
+      }
+    } catch (e: any) {
+      logger.warn({ err: e?.message }, "[strategist/drafts] no se pudo calcular la calidad de los borradores");
+    }
     return res.json({ drafts });
   } catch (e) { return next(e); }
 });
@@ -771,6 +804,24 @@ router.put("/strategist/draft/:id", async (req, res, next) => {
       const st: any = (typeof patch.strategy === "object" && patch.strategy ? { ...(patch.strategy as any) } : (fila?.strategy && typeof fila.strategy === "object" ? { ...(fila.strategy as any) } : {}));
       st.objetivo = objetivo;
       patch.strategy = st;
+      // ── Cambiar el objetivo cambia la ACCIÓN del texto ──────────────────
+      // Si el admin pasa de Mensajes a Ventas (landing), el texto no puede
+      // seguir diciendo "Escríbenos por WhatsApp" (07-10-2026). Solo se
+      // cambia la línea 👉 y solo si contradice el destino nuevo.
+      try {
+        const { accionCoherenteConDestino, destinoDeObjetivo, modeloDelProducto } = await import("../lib/anuncio-por-modelo");
+        const texto = typeof patch.primaryText === "string" ? patch.primaryText : String(fila?.primaryText || "");
+        const [prod] = fila?.productId ? await db.select().from(products).where(and(eq(products.id, Number(fila.productId)), eq(products.tenantId, tenantId))).limit(1) : [];
+        if (prod && texto) {
+          let pago: string | null = null;
+          try {
+            const { getBusinessContext } = await import("../lib/business-context");
+            pago = (await getBusinessContext(tenantId))?.condiciones?.envio?.pago ?? null;
+          } catch { pago = null; }
+          const r = accionCoherenteConDestino(texto, modeloDelProducto(prod as any), destinoDeObjetivo(objetivo), pago);
+          if (r.corregido) patch.primaryText = r.texto;
+        }
+      } catch { /* sin producto: el texto queda como está */ }
     }
     const [updated] = await db.update(facebookDrafts).set(patch).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, tenantId))).returning();
     if (!updated) return res.status(404).json({ ok: false, message: "Borrador no encontrado" });
