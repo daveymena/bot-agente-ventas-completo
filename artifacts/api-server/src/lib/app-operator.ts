@@ -10234,6 +10234,33 @@ export function isDestructiveTool(name: string): boolean {
  */
 export async function verifyMutation(tool: string, args: any, ctx: OperatorContext): Promise<string> {
   try {
+    // ── Anuncios: se LEE de Meta cómo quedó (08-10) ──────────────────────
+    // Antes no había ningún caso de anuncios acá, y el "✅ verificado" salía
+    // de lo que se mandó. El carrusel 25-55 en seis ciudades quedó como una
+    // imagen 18-65 a todo el país y nadie lo vio hasta mirar los resultados.
+    if (tool === "crear_anuncio" || tool === "fb_upload_draft_to_meta" || tool === "fb_segmentacion_editar") {
+      const draftId = Number(args?.draftId);
+      let fila: any = null;
+      if (Number.isInteger(draftId) && draftId > 0) {
+        [fila] = await db.select().from(facebookDrafts).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, ctx.tenantId))).limit(1);
+      } else if (tool === "crear_anuncio") {
+        [fila] = await db.select().from(facebookDrafts).where(eq(facebookDrafts.tenantId, ctx.tenantId)).orderBy(desc(facebookDrafts.createdAt)).limit(1);
+      }
+      const adSetId = String(args?.adSetId || fila?.adSetId || "").trim();
+      if (!adSetId) return fila ? "🔎 Quedó como borrador local: todavía no está en Meta, no gasta." : "";
+      const { segmentacionPedida } = await import("./anuncio-segmentacion-pedida");
+      const st: any = { ...((fila?.strategy as any) || {}), ...segmentacionPedida(args).estrategia };
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return "";
+      const { compararConLoPedido } = await import("./verificar-anuncio-en-meta");
+      const leido = await fb.leerConjuntoParaVerificar(adSetId);
+      return compararConLoPedido(
+        { ageMin: st.ageMin, ageMax: st.ageMax, ciudades: st.ciudades, genders: st.genders, formato: String(args?.formato || st.formato || "") || undefined },
+        leido,
+      ).linea;
+    }
     if (tool === "update_product" || tool === "create_product") {
       const id = args?.id ? Number(args.id) : undefined;
       let row;

@@ -1751,7 +1751,8 @@ ESTADO REAL DEL CATALOGO, MEDIDO AHORA MISMO (${new Date().toISOString()}):
           lines.push(`${r.ok ? "✅" : "❌"} ${paraElAdmin}${repairText}${verification ? `\n   ${verification}` : ""}`);
         }
         await clearPendingPlan(tenantId, sessionId);
-        const allOk = executed.every((item) => item.ok);
+        // 08-10: "verificado" solo si lo LEÍDO coincide (ver verificar-anuncio-en-meta.ts).
+        const allOk = executed.every((item) => item.ok && !String(item.verification || "").startsWith("⚠️"));
         // AUTO-EVALUACIÓN DE ATLAS: si el plan terminó con errores, se guarda
         // la lección (qué herramienta, qué error, qué se intentó) para que el
         // próximo turno la lea en loadRecentLessons y no tropiece dos veces

@@ -997,7 +997,8 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         // cuenta "la landing quedó actualizada", es verdad y el candado de
         // "ya lo hice" no tiene que desmentirlo (ver atlas-cierre-del-turno.ts).
         anotarTrabajoReal(tenantId, sessionId, executed.filter((item) => item.ok).map((item) => String(item.tool)));
-        const allOk = executed.every((item) => item.ok);
+        // 08-10: "verificado" solo si lo LEÍDO coincide (ver verificar-anuncio-en-meta.ts).
+        const allOk = executed.every((item) => item.ok && !String(item.verification || "").startsWith("⚠️"));
         // Lo que ya se entrego accion por accion no se repite en el cierre: el
         // admin acaba de leerlo. Con una sola accion nada se entrego antes, asi
         // que el cierre la lleva completa, como siempre.

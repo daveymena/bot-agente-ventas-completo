@@ -1779,6 +1779,23 @@ Responde SOLO con este JSON exacto:
     }
   }
 
+  /**
+   * Lee de Meta cómo quedó un conjunto (segmentación, estado y el creative de
+   * sus anuncios) para la verificación posterior. Ver
+   * lib/verificar-anuncio-en-meta.ts.
+   */
+  async leerConjuntoParaVerificar(adSetId: string): Promise<{ targeting?: any; status?: string; effective_status?: string; ads?: any[] }> {
+    const token = this.config.userAccessToken || this.config.accessToken;
+    const conjunto = await this.fbGet(adSetId, { fields: "targeting,status,effective_status" }, token);
+    const ads = await this.fbGet(`${adSetId}/ads`, { fields: "creative{object_story_spec,asset_feed_spec}", limit: "10" }, token).catch(() => null);
+    return {
+      targeting: conjunto?.targeting,
+      status: conjunto?.status,
+      effective_status: conjunto?.effective_status,
+      ads: Array.isArray(ads?.data) ? ads.data : [],
+    };
+  }
+
   async setAdSetBudget(adSetId: string, dailyBudget: number): Promise<{ ok: boolean; message?: string }> {
     // El monto viene en COP y se convierte a la moneda real de la cuenta,
     // con techo de seguridad (ver presupuestoDiarioParaMeta).
