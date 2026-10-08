@@ -10,22 +10,8 @@ import { getOrCreateBudget, getBudgetStatus, canSpendToday } from "./marketing-t
 
 import { FB_GRAPH_BASE } from "./meta-api-version";
 import { modeloDelProducto } from "./modelo-de-negocio";
-import { planDeAnuncio, copyDeOtroModelo } from "./anuncio-por-modelo";
+import { planDeAnuncio, copyDeOtroModelo, destinoDeObjetivo, ajustarCopyAMeta } from "./anuncio-por-modelo";
 const FB_GRAPH_URL = FB_GRAPH_BASE;
-
-// Corta en el último espacio dentro del límite en vez de a lo bruto -- un
-// substring ciego partía nombres de producto a mitad de palabra (ej: "Curso
-// de Piano Completo: De Cero a" con "Nivel Avanzado" perdido sin ni un "…"
-// que avise que se cortó). Si no hay un espacio razonablemente cerca del
-// límite (título de una sola palabra larga), corta igual pero al menos
-// avisa con "…".
-function truncateAtWord(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text;
-  const cut = text.slice(0, maxLen);
-  const lastSpace = cut.lastIndexOf(" ");
-  const clean = lastSpace > maxLen * 0.6 ? cut.slice(0, lastSpace) : cut;
-  return clean.trimEnd() + "…";
-}
 
 /**
  * Saca el markdown del texto de un anuncio.
@@ -460,7 +446,13 @@ export class AdStrategist {
   // USD". Nadie publica ese texto, pero el admin lo ve en el panel y no tiene
   // forma de saber cuál de los dos sale. Lo que se guarda tiene que ser lo que
   // se usa.
-  async generateAdCopy(strategy: AdStrategy, product: any, grounded?: ResearchGroundedCopy): Promise<{ primaryText: string; headline: string; description: string; strategy: AdStrategy }> {
+  async generateAdCopy(
+    strategy: AdStrategy,
+    product: any,
+    grounded?: ResearchGroundedCopy,
+    /** `objetivo`: el que pidió el admin/Atlas. Sin él, la regla de destinoPorDefecto. */
+    opts: { objetivo?: string | null } = {},
+  ): Promise<{ primaryText: string; headline: string; description: string; strategy: AdStrategy }> {
     // Si el agente investigó y aportó su propio hook/ángulo, se usa ESE en
     // vez del texto fijo del nicho -- el hook es literalmente lo que separa
     // un anuncio "genérico por categoría" de uno anclado en lo que se
@@ -506,45 +498,46 @@ export class AdStrategist {
       const { getBusinessContext } = await import("./business-context");
       condiciones = (await getBusinessContext(this.tenant.id))?.condiciones ?? null;
     } catch { condiciones = null; }
+
+    // ── A DÓNDE va el anuncio, ANTES de escribir la acción ─────────────────
+    // Bug (07-10-2026): el texto decía siempre "Escríbenos por WhatsApp" y la
+    // subida mandaba a la landing publicada (destinoPorDefecto). Se decide
+    // acá con la MISMA regla, y el objetivo queda en la estrategia: la subida
+    // lo honra (routes/facebook.ts lee strategy.objetivo), así el texto y el
+    // botón no se separan. Quien pide un objetivo explícito, manda.
+    let objetivo: string = String(opts.objetivo || "") || "mensajes";
+    if (!opts.objetivo) {
+      try {
+        const { destinoPorDefecto } = await import("./landing/destino-del-producto");
+        objetivo = (await destinoPorDefecto(this.tenant.id, Number(product.id), "mensajes")).objetivo;
+      } catch { objetivo = "mensajes"; }
+    }
+    const destino = destinoDeObjetivo(objetivo);
+
     // El gancho: el que trajo la investigación de Atlas; si no hubo, el plan
-    // toma la primera FRASE del producto (el recorte de arriba a 117
-    // caracteres dejaba "Fácil de ajustar..." colgando en el anuncio).
-    const plan = planDeAnuncio(product, condiciones, { gancho: grounded?.hook });
+    // toma la mejor FRASE real del producto (o el beneficio de la ficha curada).
+    const plan = planDeAnuncio(product, condiciones, { gancho: grounded?.hook, destino });
     strategy = {
       ...strategy,
       ctaType: plan.ctaType,
       creativo: plan.creativo,
-      objetivoRecomendado: plan.objetivoRecomendado,
+      objetivoRecomendado: objetivo === "ventas" ? "ventas" : objetivo === "mensajes" ? "mensajes" : "trafico",
       metricaClave: plan.metricaClave,
       modelo: plan.modelo,
     };
+    (strategy as any).objetivo = objetivo;
     const primaryText = plan.primaryText;
 
-    const getEmoji = () => {
-      const n = name.toLowerCase();
-      if (n.includes("diseño") || n.includes("photoshop") || n.includes("ilustra") || n.includes("lettering") || n.includes("logotipo") || n.includes("canva") || n.includes("after") || n.includes("premiere") || n.includes("animación") || n.includes("infografía") || n.includes("portada") || n.includes("cuadro")) return "🎨";
-      if (n.includes("programación") || n.includes("programacion") || n.includes("desarrollo web") || n.includes("python") || n.includes("hacking") || n.includes("ciberseguridad") || n.includes("wordpress") || n.includes("linux") || n.includes("excel") || n.includes("videojuego")) return "💻";
-      if (n.includes("marketing") || n.includes("ventas") || n.includes("seo") || n.includes("ecommerce") || n.includes("publicidad") || n.includes("facebook ads")) return "📈";
-      if (n.includes("idioma") || n.includes("inglés") || n.includes("ingles") || n.includes("oxford")) return "🌎";
-      if (n.includes("foto") || n.includes("lightroom") || n.includes("presets") || n.includes("cámara") || n.includes("camara")) return "📸";
-      if (n.includes("música") || n.includes("musica") || n.includes("guitarra") || n.includes("dj") || n.includes("audio") || n.includes("car audio")) return "🎵";
-      if (n.includes("fitness") || n.includes("pilates") || n.includes("fuerza") || n.includes("guerrero") || n.includes("perro") || n.includes("gastronomía") || n.includes("gastronomia") || n.includes("cocina")) return "💪";
-      if (n.includes("reparación") || n.includes("reparacion") || n.includes("celular") || n.includes("play") || n.includes("consola") || n.includes("armado") || n.includes("ensamblaje") || n.includes("computador") || n.includes("instaladores")) return "🔧";
-      if (n.includes("construcción") || n.includes("construccion") || n.includes("drywall") || n.includes("plano") || n.includes("revit") || n.includes("arquitectura") || n.includes("obra") || n.includes("carpintería") || n.includes("carpinteria") || n.includes("metrados") || n.includes("expediente") || n.includes("vivienda")) return "🏗️";
-      if (n.includes("libros") || n.includes("contabilidad") || n.includes("psicología") || n.includes("psicologia") || n.includes("autismo") || n.includes("lenguaje") || n.includes("preuniversitario") || n.includes("ingeniería") || n.includes("ingenieria") || n.includes("aula") || n.includes("memoria") || n.includes("educación") || n.includes("educacion")) return "📚";
-      return "🔥";
-    };
-
-    // Headline corto (< 40 chars): emoji de categoría + nombre real del
-    // producto. (Antes decía "+15.000 Alumnos" fijo en TODOS los anuncios --
-    // una cifra sin respaldo real, se sacó.)
-    // 🔥 es el comodín de "no sé qué es": para un corrector o una asesoría no
-    // dice nada. Sin categoría reconocida, el título va sin emoji.
-    const emoji = getEmoji();
-    const headline = emoji === "🔥" ? plan.headline : `${emoji} ${truncateAtWord(name.replace(/^📂\s*/, ""), 35)}`;
+    // El titular sale del plan: el nombre legible en ≤40 (o la oferta, si el
+    // anuncio tuvo que abrir con el nombre). Acá antes se le pegaba un emoji
+    // "de categoría" adivinado por palabras del nombre: la cámara de
+    // seguridad salía con 📸 (de "fotografía") y "Cámara Seguridad
+    // Videollamada…" cortado con puntos suspensivos.
+    const headline = plan.headline;
     // La descripción ya no afirma "Acceso permanente" para todo (lo decía
     // también de un corrector de postura): sale del plan del modelo.
     const description = plan.description;
+    void name;
 
     // Override final: si el agente investigó y redactó su propio texto
     // completo (no solo hook/ángulo), se respeta tal cual -- el precio y los
@@ -559,10 +552,22 @@ export class AdStrategist {
       logger.warn({ productId: product?.id, motivo: motivoAjeno }, "[AdStrategist] El texto recibido no corresponde al tipo de producto: se usa el del plan");
       grounded = { ...grounded, primaryText: undefined, headline: undefined, description: undefined } as any;
     }
+    // ── Lo que se GUARDA es lo que se publica ─────────────────────────────
+    // El tuteo y los límites de Meta se aplicaban recién al SUBIR
+    // (facebook.ts → pulirCopyDeAnuncio): el borrador que el dueño revisaba
+    // en el panel decía "Llevá", "Escribinos" y tenía descripciones de 50
+    // letras que Meta corta en 30. Se pule acá, una sola vez, para todos los
+    // caminos (plan, Atlas, lanzamiento).
+    const pulido = ajustarCopyAMeta(
+      {
+        primaryText: sinMarkdown(grounded?.primaryText || primaryText),
+        headline: sinMarkdown(grounded?.headline || headline),
+        description: sinMarkdown(grounded?.description || description),
+      },
+      { esFisico: plan.modelo === "fisico", pais: String((this.tenant as any)?.country || condiciones?.pais || "CO"), respaldo: plan },
+    );
     return {
-      primaryText: sinMarkdown(grounded?.primaryText || primaryText),
-      headline: sinMarkdown(grounded?.headline || headline),
-      description: sinMarkdown(grounded?.description || description),
+      ...pulido,
       // La estrategia con el gancho YA corregido. Sin esto, el llamador
       // guardaba la original y el borrador quedaba con dos verdades.
       strategy,
@@ -888,7 +893,7 @@ export class AdStrategist {
         if (noCorresponde) logger.warn({ draftId, motivo: noCorresponde }, "[AdStrategist] El copy del borrador no corresponde al producto: se regenera antes de subir");
         const prod = prodDelBorrador;
         if (prod) {
-          const nuevo = await this.generateAdCopy(this.getStrategyForProduct(prod), prod);
+          const nuevo = await this.generateAdCopy(this.getStrategyForProduct(prod), prod, undefined, { objetivo });
           copy = { primaryText: nuevo.primaryText, headline: nuevo.headline, description: nuevo.description };
           await db.update(facebookDrafts).set({ ...copy, updatedAt: new Date() }).where(eq(facebookDrafts.id, draftId));
           logger.warn({ draftId }, "[AdStrategist] Borrador con el texto de la plantilla vieja: se regeneró antes de subirlo");
