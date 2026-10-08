@@ -112,7 +112,12 @@ const soloFamilia = (v?: string | null): string => (v && !v.startsWith("estilo")
 
 async function apiFetch<T>(url: string, opts?: RequestInit): Promise<T> {
   const r = await fetch(url, { credentials: "include", headers: { "Content-Type": "application/json", ...(opts?.headers || {}) }, ...opts });
-  if (!r.ok) throw new Error((await r.json().catch(() => null))?.message || `Error ${r.status}`);
+  // 08-10-2026: el backend responde {error, code} (no {message}); leer .message
+  // mostraba "Error 400" sin decir qué pasó. Se lee .error también.
+  if (!r.ok) {
+    const body = await r.json().catch(() => null);
+    throw new Error(body?.message || body?.error || `Error ${r.status}`);
+  }
   return r.status === 204 ? (undefined as T) : r.json();
 }
 

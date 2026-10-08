@@ -4,7 +4,6 @@ import {
   CreateProductBody,
   DeleteProductParams,
   DeleteProductResponse,
-  ListProductsResponse,
   UpdateProductBody,
   UpdateProductParams,
   UpdateProductResponse,
@@ -16,6 +15,7 @@ import { resolveCategoryId } from "../lib/product-categories";
 import { sendError } from "../lib/error-handler";
 import { ERROR_CODES } from "../lib/error-codes";
 import { logger } from "../lib/logger";
+import { serializarListaProductos } from "../lib/productos-lista";
 import { saveProductImage } from "../lib/image-store";
 import type { TenantRequest } from "../lib/tenantManager";
 
@@ -112,8 +112,14 @@ router.get("/", async (req: TenantRequest, res, next) => {
     
     // El esquema generado no trae `opciones` (talla/color) y zod lo descartaba:
     // el editor del panel nunca veía las opciones cargadas (30-09-2026).
-    const lista = ListProductsResponse.parse(rows.map(serialize)) as any[];
-    return res.json(lista.map((p, i) => ({ ...p, opciones: (rows[i] as any).opciones ?? null })));
+    //
+    // 08-10-2026: UNA fila mala tumbaba TODO el listado con 400 y el editor
+    // de landings no abría. serializarListaProductos salta la fila mala,
+    // la registra y devuelve las buenas (ver lib/productos-lista.ts).
+    const lista = serializarListaProductos(rows as any[], (id, issues) =>
+      logger.warn({ productId: id, issues }, "[Products] fila saltada en listado (no tumba el 200)"),
+    );
+    return res.json(lista);
   } catch (e) {
     return next(e);
   }
