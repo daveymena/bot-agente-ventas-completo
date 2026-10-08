@@ -8332,6 +8332,37 @@ ${r.texto}`, data: r.grupos };
     },
   },
   {
+    // 08-10: el dueño pidió "elimina los que estén publicados, en pausa o en
+    // BORRADOR" y Atlas no tenía cómo borrar un borrador. Si el borrador ya
+    // subió a Meta, su campaña se borra con el MISMO freno por gasto que
+    // fb_delete_campaign (deleteDraftWithMeta no lo tenía).
+    name: "fb_borrar_borrador",
+    description: "BORRA un borrador (fb_list_drafts) y, si ya subió, su campaña en Meta (mismo freno por gasto que fb_delete_campaign). Irreversible.",
+    args: '{ "draftId": number (req), "borrarAunqueTengaGasto"?: boolean }',
+    run: async (args, ctx) => {
+      const draftId = num(args?.draftId);
+      if (!draftId) return { ok: false, summary: "Falta el id del borrador (usá fb_list_drafts para obtenerlo)." };
+      const [fila] = await db.select().from(facebookDrafts)
+        .where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, ctx.tenantId))).limit(1);
+      if (!fila) return { ok: false, summary: `No existe el borrador ${draftId} en este negocio.` };
+      const campaignId = String((fila as any).campaignId || "").trim();
+      let enMeta = "";
+      if (campaignId && (fila as any).fbStatus !== "DELETED") {
+        const bloqueo = await bloqueoDeMeta("fb_delete_campaign", ctx);
+        if (bloqueo) return { ok: false, summary: bloqueo };
+        const tenant = await tenantManager.getTenantById(ctx.tenantId);
+        const { FacebookService } = await import("./facebook");
+        const fb = new FacebookService(tenant || undefined);
+        if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado: no puedo borrar su campaña en Meta." };
+        const r = await fb.borrarCampana(campaignId, { permitirConGasto: args.borrarAunqueTengaGasto === true });
+        if (!r.ok) return { ok: false, summary: r.message };
+        enMeta = ` y su campaña en Meta (${r.nombre ? `"${r.nombre}"` : campaignId}${(r.gasto || 0) > 0 ? `, había gastado $${Number(r.gasto).toLocaleString("es-CO")}` : ", nunca gastó"})`;
+      }
+      await db.delete(facebookDrafts).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, ctx.tenantId)));
+      return { ok: true, summary: `🗑️ Borrador ${draftId} borrado${enMeta}.` };
+    },
+  },
+  {
     name: "fb_segmentacion_editar",
     description:
       "Corrige A QUIÉN se muestra un anuncio ya publicado (edades, ciudades, género, Advantage+) sin rehacerlo.",
@@ -10332,7 +10363,8 @@ const FAMILIAS: Array<{ cuando: RegExp; prefijos: string[] }> = [
   // programa es activar/pausar anuncios y publicar en la página.
   { cuando: /program|agend|a las \d|ma[ñn]ana|cada (?:noche|d[ií]a|lunes)|en \d+ (?:min|hora)/i,
     prefijos: ["programar_accion", "agenda_", "fb_"] },
-  { cuando: /facebook|anuncio|campa[ñn]a|meta|publicar|p[uú]blico|audiencia|instagram|ads?\b/i,
+  // 08-10: "anucio"/"anucioso" (como escribe el dueño) no entraban con /anuncio/.
+  { cuando: /facebook|an?un?n?[cs]i|anucio|campa[ñn]a|meta|publicar|p[uú]blico|audiencia|instagram|ads?\b/i,
     prefijos: ["fb_", "ad_", "crear_anuncio", "optimize_copy", "generate_image"] },
   { cuando: /producto|precio|cat[aá]logo|curso|pack|stock|categor[ií]a|imagen/i,
     prefijos: ["product", "categor", "create_product", "update_product", "delete_product", "generate_image", "optimize_copy", "terabox"] },

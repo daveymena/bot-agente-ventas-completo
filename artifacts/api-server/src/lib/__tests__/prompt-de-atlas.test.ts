@@ -54,8 +54,11 @@ describe("el prompt de Atlas entra en el límite del proveedor", () => {
     // formato/edades/ciudades/géneros/intereses (sin ellos el carrusel 25-55
     // en seis ciudades salía como imagen 18-65 a todo el país) + la
     // herramienta fb_segmentacion_editar. Misma conclusión sobre Groq.
+    //
+    // 6250 → 6300 el mismo día: fb_borrar_borrador (el dueño pidió borrar
+    // borradores y Atlas no tenía cómo). Misma conclusión sobre Groq.
     const tokens = TOKENS(buildToolsDoc("hazme una campaña en facebook"));
-    expect(tokens).toBeLessThan(6250);
+    expect(tokens).toBeLessThan(6300);
     expect(tokens).toBeGreaterThan(3000);
   });
 

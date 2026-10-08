@@ -751,6 +751,8 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
    NO gasta: queda pausado hasta que lo actives`;
     case "fb_delete_campaign":
       return `🗑️ BORRAR de Facebook la campaña ${g.campaignId ?? "?"} — se van también sus conjuntos y anuncios. IRREVERSIBLE, no hay papelera${g.borrarAunqueTengaGasto === true ? ", y se pierde su historial de resultados" : ""}`;
+    case "fb_borrar_borrador":
+      return `🗑️ BORRAR el borrador ${g.draftId ?? "?"} (y su campaña en Meta, si ya estaba subido). IRREVERSIBLE${g.borrarAunqueTengaGasto === true ? ", y se pierde su historial de resultados" : ""}`;
     case "fb_set_ad_account":
       return `🔁 Cambiar la cuenta publicitaria activa a ${g.adAccountId ?? "?"} — los anuncios nuevos se crean ahí. No gasta`;
     case "fb_pause_campaign":
@@ -1345,8 +1347,19 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // `web_search`/`web_fetch` no hace falta listarlas: están en el NÚCLEO y
     // viajan siempre. Eso cubre el caso que reportó el admin en su momento,
     // cuando un pedido de anuncio moría con "todavía no investigaste nada".
-    patron: /facebook|anuncio|campa|meta|ads?\b|publicit|p[uú]blico|audiencia|creativ/i,
+    // 08-10: "anucio", "anucioso", "anunsio" (como escribe el dueño) no
+    // entraban con /anuncio/ y el pedido viajaba sin herramientas de anuncios.
+    patron: /facebook|an?un?n?[cs]i|anucio|campa|meta|ads?\b|publicit|p[uú]blico|audiencia|creativ/i,
     herramientas: ["fb_status", "fb_pixel_status", "fb_suggest_audience", "fb_list_drafts", "fb_page_can_post", "fb_page_preview", "anuncio_datos_expertos"],
+  },
+  {
+    // ── Anuncios: ELIMINAR / PAUSAR / LIMPIAR ────────────────────────────
+    // 08-10, producción: "Elimina todos los anuncios en Meta" → Atlas
+    // contestó tres veces "no tengo acceso al listado de campañas / necesito
+    // el identificador". fb_list_campaigns no viajaba en ningún grupo de
+    // acción: podía borrar (fb_delete_campaign) pero no ver QUÉ borrar.
+    patron: /(elimin|borr|quit|pausa|apag|desactiv|det[eé]n|limpi|reemplaz)[\s\S]{0,80}(an?un?n?[cs]i|anucio|campa|meta\b|facebook|ads?\b)|(an?un?n?[cs]i|anucio|campa)[\s\S]{0,80}(elimin|borr|quit|pausa|apag|desactiv|limpi)/i,
+    herramientas: ["fb_list_campaigns", "fb_campaign_metrics", "fb_list_adsets", "fb_list_drafts"],
   },
   {
     // ── Anuncios: VER LA PROPUESTA ANTES DE GASTAR ───────────────────────
