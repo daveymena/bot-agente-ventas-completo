@@ -37,10 +37,12 @@ export async function reintentarPedidosCaidos(): Promise<{ revisados: number; de
         AND woo_order_id IS NULL
         AND NOT (estado = ANY($1::text[]))
         AND updated_at < now() - interval '10 minutes'
-        -- Solo pedidos de las ultimas 24 h: uno mas viejo pudo haberse
-        -- despachado a mano y reintentarlo solo lo duplicaria. Esos quedan
-        -- para el boton Reintentar del panel.
-        AND created_at > now() - interval '24 hours'
+        -- Ultimas 72 h (antes 24): el pedido de Elkin (06-10) quedo fuera de
+        -- la ventana el dia que se desplego el reintento y se perdio la venta.
+        -- Uno mas viejo pudo haberse despachado a mano y reintentarlo lo
+        -- duplicaria: esos quedan para el boton Reintentar del panel o para
+        -- cuando el cliente pregunte (estado_de_mi_pedido lo reintenta).
+        AND created_at > now() - interval '72 hours'
       ORDER BY created_at ASC
       LIMIT 20`,
     [CERRADOS],

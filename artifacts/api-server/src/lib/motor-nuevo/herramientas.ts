@@ -218,6 +218,8 @@ export interface ServicioDePedidos {
   confirmar(): Promise<ResultadoConfirmarPedido>;
   /** Seguimiento: el último pedido de esta conversación y lo que dice Dropi de él. */
   estado?(): Promise<{ hay: boolean; texto: string }>;
+  /** El cliente pide cancelar: se cancela de verdad o se avisa al dueño. */
+  cancelar?(): Promise<{ ok: boolean; texto: string }>;
   /**
    * Transportadoras que llegan a la ciudad del cliente (si la tiene) o a la
    * que se le pase. Nombres reales del proveedor: el bot ofrece la lista y el
@@ -514,7 +516,17 @@ export const definicionesDeHerramientas = [
       name: "estado_de_mi_pedido",
       description:
         "SEGUIMIENTO de un pedido YA hecho: cuando el cliente pregunta dónde va, cuándo llega, la guía o la transportadora. " +
-        "Trae el estado real (de la base y de Dropi). Nunca inventes una guía ni una fecha.",
+        "Trae el estado real (de la base y de Dropi). Si el pedido había quedado frenado, lo reintenta en el acto. Nunca inventes una guía ni una fecha.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "cancelar_mi_pedido",
+      description:
+        "El cliente pide CANCELAR un pedido que ya hizo. Lo cancela de verdad si todavía no salió a Dropi, o avisa al dueño si ya está allá. " +
+        "Nunca digas que quedó cancelado sin llamar esta herramienta.",
       parameters: { type: "object", properties: {} },
     },
   },
@@ -1293,6 +1305,14 @@ export const ejecutores: Record<string, Ejecutor> = {
     const r = await ctx.pedidos.estado();
     if (!r.hay) return { ok: true, mensaje: "Esta conversación no tiene ningún pedido hecho. Pregúntale con qué nombre o número lo hizo, sin inventar." };
     return { ok: true, mensaje: `${r.texto} Díselo con tus palabras; si no hay guía todavía, dile que se la pasas apenas la transportadora la asigne.` };
+  },
+
+  async cancelar_mi_pedido(ctx) {
+    if (!ctx.pedidos?.cancelar) {
+      return { ok: false, mensaje: "No puedo cancelar pedidos desde acá. Usa escalar_a_humano y dile que una persona le confirma la cancelación. No digas que ya quedó cancelado." };
+    }
+    const r = await ctx.pedidos.cancelar();
+    return { ok: r.ok, mensaje: r.texto };
   },
 
   async tomar_pedido(ctx, args) {
