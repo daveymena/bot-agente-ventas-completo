@@ -25,6 +25,7 @@
  * - El modelo/proveedor de OpenCode es fijo por ahora (ver pickOpencodeModel) --
  *   la tarea de sincronizar las API keys guardadas del admin lo hace dinámico.
  */
+import { clasificarFallo } from "../lib/fallo-reintentable";
 import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { requireAdmin, type TenantRequest } from "../lib/tenantManager";
@@ -815,7 +816,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         const cabeceras: Record<string, string> = {};
         if (req.headers.cookie) cabeceras.cookie = String(req.headers.cookie);
         if (req.headers.authorization) cabeceras.authorization = String(req.headers.authorization);
-        programarContinuacion({ clave: claveTurno, sessionId, cabeceras });
+        programarContinuacion({ clave: claveTurno, sessionId, cabeceras, esperaMs: Number(payload?.reintentarEnMs) || undefined });
       }
       if (streaming) {
         sse(status === 200 ? "result" : "error", payload);
@@ -1947,7 +1948,12 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         // 502 genérico ahí le miente al admin -- suena a que no pasó nada.
         // Se responde 200 con un mensaje honesto y accionable, mismo criterio
         // que la salida "esto está tardando" de /operator.
-        const seAcaboElTiempo = /timeout|abort|sin tiempo|sin candidatos/i.test(String(opencodeError));
+        // 08-10: también cupo agotado / proveedor saturado (ver
+        // lib/fallo-reintentable.ts). Solo con timeout|abort, un "Rate limit
+        // exceeded" del último modelo de la cadena mataba el turno sin dejar
+        // respuesta, y el dueño lo veía como que se caía la conexión.
+        const fallo = clasificarFallo(opencodeError);
+        const seAcaboElTiempo = fallo.reintentable;
         logger.warn({ tenantId, tramos, totalMs: Date.now() - t0, opencodeError }, "[AtlasOpenCode] Turno cortado -- reparto real del tiempo");
 
         // Si igual alcanzó a redactar algo útil, se muestra ESO.
@@ -1965,7 +1971,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             `${parcial}\n\n⏳ (Me quedé sin tiempo para seguir: lo de arriba es lo que alcancé. Si falta algo, pedime que continúe.)`,
           ));
           await saveArchitectTurn(tenantId, sessionId, "assistant", reply, { parcial: true });
-          return finish({ reply, status: "partial", needsContinuation: true });
+          return finish({ reply, status: "partial", needsContinuation: true, reintentarEnMs: fallo.esperaMs });
         }
 
         if (seAcaboElTiempo) {
@@ -2008,7 +2014,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           );
           await saveArchitectTurn(tenantId, sessionId, "assistant", reply, { parcial: true });
           anotarTurno(tenantId, sessionId, { estado: "cortado", totalMs: Date.now() - t0, tramos, error: String(opencodeError), pedido: String(prompt) });
-        return finish({ reply, status: "partial", needsContinuation: true, tramos, totalMs: Date.now() - t0 });
+        return finish({ reply, status: "partial", needsContinuation: true, reintentarEnMs: fallo.esperaMs, tramos, totalMs: Date.now() - t0 });
         }
         // ── Este 502 es el "falló de verdad", no el "se quedó sin tiempo" ──
         //
@@ -2028,6 +2034,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           error: String(opencodeError),
           pedido: String(prompt),
         });
+        // Y queda escrito en el historial: sin esto, al volver a la app el
+        // pedido aparecía sin respuesta y la pantalla lo contaba como un corte
+        // de conexión.
+        await saveArchitectTurn(tenantId, sessionId, "assistant", "No pude terminar de responder esto. ¿Podés intentarlo de nuevo?").catch(() => {});
         return finish({ error: "No pude terminar de responder. ¿Podés intentarlo de nuevo?" }, 502);
       }
 

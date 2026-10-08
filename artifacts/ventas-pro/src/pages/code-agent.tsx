@@ -1060,6 +1060,19 @@ export default function CodeAgent() {
   };
 
   /**
+   * Si el turno se cortó porque los proveedores de IA estaban sin cupo, el
+   * servidor pide esperar (`reintentarEnMs`) antes del tramo siguiente:
+   * reintentar en el acto se estrellaba contra la misma pared. Se espera un
+   * poco MENOS que el servidor, que reintenta solo si la página no lo hizo.
+   */
+  const esperarAntesDeReintentar = async (data: any) => {
+    const ms = Math.min(60_000, Number(data?.reintentarEnMs) || 0) - 8_000;
+    if (ms <= 0 || detenidoRef.current) return;
+    setProgreso("Los servidores de IA están ocupados. Reintento solo en unos segundos…");
+    await new Promise((r) => setTimeout(r, ms));
+  };
+
+  /**
    * Retoma un pedido que quedó cortado por tiempo.
    *
    * Es el mismo encadenado que hace `handleSubmit`, pero arrancando desde lo
@@ -1084,6 +1097,7 @@ export default function CodeAgent() {
         };
         setMessages((prev) => [...prev, parcial]);
         if (!data?.needsContinuation) return;
+        await esperarAntesDeReintentar(data);
         history = [...history, { role: "assistant", content: parcial.content }].slice(-HISTORY_LIMIT);
       }
       avisarQueHayQuePedirlo(data);
@@ -1331,6 +1345,7 @@ export default function CodeAgent() {
         };
         setMessages((prev) => [...prev, partial]);
         history = [...history, { role: "user", content: userMsg }, { role: "assistant", content: partial.content }].slice(-HISTORY_LIMIT);
+        await esperarAntesDeReintentar(data);
         data = await callAtlas(CONTINUAR, history);
       }
 
