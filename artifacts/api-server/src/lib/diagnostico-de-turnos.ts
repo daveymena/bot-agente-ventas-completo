@@ -65,6 +65,13 @@ export interface DiagnosticoDeTurno {
    * resto del turno, así que ante la duda se mira en vez de discutirla.
    */
   lecturas?: string[];
+  /**
+   * Cuánto midió lo que le llegó al admin (07-10-2026: "que responda corto y
+   * directo"). Sin medirlo, "responde largo" era una impresión; con esto se
+   * ve el promedio de líneas y cuántas respuestas cierran con más de una
+   * pregunta. Ver medirRespuesta en atlas-cierre-del-turno.ts.
+   */
+  forma?: { lineas: number; preguntas: number; caracteres: number };
 }
 
 /**
@@ -96,6 +103,7 @@ export function anotarTurno(
           // Sin repetidos: si el turno llamó tres veces a `list_products`, lo
           // que importa es que lo consultó, no cuántas.
           lecturas: Array.from(new Set(d.lecturas || [])),
+          forma: d.forma ?? null,
           // Recortado a propósito: alcanza para reconocer el pedido y no
           // duplica la conversación, que ya está guardada aparte.
           pedido: d.pedido ? String(d.pedido).slice(0, 120) : null,
@@ -170,5 +178,11 @@ export function resumirTurnos(turnos: any[]): string {
   ];
   if (fallados.length) partes.push(`${fallados.length} sin terminar`);
   if (peorEtapa) partes.push(`donde más se va el tiempo: ${peorEtapa[0]} (${(peorEtapa[1] / 1000).toFixed(1)}s sumados)`);
+  const formas = turnos.map((t) => t.forma).filter((f) => f && Number.isFinite(Number(f.lineas)));
+  if (formas.length) {
+    const lineas = formas.reduce((a, f) => a + Number(f.lineas), 0) / formas.length;
+    const conVarias = formas.filter((f) => Number(f.preguntas) > 1).length;
+    partes.push(`respuestas de ${lineas.toFixed(1)} líneas en promedio, ${conVarias} de ${formas.length} con más de una pregunta`);
+  }
   return partes.join(" · ");
 }

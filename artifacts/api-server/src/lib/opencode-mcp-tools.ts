@@ -90,6 +90,21 @@ const CONTRATO_COMPLETO = new Set<string>([
  */
 const TOOL_SCHEMAS: Record<string, object> = {
   agenda_ver: { type: "object", properties: {} },
+  plan_de_lanzamiento: {
+    type: "object",
+    properties: {
+      producto: { type: "string", description: "Nombre del producto tal como lo dijo el admin" },
+      productId: { type: "number", description: "Id del catálogo, si ya lo tenés" },
+      presupuestoDiario: { type: "number", description: "Solo si el admin lo dijo (COP por día)" },
+    },
+    additionalProperties: false,
+  },
+  lanzamiento_estado: {
+    type: "object",
+    properties: { productId: { type: "number", description: "Id del producto" } },
+    required: ["productId"],
+    additionalProperties: false,
+  },
   landing_forge_pendientes: { type: "object", properties: {} },
   // ── Diagnóstico del vendedor de WhatsApp ────────────────────────────────────
   // Esquemas explícitos y no el genérico permisivo: son las herramientas que
@@ -1059,7 +1074,11 @@ async function proposeAction(
     summary:
       `PROPUESTA REGISTRADA — TODAVÍA NO SE EJECUTÓ NADA. No existe ningún cambio en el sistema en este momento. ` +
       `Lo único que pasó es que "${tool}" quedó anotada, esperando que el admin la apruebe; recién ahí se ejecuta de verdad. ` +
-      `Al responderle, NO digas que quedó guardado, creado, publicado ni listo: decile qué preparaste y pedile que lo confirme. ` +
+      // "pedile que lo confirme" (así decía hasta el 07-10-2026) hacía que el
+      // modelo cerrara con su propio "¿Confirmás…?" arriba del que agrega el
+      // servidor debajo del plan: dos preguntas seguidas en cada propuesta.
+      `Al responderle, NO digas que quedó guardado, creado, publicado ni listo: decile en una o dos líneas qué preparaste. ` +
+      `NO cierres preguntando si confirma: el sistema le muestra el plan y le hace esa pregunta. ` +
       `Acción en espera: ${description}`,
   };
 }
@@ -1252,6 +1271,13 @@ const NUCLEO = new Set<string>([
 ]);
 
 const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
+  {
+    // ── Un plan grande: "armame un plan para lanzar X" ───────────────────
+    // Ver lib/plan-de-lanzamiento.ts. Va con el catálogo para poder ubicar el
+    // producto y con el estado del lanzamiento para no repetir lo hecho.
+    patron: /\bplan\b|lanz|lanzamiento|qu[eé] hago para vender|c[oó]mo (lo )?vendo/i,
+    herramientas: ["plan_de_lanzamiento", "list_products", "lanzamiento_estado", "dropi_margen"],
+  },
   {
     // ── La agenda: "programá", "a las 8", "mañana", "cada noche" ─────────
     patron: /program|agend|reprogram|a las \d|mañana|manana|cada (?:noche|día|dia|mañana|lunes)|en \d+ (?:min|hora)/i,
@@ -1670,7 +1696,7 @@ const FAMILIAS_DE_CONSULTA: Array<{ tema: string; herramientas: string[] }> = [
   { tema: "Ventas y clientes", herramientas: ["embudo_de_ventas", "dashboard_summary", "list_recent_conversations", "list_pending_transfers", "list_duplicate_contacts", "predict_customer", "analyze_channel_performance"] },
   { tema: "WhatsApp y agente", herramientas: ["whatsapp_status", "get_agent", "configurar_mi_agente", "get_settings", "agente_inspectar", "agente_configurar", "agente_perfil_negocio", "agente_conocimiento", "agente_mensaje", "agente_probar_chat", "agente_disenar", "agente_probar_borrador", "vendedor_diagnosticar", "vendedor_motor_ver", "vendedor_probar"] },
   { tema: "Facebook Ads", herramientas: ["objetivos_de_campana", "fb_permisos_formularios", "fb_status", "fb_ad_accounts", "fb_list_campaigns", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics", "fb_why_not_delivering", "fb_page_can_post", "fb_page_preview", "fb_suggest_audience", "fb_pixel_status", "fb_ad_library", "fb_agent_logs", "que_hago_con_la_campana", "ad_brief"] },
-  { tema: "Marketing y contenido", herramientas: ["marketing_diagnostico", "marketing_aprendizajes", "marketing_attribution", "plan_de_contenido", "generate_image", "web_scrape_images"] },
+  { tema: "Marketing y contenido", herramientas: ["marketing_diagnostico", "marketing_aprendizajes", "marketing_attribution", "plan_de_contenido", "plan_de_lanzamiento", "generate_image", "web_scrape_images"] },
   { tema: "Investigacion", herramientas: ["web_search", "web_fetch", "deep_research", "research_start", "research_check"] },
   // Dropi: las DIRECTAS (token del negocio), no las del puente viejo. El resto
   // (margen, pedidos, radar) llega con el grupo de Dropi al nombrarlo.

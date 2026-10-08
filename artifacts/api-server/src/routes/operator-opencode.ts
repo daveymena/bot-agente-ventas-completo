@@ -48,6 +48,10 @@ import { claveDeTurno, empezarTurno, terminarTurno, pedirDetener, hayTurnoEnVuel
 import { prepararRuta, cerrarTurnoDeRuta, cargarRuta, detectarInicioDeRuta, cerrarRuta, separarAccionesDeLaRuta, sinEncabezadoDePaso } from "../lib/ruta-guiada";
 import { enLenguajeDeDueno } from "../lib/lenguaje-de-dueno";
 import { afirmaHaberloHecho } from "../lib/afirma-haberlo-hecho";
+import {
+  anotarTrabajoReal, contarTurnoDeSesion, trabajoRealReciente, debeAvisarQueNoEjecuto,
+  debePedirLaPropuesta, pedidoDePropuesta, unSoloCierre, medirRespuesta,
+} from "../lib/atlas-cierre-del-turno";
 import { mensajeDeCierre } from "../lib/entrega-por-partes";
 import { partirElPedido } from "../lib/partir-el-pedido";
 import { avisoDeArranque } from "../lib/aviso-de-arranque";
@@ -988,6 +992,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           }
         }
         await clearPendingPlan(tenantId, sessionId);
+        // Lo ejecutado queda anotado para el turno siguiente: si el modelo
+        // cuenta "la landing quedó actualizada", es verdad y el candado de
+        // "ya lo hice" no tiene que desmentirlo (ver atlas-cierre-del-turno.ts).
+        anotarTrabajoReal(tenantId, sessionId, executed.filter((item) => item.ok).map((item) => String(item.tool)));
         const allOk = executed.every((item) => item.ok);
         // Lo que ya se entrego accion por accion no se repite en el cierre: el
         // admin acaba de leerlo. Con una sola accion nada se entrego antes, asi
@@ -1104,6 +1112,8 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       }
     }
 
+    // Un turno normal más desde la última ejecución real (ver trabajoRealReciente).
+    contarTurnoDeSesion(tenantId, sessionId);
     progreso("Pensando...");
     // El primer hito sale al chat, no solo al indicador de carga. En pedidos
     // complejos evita que una espera legítima parezca un bloqueo.
@@ -2381,8 +2391,21 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // el 2026-09-03, una de ellas encabezando un mensaje que SÍ tenía plan y
       // terminaba en "¿Confirmás?".
       const AFIRMA_HABERLO_HECHO = afirmaHaberloHecho(String(finalReplyVerificado || ""));
+      // ── …salvo que SÍ se haya hecho, en un turno anterior ────────────────
+      // Medido el 07-10-2026: el dueño aprobó un cambio a la landing 1, se
+      // aplicó en segundo plano, y en los dos turnos siguientes Atlas contó
+      // "la landing quedó actualizada" -- verdad -- y este candado lo
+      // desmintió las dos veces. Al tercero el modelo ya creía que no había
+      // hecho nada y pidió confirmar otra vez. Ver atlas-cierre-del-turno.ts.
+      const trabajoReciente = trabajoRealReciente(tenantId, sessionId);
+      if (AFIRMA_HABERLO_HECHO && trabajoReciente.length) {
+        logger.info(
+          { tenantId, sessionId, trabajoReciente },
+          "[AtlasOpenCode] Dice que algo quedó hecho y hay trabajo real reciente en la sesión: no se lo desmiente",
+        );
+      }
 
-      if (AFIRMA_HABERLO_HECHO) {
+      if (debeAvisarQueNoEjecuto(AFIRMA_HABERLO_HECHO, trabajoReciente)) {
         logger.warn(
           { tenantId, sessionId, teniaPlan: plannedActions.length > 0 },
           "[AtlasOpenCode] El modelo dijo que ya había hecho el trabajo sin ejecutar NADA -- se corrige",
@@ -2512,7 +2535,9 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       const estaPreguntando =
         PIDE_DATO_FALTANTE.test(cierreRespuesta) || PIDE_QUE_ELIJA.test(cierreRespuesta);
 
+      let yaSeInsistio = false;
       if (pidioCrearAlgo && !estaPreguntando && plannedActions.length === 0 && sesionOpencode && modeloUsado && quedaTiempo && !opencodeError) {
+        yaSeInsistio = true;
         logger.info({ tenantId, sessionId }, "[AtlasOpenCode] Pidió crear algo y no llamó ninguna herramienta -- se insiste una vez");
         progreso("Guardando lo que preparé...");
         try {
@@ -2569,6 +2594,48 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         }
       }
 
+      // ── Una pregunta de confirmación sin nada que confirmar ─────────────
+      //
+      // Caso real del 07-10-2026: "⚠️ La actualización todavía no se
+      // ejecutó. ¿Confirmás que actualice la landing 1…?" sin propose_action.
+      // El "sí" del dueño no tenía nada que ejecutar, el modelo recién ahí
+      // propuso y el dueño confirmó dos veces. Antes de cerrar se le pide UNA
+      // vez al mismo modelo, en la misma sesión, que lo convierta en
+      // propuesta; si no era un cambio contesta "OK" y queda todo igual.
+      // Solo por OpenCode: en el camino directo la sesión no queda abierta
+      // (pendiente: cablearlo ahí cuando se termine de reescribir).
+      if (
+        sesionOpencode && modeloUsado && !opencodeError && !fueDetenido(senalDeCorte) &&
+        debePedirLaPropuesta({
+          plan: plannedActions.length,
+          textoFinal: String(finalReplyVerificado || ""),
+          pideUnDato: estaPreguntando,
+          avisarQueNoEjecuto,
+          yaSeInsistio,
+          enRutaGuiada: !!rutaActiva,
+          quedaMs: turnDeadline - Date.now(),
+        })
+      ) {
+        progreso("Dejando lista la propuesta...");
+        try {
+          await sendOpencodeMessage(cfg.host, cfg.authHeader, sesionOpencode, {
+            system,
+            model: modeloUsado,
+            tools,
+            text: pedidoDePropuesta({ avisarQueNoEjecuto }),
+            timeoutMs: Math.min(Math.max(turnDeadline - Date.now() - 5_000, 10_000), 30_000),
+            cancelSignal: senalDeCorte,
+          });
+          plannedActions = await drainDraftPlan(tenantId, turnId);
+          logger.info(
+            { tenantId, sessionId, acciones: plannedActions.map((a) => a.tool), porque: avisarQueNoEjecuto ? "dijo-que-lo-hizo" : "pregunta-de-si-o-no" },
+            "[AtlasOpenCode] Cerró sin plan dejando algo para confirmar: se le pidió la propuesta",
+          );
+        } catch (e: any) {
+          logger.warn({ tenantId, err: e?.message }, "[AtlasOpenCode] Pedir la propuesta falló; el turno sigue con lo que había");
+        }
+      }
+
       // ── La misma acción, una sola vez ──────────────────────────────────
       //
       // Al admin le salió un plan con TRES acciones para el mismo anuncio
@@ -2619,7 +2686,12 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           // Una línea cada uno: el aviso salía en TRES renglones arriba de
           // cada respuesta y el admin lo leía diez veces por sesión (11-09-2026).
           ? `⚠️ **Todavía no se guardó nada.** Es una propuesta: se ejecuta cuando confirmés.`
-          : `⚠️ **Todavía no se guardó nada.** Esto es solo texto; si querés que lo haga, pedímelo.`)
+          // Decía "si querés que lo haga, pedímelo": le devolvía al dueño el
+          // trabajo de volver a pedir, y el modelo lo leía en el historial y
+          // lo imitaba ("todavía no se ejecutó, ¿confirmás…?", 07-10-2026).
+          // Ahora se dice el hecho y nada más: antes de llegar acá ya se le
+          // pidió al modelo que lo convierta en propuesta.
+          : `⚠️ **En este mensaje no se ejecutó ningún cambio.**`)
           + `\n\n---\n\n${finalReplyVerificado}`;
       }
 
@@ -2647,12 +2719,25 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
 
       if (plannedActions.length > 0) {
         const planText = plannedActions.map((a, i) => `${i + 1}. ${describePlannedAction(a)}`).join("\n");
+        // La pregunta de confirmación la pone el servidor abajo: la que haya
+        // escrito el modelo al final sobra (dos "¿confirmás?" seguidos).
+        const antesDelPlan = unSoloCierre(String(finalReplyVerificado || ""));
         const reply = paraMarkdown(toEmojiStyle(
-          `${finalReplyVerificado ? finalReplyVerificado + "\n\n" : ""}📋 Plan propuesto (requiere tu confirmación):\n${planText}\n\n❓ ¿Confirmas? Responde sí para ejecutar, o dime qué ajusto.`,
+          `${antesDelPlan ? antesDelPlan + "\n\n" : ""}📋 Plan propuesto (requiere tu confirmación):\n${planText}\n\n❓ ¿Confirmas? Responde sí para ejecutar, o dime qué ajusto.`,
         ));
         await setPendingPlan(tenantId, sessionId, plannedActions, reply);
         await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
         logger.info({ tenantId, planned: plannedActions.length }, "[AtlasOpenCode] Plan propuesto, esperando confirmación");
+        anotarTurno(tenantId, sessionId, {
+          estado: "plan",
+          totalMs: Date.now() - t0,
+          tramos,
+          // El cast es porque TS no ve la asignación dentro del candado y lo da por null.
+          modelo: (modeloUsado as { modelID: string } | null)?.modelID ?? null,
+          pedido: String(prompt),
+          lecturas,
+          forma: medirRespuesta(reply),
+        });
         logger.info(
           { tenantId, tramos, totalMs: Date.now() - t0, acciones: plannedActions.length },
           "[AtlasOpenCode] Turno COMPLETO -- reparto real del tiempo",
@@ -2719,6 +2804,8 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         // Qué consultó de verdad este turno. Es la respuesta a "¿cómo sé si
         // consultó algo o no?": se mira, no se discute.
         lecturas,
+        // Cuánto le llegó al dueño: líneas y preguntas (ver medirRespuesta).
+        forma: medirRespuesta(reply),
       });
       return finish({
         reply,
