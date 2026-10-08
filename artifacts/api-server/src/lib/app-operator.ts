@@ -15,6 +15,7 @@
  * hasta que el modelo marca done:true (o se alcanza el límite de pasos).
  */
 
+import { redactarSecretos, sinSecretos } from "./secretos";
 import { db, products, productCategories, agents, settings, stores, tenants, conversations, messages, leads, architectMemory, facebookDrafts, payments, coupons, ensureDbReady, promptVersions as prompt_versions } from "@workspace/db";
 import { eq, desc, asc, and, or, gt, gte, sql, ilike, inArray } from "drizzle-orm";
 import { execSync } from "child_process";
@@ -9859,6 +9860,20 @@ function esErrorDeBaseDeDatos(e: any): boolean {
  */
 export const DISABLED_TOOLS = new Set(["deep_research"]);
 
+/** Resultado de herramienta sin secretos en el texto ni en los datos. */
+export function redactarResultado(result: ToolResult): ToolResult {
+  if (!result || typeof result !== "object") return result;
+  const out: any = { ...result, summary: redactarSecretos(result.summary ?? "") };
+  if (typeof result.data !== "undefined") {
+    try {
+      out.data = JSON.parse(redactarSecretos(JSON.stringify(sinSecretos(result.data))));
+    } catch {
+      out.data = sinSecretos(result.data);
+    }
+  }
+  return out;
+}
+
 export async function executeAction(tool: string, args: any, ctx: OperatorContext): Promise<ToolResult> {
   if (DISABLED_TOOLS.has(tool)) {
     return {
@@ -9876,7 +9891,9 @@ export async function executeAction(tool: string, args: any, ctx: OperatorContex
     turnId: (ctx as OperatorContext & { turnId?: string }).turnId,
     actor: "atlas",
     tool,
-    arguments: args || {},
+    // La bitácora guarda los argumentos: un `dropi_conectar {token}` quedaba
+    // con el token en claro en la base. Se guardan enmascarados.
+    arguments: sinSecretos(args || {}),
   };
 
   // ── Código fuente: solo el admin de la plataforma ──────────────────────
@@ -9907,7 +9924,11 @@ export async function executeAction(tool: string, args: any, ctx: OperatorContex
     return { ok: false, summary: "La acción no se ejecutó porque la auditoría de seguridad no está disponible." };
   }
   try {
-    const result = await def.run(args || {}, ctx);
+    // Lo que devuelve una herramienta llega al chat de Atlas (y por el puente
+    // MCP a OpenCode). Un error de `git push https://x-access-token:TOKEN@...`
+    // o de una URL de Graph con `access_token=` traía el secreto completo en
+    // `summary`. Se limpia acá, en el único punto por el que pasan todas.
+    const result = redactarResultado(await def.run(args || {}, ctx));
     await recordControlPlaneAudit({
       ...auditBase,
       phase: "finished",
@@ -9918,13 +9939,13 @@ export async function executeAction(tool: string, args: any, ctx: OperatorContex
   } catch (e: any) {
     const detalle = e?.message || e?.detail || "";
     const codigoError = String(e?.code || "");
-    logger.error({ tool, err: detalle, code: e?.code, stack: e?.stack }, "[AppOperator] Tool error");
+    logger.error({ tool, err: redactarSecretos(detalle), code: e?.code, stack: redactarSecretos(e?.stack || "") }, "[AppOperator] Tool error");
     const result: ToolResult = esErrorDeBaseDeDatos(e) ? {
         ok: false,
         summary:
           `La operación falló por un error de base de datos (código ${codigoError || "desconocido"}). ` +
           `El cambio NO se aplicó y no se expusieron datos internos. Revisá la bitácora del sistema para el detalle técnico.`,
-      } : { ok: false, summary: `Error ejecutando ${tool}: ${detalle}` };
+      } : { ok: false, summary: redactarSecretos(`Error ejecutando ${tool}: ${detalle}`) };
     await recordControlPlaneAudit({
       ...auditBase,
       phase: "finished",

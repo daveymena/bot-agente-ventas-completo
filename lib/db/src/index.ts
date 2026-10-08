@@ -5,6 +5,17 @@ import fs from "fs";
 import * as sqliteSchema from "./sqlite-schema";
 import * as pgSchema from "./schema";
 
+/** `postgres://u:clave@host:5432/db` -> `postgres://host:5432/db` (sin usuario ni clave). */
+export function describirUrlSinCredenciales(url: string | undefined): string {
+  if (!url) return "NOT SET";
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.host}${u.pathname}`;
+  } catch {
+    return "(definida, formato no reconocido)";
+  }
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -24,7 +35,10 @@ config({ path: rootEnvPath });
 
 // Debug: print resolved DB vars
 console.log(`[DB-ENV] USE_SQLITE=${process.env.USE_SQLITE}`);
-console.log(`[DB-ENV] DATABASE_URL=${process.env.DATABASE_URL ? (process.env.DATABASE_URL.substring(0, 30) + '...') : 'NOT SET'}`);
+// ⚠️ Los primeros 30 caracteres de `postgres://usuario:CLAVE@host` incluyen la
+// contraseña: así salía en el log de producción (07-10-2026). Solo se muestra
+// el destino, nunca la credencial.
+console.log(`[DB-ENV] DATABASE_URL=${describirUrlSinCredenciales(process.env.DATABASE_URL)}`);
 console.log(`[DB-ENV] CWD=${process.cwd()}`);
 
 const USE_SQLITE = process.env.USE_SQLITE === "true";

@@ -164,7 +164,13 @@ export async function resetearPruebas(tenantId: number): Promise<ResultadoReset>
  */
 export async function restaurarDesdeBackup(ruta: string): Promise<{ ok: boolean; error?: string }> {
   try {
-    const contenido = fs.readFileSync(path.resolve(ruta), "utf8");
+    // Solo archivos de backup de ESTE sistema: nada de rutas arbitrarias del disco.
+    const dir = path.resolve(directorioBackups());
+    const archivo = path.resolve(dir, path.basename(String(ruta || "")));
+    if (!/^reset-\d+-\d+\.json$/.test(path.basename(archivo)) || path.dirname(archivo) !== dir) {
+      return { ok: false, error: "Ruta de backup inválida" };
+    }
+    const contenido = fs.readFileSync(archivo, "utf8");
     const datos = JSON.parse(contenido);
     const tablas = datos?.tablas || {};
 

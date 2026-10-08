@@ -1,6 +1,7 @@
 import * as nodemailer from "nodemailer";
 import { logger } from "./logger";
 import { tenantManager, type TenantContext } from "./tenantManager";
+import { enmascararSecreto } from "./secretos";
 
 /**
  * Credenciales SMTP POR NEGOCIO.
@@ -51,7 +52,7 @@ function leerSecreto(valor: unknown): string {
 }
 
 export function enmascararEmailPass(valor: string): string {
-  return valor ? "••••" + valor.slice(-4) : "";
+  return enmascararSecreto(valor);
 }
 
 /**

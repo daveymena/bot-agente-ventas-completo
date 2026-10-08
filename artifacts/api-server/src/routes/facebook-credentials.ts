@@ -10,6 +10,7 @@ import {
 } from "../lib/tenant-facebook-credentials";
 import { tenantManager } from "../lib/tenantManager";
 import { encryptSecret } from "../lib/credentials-vault";
+import { secretoNuevo, ultimos4 } from "../lib/secretos";
 
 /**
  * Credenciales de Facebook del negocio logueado.
@@ -81,6 +82,13 @@ router.get("/credentials", async (req, res, next) => {
       appSecret: fb.appSecret ? enmascarar(cred.appSecret) : "",
       messengerPageToken: fb.messengerPageToken ? enmascarar(cred.messengerPageToken) : "",
       messengerVerifyToken: fb.messengerVerifyToken ? enmascarar(cred.messengerVerifyToken) : "",
+      // Para el placeholder del panel (nunca el valor).
+      guardados: {
+        accessToken: { tiene: !!fb.accessToken, ultimos4: ultimos4(cred.accessToken) },
+        appSecret: { tiene: !!fb.appSecret, ultimos4: ultimos4(cred.appSecret) },
+        messengerPageToken: { tiene: !!fb.messengerPageToken, ultimos4: ultimos4(cred.messengerPageToken) },
+        messengerVerifyToken: { tiene: !!fb.messengerVerifyToken, ultimos4: ultimos4(cred.messengerVerifyToken) },
+      },
       pageName: cred.pageName || "",
       tasks: cred.tasks || [],
     });
@@ -104,12 +112,18 @@ router.put("/credentials", async (req, res, next) => {
     const current = meta.facebook || {};
     const nuevo: any = { ...current };
 
-    // Solo se pisa el secreto si mandaron uno nuevo y no vacío.
-    if (b.accessToken) nuevo.accessToken = encryptSecret(b.accessToken.trim());
-    if (b.appSecret) nuevo.appSecret = encryptSecret(b.appSecret.trim());
-    if (b.messengerPageToken) nuevo.messengerPageToken = encryptSecret(b.messengerPageToken.trim());
-    // messengerVerifyToken puede ir en texto plano (es un secreto de verificación).
-    if (b.messengerVerifyToken !== undefined) nuevo.messengerVerifyToken = b.messengerVerifyToken.trim();
+    // Solo se pisa el secreto si mandaron uno NUEVO: vacío o la máscara que
+    // devolvió el GET ("••••abcd") no tocan lo guardado. Antes la máscara del
+    // verify token se guardaba tal cual y rompía la verificación del webhook.
+    const at = secretoNuevo(b.accessToken);
+    const as = secretoNuevo(b.appSecret);
+    const mpt = secretoNuevo(b.messengerPageToken);
+    const mvt = secretoNuevo(b.messengerVerifyToken);
+    if (at) nuevo.accessToken = encryptSecret(at);
+    if (as) nuevo.appSecret = encryptSecret(as);
+    if (mpt) nuevo.messengerPageToken = encryptSecret(mpt);
+    // El verify token lo compara el webhook en texto plano (routes/facebook.ts).
+    if (mvt) nuevo.messengerVerifyToken = mvt;
 
     const campo = (k: keyof typeof b) => (b[k] !== undefined ? b[k] : current[k] || "");
     nuevo.pageId = campo("pageId");
@@ -141,7 +155,7 @@ router.post("/credentials/test", async (req, res, next) => {
     const tenant = await tenantManager.getTenantById(tenantId);
     const cred = credencialesFacebookDe(tenant);
 
-    const token = String(req.body?.accessToken || "").trim() || cred.accessToken;
+    const token = secretoNuevo(req.body?.accessToken) || cred.accessToken;
     const pageId = String(req.body?.pageId || "").trim() || cred.pageId || undefined;
 
     return res.json(await probarFacebook(token, pageId));

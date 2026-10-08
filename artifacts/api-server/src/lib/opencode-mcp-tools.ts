@@ -18,6 +18,7 @@
  *   confirme por el mismo camino que ya existe (`isApproval` +
  *   `executeAction` en `routes/code-agent.ts`, sin tocar).
  */
+import { redactarSecretos } from "./secretos";
 import { db, architectMemory, type ArchitectMemory } from "@workspace/db";
 import {
   executeAction,
@@ -1837,8 +1838,9 @@ export function herramientasPedidasAntes(tenantId: number, sessionId: string): s
  * solo formato, y una prueba que verifica que los dos la usan.
  */
 export function textoDelResultado(result: { ok: boolean; summary: string; data?: any }): string {
-  if (!result.ok) return `❌ ${result.summary}`;
-  return typeof result.data !== "undefined"
+  // Último filtro antes de que el texto llegue al modelo: ningún token completo.
+  if (!result.ok) return redactarSecretos(`❌ ${result.summary}`);
+  return redactarSecretos(typeof result.data !== "undefined"
     ? `${result.summary}\n\n${JSON.stringify(result.data)}`
-    : result.summary;
+    : result.summary);
 }

@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
+import { secretoNuevo, ultimos4, enmascararSecreto } from "../lib/secretos";
 import { createHmac, timingSafeEqual } from "crypto";
 import { eq, and, inArray } from "drizzle-orm";
 import { db, tenants, leads, conversations, messages, products, facebookDrafts } from "@workspace/db";
@@ -255,7 +256,7 @@ router.get("/messenger/page-info", async (req, res, next) => {
 
 router.post("/messenger/save-token", async (req, res, next) => {
   try {
-    const { pageToken } = req.body || {};
+    const pageToken = secretoNuevo(req.body?.pageToken);
     if (!pageToken) {
       return res.status(400).json({ error: "pageToken es requerido" });
     }
@@ -1098,7 +1099,7 @@ router.get("/config", async (req, res, next) => {
     const accessToken = decryptSecret(cfg.accessToken) || env(process.env.FB_ACCESS_TOKEN);
     
     return res.json({
-      accessToken: accessToken ? "•••••" + accessToken.slice(-4) : "",
+      accessToken: enmascararSecreto(accessToken),
       pixelId,
       catalogId,
       pageId,
@@ -1115,7 +1116,15 @@ router.get("/config", async (req, res, next) => {
       hasAppSecret: !!decryptSecret(cfg.appSecret),
       // Tampoco caen al .env, por el mismo motivo que appId/appSecret.
       hasMessengerToken: !!decryptSecret(cfg.messengerPageToken),
-      messengerVerifyToken: cfg.messengerVerifyToken || "",
+      // El verify token del webhook también es un secreto (quien lo tiene
+      // puede suscribir SU servidor a la página): solo si existe y los
+      // últimos 4 para reconocerlo.
+      messengerVerifyToken: "",
+      hasMessengerVerifyToken: !!cfg.messengerVerifyToken,
+      messengerVerifyTokenUltimos4: ultimos4(cfg.messengerVerifyToken),
+      accessTokenUltimos4: ultimos4(accessToken),
+      appSecretUltimos4: ultimos4(decryptSecret(cfg.appSecret)),
+      messengerTokenUltimos4: ultimos4(decryptSecret(cfg.messengerPageToken)),
       loginConfigId: cfg.loginConfigId || "",
     });
   } catch (e) { return next(e); }
@@ -1145,13 +1154,23 @@ router.put("/config", async (req, res, next) => {
     // después de decidir field(), y no antes: si se encriptara `body` entero de
     // entrada, un PUT que NO toca el token re-encriptaría el valor ya
     // encriptado de `current` como si fuera texto plano nuevo.
-    const newAccessToken = "accessToken" in body ? encryptSecret(body.accessToken) : current.accessToken || "";
-    const newAppSecret = "appSecret" in body ? encryptSecret(body.appSecret) : current.appSecret || "";
+    //
+    // Secretos: vacío o enmascarado ("••••abcd") = no tocar lo guardado. El
+    // panel mostraba "••••••••" DENTRO del input: con escribir una letra, la
+    // máscara + esa letra se cifraba como token y Facebook quedaba roto. Para
+    // borrar un secreto a propósito: { borrar: ["accessToken", ...] }.
+    const borrar: string[] = Array.isArray(body.borrar) ? body.borrar.map(String) : [];
+    const secreto = (key: string, cifrar: boolean) => {
+      if (borrar.includes(key)) return "";
+      const nuevo = secretoNuevo(body[key]);
+      if (!nuevo) return current[key] || "";
+      return cifrar ? encryptSecret(nuevo) : nuevo;
+    };
+    const newAccessToken = secreto("accessToken", true);
+    const newAppSecret = secreto("appSecret", true);
     // El token de página de Messenger también es un secreto: permite escribir
     // en nombre de la página. Se cifra igual que los otros dos.
-    const newMessengerToken = "messengerPageToken" in body
-      ? encryptSecret(body.messengerPageToken)
-      : current.messengerPageToken || "";
+    const newMessengerToken = secreto("messengerPageToken", true);
     meta.facebook = {
       ...current,
       accessToken: newAccessToken,
@@ -1166,7 +1185,8 @@ router.put("/config", async (req, res, next) => {
       // servidor. Sin poder editarlos, un negocio con su propia app no tenía
       // forma de conectar Messenger ni de validar sus webhooks.
       messengerPageToken: newMessengerToken,
-      messengerVerifyToken: field("messengerVerifyToken"),
+      // Lo compara el webhook en texto plano; igual nunca vuelve al panel.
+      messengerVerifyToken: secreto("messengerVerifyToken", false),
       // Necesario si la app usa "Facebook Login for Business": ese producto
       // ignora los permisos sueltos y exige el id de una configuración.
       loginConfigId: field("loginConfigId"),

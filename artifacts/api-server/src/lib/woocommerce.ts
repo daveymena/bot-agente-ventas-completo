@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from "axios";
 import { db, products, tenants } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { logger } from "./logger";
+import { decryptSecret } from "./credentials-vault";
 import { customerProductCopy } from "./dropi";
 
 export interface WooCommerceConfig {
@@ -532,8 +533,10 @@ export async function getWooCommerceService(tenantId: number): Promise<WooCommer
     return new WooCommerceService(
       {
         storeUrl: config.storeUrl,
-        consumerKey: config.consumerKey,
-        consumerSecret: config.consumerSecret,
+        // Se guardan cifradas (routes/woocommerce.ts); las viejas en claro
+        // pasan tal cual por decryptSecret.
+        consumerKey: decryptSecret(config.consumerKey),
+        consumerSecret: decryptSecret(config.consumerSecret),
       },
       tenantId
     );

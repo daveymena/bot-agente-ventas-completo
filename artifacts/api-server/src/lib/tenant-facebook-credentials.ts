@@ -1,6 +1,7 @@
 import { logger } from "./logger";
 import { tenantManager, type TenantContext } from "./tenantManager";
 import { FB_GRAPH_BASE } from "./meta-api-version";
+import { enmascararSecreto } from "./secretos";
 
 /**
  * El respaldo del .env (FB_ACCESS_TOKEN, FB_AD_ACCOUNT_ID, FB_PAGE_ID…) es la
@@ -59,8 +60,7 @@ export interface CredencialesFacebook {
 
 /** Últimos caracteres para reconocer el secreto sin exponerlo. */
 export function enmascarar(valor: string): string {
-  if (!valor) return "";
-  return valor.length <= 4 ? "••••" : "••••" + valor.slice(-4);
+  return enmascararSecreto(valor);
 }
 
 /**

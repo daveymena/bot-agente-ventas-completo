@@ -1,4 +1,5 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import { esDuenoDeLaPlataforma } from "./middleware/requirePlatformOwner";
 import path from "path";
 import { fileURLToPath } from "url";
 import { existsSync, readdirSync, readFileSync, mkdirSync, writeFileSync } from "fs";
@@ -778,6 +779,9 @@ app.post("/api/admin/reset-pruebas", async (req, res, next) => {
   try {
     const tenantId = Number((req as any).tenant?.id);
     if (!Number.isInteger(tenantId) || tenantId <= 0) return res.status(401).json({ error: "No autenticado" });
+    // Solo el dueño de la plataforma: el reseteo también vacía tablas GLOBALES
+    // (enlaces de pago y eventos de TODOS los negocios). Cualquier sesión podía.
+    if (!esDuenoDeLaPlataforma(req as any)) return res.status(403).json({ error: "Solo el administrador de la plataforma" });
     const { resetearPruebas } = await import("./lib/reset-pruebas");
     const resultado = await resetearPruebas(tenantId);
     if (!resultado.ok) return res.status(500).json({ error: resultado.error || "No se pudo resetear" });
@@ -791,6 +795,8 @@ app.get("/api/admin/backups", async (req, res, next) => {
   try {
     const tenantId = Number((req as any).tenant?.id);
     if (!Number.isInteger(tenantId) || tenantId <= 0) return res.status(401).json({ error: "No autenticado" });
+    // Los backups son de TODOS los negocios (conversaciones con teléfonos).
+    if (!esDuenoDeLaPlataforma(req as any)) return res.status(403).json({ error: "Solo el administrador de la plataforma" });
     const { listarBackups } = await import("./lib/reset-pruebas");
     return res.json({ ok: true, backups: listarBackups() });
   } catch (e) {
@@ -802,6 +808,9 @@ app.post("/api/admin/restaurar", async (req, res, next) => {
   try {
     const tenantId = Number((req as any).tenant?.id);
     if (!Number.isInteger(tenantId) || tenantId <= 0) return res.status(401).json({ error: "No autenticado" });
+    // Antes: cualquier sesión, con CUALQUIER ruta del disco. Leía un archivo
+    // arbitrario del servidor y reinsertaba filas de otro negocio.
+    if (!esDuenoDeLaPlataforma(req as any)) return res.status(403).json({ error: "Solo el administrador de la plataforma" });
     const { restaurarDesdeBackup } = await import("./lib/reset-pruebas");
     const ruta = String((req.body as any)?.ruta || "");
     if (!ruta) return res.status(400).json({ error: "Falta 'ruta' del backup a restaurar" });

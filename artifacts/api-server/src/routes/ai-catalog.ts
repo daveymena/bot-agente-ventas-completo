@@ -9,6 +9,7 @@
  * (columna JSON que ya existe), bajo la clave "aiProviders", para no tener que
  * migrar el esquema de la base.
  */
+import { secretoNuevo } from "../lib/secretos";
 import { Router } from "express";
 import { db, settings } from "@workspace/db";
 import { eq } from "drizzle-orm";
@@ -263,7 +264,13 @@ router.get("/models/:proveedor", async (req: TenantRequest, res, next) => {
  */
 router.put("/provider", async (req: TenantRequest, res, next) => {
   try {
-    const { proveedor, apiKey, model } = req.body || {};
+    const { proveedor, model } = req.body || {};
+    // Vacío o enmascarado ("••••abcd") NO es una clave nueva: no se toca la
+    // guardada. Antes el vacío la BORRABA y la máscara se cifraba como si
+    // fuera la clave real. Para borrarla hay que pedirlo: { borrarClave: true }.
+    const apiKey: string | undefined = req.body?.borrarClave === true
+      ? ""
+      : (secretoNuevo(req.body?.apiKey) ?? undefined);
     if (!proveedor || !PROVEEDORES.some((p) => p.id === proveedor)) {
       return res.status(400).json({ error: "Proveedor desconocido" });
     }
