@@ -1,5 +1,5 @@
 /**
- * Pedidos que Dropi rechazó: se reintentan SOLOS y, si entran, se le avisa
+ * Pedidos que Dropi rechazó (últimas 24 h): se reintentan SOLOS y, si entran, se le avisa
  * al cliente.
  *
  * Venta real (conversación 2, 06-10): el cliente confirmó, Dropi rechazó por
@@ -37,7 +37,10 @@ export async function reintentarPedidosCaidos(): Promise<{ revisados: number; de
         AND woo_order_id IS NULL
         AND NOT (estado = ANY($1::text[]))
         AND updated_at < now() - interval '10 minutes'
-        AND created_at > now() - interval '72 hours'
+        -- Solo pedidos de las ultimas 24 h: uno mas viejo pudo haberse
+        -- despachado a mano y reintentarlo solo lo duplicaria. Esos quedan
+        -- para el boton Reintentar del panel.
+        AND created_at > now() - interval '24 hours'
       ORDER BY created_at ASC
       LIMIT 20`,
     [CERRADOS],
