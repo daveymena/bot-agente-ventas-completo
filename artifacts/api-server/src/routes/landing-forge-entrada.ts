@@ -26,6 +26,27 @@ router.get("/entrar", requirePlatformOwner(), (req, res) => {
   res.redirect(302, enlaceDeEntradaForge(siguiente.startsWith("/") && !siguiente.startsWith("//") ? siguiente : "/"));
 });
 
+/** El producto del catálogo que corresponde a un nombre de landing: el de
+ *  mayor coincidencia de palabras clave, solo si es >= 0,75 y le saca al
+ *  segundo al menos 0,2 (si dos se parecen igual, no se adivina). */
+export function productoPorNombre<T extends { name?: string | null }>(nombre: string, catalogo: T[]): T | null {
+  const puntaje = (a: string, b: string) => {
+    const norm = (x: string) => x.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").split(/[^a-z0-9]+/).filter((w) => w.length >= 2);
+    const A = new Set(norm(a)), B = new Set(norm(b));
+    if (!A.size || !B.size) return 0;
+    let hits = 0;
+    for (const w of A) if (B.has(w)) hits++;
+    return hits / Math.max(A.size, B.size);
+  };
+  const orden = catalogo
+    .map((p) => ({ p, s: puntaje(nombre, String(p.name || "")) }))
+    .sort((x, y) => y.s - x.s);
+  const [primero, segundo] = orden;
+  if (!primero || primero.s < 0.75) return null;
+  if (segundo && primero.s - segundo.s < 0.2) return null;
+  return primero.p;
+}
+
 function claveValida(dada: unknown): boolean {
   const esperada = String(process.env.LANDINGFORGE_API_KEY || process.env.LANDING_API_KEY || "");
   const d = String(dada || "");
@@ -37,13 +58,30 @@ router.post("/pedido", async (req: any, res: any) => {
   if (!claveValida(req.headers["x-api-key"])) return res.status(401).json({ ok: false, error: "No autorizado" });
   try {
     const b = req.body || {};
-    const tenantId = Number(b.tenantId);
-    const productId = Number(b.productId);
-    if (!Number.isInteger(tenantId) || tenantId <= 0 || !Number.isInteger(productId) || productId <= 0) {
-      return res.status(400).json({ ok: false, error: "Falta el negocio o el producto" });
-    }
+    // Forge es del dueño de la plataforma: una landing sin vínculo es suya.
+    const tenantId = Number(b.tenantId) || Number(process.env.PLATFORM_TENANT_ID || 1);
+    let productId = Number(b.productId);
     const { db, products, pool } = await import("@workspace/db");
     const { and, eq } = await import("drizzle-orm");
+    let porNombre = false;
+    if (!Number.isInteger(productId) || productId <= 0) {
+      // Landing creada antes del vínculo: se busca el producto por su nombre
+      // en el catálogo del negocio. Solo con una coincidencia CLARA y única;
+      // ante la duda se rechaza (mejor un aviso que despachar otro producto).
+      const nombre = String(b.productName || "").trim();
+      if (!nombre) return res.status(400).json({ ok: false, error: "Falta el producto" });
+      const candidatos: any[] = await db.select().from(products).where(eq(products.tenantId, tenantId));
+      const elegido = productoPorNombre(nombre, candidatos);
+      if (!elegido) {
+        try {
+          const { avisarAlDueno } = await import("../lib/avisos");
+          await avisarAlDueno(tenantId, `⚠️ *Pedido de una landing sin producto* — llegó un pedido de "${nombre}" (${String(b.nombre || "").slice(0, 40)}, ${String(b.telefono || "").slice(0, 15)}) y no supe a qué producto del catálogo corresponde. Créalo a mano o vincula la landing.`);
+        } catch { /* nada */ }
+        return res.status(404).json({ ok: false, error: `No encontré "${nombre}" en el catálogo` });
+      }
+      productId = Number(elegido.id);
+      porNombre = true;
+    }
     const [producto]: any[] = await db.select().from(products).where(and(eq(products.id, productId), eq(products.tenantId, tenantId))).limit(1);
     if (!producto) return res.status(404).json({ ok: false, error: "Ese producto no es de ese negocio" });
 
@@ -119,7 +157,8 @@ router.post("/pedido", async (req: any, res: any) => {
     } catch (e: any) {
       logger.warn({ err: e?.message }, "[ForgePedido] no se pudo avisar al dueño");
     }
-    return res.json({ ok: true, pedidoId: pedido.id, registrado: !!r.ok, plazo: c.envio.plazo });
+    // Con el vínculo resuelto por nombre, Forge lo guarda en la landing.
+    return res.json({ ok: true, pedidoId: pedido.id, registrado: !!r.ok, plazo: c.envio.plazo, ...(porNombre ? { vinculo: { tenantId, productId } } : {}) });
   } catch (e: any) {
     logger.error({ err: e?.message }, "[ForgePedido] falló");
     return res.status(500).json({ ok: false, error: "No se pudo registrar el pedido" });
