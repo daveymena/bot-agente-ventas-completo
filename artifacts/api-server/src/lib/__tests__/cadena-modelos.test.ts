@@ -612,6 +612,30 @@ describe("modelo retirado: se aprende el vigente del propio error", () => {
     olvidarFallos();
   });
 
+  // Error REAL de producción, 08-10 20:33: el vigente aprendido tampoco servía.
+  it("'not supported' sin lista: pasa al siguiente de la última lista, no se queda en el mismo", async () => {
+    const { aprenderModeloVigente, conNombresVigentes, olvidarFallos } = await import("../cadena-modelos");
+    olvidarFallos();
+    expect(aprenderModeloVigente(copilot, ERROR)).toBe("claude-opus-4.8-fast");
+    const [llamado] = conNombresVigentes([copilot]);
+    const otro = aprenderModeloVigente(llamado!, "The requested model is not supported.");
+    expect(otro).toBeTruthy();
+    expect(otro).not.toBe("claude-opus-4.8-fast");
+    expect(otro).not.toMatch(/search|exec/);
+    const [siguiente] = conNombresVigentes([copilot]);
+    expect(siguiente!.modelID).toBe(otro);
+    // y si ese también se rechaza, no vuelve a uno ya rechazado
+    const tercero = aprenderModeloVigente(siguiente!, "The requested model is not supported.");
+    expect([ "claude-opus-4.8-fast", otro ]).not.toContain(tercero);
+    olvidarFallos();
+  });
+
+  it("'not supported' sin ninguna lista conocida no inventa nada", async () => {
+    const { aprenderModeloVigente, olvidarFallos } = await import("../cadena-modelos");
+    olvidarFallos();
+    expect(aprenderModeloVigente(copilot, "The requested model is not supported.")).toBeNull();
+  });
+
   it("un error que no es 'modelo retirado' no cambia nada", async () => {
     const { aprenderModeloVigente } = await import("../cadena-modelos");
     expect(aprenderModeloVigente(copilot, "Rate limit exceeded")).toBeNull();

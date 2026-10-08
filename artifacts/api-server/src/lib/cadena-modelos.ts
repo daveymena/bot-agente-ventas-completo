@@ -441,11 +441,40 @@ export function reemplazoVigente(retirado: string, disponibles: string[]): strin
   return elegirModelo(disponibles.filter((id) => !/search|exec|embed/i.test(id)));
 }
 
+// 08-10 noche, medido en atlas-diagnostico: tras aprender `claude-opus-4.8-fast`
+// Copilot contestó "The requested model is not supported." — SIN lista. El
+// modelo figura como disponible pero esta cuenta no lo puede usar, y como el
+// error no traía reemplazo la cadena seguía llamándolo turno tras turno. Se
+// guarda la última lista que dio el proveedor y los ids que rechazó, para
+// pasar al siguiente de esa lista.
+const ultimaListaPorProveedor = new Map<string, string[]>();
+const rechazadosPorProveedor = new Map<string, Set<string>>();
+
 /** Si el error dice "modelo no disponible", recuerda el nombre vigente. */
 export function aprenderModeloVigente(candidato: Candidato, error: string): string | null {
-  if (!/not available|not supported|model.*(not found|does not exist|unknown)/i.test(String(error || ""))) return null;
-  const nuevo = reemplazoVigente(candidato.modelID, modelosDisponiblesDelError(error));
-  if (nuevo) vigentes.set(claveDe(candidato), nuevo);
+  const e = String(error || "");
+  if (!/not available|not supported|model.*(not found|does not exist|unknown)/i.test(e)) return null;
+  const prov = candidato.providerID;
+  const lista = modelosDisponiblesDelError(e);
+  if (lista.length) ultimaListaPorProveedor.set(prov, lista);
+
+  let nuevo = reemplazoVigente(candidato.modelID, lista);
+  if (!nuevo && !lista.length) {
+    // "not supported" sin lista: figura disponible pero no sirve en esta cuenta.
+    const rechazados = rechazadosPorProveedor.get(prov) ?? new Set<string>();
+    rechazados.add(candidato.modelID);
+    rechazadosPorProveedor.set(prov, rechazados);
+    const libres = (ultimaListaPorProveedor.get(prov) ?? []).filter((id) => !rechazados.has(id));
+    nuevo = reemplazoVigente(candidato.modelID, libres);
+  }
+  if (!nuevo) return null;
+
+  // El candidato que falló puede ser ya un nombre aprendido (4.7 → 4.8-fast):
+  // se actualiza también el original, que es la clave con la que entra a la cadena.
+  for (const [clave, vigente] of vigentes) {
+    if (clave.startsWith(`${prov}|`) && vigente === candidato.modelID) vigentes.set(clave, nuevo);
+  }
+  vigentes.set(claveDe(candidato), nuevo);
   return nuevo;
 }
 
@@ -462,4 +491,6 @@ export function olvidarFallos(): void {
   enPenitencia.clear();
   fallosNoTerminales.clear();
   vigentes.clear();
+  ultimaListaPorProveedor.clear();
+  rechazadosPorProveedor.clear();
 }
