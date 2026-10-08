@@ -1,3 +1,4 @@
+import { IconoDelMenu } from "@/components/icono-del-menu";
 import { AvisoAppAndroid } from "@/components/app-android";
 import { Link, useLocation } from "wouter";
 import {
@@ -102,7 +103,7 @@ export function AppSidebar() {
                 const linkClassName = "flex items-center gap-3 px-3 w-full";
                 const linkContent = (
                   <>
-                    <item.icon className={`h-[18px] w-[18px] shrink-0 ${isActive ? 'text-white' : 'text-sidebar-foreground group-hover:text-white'}`} />
+                    <IconoDelMenu icon={item.icon} href={item.href} tam={28} activo={isActive} />
                     <span>{item.label}</span>
                   </>
                 );
