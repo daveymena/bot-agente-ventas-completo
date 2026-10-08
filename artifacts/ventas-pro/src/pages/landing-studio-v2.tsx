@@ -666,7 +666,28 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                 </button>
               ))}
             </div>
-            {modoPanel === "bloques" ? (
+            {(() => {
+              // Landing de Landing Forge: su contenido vive alla. El chat y los
+              // bloques de VentasPro no la pueden editar (salian vacios y al
+              // guardar fallaban). Se abre su editor con la sesion del dueno.
+              const actual = landings.find((l) => l.id === landingId);
+              const forgeId = actual?.source?.type === "landingforge" ? (actual?.source?.landingId || actual?.strategy?.landingId) : null;
+              if (!forgeId) return null;
+              return (
+                <div className="m-3 rounded-xl border bg-violet-50/60 p-4 text-xs leading-relaxed">
+                  <p className="font-semibold text-slate-900 mb-1">Esta landing se edita en Landing Forge</p>
+                  <p className="text-slate-600 mb-3">Fue creada con el generador nuevo: sus textos, fotos y bloques se cambian en su propio editor (o pidiéndoselo a Atlas).</p>
+                  <a
+                    href={`/api/landing-forge/entrar?next=${encodeURIComponent(`/editor/${forgeId}`)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex h-8 items-center rounded-md bg-violet-600 px-3 font-semibold text-white hover:bg-violet-700"
+                  >
+                    Abrir en el editor de Landing Forge
+                  </a>
+                </div>
+              );
+            })() ?? (modoPanel === "bloques" ? (
               <BloquesEditor landingId={landingId} onGuardado={() => { if (landingId) cargarPreview(landingId); }} />
             ) : (<>
             <ScrollArea className="flex-1 px-3 py-3">
@@ -714,7 +735,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                 </Button>
               </div>
             </div>
-            </>)}
+            </>))}
           </div>
           <div
             className={`flex-1 flex-col bg-slate-950 overflow-hidden lg:flex ${

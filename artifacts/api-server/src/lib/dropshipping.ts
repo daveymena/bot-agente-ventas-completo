@@ -236,7 +236,12 @@ export function verificarZona(d: DatosDeEnvio, pais?: string | null): { ok: bool
     const limpio = (t: string) => sinTildes(t).replace(/[^a-z ]/g, " ").replace(/\s+/g, " ").trim();
     const a = limpio(esperado);
     const b = limpio(dep);
-    if (!(a === b || a.startsWith(b) || b.startsWith(a))) {
+    // Bogotá en Cundinamarca es como la nombra DROPI (ciudad "BOGOTA",
+    // departamento "CUNDINAMARCA", verificado 07-10 contra su cotizador), y el
+    // formulario de la landing ofrece los departamentos de Dropi: rechazarlo
+    // dejaba a TODO cliente de Bogotá con un 400 al pedir desde la landing.
+    const bogotaEnCundinamarca = a.startsWith("bogota") && b === "cundinamarca";
+    if (!(a === b || a.startsWith(b) || b.startsWith(a) || bogotaEnCundinamarca)) {
       return { ok: false, motivo: `${d.ciudad} queda en ${esperado}, no en ${d.departamento}` };
     }
   }
