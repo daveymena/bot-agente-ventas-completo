@@ -7231,11 +7231,38 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
   {
     name: "crear_anuncio",
     description:
-      "LA FORMA CORRECTA DE CREAR UN ANUNCIO; mensajes=WhatsApp, ventas/trafico=web; A/B web+WhatsApp=2 llamadas. Hace TODO el trabajo de una sola vez: busca el producto por su nombre, arma el brief con sus datos reales, escribe el copy, lo valida y guarda el borrador. " +
+      "LA FORMA CORRECTA DE CREAR UN ANUNCIO; mensajes=WhatsApp, ventas/trafico=web; A/B o anuncio completo = ab:true. Hace TODO el trabajo de una sola vez: busca el producto por su nombre, arma el brief con sus datos reales, escribe el copy, lo valida y guarda el borrador. " +
       "Usala SIEMPRE que te pidan un anuncio (\"anunciá mi curso\", \"creá un anuncio para X\") en vez de encadenar list_products + ad_brief + fb_ad_draft: eso son muchas idas y vueltas y el turno se corta antes de terminar. " +
       "Con esto solo tenés que pasar el nombre del producto tal como lo dijo el admin y el presupuesto. Todo lo demás lo resuelve el servidor.",
-    args: '{ "producto": string (req, como lo dijo el admin), "dailyBudget": number (req, diario), "objetivo"?: "ventas"|"trafico"|"mensajes"|"reconocimiento" (IMPORTANTE: "mensajes"=WhatsApp, "trafico"/"ventas"=web; si el admin dijo WhatsApp/tráfico/alcance, PASALO. A/B web+WhatsApp = DOS llamadas), "formato"?: "carrusel"|"imagen", "edadMin"?: number, "edadMax"?: number, "ciudades"?: string[], "generos"?: "mujeres"|"hombres", "subirAMeta"?: boolean (por defecto false; si es true, además crea la campaña en Meta EN PAUSA), "destinoWeb"?: "landing"|"tienda", "intereses"?: string[] (formato y público acordados van ACÁ o no se aplican), "nueva"?: boolean (solo si pide EXPLÍCITAMENTE otra campaña igual a una existente), "ignorarMargen"?: boolean (solo si el admin, sabiendo que el producto pierde plata por pedido, pide anunciarlo igual) }',
+    args: '{ "producto": string (req, como lo dijo el admin), "dailyBudget": number (req, diario), "objetivo"?: "ventas"|"trafico"|"mensajes"|"reconocimiento" (IMPORTANTE: "mensajes"=WhatsApp, "trafico"/"ventas"=web; si el admin dijo WhatsApp/tráfico/alcance, PASALO),"formato"?: "carrusel"|"imagen", "edadMin"?: number, "edadMax"?: number, "ciudades"?: string[], "generos"?: "mujeres"|"hombres", "subirAMeta"?: boolean (por defecto false; si es true, además crea la campaña en Meta EN PAUSA), "destinoWeb"?: "landing"|"tienda", "intereses"?: string[] (formato y público acordados van ACÁ o no se aplican), "nueva"?: boolean (solo si pide EXPLÍCITAMENTE otra campaña igual a una existente), "ignorarMargen"?: boolean (solo si el admin, sabiendo que el producto pierde plata por pedido, pide anunciarlo igual), "ab"?: true (A/B web+WhatsApp) }',
     run: async (args, ctx) => {
+      // ── A/B profesional (ab:true) ────────────────────────────────────────
+      // 09-10-2026, el dueño: "¿ya está Atlas listo para cualquier anuncio
+      // profesional de cualquier empresa?". Probado ese día: con "hazme un A/B
+      // del corrector" el primer plan salió con dos llamadas iguales, sin
+      // objetivo, sin formato y "sin tocar Meta"; solo salió bien dictándole los
+      // ocho parámetros. Un A/B tiene una forma fija (ventas a la web + mensajes
+      // a WhatsApp, carrusel, en Meta en pausa, copys de ángulo distinto): la
+      // completa el SERVIDOR, no la memoria del modelo.
+      if (args?.ab === true || args?.ab === "true") {
+        const base: Record<string, unknown> = { ...args, ab: false, formato: args.formato || "carrusel", subirAMeta: true, nueva: true };
+        delete base.objetivo;
+        delete base.destinoWeb;
+        // El mensaje del dueño nombra los DOS destinos: si se dejara, se leería
+        // de ahí el objetivo y las dos campañas saldrían iguales.
+        const ctxSinObjetivo: OperatorContext = { ...ctx, objetivoDelAdmin: undefined };
+        const a = await executeAction("crear_anuncio", { ...base, objetivo: "ventas" }, ctxSinObjetivo);
+        if (!a.ok) return { ok: false, summary: `No se creó el A/B. Campaña A (ventas a la web): ${a.summary}` };
+        const b = await executeAction("crear_anuncio", { ...base, objetivo: "mensajes" }, ctxSinObjetivo);
+        return {
+          ok: b.ok,
+          summary: [
+            "🅰️ CAMPAÑA A — ventas a la web", a.summary, "",
+            "🅱️ CAMPAÑA B — mensajes a WhatsApp", b.ok ? b.summary : `❌ No se creó: ${b.summary} (la A sí quedó creada).`,
+          ].join("\n"),
+          data: { a: (a as any).data ?? null, b: (b as any).data ?? null },
+        };
+      }
       {
         const { rechazoPorObjetivoNoCreable } = await import("./objetivos-campana");
         const rechazo = await rechazoPorObjetivoNoCreable(ctx.objetivoDelAdmin);
@@ -10792,8 +10819,7 @@ FACEBOOK — PUBLICAR (gratis) vs ANUNCIAR (paga), no las confundas:
 - 📢 fb_page_publish (vía propose_action): publica en el MURO de la página, orgánico, SIN costo, visible de inmediato. Proponelo cuando el admin diga "publica", "postea" o "sube esto a Facebook". SIEMPRE llamá fb_page_preview antes (es de lectura, se ejecuta sola) para que el admin vea el texto y la imagen, y fb_page_can_post si hay dudas de permisos.
 - 💰 fb_create_ad (vía propose_action): crea una CAMPAÑA PAGA en Ads Manager (se crea en pausa, pero gastará dinero al activarla). Solo proponelo cuando el admin pida explícitamente "anuncio", "campaña" o "pauta" — nunca lo ofrezcas como si fuera gratis.
 - 🏢 plataforma_info: QUÉ ES y CUÁNTO CUESTA VentasProIA, la app en la que vos mismo corrés: sus planes con precios y límites reales, lo que hace y lo que NO hace. Usala SIEMPRE que te pidan vender, promocionar o explicar la APLICACIÓN ("armá el ecosistema de ventas de la app", "cuánto cuesta", "hacé un anuncio de VentasProIA"). NO la confundas con get_settings, que devuelve el negocio del admin (sus productos, su marca): son dos cosas distintas. Antes pedías estos datos por chat como si no existieran -- existen, y salen del código que cobra de verdad.
-- 📢 crear_anuncio (vía propose_action): LA FORMA CORRECTA de crear un anuncio. Le pasás solo el NOMBRE del producto como lo dijo el admin y el presupuesto diario, y el servidor hace todo el resto: busca el producto, arma el brief con sus datos reales, escribe el copy, lo valida y guarda el borrador (y sube a Meta EN PAUSA si le pasás subirAMeta:true). No necesitás el id ni redactar el texto vos. Usala SIEMPRE en vez de encadenar list_products + ad_brief + fb_ad_draft.
-- 📝 fb_ad_draft (vía propose_action, solo para casos especiales): genera el COPY y la segmentación de un anuncio y lo guarda local, SIN tocar la cuenta de Meta ni gastar nada. Es el paso intermedio seguro. Basá el copy en los datos reales del producto (y en la investigación solo si el admin la pidió); escribí vos primaryText y headline completos para que no salga de una plantilla genérica. Para anuncios con datos internos no hace falta investigar internet; no uses deep_research, no encadenes búsquedas para llenar el turno y nunca digas que investigaste si no lo hiciste.
+- 📢 crear_anuncio (vía propose_action): LA FORMA CORRECTA de crear un anuncio. Le pasás solo el NOMBRE del producto como lo dijo el admin y el presupuesto diario, y el servidor hace todo el resto: busca el producto, arma el brief con sus datos reales, escribe el copy, lo valida y guarda el borrador (y sube a Meta EN PAUSA si le pasás subirAMeta:true). No necesitás el id ni redactar el texto vos. Usala SIEMPRE en vez de encadenar list_products + ad_brief + fb_ad_draft.- 📝 fb_ad_draft (vía propose_action, solo para casos especiales): genera el COPY y la segmentación de un anuncio y lo guarda local, SIN tocar la cuenta de Meta ni gastar nada. Es el paso intermedio seguro. Basá el copy en los datos reales del producto (y en la investigación solo si el admin la pidió); escribí vos primaryText y headline completos para que no salga de una plantilla genérica. Para anuncios con datos internos no hace falta investigar internet; no uses deep_research, no encadenes búsquedas para llenar el turno y nunca digas que investigaste si no lo hiciste.
 - ✏️ fb_update_draft_creative (vía propose_action): cuando el admin apruebe un copy NUEVO para reemplazar el texto de un anuncio que YA existe (campaña real creada, sea PAUSED o ACTIVE), esta es la única forma de aplicarlo -- fb_create_ad siempre crea una campaña NUEVA con copy autogenerado, nunca edita la existente. Usá fb_list_drafts primero (lectura) para conseguir el draftId correcto.
 
 MONITOREO (cuando el admin pregunte "cómo va todo", "revisa el negocio", "por qué no responde WhatsApp", etc.):
