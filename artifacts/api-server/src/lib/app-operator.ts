@@ -9116,6 +9116,32 @@ ${r.texto}`, data: r.grupos };
     },
   },
   {
+    name: "mejora_ver",
+    description:
+      "Muestra qué haría la mejora continua del vendedor: qué fallos repetidos se volverían regla permanente y qué lecciones viejas se podarían. Lectura pura, sin tocar nada; usala antes de mejora_aplicar.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { planDeMejora } = await import("./mejora-continua");
+      const plan = await planDeMejora(ctx.tenantId);
+      return { ok: true, summary: plan.resumen, data: { promociones: plan.promociones, aPodar: plan.podarIds.length, lecciones: plan.lecciones } };
+    },
+  },
+  {
+    name: "mejora_aplicar",
+    description:
+      "Reentrena al vendedor con lo aprendido: convierte los fallos que se repiten (≥3 veces) en reglas permanentes del vendedor y poda las lecciones viejas o ya consolidadas. No borra conversaciones ni lo que el dueño cargó a mano. Cambio grande: propose_action, y antes mejora_ver.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { aplicarMejora } = await import("./mejora-continua");
+      const r = await aplicarMejora(ctx.tenantId);
+      return {
+        ok: true,
+        summary: `✅ Vendedor reentrenado: ${r.aplicadas.length} regla(s) nueva(s)${r.aplicadas.length ? ` (${r.aplicadas.join("; ")})` : ""}, ${r.podadas} lección(es) podada(s)${r.noAplicadas.length ? ` (⚠️ ${r.noAplicadas.join("; ")})` : ""}. Aplica desde el próximo mensaje.` ,
+        data: { aplicadas: r.aplicadas, podadas: r.podadas, noAplicadas: r.noAplicadas },
+      };
+    },
+  },
+  {
     name: "vendedor_diagnosticar",
     description:
       "Lee las conversaciones REALES de los últimos días y dice qué está haciendo mal el vendedor de WhatsApp " +
@@ -10266,7 +10292,7 @@ export const READ_ONLY_TOOLS = new Set([
   // antes de decidir.
   "producto_ganador", "dropi_roi", "espiar_tienda", "fb_estimar",
   // Leer el estado de una landing en generación y simular el reentrenamiento no cambian nada.
-  "landing_estado", "landing_forge_pendientes", "landing_forge_ver", "landing_forge_estado", "agente_reentrenar_ver",
+  "landing_estado", "landing_forge_pendientes", "landing_forge_ver", "landing_forge_estado", "agente_reentrenar_ver", "mejora_ver",
   // Diagnosticar al vendedor, ver en qué motor está y probarlo en sombra son
   // lectura: no le escriben a ningún cliente ni cambian cómo atiende el bot.
   // Diagnosticar SIN pedir permiso es el punto: si hubiera que aprobar cada
