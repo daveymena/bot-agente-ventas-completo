@@ -9142,6 +9142,101 @@ ${r.texto}`, data: r.grupos };
     },
   },
   {
+    name: "tienda_activar",
+    description:
+      "Marca el negocio como tienda física: habilita inventario, caja y punto de venta. Usala cuando el dueño diga que tiene local. ⚠️ Cambio de configuración: propose_action.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { activarTiendaFisica } = await import("./pos");
+      await activarTiendaFisica(ctx.tenantId);
+      return { ok: true, summary: "✅ Tienda física activada: ya puedes cargar inventario (tienda_entrada), abrir caja y vender en mostrador. Los productos siguen disponibles para promocionar con anuncios o dropshipping.", data: { formato: "tienda_fisica" } };
+    },
+  },
+  {
+    name: "tienda_inventario_ver",
+    description:
+      "Muestra el inventario de la tienda física: stock por producto, valorizado total y alertas de stock bajo. Lectura pura.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const { inventarioDelNegocio } = await import("./pos");
+      const inv = await inventarioDelNegocio(ctx.tenantId);
+      const bajos = inv.items.filter((i) => i.stockBajo);
+      return {
+        ok: true,
+        summary: `📦 Inventario: ${inv.items.length} productos, ${inv.totalUnidades} unidades, valorizado $${Math.round(inv.valorizado).toLocaleString("es-CO")}${bajos.length ? ` ⚠️ Stock bajo: ${bajos.map((b) => `${b.nombre} (${b.stock})`).join(", ")}` : ""}${inv.sinControl ? ` (${inv.sinControl} sin control: cárgales entrada)` : ""}.`,
+        data: inv,
+      };
+    },
+  },
+  {
+    name: "tienda_entrada",
+    description:
+      "Suma mercadería al inventario de la tienda física (compra a proveedor o inventario inicial). ⚠️ Mueve stock: propose_action.",
+    args: '{ "productId": number, "cantidad": number, "motivo"?: string }',
+    run: async (args, ctx) => {
+      const { registrarEntrada } = await import("./pos");
+      const r = await registrarEntrada(ctx.tenantId, Number(args?.productId), Number(args?.cantidad), args?.motivo);
+      return { ok: true, summary: `✅ Entrada registrada: stock ahora en ${r.stock}.`, data: r };
+    },
+  },
+  {
+    name: "tienda_vender",
+    description:
+      "Vende en el mostrador: valida stock, lo descuenta, crea el pago confirmado y factura con el sistema conectado (o deja recibo). ⚠️ Mueve plata y stock: propose_action.",
+    args: '{ "items": [{ "productId": number, "cantidad": number, "descuentoPct"?: number }], "metodoPago": "efectivo"|"tarjeta"|"transferencia"|"nequi", "cliente"?: { "nombre"?: string, "documento"?: string } }',
+    run: async (args, ctx) => {
+      const { venderEnTienda } = await import("./pos");
+      const r = await venderEnTienda(ctx.tenantId, { items: args?.items || [], metodoPago: args?.metodoPago || "efectivo", cliente: args?.cliente });
+      return {
+        ok: true,
+        summary: `✅ Venta #${r.pagoId}: $${Math.round(r.total).toLocaleString("es-CO")}${r.factura ? ` 🧾 Factura ${r.factura.numero || ""} (${r.factura.proveedor})` : ` (recibo; ${r.facturaError || "sin facturación conectada"})`}.`,
+        data: r,
+      };
+    },
+  },
+  {
+    name: "tienda_caja_abrir",
+    description: "Abre la caja del turno con un fondo inicial. ⚠️ propose_action.",
+    args: '{ "fondoInicial"?: number }',
+    run: async (args, ctx) => {
+      const { abrirCaja } = await import("./pos");
+      const caja = await abrirCaja(ctx.tenantId, Number(args?.fondoInicial) || 0);
+      return { ok: true, summary: `✅ Caja #${(caja as any).id} abierta con fondo $${Math.round(Number((caja as any).fondoInicial) || 0).toLocaleString("es-CO")}.`, data: { caja } };
+    },
+  },
+  {
+    name: "tienda_caja_cerrar",
+    description: "Cierra la caja con arqueo: el sistema calcula lo esperado (fondo + efectivo) y lo compara con lo contado. ⚠️ propose_action.",
+    args: '{ "contado": number, "notas"?: string }',
+    run: async (args, ctx) => {
+      const { cerrarCaja } = await import("./pos");
+      const c = await cerrarCaja(ctx.tenantId, Number(args?.contado), undefined, args?.notas) as any;
+      const dif = Number(c.diferencia) || 0;
+      return { ok: true, summary: `🔒 Caja #${c.id} cerrada: esperado $${Math.round(Number(c.esperado) || 0).toLocaleString("es-CO")}, contado $${Math.round(Number(c.contado) || 0).toLocaleString("es-CO")}, diferencia ${dif === 0 ? "cero ✅" : `$${Math.round(dif).toLocaleString("es-CO")} ${dif > 0 ? "(sobrante)" : "(faltante) ⚠️"}`}.`, data: { caja: c } };
+    },
+  },
+  {
+    name: "tienda_devolver",
+    description: "Devuelve ítems de una venta de mostrador: valida no devolver más de lo vendido y reintegra el stock. ⚠️ Mueve plata y stock: propose_action.",
+    args: '{ "pagoId": number, "items": [{ "productId": number, "cantidad": number }], "motivo"?: string }',
+    run: async (args, ctx) => {
+      const { devolverVenta } = await import("./pos");
+      const r = await devolverVenta(ctx.tenantId, Number(args?.pagoId), args?.items || [], args?.motivo);
+      return { ok: true, summary: `↩️ Devolución #${r.devolucionId}: $${Math.round(r.total).toLocaleString("es-CO")} a favor del cliente, stock reintegrado.`, data: r };
+    },
+  },
+  {
+    name: "tienda_reporte",
+    description: "Reporte de ventas de la tienda: total, por medio de pago, por producto y devoluciones. Lectura pura.",
+    args: '{ "desde"?: string, "hasta"?: string }',
+    run: async (args, ctx) => {
+      const { reporteVentas } = await import("./pos");
+      const r = await reporteVentas(ctx.tenantId, { desde: args?.desde, hasta: args?.hasta });
+      const top = r.porProducto.slice(0, 3).map((p) => `${p.nombre} (${p.cantidad})`).join(", ");
+      return { ok: true, summary: `📊 ${r.ventas} venta(s), $${Math.round(r.total).toLocaleString("es-CO")}${top ? `, top: ${top}` : ""}${r.devoluciones ? `, ${r.devoluciones} devolución(es) por $${Math.round(r.totalDevuelto).toLocaleString("es-CO")}` : ""}.`, data: r };
+    },
+  },
+  {
     name: "vendedor_diagnosticar",
     description:
       "Lee las conversaciones REALES de los últimos días y dice qué está haciendo mal el vendedor de WhatsApp " +
