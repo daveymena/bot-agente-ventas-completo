@@ -58,6 +58,7 @@ import { mensajeDeCierre } from "../lib/entrega-por-partes";
 import { partirElPedido } from "../lib/partir-el-pedido";
 import { avisoDeArranque } from "../lib/aviso-de-arranque";
 import { programarContinuacion, reiniciarRondas } from "../lib/continuacion-servidor";
+import { esSeguimiento, textoParaElegirHerramientas } from "../lib/texto-para-herramientas";
 import { PIDE_FUENTES_EXTERNAS, debeInvestigarAntes, esContinuacionAutomatica as esContinuacionAutomaticaDelPanel } from "../lib/investigacion-previa";
 import { arrancaPedidoNuevo } from "../lib/es-pedido-nuevo";
 import { verloEsAutorizarlo } from "../lib/pedir-ver-el-resultado";
@@ -1262,10 +1263,9 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         logger.warn({ tenantId, err: e?.message }, "[Ruta] No se pudo preparar la ruta; el turno sigue sin ella");
         return null;
       });
-      const esSeguimientoCorto = String(prompt).trim().length <= 40 || /^(s[ií]|dale|ok|okey|listo|claro|hacelo|hazlo|revisa|revis[aá]lo|ve|mira|adelante|perfecto|bueno|va|de una|por favor)\b/i.test(String(prompt).trim());
-      const pedidoParaHerramientas = (esSeguimientoCorto
-        ? [...convo.slice(-4).map((m: any) => String(m.content || "")), String(prompt)].join("\n")
-        : String(prompt)) + (rutaActiva ? `\n${rutaActiva.pedidoExtra}` : "");
+      const esSeguimientoCorto = esSeguimiento(String(prompt)) && !esContinuacionAutomaticaDelPanel(String(prompt));
+      const pedidoParaHerramientas = textoParaElegirHerramientas(String(prompt), convo)
+        + (rutaActiva ? `\n${rutaActiva.pedidoExtra}` : "");
       // Lo que Atlas pidió en el turno anterior y no alcanzó a usar (ver
       // herramientasQuePide) entra acá: nombrar una herramienta la habilita.
       const pedidasAntes = herramientasPedidasAntes(tenantId, sessionId);
