@@ -759,7 +759,32 @@ export async function atenderDecisionDelAdmin(
   // Se llama COMPROBANTE y no factura a propósito: este sistema no emite
   // facturación electrónica ni tiene resolución de la DIAN, y llamar factura a
   // algo que no lo es le crea un problema legal al negocio que lo manda.
-  if (r.aprobado) {
+  //
+  // ── Y si el negocio conectó su sistema de facturación, la factura real ────
+  //
+  // 09-10-2026: cada negocio puede conectar el suyo (lib/facturacion). Si la
+  // factura sale, esa es la que recibe el cliente y el recibo sobra. Si no
+  // sale, el cliente recibe el recibo de siempre y el admin se entera de por
+  // qué: facturar nunca frena la entrega.
+  let facturada = false;
+  if (r.aprobado && r.tenantId) {
+    try {
+      const { facturacionActiva, facturarPago, lineaDeFactura } = await import("./facturacion");
+      if (await facturacionActiva(r.tenantId)) {
+        const f = await facturarPago(decision.pagoId);
+        if (f.ok) {
+          facturada = true;
+          paraCliente = `${paraCliente}\n\n${lineaDeFactura(f.factura, await nombreDelNegocio(r.tenantId))}`;
+          avisoExtra += `\n🧾 Factura${f.factura.numero ? ` ${f.factura.numero}` : ""} emitida en ${f.factura.proveedor}.`;
+        } else {
+          avisoExtra += `\n⚠️ La factura NO salió (${f.error}). Al cliente le llegó el recibo; factúrala a mano o revisá Integraciones → Facturación.`;
+        }
+      }
+    } catch (e: any) {
+      logger.warn({ err: e?.message, pagoId: decision.pagoId }, "[Facturacion] falló el intento de facturar");
+    }
+  }
+  if (r.aprobado && !facturada) {
     try {
       const { reciboDeVenta, numeroDeRecibo } = await import("./cobro-y-entrega");
       // Los datos salen de la fila del pago y del catálogo, no del resultado
