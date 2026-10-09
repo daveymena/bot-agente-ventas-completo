@@ -2898,6 +2898,35 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
  * pregunta de una línea -- terminó cinco minutos después en "No pude terminar
  * de responder", sin ningún rastro de por qué.
  */
+/**
+ * GET /api/code-agent/ollama-local-diagnostico (solo admin)
+ *
+ * 09-10-2026, seguridad: el Ollama LOCAL del VPS responde en el puerto público
+ * 11434 sin clave y tiene sesión de ollama.com (modelos -cloud): cualquiera
+ * gastaba la cuota Pro del dueño. Antes de cerrar ese puerto hay que saber si
+ * el bot llega por la red INTERNA de Docker; si OLLAMA_LOCAL_URL apunta a la IP
+ * pública, cerrar el puerto deja al vendedor sin IA. Devuelve solo HOSTS y si
+ * responden; nunca claves.
+ */
+router.get("/ollama-local-diagnostico", requireAdmin(), async (_req: TenantRequest, res) => {
+  const probar = async (base: string) => {
+    if (!base) return { url: null, responde: false };
+    const limpia = base.replace(/\/+$/, "").replace(/\/v1$/, "");
+    try {
+      const r = await fetch(`${limpia}/api/tags`, { signal: AbortSignal.timeout(5000) });
+      const j: any = r.ok ? await r.json().catch(() => null) : null;
+      return { url: limpia, responde: r.ok, modelos: Array.isArray(j?.models) ? j.models.length : 0 };
+    } catch (e: any) {
+      return { url: limpia, responde: false, error: String(e?.cause?.code || e?.message || e).slice(0, 80) };
+    }
+  };
+  const configurada = String(process.env.OLLAMA_LOCAL_URL || "");
+  const [actual, interna] = await Promise.all([probar(configurada), probar("http://ollama_ollama:11434")]);
+  let hostConfigurado: string | null = null;
+  try { hostConfigurado = configurada ? new URL(configurada).host : null; } catch { hostConfigurado = "(no es una URL)"; }
+  return res.json({ hostConfigurado, actual, interna });
+});
+
 router.get("/atlas-diagnostico", requireAdmin(), async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
