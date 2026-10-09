@@ -38,6 +38,10 @@ export const PROMESAS: AfirmacionRegulada[] = [
   { patron: /\b\d+\s*%\s*(de\s*)?(descuento|off)\b|\b2x1\b/i, que: "un descuento" },
   { patron: /\b\d+\s*(cupos?|plazas?|vacantes?|lugares)\b|\bcupos?\s+(limitados?|disponibles?)\b|\b[uú]ltimos?\s+(cupos?|d[ií]as?|lugares)\b|\bsolo\s+hoy\b|\bpor\s+tiempo\s+limitado\b|\btermina\s+(hoy|ma[nñ]ana|pronto)\b|\b[uú]ltima\s+oportunidad\b|\bantes\s+de\s+que\s+(suba|termine|se\s+acabe)/i, que: "una urgencia o escasez" },
   { patron: /\breembolso\b|\bdevoluci[oó]n\s+de\s+dinero\b/i, que: "una devolución de dinero" },
+  // 09-10-2026: las campañas del Corrector (155) decían "envío incluido" y
+  // pasaban: "gratis" estaba cubierto, "incluido" no. Quien lo lee espera no
+  // pagar flete, y en contraentrega el flete lo cobra la transportadora.
+  { patron: /\benv[ií]os?\s+(gratis|gratuitos?|incluidos?|sin\s+costo|cubiertos?)\b|\b(domicilio|despacho)\s+(gratis|incluido)\b/i, que: "envío gratis o incluido" },
 ];
 
 /** Resultados prometidos: plazos, niveles alcanzados, dedicación diaria. */
@@ -46,6 +50,13 @@ export const RESULTADOS: AfirmacionRegulada[] = [
   { patron: /\bresultados?\s+(en|desde|garantizad)/i, que: "resultados en un plazo" },
   { patron: /\b\d+\s*minutos?\s+(al|por)\s+d[ií]a\b/i, que: "un tiempo diario de dedicación" },
   { patron: /\bde\s+cero\s+a\s+(experto|avanzado|profesional)\b/i, que: "un nivel final alcanzado" },
+  // 09-10-2026, mismas campañas del Corrector: "sin dolor", "al instante",
+  // "3 a 5 días". Todo eso pasaba: las familias se escribieron para cursos.
+  // Un producto físico promete efectos sobre el cuerpo y plazos de entrega, y
+  // los dos los reclama el cliente si no se cumplen.
+  { patron: /\bsin\s+dolor\b|\b(adi[oó]s|elimin\w*|cur\w*|quit\w*|alivi\w*|acab\w*\s+con)\s+(al|el|tu|los|tus|del)?\s*dolor/i, que: "un efecto sobre el dolor o la salud" },
+  { patron: /\b(resultados?|alivio|efectos?|cambios?|mejoras?)\s+(al\s+instante|inmediat\w*|desde\s+el\s+primer\s+(uso|d[ií]a))|\bal\s+instante\b/i, que: "un efecto inmediato" },
+  { patron: /\b\d+\s*(a|-|y)\s*\d+\s*d[ií]as?(\s+h[aá]biles)?\b/i, que: "un plazo de entrega" },
 ];
 
 /** Entregables: lo que el cliente espera recibir por haber pagado. */

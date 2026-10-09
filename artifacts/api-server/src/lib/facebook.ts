@@ -1950,6 +1950,41 @@ Responde SOLO con este JSON exacto:
    * necesario para que el panel sepa a QUÉ conjunto cambiarle el presupuesto
    * (el presupuesto vive en el conjunto, no en la campaña). */
   /**
+   * El texto que REALMENTE publican los anuncios de una campaña (cuerpo,
+   * titular, descripción, también de carrusel y de variantes dinámicas).
+   *
+   * Para no encender a ciegas un anuncio viejo: el validador de promesas solo
+   * corría al CREAR, así que una campaña escrita antes de las reglas (09-10:
+   * "sin dolor", "al instante", "envío incluido") se podía volver a prender.
+   * Null si Meta no deja leerlo.
+   */
+  async textosDeLosAnuncios(campaignId: string): Promise<string[] | null> {
+    try {
+      const ads = await this.fbGet(`${campaignId}/ads`, {
+        fields: "id,creative{body,title,object_story_spec,asset_feed_spec}",
+        limit: "100",
+      }, this.config.userAccessToken);
+      const textos: string[] = [];
+      const sumar = (v: unknown) => { if (typeof v === "string" && v.trim()) textos.push(v.trim()); };
+      for (const ad of ads?.data || []) {
+        const c = ad?.creative || {};
+        sumar(c.body); sumar(c.title);
+        const ld = c.object_story_spec?.link_data || {};
+        sumar(ld.message); sumar(ld.name); sumar(ld.description);
+        for (const h of ld.child_attachments || []) { sumar(h?.name); sumar(h?.description); }
+        const vd = c.object_story_spec?.video_data || {};
+        sumar(vd.message); sumar(vd.title);
+        const af = c.asset_feed_spec || {};
+        for (const k of ["bodies", "titles", "descriptions"]) for (const x of af[k] || []) sumar(x?.text);
+      }
+      return textos;
+    } catch (e: any) {
+      logger.warn({ campaignId, err: e?.message }, "[FB] No pude leer el texto de los anuncios");
+      return null;
+    }
+  }
+
+  /**
    * Estructura completa de una campaña: conjuntos y, dentro, sus anuncios.
    *
    * Hace falta porque el estado que muestra Meta arriba engaña. Caso real
