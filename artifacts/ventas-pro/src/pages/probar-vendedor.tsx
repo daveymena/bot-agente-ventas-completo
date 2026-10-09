@@ -41,7 +41,7 @@ type LoQueSabe = {
   agente: { id: number; nombre: string } | null;
   agentes?: { id: number; nombre: string }[];
   indicaciones: string[];
-  datos: { id: number; pregunta: string; respuesta: string | null; productId: number | null }[];
+  datos: { id: number; pregunta: string; respuesta: string | null; productId: number | null; producto?: string | null }[];
 };
 
 const SUGERENCIAS = ["Hola, ¿qué venden?", "¿Cuánto cuesta?", "¿Cómo pago?", "Lo voy a pensar"];
@@ -495,6 +495,9 @@ function PanelLoQueSabe({ sabe, alCambiar }: { sabe: LoQueSabe | null; alCambiar
                     <div className="flex-1 min-w-0">
                       <p className="truncate text-slate-500">{d.pregunta}</p>
                       <p className="text-slate-800">{d.respuesta || <i className="text-slate-400">sin respuesta: dirá que lo confirma</i>}</p>
+                      <p className={`mt-1 text-[11px] ${d.productId != null ? "text-amber-700" : "text-emerald-700"}`}>
+                        {d.productId != null ? `Solo para: ${d.producto ?? `producto ${d.productId}`}` : "Para todos los productos"}
+                      </p>
                     </div>
                     <button onClick={() => setEditDato({ id: d.id, texto: d.respuesta || "" })} className="text-slate-400 hover:text-indigo-600" aria-label="Editar"><PencilLine className="h-3.5 w-3.5" /></button>
                     <button onClick={() => borrar(`/api/probar-vendedor/dato/${d.id}`)} className="text-slate-400 hover:text-red-600" aria-label="Borrar"><Trash2 className="h-3.5 w-3.5" /></button>

@@ -143,6 +143,15 @@ export async function loQueSabeElVendedor(tenantId: number) {
     .where(eq(productKnowledge.tenantId, tenantId))
     .orderBy(desc(productKnowledge.id))
     .limit(100);
+  // 09-10-2026: el dueño enseñó "garantía de 30 días" probando con el producto
+  // 174 y creyó que valía para todo; con el corrector 155 el vendedor decía "no
+  // tengo garantía publicada". La lista ahora dice a qué producto aplica.
+  const ids = [...new Set(datos.map((k: any) => k.productId).filter((x: any) => x != null))] as number[];
+  const nombres = new Map<number, string>();
+  if (ids.length) {
+    const filas = await db.select({ id: products.id, name: products.name }).from(products).where(eq(products.tenantId, tenantId));
+    for (const f of filas as any[]) if (ids.includes(f.id)) nombres.set(f.id, String(f.name));
+  }
   return {
     agente: agentes[0] ? { id: agentes[0].id, nombre: agentes[0].name } : null,
     agentes: agentes.map((a: any) => ({ id: a.id, nombre: a.name })),
@@ -152,6 +161,7 @@ export async function loQueSabeElVendedor(tenantId: number) {
       pregunta: String(k.pregunta || ""),
       respuesta: k.respuesta ? String(k.respuesta) : null,
       productId: k.productId ?? null,
+      producto: k.productId != null ? (nombres.get(k.productId) ?? `producto ${k.productId}`) : null,
     })),
   };
 }
