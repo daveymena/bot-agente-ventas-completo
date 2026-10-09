@@ -672,7 +672,18 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
       return `🕵️ Leer el catálogo público de ${valorLegible(g.url ?? "", 80)} (solo lee, no toca nada)`;
     case "fb_page_publish":
       return `📢 PUBLICAR en el muro de la página de Facebook (público, gratis) el producto ${g.productId ?? "?"} — visible de inmediato para todos`;
+    case "crear_anuncio_ab": {
+      const ciudades = Array.isArray(g.ciudades) ? g.ciudades : [];
+      const edades = g.edadMin || g.edadMax ? `${g.edadMin ?? 18}–${g.edadMax ?? 65} años` : "";
+      const quien = [edades, g.generos ? String(g.generos) : "", ciudades.length ? `en ${ciudades.join(", ")}` : "", Array.isArray(g.intereses) && g.intereses.length ? `intereses: ${g.intereses.join(", ")}` : ""].filter(Boolean).join(" · ");
+      const diario = Number(g.dailyBudget || 0);
+      return `🆎 A/B de "${valorLegible(g.producto, 60)}": DOS campañas en Meta EN PAUSA (no gastan hasta que las actives), $${diario.toLocaleString("es-CO")}/día cada una ($${(diario * 2).toLocaleString("es-CO")}/día al activar las dos)` +
+        `\n   🅰️ ventas → la web (landing si tiene, si no la tienda) · 🅱️ mensajes → WhatsApp` +
+        `\n   🖼️ Carrusel con las fotos reales · copy de ángulo distinto en cada una` +
+        `\n   🎯 Se muestra a: ${quien || "lo que Meta optimice (Advantage+, lo recomendado si no se pidió público)"}`;
+    }
     case "crear_anuncio":
+      if (g.ab === true || g.ab === "true") return describePlannedAction({ tool: "crear_anuncio_ab", args: g });
       // El destino se muestra solo cuando de verdad se crea la campaña en
       // Meta: si `subirAMeta` no va, esto guarda un borrador local y el
       // objetivo todavía no decide nada. Anunciar un destino ahí sería
