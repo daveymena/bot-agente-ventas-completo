@@ -55,6 +55,8 @@ export interface VideoGenerado {
   conBroll: boolean;
   /** Cuántas escenas generó Sora (cada una se cobra). */
   tomasSora?: number;
+  /** Por qué Sora no generó alguna de las tomas pedidas. */
+  errorSora?: string;
   guion: GuionDeVideo;
   en: string;
 }
@@ -358,7 +360,7 @@ export async function generarVideoDeAnuncio(tenantId: number, productId: number,
     let conBroll = false;
     // Sora para las tomas de ambiente, con tope por video (ver video-sora.ts).
     // Las que Sora genera van en paralelo: cada una tarda 1-3 min.
-    const { tomaConSora, escenasSoraPorVideo } = await import("./video-sora");
+    const { tomaConSora, escenasSoraPorVideo, ultimoErrorDeSora } = await import("./video-sora");
     const topeSora = escenasSoraPorVideo();
     const paraSora = escenas
       .map((e, i) => ({ e, i }))
@@ -463,7 +465,7 @@ export async function generarVideoDeAnuncio(tenantId: number, productId: number,
 
     const duracion = await duracionDe(final);
     const appUrl = (process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "");
-    const video: VideoGenerado = { archivo: nombre, url: `${appUrl}/videos/anuncios/${nombre}`, duracion: Math.round(duracion * 10) / 10, escenas: escenas.length, conBroll, tomasSora: deSora.size, guion, en: new Date().toISOString() };
+    const video: VideoGenerado = { archivo: nombre, url: `${appUrl}/videos/anuncios/${nombre}`, duracion: Math.round(duracion * 10) / 10, escenas: escenas.length, conBroll, tomasSora: deSora.size, ...(paraSora.length > deSora.size ? { errorSora: ultimoErrorDeSora() || "sin motivo" } : {}), guion, en: new Date().toISOString() };
     await db.update(products).set({ metadata: JSON.stringify({ ...m, videoAnuncio: video }) } as any).where(eq(products.id, productId));
     logger.info({ tenantId, productId, duracion: video.duracion, escenas: escenas.length, conBroll, guionPor: guion.autor }, "[VideoAnuncio] video generado");
     return { ok: true, video };
