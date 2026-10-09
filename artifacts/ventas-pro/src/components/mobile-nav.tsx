@@ -1,6 +1,6 @@
 import { IconoDelMenu } from "@/components/icono-del-menu";
 import { useLocation } from "wouter";
-import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store, Activity, Crown, Megaphone, HelpCircle, BadgeCheck, LayoutTemplate, LogOut , Truck, MessageSquareText, GraduationCap, Plug } from "lucide-react";
+import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store, Activity, Crown, Megaphone, HelpCircle, BadgeCheck, LayoutTemplate, LogOut , Truck, MessageSquareText, GraduationCap, Plug, ReceiptText } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "@/App";
 import { iconoMarca } from "@/components/logo-marca";
@@ -19,6 +19,7 @@ const baseMoreItems = [
   { label: "Facebook", href: "/facebook", icon: iconoMarca("facebook") },
   { label: "Agentes IA", href: "/agents", icon: Bot },
   { label: "Probar vendedor", href: "/probar-vendedor", icon: MessageSquareText },
+  { label: "Punto de venta", href: "/punto-de-venta", icon: ReceiptText },
   { label: "Enseñar con ejemplo", href: "/ensenar-con-ejemplo", icon: GraduationCap },
   // Ocultos del menú móvil 29-09-2026 (igual que en el lateral web): son
   // herramientas de laboratorio; las rutas /agent-lab y /agent-lab-dashboard

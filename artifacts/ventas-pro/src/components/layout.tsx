@@ -24,6 +24,7 @@ import {
   Beaker,
   BarChart3,
   MessageSquareText,
+  ReceiptText,
   GraduationCap,
   Plug,
 } from "lucide-react";
@@ -58,6 +59,7 @@ export function AppSidebar() {
     { label: "Enseñar con ejemplo", href: "/ensenar-con-ejemplo", icon: GraduationCap },
     { label: "Prospectos", href: "/leads", icon: Users },
     { label: "Pedidos", href: "/pedidos", icon: ShoppingCart },
+    { label: "Punto de venta", href: "/punto-de-venta", icon: ReceiptText },
     { label: "Productos", href: "/products", icon: Package },
     { label: "WhatsApp", href: "/whatsapp", icon: iconoMarca("whatsapp") },
     ...(isAdmin ? [
