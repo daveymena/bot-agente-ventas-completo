@@ -205,7 +205,7 @@ export function htmlDeEscena(e: EscenaDeVideo, i: number, total: number, ctx: { 
   const tam = rol === "gancho" ? (largo > 30 ? 92 : 112) : (largo > 34 ? 76 : 92);
   const fisico = ctx.modelo === "fisico";
   const botonCierre = ctx.destino === "web"
-    ? `<div class="boton web">👇 ${esc(ctx.cta)}</div>`
+    ? `<div class="boton web">${esc(ctx.cta)} ›</div>`
     : `<div class="boton wa">💬 ${esc(ctx.cta)}</div>`;
   return `<!doctype html><html><head><meta charset="utf-8"><style>
   html,body{margin:0;width:${ANCHO}px;height:${ALTO}px;overflow:hidden;font-family:"Liberation Sans",Arial,Helvetica,sans-serif;color:#fff;background:${broll ? "transparent" : "#0B0B14"}}
@@ -253,7 +253,10 @@ export function fotoEsDeTextoSegunVision(descripcion: string | null): boolean {
 async function fotosAptasParaEscena(tenantId: number, locales: string[]): Promise<string[]> {
   try {
     const { describirImagen } = await import("./media-entrante");
-    const pregunta = "¿Es una tabla de tallas/medidas, una infografía o un afiche con mucho texto escrito encima? Responde empezando con SI o NO y luego qué es.";
+    // 08-10: "¿mucho texto?" dejaba pasar una infografía en inglés ("Open
+    // Straight Back Training Habit"). Se pregunta por CUALQUIER título o frase
+    // escrita sobre la foto, en cualquier idioma.
+    const pregunta = "¿La imagen tiene títulos, frases o tablas escritas encima (en cualquier idioma), como una tabla de tallas, una infografía o un afiche publicitario? Un logo pequeño en el producto no cuenta. Responde empezando con SI o NO y luego qué es.";
     const veredictos = await Promise.all(locales.map(async (f) => {
       try {
         const buf = await readFile(f);
