@@ -95,7 +95,9 @@ describe("todos los datos de una vez (decisión del dueño)", () => {
     const ctx = contextoDeDropshipping();
     expect(ctx).not.toMatch(/UNO a la vez/);
     expect(ctx).toMatch(/TODOS JUNTOS/);
-    expect(ctx).toMatch(/envío va INCLUIDO/);
+    // 09-10-2026: sin envío configurado no se afirma incluido (no miente)
+    expect(ctx).toMatch(/NO est.*configurado/);
+    expect(ctx).not.toMatch(/envío va INCLUIDO/);
     expect(ctx).toMatch(/confirma con un sí/);
   });
 
@@ -134,7 +136,7 @@ describe("todos los datos de una vez (decisión del dueño)", () => {
       direccion: "Calle 45 #12-30 apto 302", barrio: "La Floresta", ciudad: "Medellín",
       departamento: "Antioquia", notas: "frente a la panadería El Trigal",
     });
-    for (const parte of ["Mini Licuadora", "48.000", "contraentrega", "Juan Pérez Gómez", "1020304050", "3001234567", "Calle 45", "La Floresta", "Medellín, Antioquia", "El Trigal", "3 a 5 días"]) {
+    for (const parte of ["Mini Licuadora", "48.000", "contraentrega", "Juan Pérez Gómez", "1020304050", "3001234567", "Calle 45", "La Floresta", "Medellín, Antioquia", "El Trigal", "transportadora"]) {
       expect(r, parte).toContain(parte);
     }
   });

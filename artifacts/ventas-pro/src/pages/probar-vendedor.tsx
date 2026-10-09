@@ -19,6 +19,7 @@ import { ArrowLeft, BookOpen, Loader2, MessageSquareWarning, Package, PencilLine
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 import { BurbujaWhatsApp, type Burbuja } from "@/components/burbuja-whatsapp";
+import { Revision, DialogoEnvio, type Alerta } from "@/components/revision-del-vendedor";
 
 type Mensaje = {
   role: "customer" | "agent";
@@ -35,7 +36,10 @@ type Mensaje = {
   antes?: Burbuja[];
   /** La respuesta regenerada salió igual a la de antes. */
   salioIgual?: boolean;
+  /** Lo que el servidor encontró que esta respuesta no puede sostener (ver lib/revisar-respuesta.ts). */
+  revision?: Alerta[];
 };
+
 
 type LoQueSabe = {
   agente: { id: number; nombre: string } | null;
@@ -98,13 +102,13 @@ export default function ProbarVendedorPage() {
     setTexto("");
     setPensando(true);
     try {
-      const r = await api<{ texto: string; mensajes: Burbuja[]; estado: unknown; pedido: unknown; productoEnFoco: number | null }>(
+      const r = await api<{ texto: string; mensajes: Burbuja[]; estado: unknown; pedido: unknown; productoEnFoco: number | null; revision?: Alerta[] }>(
         "/api/probar-vendedor/mensaje",
         { method: "POST", body: JSON.stringify({ mensaje: limpio, historial, estado, pedido }) },
       );
       setEstado(r.estado);
       setPedido(r.pedido ?? null);
-      setMensajes((m) => [...m, { role: "agent", content: r.texto || "[ficha]", burbujas: r.mensajes, productoEnFoco: r.productoEnFoco, estadoAntes, pedidoAntes }]);
+      setMensajes((m) => [...m, { role: "agent", content: r.texto || "[ficha]", burbujas: r.mensajes, productoEnFoco: r.productoEnFoco, estadoAntes, pedidoAntes, revision: r.revision || [] }]);
     } catch (e: any) {
       toast.error(e.message || "El vendedor no respondió");
       setMensajes((m) => m.slice(0, -1));
@@ -131,7 +135,7 @@ export default function ProbarVendedorPage() {
     setMensajes(mensajes.slice(0, i));
     setPensando(true);
     try {
-      const r = await api<{ texto: string; mensajes: Burbuja[]; estado: unknown; pedido: unknown; productoEnFoco: number | null }>(
+      const r = await api<{ texto: string; mensajes: Burbuja[]; estado: unknown; pedido: unknown; productoEnFoco: number | null; revision?: Alerta[] }>(
         "/api/probar-vendedor/mensaje",
         { method: "POST", body: JSON.stringify({ mensaje: mensajes[c].content, historial, estado: vieja.estadoAntes ?? null, pedido: vieja.pedidoAntes ?? null }) },
       );
@@ -144,7 +148,7 @@ export default function ProbarVendedorPage() {
         {
           role: "agent", content: r.texto || "[ficha]", burbujas: r.mensajes, productoEnFoco: r.productoEnFoco,
           estadoAntes: vieja.estadoAntes, pedidoAntes: vieja.pedidoAntes,
-          corregido: true, antes: vieja.antes ?? vieja.burbujas, salioIgual,
+          corregido: true, antes: vieja.antes ?? vieja.burbujas, salioIgual, revision: r.revision || [],
         },
       ]);
       if (salioIgual) toast.warning("Respondió igual. Prueba escribir la corrección de otra forma, más concreta.");
@@ -157,6 +161,27 @@ export default function ProbarVendedorPage() {
   };
 
   const panelSabe = <PanelLoQueSabe sabe={sabe} alCambiar={cargarSabe} />;
+
+  // ── Arreglar con un clic lo que encontró la revisión ──────────────────
+  const [arreglando, setArreglando] = useState<string | null>(null);
+  const [configEnvio, setConfigEnvio] = useState<number | null>(null);
+  const corregirAlerta = async (i: number, a: Alerta) => {
+    if (!a.correccion) return;
+    setArreglando(`${i}:${a.frase}`);
+    try {
+      await api("/api/probar-vendedor/corregir", {
+        method: "POST",
+        body: JSON.stringify({ tipo: "forma", indicacion: a.correccion }),
+      });
+      toast.success("Corregido", { description: `Tu vendedor ya no dirá "${a.frase}". Así responde ahora:` });
+      cargarSabe();
+      await regenerar(i);
+    } catch (e: any) {
+      toast.error(e.message || "No se pudo corregir");
+    } finally {
+      setArreglando(null);
+    }
+  };
 
   return (
     <Layout chatCompleto>
@@ -215,6 +240,15 @@ export default function ProbarVendedorPage() {
                       elegida={eleccion?.i === i && eleccion?.k === k}
                     />
                   ))}
+                  {m.role === "agent" && m.revision && (
+                    <Revision
+                      alertas={m.revision}
+                      ocupado={arreglando}
+                      i={i}
+                      alCorregir={(a) => corregirAlerta(i, a)}
+                      alConfigurarEnvio={() => setConfigEnvio(i)}
+                    />
+                  )}
                   {m.role === "agent" && (
                     <button
                       onClick={() => setCorrigiendo(i)}
@@ -261,6 +295,12 @@ export default function ProbarVendedorPage() {
           <div className="mt-3">{panelSabe}</div>
         </SheetContent>
       </Sheet>
+
+      <DialogoEnvio
+        abierto={configEnvio !== null}
+        alCerrar={() => setConfigEnvio(null)}
+        alGuardar={() => { const i = configEnvio; setConfigEnvio(null); if (i !== null) regenerar(i); }}
+      />
 
       <DialogoCorregir
         abierto={corrigiendo !== null}
@@ -345,8 +385,8 @@ function DialogoCorregir(p: {
         </div>
         {esFicha && (
           <p className="-mt-1 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
-            Los datos de la ficha (precio, descripción, foto, lo que incluye) salen de <a href="/products" className="font-semibold underline">Productos</a>: si algo está mal, cámbialo allá.
-            Aquí corriges <b>cuándo y cómo</b> se manda (ej: "no mandes la ficha completa si solo preguntó el precio").
+            La presentación de la ficha (el gancho y "Así te ayuda") <b>se reescribe con tu corrección</b> (ej: "no digas que el efecto es inmediato").
+            El precio, las fotos y la descripción salen de <a href="/products" className="font-semibold underline">Productos</a>; el envío y el pago, del perfil del negocio.
           </p>
         )}
 

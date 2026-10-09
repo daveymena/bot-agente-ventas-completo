@@ -648,8 +648,14 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
     const { fraseCostoEnvio, frasePagoEnvio } = await import("./modelo-de-negocio");
     lines.push(variante([`🚚 *ENVÍO Y PAGO*`, `🚚 *Cómo lo recibes*`, `🚚 *Entrega y pago*`], sem));
     lines.push("");
-    lines.push(`📦 ${fraseCostoEnvio(c)}, ${c.envio.cobertura}`);
-    lines.push(`⏱️ Llega en ${c.envio.plazo}`);
+    // Sin envío configurado no se afirma costo ni plazo (ver envioConfirmado).
+    const { envioConfirmado } = await import("./modelo-de-negocio");
+    if (envioConfirmado(c)) {
+      lines.push(`📦 ${fraseCostoEnvio(c)}, ${c.envio.cobertura}`);
+      lines.push(`⏱️ Llega en ${c.envio.plazo}`);
+    } else {
+      lines.push(`📦 Te lo enviamos a tu dirección por transportadora`);
+    }
     lines.push(`💵 ${frasePagoEnvio(c)}`);
     lines.push("");
     // Contraentrega: no hay nada que cobrar ahora, la ficha termina acá.
@@ -920,7 +926,8 @@ async function lineaDeComoSeEntrega(p: typeof products.$inferSelect): Promise<st
   if (modelo === "fisico") {
     try {
       const c = await condicionesDelProducto(p);
-      return `📦 ${fraseCostoEnvio(c)}. ${frasePagoEnvio(c)}.`;
+      const { envioConfirmado } = await import("./modelo-de-negocio");
+      return envioConfirmado(c) ? `📦 ${fraseCostoEnvio(c)}. ${frasePagoEnvio(c)}.` : `📦 ${frasePagoEnvio(c)}.`;
     } catch { return ""; }
   }
   return "";
@@ -1147,8 +1154,11 @@ export async function construirSeccion(
     const { modeloDelProducto, fraseCostoEnvio, frasePagoEnvio } = await import("./modelo-de-negocio");
     const modelo = modeloDelProducto(p as any);
     const c = await condicionesDelProducto(p);
+    const { envioConfirmado } = await import("./modelo-de-negocio");
     const texto = modelo === "fisico"
-      ? `📦 Te lo enviamos a tu dirección por transportadora. ${fraseCostoEnvio(c)}.\n⏱️ Llega en ${c.envio.plazo}. ${frasePagoEnvio(c)}.\n\n${cierre}`
+      ? envioConfirmado(c)
+        ? `📦 Te lo enviamos a tu dirección por transportadora. ${fraseCostoEnvio(c)}.\n⏱️ Llega en ${c.envio.plazo}. ${frasePagoEnvio(c)}.\n\n${cierre}`
+        : `📦 Te lo enviamos a tu dirección por transportadora. ${frasePagoEnvio(c)}.\n⏱️ El tiempo depende de la transportadora: te comparto la guía apenas salga.\n\n${cierre}`
       : modelo === "servicio"
         ? `🗓️ Es un servicio: se agenda por acá${c.agenda ? ` (${c.agenda})` : ""} y el negocio te confirma la hora.\n\n${cierre}`
         : modelo === "cotizacion"
@@ -1175,7 +1185,7 @@ export async function construirSeccion(
       return {
         conFoto: false,
         mensajes: [
-          `💵 Este producto se paga contraentrega: no pagas nada ahora, pagas cuando la transportadora te lo entrega en tu dirección.\n📦 ${fraseCostoEnvio(c)} (${mon.precioTexto}) y llega en ${c.envio.plazo}.\n\n¿Te tomo el pedido? Solo necesito tus datos de envío.`,
+          `💵 Este producto se paga contraentrega: no pagas nada ahora, pagas cuando la transportadora te lo entrega en tu dirección.\n${(await import("./modelo-de-negocio")).envioConfirmado(c) ? `📦 ${fraseCostoEnvio(c)} (${mon.precioTexto}) y llega en ${c.envio.plazo}.` : `💰 ${mon.precioTexto}`}\n\n¿Te tomo el pedido? Solo necesito tus datos de envío.`,
         ],
       };
     }
@@ -1311,7 +1321,8 @@ export async function construirSeccion(
             nombre: p.name,
             emoji: emojiTitulo,
             precio: mon.precioTexto,
-            envio: `${fraseCostoEnvio(c)}. Llega en ${c.envio.plazo}.`,
+            // null = el negocio no configuró el envío: la ficha no lo afirma.
+            envio: (await import("./modelo-de-negocio")).lineaDeEnvio(c),
             pago: frasePagoEnvio(c),
             tallas: null,
             conCierre: !sinCierre,
@@ -1329,7 +1340,8 @@ export async function construirSeccion(
       try {
         const { fraseCostoEnvio, frasePagoEnvio } = await import("./modelo-de-negocio");
         const c = await condicionesDelProducto(p);
-        L.push(`🚚 ${fraseCostoEnvio(c)}. Llega en ${c.envio.plazo}.`);
+        const envio = (await import("./modelo-de-negocio")).lineaDeEnvio(c);
+        if (envio) L.push(`🚚 ${envio}`);
         L.push(`💵 ${frasePagoEnvio(c)}.`);
       } catch {
         const lineaDeEntrega = await lineaDeComoSeEntrega(p);

@@ -55,7 +55,8 @@ export const RESULTADOS: AfirmacionRegulada[] = [
   // Un producto físico promete efectos sobre el cuerpo y plazos de entrega, y
   // los dos los reclama el cliente si no se cumplen.
   { patron: /\bsin\s+dolor\b|\b(adi[oó]s|elimin\w*|cur\w*|quit\w*|alivi\w*|acab\w*\s+con)\s+(al|el|tu|los|tus|del)?\s*dolor/i, que: "un efecto sobre el dolor o la salud" },
-  { patron: /\b(resultados?|alivio|efectos?|cambios?|mejoras?)\s+(al\s+instante|inmediat\w*|desde\s+el\s+primer\s+(uso|d[ií]a))|\bal\s+instante\b/i, que: "un efecto inmediato" },
+  // "de manera inmediata" salió en la ficha del vendedor (probador, 09-10).
+  { patron: /\b(resultados?|alivio|efectos?|cambios?|mejoras?)\s+(al\s+instante|inmediat\w*|desde\s+el\s+primer\s+(uso|d[ií]a))|\bal\s+instante\b|\bde\s+(manera|forma)\s+inmediata\b|\binmediatamente\b/i, que: "un efecto inmediato" },
   { patron: /\b\d+\s*(a|-|y)\s*\d+\s*d[ií]as?(\s+h[aá]biles)?\b/i, que: "un plazo de entrega" },
 ];
 
@@ -126,6 +127,32 @@ export function resultadoRespaldado(match: string, respaldo: RespaldoDelProducto
 export function entregableRespaldado(match: string, respaldo: RespaldoDelProducto): boolean {
   const raiz = match.toLowerCase().replace(/[^a-záéíóúñ]/g, "").slice(0, 6);
   return !!raiz && respaldo.compacto.includes(raiz);
+}
+
+/**
+ * Todas las promesas y resultados de un texto que el producto NO respalda.
+ *
+ * La misma regla que `validarContenidoAnuncio` (app-operator), pero devuelve
+ * la lista en vez del primer motivo: la usan la ficha del vendedor (para no
+ * publicar una presentación que promete de más) y el probador (para mostrarle
+ * al dueño cada frase que su vendedor no puede sostener). 09-10-2026: la ficha
+ * del Corrector decía "evitas encorvarte de manera inmediata" y su validador
+ * propio no lo veía: era una lista aparte, más corta que la de los anuncios.
+ */
+export function afirmacionesSinRespaldo(
+  texto: string,
+  respaldo: RespaldoDelProducto,
+): Array<{ frase: string; que: string }> {
+  const fuera: Array<{ frase: string; que: string }> = [];
+  for (const p of PROMESAS) {
+    const m = texto.match(p.patron);
+    if (m && !promesaRespaldada(m[0], respaldo)) fuera.push({ frase: m[0], que: p.que });
+  }
+  for (const p of RESULTADOS) {
+    const m = texto.match(p.patron);
+    if (m && !resultadoRespaldado(m[0], respaldo)) fuera.push({ frase: m[0], que: p.que });
+  }
+  return fuera;
 }
 
 /**

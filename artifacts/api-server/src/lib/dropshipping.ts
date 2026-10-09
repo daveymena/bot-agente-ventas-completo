@@ -25,7 +25,7 @@ import { db, pool, products } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
 import { notasParaElProveedor } from "./dropi-directo";
-import { CONDICIONES_DE_RESPALDO, esColombia, type CondicionesDelNegocio } from "./modelo-de-negocio";
+import { CONDICIONES_DE_RESPALDO, esColombia, envioConfirmado, plazoDeEntrega, costoDeEnvioEnFrase, type CondicionesDelNegocio } from "./modelo-de-negocio";
 
 /** Los datos mínimos para que una transportadora entregue en Colombia. */
 export interface DatosDeEnvio {
@@ -164,20 +164,30 @@ export function contextoDeDropshipping(c: CondicionesDelNegocio = CONDICIONES_DE
     : c.envio.pago === "anticipado"
       ? "• El envío se paga ANTES del despacho (enlace o transferencia). No ofrezcas contraentrega."
       : "• Se puede pagar antes del despacho o contraentrega: pregúntale cuál prefiere.";
-  const costo = c.envio.costo === "incluido"
-    ? "• El envío va INCLUIDO en el precio: no se cobra aparte ni se cotiza por ciudad."
-    : `• Costo de envío: ${c.envio.costo}. Dilo tal cual; no lo estimes por ciudad.`;
+  // Sin envío configurado NO se le da al modelo un plazo ni un costo para
+  // repetir "con seguridad" (09-10-2026: era el relleno y el dueño lo vio
+  // como mentira). Ver envioConfirmado.
+  const confirmado = envioConfirmado(c);
+  const costo = !confirmado
+    ? "• El COSTO del envío NO está configurado: no digas que es gratis ni que va incluido. Si pregunta, dile que se lo confirmas al tomar el pedido."
+    : c.envio.costo === "incluido"
+      ? "• El envío va INCLUIDO en el precio: no se cobra aparte ni se cotiza por ciudad."
+      : `• Costo de envío: ${c.envio.costo}. Dilo tal cual; no lo estimes por ciudad.`;
   return [
     "🚚 PRODUCTO FÍSICO — ENTREGA A DOMICILIO",
-    `• Tiempo de entrega: ${c.envio.plazo}, cobertura: ${c.envio.cobertura}.`,
-    `  Es un dato ${c.fuente === "perfil" ? "confirmado por el negocio" : "FIJO del negocio"}: dilo con seguridad y NUNCA lo cambies según la ciudad ni lo estimes.`,
+    confirmado
+      ? `• Tiempo de entrega: ${c.envio.plazo}, cobertura: ${c.envio.cobertura}.
+  Es un dato confirmado por el negocio: dilo con seguridad y NUNCA lo cambies según la ciudad ni lo estimes.`
+      : "• El TIEMPO de entrega NO está configurado: no prometas días. Si pregunta, depende de la transportadora y se lo confirmas con la guía.",
     costo,
     pago,
     "• NO se entrega por Google Drive ni por link: esto se despacha físicamente.",
     `• Para despacharlo necesitas: nombre completo, celular, dirección con barrio, ciudad, ${esColombia(c.pais) ? "departamento" : "estado o provincia"} y un punto de referencia.`,
     "  Cuando el cliente quiera comprar, pídeselos TODOS JUNTOS en una lista numerada (el sistema te dice cuáles faltan).",
     "  Después se verifican, se le muestra el resumen y se registra SOLO cuando él confirma con un sí.",
-    "• Nunca inventes número de guía ni fecha exacta de llegada: solo el rango de arriba.",
+    confirmado
+      ? "• Nunca inventes número de guía ni fecha exacta de llegada: solo el rango de arriba."
+      : "• Nunca inventes número de guía ni fecha de llegada.",
     "• Nunca digas que el pedido quedó registrado si el sistema no te lo confirma abajo.",
   ].join("\n");
 }
@@ -262,7 +272,7 @@ export function resumenDelPedido(p: PedidoDropshipping, c: CondicionesDelNegocio
   const precio = Number(p.total ?? p.unitPrice ?? 0);
   const lineas = [
     `📦 ${p.productName} × ${p.quantity}`,
-    precio > 0 ? `💰 Total: $${precio.toLocaleString("es-CO")} COP (${c.envio.costo === "incluido" ? "envío incluido" : `envío ${c.envio.costo}`})` : "",
+    precio > 0 ? `💰 Total: $${precio.toLocaleString("es-CO")} COP (${costoDeEnvioEnFrase(c)})` : "",
     `💵 Pago: ${p.metodoPago === "contraentrega" ? "contraentrega, al recibir" : p.metodoPago}`,
     `👤 ${p.nombre}`,
     // La cédula ya no se pide: sin esto el resumen mostraba "🪪 Cédula undefined".
@@ -271,7 +281,7 @@ export function resumenDelPedido(p: PedidoDropshipping, c: CondicionesDelNegocio
     `🏠 ${p.direccion}${p.barrio ? `, barrio ${p.barrio}` : ""}`,
     `🏙️ ${p.ciudad}, ${p.departamento}`,
     p.notas ? `📍 ${p.notas}` : "",
-    `🚚 Entrega: ${c.envio.plazo}`,
+    `🚚 Entrega: ${plazoDeEntrega(c)}`,
   ];
   return lineas.filter(Boolean).join("\n");
 }
@@ -288,7 +298,9 @@ export function confirmacionDelPedido(p: PedidoDropshipping, c: CondicionesDelNe
     `💵 ${p.metodoPago === "contraentrega" ? "Pagas contraentrega, cuando lo recibes" : "Pago ya acordado"}`,
     `🏠 ${p.direccion}${p.barrio ? `, barrio ${p.barrio}` : ""}`,
     `🏙️ ${p.ciudad}${p.departamento ? `, ${p.departamento}` : ""}`,
-    `🚚 ${c.envio.costo === "incluido" ? "Envío incluido" : `Envío ${c.envio.costo}`} · llega en ${c.envio.plazo}`,
+    envioConfirmado(c)
+      ? `🚚 ${c.envio.costo === "incluido" ? "Envío incluido" : `Envío ${c.envio.costo}`} · llega en ${c.envio.plazo}`
+      : `🚚 Te comparto la guía apenas la transportadora la genere`,
   ].join("\n");
 }
 

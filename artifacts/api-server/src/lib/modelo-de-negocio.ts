@@ -205,7 +205,9 @@ export function condicionesDesdePerfil(perfil: any): CondicionesDelNegocio {
       cobertura: String(envioRaw?.cobertura ?? perfil?.cobertura ?? "").trim() || CONDICIONES_DE_RESPALDO.envio.cobertura,
     },
     agenda: String(perfil?.agenda ?? "").trim() || undefined,
-    fuente: "perfil",
+    // Con solo el país cargado, el envío sigue siendo el relleno: no cuenta
+    // como confirmado (ver envioConfirmado).
+    fuente: envioRaw ? "perfil" : "respaldo",
   };
 }
 
@@ -220,6 +222,37 @@ export function frasePagoEnvio(c: CondicionesDelNegocio): string {
 
 export function fraseCostoEnvio(c: CondicionesDelNegocio): string {
   return c.envio.costo === "incluido" ? "Envío incluido en el precio" : `Envío: ${c.envio.costo}`;
+}
+
+/**
+ * ¿El envío (costo y plazo) lo configuró el negocio, o es el relleno?
+ *
+ * ⚠️ 09-10-2026, probador del vendedor: la ficha del Corrector le decía al
+ * cliente "Envío incluido en el precio. Llega en 3 a 5 días hábiles" y el
+ * dueño lo marcó como mentira. Su perfil NO tenía envío (`fuente:
+ * "respaldo"`) y al vendedor se le decía "no sabes cuánto tarda, no lo
+ * inventes"... mientras la ficha lo afirmaba con los valores de relleno.
+ * Lo no configurado no se afirma (CLAUDE.md): con relleno, la ficha no dice
+ * costo ni plazo, y donde haga falta mencionarlos se dice que se confirman.
+ */
+export function envioConfirmado(c: CondicionesDelNegocio): boolean {
+  return c.fuente !== "respaldo";
+}
+
+/** "Envío incluido en el precio. Llega en 3 a 5 días hábiles." — o null si el negocio no lo configuró. */
+export function lineaDeEnvio(c: CondicionesDelNegocio): string | null {
+  return envioConfirmado(c) ? `${fraseCostoEnvio(c)}. Llega en ${c.envio.plazo}.` : null;
+}
+
+/** El plazo para nombrarlo en una frase ("llega en …"), sin inventarlo. */
+export function plazoDeEntrega(c: CondicionesDelNegocio): string {
+  return envioConfirmado(c) ? c.envio.plazo : "el tiempo que indique la transportadora (te lo confirmo con la guía)";
+}
+
+/** El costo para nombrarlo en una frase, sin inventarlo. */
+export function costoDeEnvioEnFrase(c: CondicionesDelNegocio): string {
+  if (!envioConfirmado(c)) return "costo del envío por confirmar";
+  return c.envio.costo === "incluido" ? "envío incluido" : `envío ${c.envio.costo}`;
 }
 
 // ─── Qué hace el bot después del "sí", por modelo ────────────────────────────
