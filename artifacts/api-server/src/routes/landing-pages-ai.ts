@@ -450,10 +450,13 @@ async function generateLandingViaForge(
   const productUrl = product.paymentLink || product.checkoutUrl || `https://ventasproia.com/tienda/producto/${product.id}`;
 
   // Usar el pipeline completo del cliente (incluye dedup de landings existentes)
+  // Un servicio va como servicio (página de agenda), no como tienda: ver
+  // lineaDeProducto y la vía de Atlas (landing_forge_crear).
+  const { lineaDeProducto } = await import("../lib/taxonomia");
   const result = await getOrCreateLanding(
     product.name,
     productUrl,
-    (product.kind === "physical" ? "physical" : "digital") as "physical" | "digital",
+    lineaDeProducto(product) === "servicio" ? "service" : product.kind === "physical" ? "physical" : "digital",
     {
       description: product.description || "",
       price: product.price ? String(product.price) : undefined,

@@ -249,7 +249,7 @@ export async function aiActivaParaForge(): Promise<{ providerId: string; model?:
 export async function getOrCreateLanding(
   productName: string,
   productUrl: string,
-  productKind: "physical" | "digital",
+  productKind: "physical" | "digital" | "service",
   productData?: ProductData,
 ): Promise<MagicLandingResult> {
   // Antes reutilizaba SIEMPRE una landing publicada con el mismo nombre de
