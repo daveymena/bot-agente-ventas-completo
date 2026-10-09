@@ -267,12 +267,19 @@ export async function publishToPage(
   const { token, pageId: id } = pageCreds(tenant);
 
   try {
-    const isPhoto = Boolean(draft.imageUrl);
+    // La imagen tiene que ser una URL pública ABSOLUTA: Facebook la descarga
+    // desde sus servidores. buildPostDraft ya la convertía, pero el
+    // publicador programado (agente-organico) guarda `products.imageUrl` tal
+    // cual, y una ruta del catálogo ("/uploads/products/41.jpg") hacía fallar
+    // la publicación tres veces hasta quedar "fallada". Sin URL válida, sale
+    // como texto.
+    const imagen = absoluteUrl(draft.imageUrl);
+    const isPhoto = Boolean(imagen);
     const endpoint = isPhoto ? `${FB_GRAPH}/${id}/photos` : `${FB_GRAPH}/${id}/feed`;
 
     const body: Record<string, string> = { access_token: token };
     if (isPhoto) {
-      body.url = draft.imageUrl!;
+      body.url = imagen!;
       body.caption = draft.message;
     } else {
       body.message = draft.message;

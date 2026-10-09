@@ -10,7 +10,21 @@ import { eq } from "drizzle-orm";
 import { encryptSecret, decryptSecret } from "../credentials-vault";
 import { tenantManager } from "../tenantManager";
 import { logger } from "../logger";
+import { secretoNuevo } from "../secretos";
 import type { CredencialesIntegracion, Plataforma } from "./tipos";
+
+/**
+ * La metadata REAL del negocio, leída de la base.
+ *
+ * ⚠️ Antes se sacaba de `tenantManager.getTenantById()`, que devuelve un
+ * TenantContext SIN `metadata`: leerMeta() daba {} siempre, así que guardar
+ * una integración escribía `metadata = { integraciones }` y BORRABA el resto
+ * (Facebook, correo, etc.), y leer las credenciales devolvía null.
+ */
+async function metaDe(tenantId: number): Promise<any> {
+  const [fila] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+  return leerMeta(fila);
+}
 
 function leerMeta(tenant: any): any {
   const m = (tenant as any)?.metadata;
@@ -26,9 +40,7 @@ export async function leerCredenciales(
   tenantId: number,
   plataforma: Plataforma,
 ): Promise<CredencialesIntegracion | null> {
-  const tenant = await tenantManager.getTenantById(tenantId);
-  if (!tenant) return null;
-  const integ = leerMeta(tenant).integraciones?.[plataforma];
+  const integ = (await metaDe(tenantId)).integraciones?.[plataforma];
   if (!integ) return null;
   return {
     tienda: integ.tienda,
@@ -49,14 +61,17 @@ export async function guardarCredenciales(
   plataforma: Plataforma,
   parche: Partial<{ tienda: string; token: string; secreto: string; refresh: string; expiraEn: string; moneda: string; vendedorId: string; activa: boolean }>,
 ): Promise<void> {
-  const tenant = await tenantManager.getTenantById(tenantId);
-  const meta = leerMeta(tenant);
+  const meta = await metaDe(tenantId);
   const prev = meta.integraciones?.[plataforma] || {};
   const next: any = { ...prev };
   if (parche.tienda !== undefined) next.tienda = String(parche.tienda).trim();
-  if (parche.token !== undefined) next.token = encryptSecret(parche.token);
-  if (parche.secreto !== undefined) next.secreto = encryptSecret(parche.secreto);
-  if (parche.refresh !== undefined) next.refresh = encryptSecret(parche.refresh);
+  // Vacío o enmascarado ("••••abcd") no pisa el secreto guardado.
+  const token = secretoNuevo(parche.token);
+  const secreto = secretoNuevo(parche.secreto);
+  const refresh = secretoNuevo(parche.refresh);
+  if (token) next.token = encryptSecret(token);
+  if (secreto) next.secreto = encryptSecret(secreto);
+  if (refresh) next.refresh = encryptSecret(refresh);
   if (parche.expiraEn !== undefined) next.expiraEn = parche.expiraEn;
   if (parche.moneda !== undefined) next.moneda = parche.moneda;
   if (parche.vendedorId !== undefined) next.vendedorId = parche.vendedorId;
@@ -65,26 +80,24 @@ export async function guardarCredenciales(
   await db.update(tenants)
     .set({ metadata: { ...meta, integraciones: { ...(meta.integraciones || {}), [plataforma]: next } } as any })
     .where(eq(tenants.id, tenantId));
-  try { (tenantManager as any).invalidate?.(tenantId); } catch { /* noop */ }
+  try { tenantManager.clearCache(); } catch { /* noop */ }
   logger.info({ tenantId, plataforma }, "[Integraciones] credenciales guardadas");
 }
 
 /** Borra la integración (revoca del lado nuestro; en la plataforma se revoca allá). */
 export async function borrarCredenciales(tenantId: number, plataforma: Plataforma): Promise<void> {
-  const tenant = await tenantManager.getTenantById(tenantId);
-  const meta = leerMeta(tenant);
+  const meta = await metaDe(tenantId);
   const integ = { ...(meta.integraciones || {}) };
   delete integ[plataforma];
   await db.update(tenants)
     .set({ metadata: { ...meta, integraciones: integ } as any })
     .where(eq(tenants.id, tenantId));
-  try { (tenantManager as any).invalidate?.(tenantId); } catch { /* noop */ }
+  try { tenantManager.clearCache(); } catch { /* noop */ }
 }
 
 /** Estado resumido (sin secretos) para el panel y Atlas. */
 export async function estadoIntegraciones(tenantId: number): Promise<Record<string, { conectada: boolean; autorizada: boolean; tienda?: string; activa: boolean; actualizadaEn?: string }>> {
-  const tenant = await tenantManager.getTenantById(tenantId);
-  const integ = leerMeta(tenant).integraciones || {};
+  const integ = (await metaDe(tenantId)).integraciones || {};
   const out: Record<string, { conectada: boolean; autorizada: boolean; tienda?: string; activa: boolean; actualizadaEn?: string }> = {};
   for (const p of ["shopify", "aliexpress", "mercadolibre", "falabella"]) {
     const c = integ[p];

@@ -6,8 +6,10 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Facebook, CheckCircle2, AlertTriangle, Loader, Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { Facebook, CheckCircle2, AlertTriangle, Loader, ShieldCheck } from "lucide-react";
+import { SecretInput } from "@/components/ui/secret-input";
 import { LogoMarca } from "@/components/logo-marca";
+import { DatoSensibleInput, ValorOculto } from "@/components/ui/dato-sensible";
 
 interface Estado {
   propias: boolean;
@@ -33,7 +35,6 @@ export function FacebookCredentials() {
   const [guardando, setGuardando] = useState(false);
 
   const [fbToken, setFbToken] = useState("");
-  const [verToken, setVerToken] = useState(false);
   const [pruebaToken, setPruebaToken] = useState<Prueba>(null);
   const [probandoToken, setProbandoToken] = useState(false);
 
@@ -43,9 +44,7 @@ export function FacebookCredentials() {
   const [catalogId, setCatalogId] = useState("");
   const [appId, setAppId] = useState("");
   const [appSecret, setAppSecret] = useState("");
-  const [verAppSecret, setVerAppSecret] = useState(false);
   const [messengerToken, setMessengerToken] = useState("");
-  const [verMessenger, setVerMessenger] = useState(false);
   const [messengerVerify, setMessengerVerify] = useState("");
 
   const cargar = async () => {
@@ -183,21 +182,13 @@ export function FacebookCredentials() {
             <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">
               Token de página (Largo) {estado?.accessToken && <span className="normal-case font-normal tracking-normal">· guardado: {estado.accessToken}</span>}
             </Label>
-            <div className="relative">
-              <Input
-                type={verToken ? "text" : "password"}
-                value={fbToken}
-                onChange={e => { setFbToken(e.target.value); setPruebaToken(null); }}
-                placeholder={estado?.accessToken ? "Dejalo vacío para no cambiarlo" : "EAA..."}
-                className="font-mono text-sm bg-muted/30 pr-11"
-                autoComplete="off"
-              />
-              <button type="button" onClick={() => setVerToken(v => !v)}
-                aria-label={verToken ? "Ocultar" : "Mostrar"}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                {verToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
+            <SecretInput
+              value={fbToken}
+              onChange={v => { setFbToken(v); setPruebaToken(null); }}
+              guardado={estado?.accessToken}
+              placeholder="EAA..."
+              className="text-sm bg-muted/30"
+            />
             <p className="text-xs text-muted-foreground">
               Sacalo de Facebook Developers → Herramientas → Access Token Debugger o desde tu app.
             </p>
@@ -214,7 +205,7 @@ export function FacebookCredentials() {
         <div className="space-y-3 pt-2 border-t border-border/50">
           <div className="space-y-2">
             <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Page ID</Label>
-            <Input value={pageId} onChange={e => { setPageId(e.target.value); setPruebaToken(null); }}
+            <DatoSensibleInput value={pageId} onChange={e => { setPageId(e.target.value); setPruebaToken(null); }}
               placeholder="123456789012345" className="font-mono text-sm bg-muted/30" autoComplete="off" />
             <p className="text-xs text-muted-foreground">El ID numérico de tu página de Facebook.</p>
           </div>
@@ -224,25 +215,25 @@ export function FacebookCredentials() {
         <div className="grid gap-3 sm:grid-cols-2 pt-2 border-t border-border/50">
           <div className="space-y-2">
             <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Ad Account ID</Label>
-            <Input value={adAccountId} onChange={e => { setAdAccountId(e.target.value); setPruebaToken(null); }}
+            <DatoSensibleInput value={adAccountId} onChange={e => { setAdAccountId(e.target.value); setPruebaToken(null); }}
               placeholder="act_1234567890" className="font-mono text-sm bg-muted/30" autoComplete="off" />
             <p className="text-xs text-muted-foreground">ID de tu cuenta de anuncios (formato act_...).</p>
           </div>
           <div className="space-y-2">
             <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Pixel ID</Label>
-            <Input value={pixelId} onChange={e => { setPixelId(e.target.value); setPruebaToken(null); }}
+            <DatoSensibleInput value={pixelId} onChange={e => { setPixelId(e.target.value); setPruebaToken(null); }}
               placeholder="1234567890123456" className="font-mono text-sm bg-muted/30" autoComplete="off" />
             <p className="text-xs text-muted-foreground">ID del Facebook Pixel para tracking.</p>
           </div>
           <div className="space-y-2">
             <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Catalog ID</Label>
-            <Input value={catalogId} onChange={e => { setCatalogId(e.target.value); setPruebaToken(null); }}
+            <DatoSensibleInput value={catalogId} onChange={e => { setCatalogId(e.target.value); setPruebaToken(null); }}
               placeholder="1234567890123456" className="font-mono text-sm bg-muted/30" autoComplete="off" />
             <p className="text-xs text-muted-foreground">ID de tu catálogo de productos en Commerce Manager.</p>
           </div>
           <div className="space-y-2">
             <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">App ID</Label>
-            <Input value={appId} onChange={e => { setAppId(e.target.value); setPruebaToken(null); }}
+            <DatoSensibleInput value={appId} onChange={e => { setAppId(e.target.value); setPruebaToken(null); }}
               placeholder="123456789012345" className="font-mono text-sm bg-muted/30" autoComplete="off" />
             <p className="text-xs text-muted-foreground">App ID de tu app en Facebook Developers.</p>
           </div>
@@ -254,42 +245,26 @@ export function FacebookCredentials() {
             <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">
               App Secret {estado?.appSecret && <span className="normal-case font-normal tracking-normal">· guardado: {estado.appSecret}</span>}
             </Label>
-            <div className="relative">
-              <Input
-                type={verAppSecret ? "text" : "password"}
-                value={appSecret}
-                onChange={e => { setAppSecret(e.target.value); setPruebaToken(null); }}
-                placeholder={estado?.appSecret ? "Dejalo vacío para no cambiarlo" : "..."}
-                className="font-mono text-sm bg-muted/30 pr-11"
-                autoComplete="off"
-              />
-              <button type="button" onClick={() => setVerAppSecret(v => !v)}
-                aria-label={verAppSecret ? "Ocultar" : "Mostrar"}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                {verAppSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
+            <SecretInput
+              value={appSecret}
+              onChange={v => { setAppSecret(v); setPruebaToken(null); }}
+              guardado={estado?.appSecret}
+              placeholder="..."
+              className="text-sm bg-muted/30"
+            />
             <p className="text-xs text-muted-foreground">App Secret de tu app en Facebook Developers → Configuración → Básica.</p>
           </div>
           <div className="space-y-2">
             <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">
               Messenger Page Token {estado?.messengerPageToken && <span className="normal-case font-normal tracking-normal">· guardado: {estado.messengerPageToken}</span>}
             </Label>
-            <div className="relative">
-              <Input
-                type={verMessenger ? "text" : "password"}
-                value={messengerToken}
-                onChange={e => { setMessengerToken(e.target.value); setPruebaToken(null); }}
-                placeholder={estado?.messengerPageToken ? "Dejalo vacío para no cambiarlo" : "EAA..."}
-                className="font-mono text-sm bg-muted/30 pr-11"
-                autoComplete="off"
-              />
-              <button type="button" onClick={() => setVerMessenger(v => !v)}
-                aria-label={verMessenger ? "Ocultar" : "Mostrar"}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                {verMessenger ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
+            <SecretInput
+              value={messengerToken}
+              onChange={v => { setMessengerToken(v); setPruebaToken(null); }}
+              guardado={estado?.messengerPageToken}
+              placeholder="EAA..."
+              className="text-sm bg-muted/30"
+            />
             <p className="text-xs text-muted-foreground">Token de página para Messenger (puede ser el mismo que Access Token).</p>
           </div>
         </div>
@@ -298,8 +273,9 @@ export function FacebookCredentials() {
         <div className="space-y-3 pt-2 border-t border-border/50">
           <div className="space-y-2">
             <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Messenger Verify Token</Label>
-            <Input value={messengerVerify} onChange={e => { setMessengerVerify(e.target.value); setPruebaToken(null); }}
-              placeholder="ventaspro_webhook_verify_2026" className="bg-muted/30" autoComplete="off" />
+            <SecretInput value={messengerVerify} onChange={v => { setMessengerVerify(v); setPruebaToken(null); }}
+              guardado={estado?.messengerVerifyToken}
+              placeholder="ventaspro_webhook_verify_2026" className="bg-muted/30" />
             <p className="text-xs text-muted-foreground">Token de verificación para el webhook de Messenger (lo ponés en Facebook Developers → Webhooks).</p>
           </div>
         </div>

@@ -1751,7 +1751,8 @@ ESTADO REAL DEL CATALOGO, MEDIDO AHORA MISMO (${new Date().toISOString()}):
           lines.push(`${r.ok ? "✅" : "❌"} ${paraElAdmin}${repairText}${verification ? `\n   ${verification}` : ""}`);
         }
         await clearPendingPlan(tenantId, sessionId);
-        const allOk = executed.every((item) => item.ok);
+        // 08-10: "verificado" solo si lo LEÍDO coincide (ver verificar-anuncio-en-meta.ts).
+        const allOk = executed.every((item) => item.ok && !String(item.verification || "").startsWith("⚠️"));
         // AUTO-EVALUACIÓN DE ATLAS: si el plan terminó con errores, se guarda
         // la lección (qué herramienta, qué error, qué se intentó) para que el
         // próximo turno la lea en loadRecentLessons y no tropiece dos veces
@@ -2271,10 +2272,20 @@ router.get("/history", async (req: TenantRequest, res, next) => {
     // dejar escribir ni detener. Con esto la página sabe que no hay nada
     // que esperar.
     const { claveDeTurno, hayTurnoEnVuelo } = await import("../lib/turnos-en-vuelo");
+    const ultimoAt = Number((ultimo as any)?.at || 0);
+    const esParcial = ultimo?.role === "assistant" && (ultimo as any)?.parcial === true;
     return res.json({
       history,
       awaitingConfirmation: !!pending,
-      hayAlgoPendiente: ultimo?.role === "assistant" && ultimo?.parcial === true,
+      // Solo si quedó a medias hace POCO. Medido 08-10: al abrir la pantalla,
+      // la página retomó sola un pedido a medias de hace 6 días (01-10) y
+      // Atlas contestó sobre algo que el admin ya ni recordaba. Lo viejo se
+      // muestra, pero no se relanza sin que el admin lo pida.
+      hayAlgoPendiente: esParcial && Date.now() - ultimoAt < 30 * 60_000,
+      // 08-10: parcial VIEJO (tarea larga que agotó los tramos automáticos o
+      // volvió el admin tarde). No se relanza solo, pero la página ofrece
+      // "Retomar donde quedó" en vez de dejar el pedido a medias.
+      parcialViejo: esParcial && Date.now() - ultimoAt >= 30 * 60_000,
       turnoEnCurso: hayTurnoEnVuelo(claveDeTurno(String(tenantId), sessionId)),
     });
   } catch (e) {

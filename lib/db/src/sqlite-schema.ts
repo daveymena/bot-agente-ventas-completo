@@ -370,6 +370,19 @@ export const whatsappAuth = sqliteTable("whatsapp_auth", {
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });
 
+// ── push_subscriptions (espejo SQLite de schema/push-subscriptions.ts) ───────
+export const pushSubscriptions = sqliteTable("push_subscriptions", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  endpoint: text("endpoint").notNull().unique(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  dispositivo: text("dispositivo"),
+  activo: integer("activo", { mode: "boolean" }).notNull().default(true),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+  updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
+});
+
 // ── personality_profiles ──────────────────────────────────────────────────────
 export const personalityProfiles = sqliteTable("personality_profiles", {
   id: integer("id").primaryKey({ autoIncrement: true }),

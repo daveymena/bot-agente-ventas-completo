@@ -82,21 +82,35 @@ function aProductoExterno(p: any, moneda = "COP"): ProductoExterno {
   if (Array.isArray(chicas)) fotos.push(...chicas.filter(Boolean));
   else if (typeof chicas === "string" && chicas) fotos.push(chicas);
   if (p.product_main_image_url) fotos.unshift(p.product_main_image_url);
-  const precio = Number(String(p.sale_price || p.target_sale_price || "0").replace(/[^0-9.]/g, "")) || 0;
+  // 08-10: se leía `sale_price` (moneda ORIGINAL, casi siempre USD) y se
+  // rotulaba como COP: un producto de 5 dólares entraba a "$5". El precio en
+  // la moneda pedida es `target_sale_price`, y su moneda real viene al lado.
+  const num = (v: unknown) => Number(String(v ?? "").replace(/[^0-9.]/g, "")) || 0;
+  const enDestino = num(p.target_sale_price);
+  const precio = enDestino || num(p.sale_price);
+  const monedaReal = enDestino
+    ? String(p.target_sale_price_currency || moneda)
+    : String(p.sale_price_currency || "USD");
   return {
     idExterno: String(p.product_id || p.productId),
     nombre: String(p.product_title || p.productTitle || `Producto ${p.product_id || ""}`).slice(0, 200),
     descripcion: null,
+    // Es el COSTO del proveedor, no el precio de venta: el producto entra
+    // como borrador (activo: false) hasta que el dueño ponga su precio. Antes
+    // entraba activo y el vendedor de WhatsApp lo habría ofrecido al costo.
     precio,
-    moneda,
+    moneda: monedaReal,
     categoriaSugerida: p.second_level_category_name || p.first_level_category_name || null,
     imagenes: [...new Set(fotos)].slice(0, 20),
     videoUrl: p.product_video_url || null,
     stock: null,
-    activo: true,
+    activo: false,
     urlOrigen: p.product_detail_url || p.promotion_link || null,
     digital: false,
     extra: {
+      costoProveedor: precio,
+      monedaCosto: monedaReal,
+      requierePrecioDeVenta: true,
       precioOriginal: p.original_price || p.target_original_price || null,
       evaluacion: p.evaluate_rate || null,
       vendidos: p.last_volume || p.sale_volume || null,
@@ -120,9 +134,26 @@ export async function buscarProductos(
     target_language: opts.idioma || "ES",
   };
   if (cred.trackingId) params.tracking_id = cred.trackingId;
-  const data = await llamarApi(cred, "aliexpress.affiliate.product.query", params);
-  const moneda = opts.moneda || "COP";
-  return listaProductosRespuesta(data).map((p) => aProductoExterno(p, moneda));
+  let data: any;
+  try {
+    data = await llamarApi(cred, "aliexpress.affiliate.product.query", params);
+  } catch (e: any) {
+    // Si la moneda pedida no está entre las que Ali convierte, se pide en USD
+    // y el precio queda rotulado en USD (honesto), en vez de fallar todo.
+    if (params.target_currency === "USD" || !/currency|moneda/i.test(String(e?.message))) throw e;
+    params.target_currency = "USD";
+    data = await llamarApi(cred, "aliexpress.affiliate.product.query", params);
+  }
+  return listaProductosRespuesta(data).map((p) => aProductoExterno(p, params.target_currency));
+}
+
+/**
+ * Prueba las claves con una búsqueda real de 1 producto. Se corre ANTES de
+ * guardar: unas claves que AliExpress rechaza no se guardan como "conectada".
+ */
+export async function probarConexion(cred: CredAli, moneda = "COP"): Promise<{ ejemplo: string | null; moneda: string; precio: number }> {
+  const [p] = await buscarProductos(cred, "phone holder", { porPagina: 1, moneda });
+  return { ejemplo: p?.nombre ?? null, moneda: p?.moneda ?? moneda, precio: p?.precio ?? 0 };
 }
 
 /** Detalle con TODAS las fotos (`product_small_image_urls`) y el video. */

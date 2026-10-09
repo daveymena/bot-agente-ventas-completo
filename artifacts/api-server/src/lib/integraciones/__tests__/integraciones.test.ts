@@ -94,6 +94,52 @@ describe("AliExpress IOP: firma y hora como las pide api-sg", () => {
   });
 });
 
+// 08-10-2026: el precio salía en USD rotulado como COP, los productos entraban
+// ACTIVOS al costo del proveedor, y una moneda no soportada tumbaba todo.
+describe("AliExpress: precio, borrador y moneda", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const producto = {
+    product_id: 1005001, product_title: "Corrector de postura",
+    sale_price: "4.99", sale_price_currency: "USD",
+    target_sale_price: "19900", target_sale_price_currency: "COP",
+    product_main_image_url: "https://ae01.alicdn.com/a.jpg",
+  };
+  const respuesta = (ps: any[]) => new Response(JSON.stringify({ aliexpress_affiliate_product_query_response: { resp_result: { result: { products: { product: ps } } } } }), { status: 200 });
+
+  it("usa el precio en la moneda pedida y entra como BORRADOR con el costo anotado", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => respuesta([producto])));
+    const { buscarProductos } = await import("../aliexpress");
+    const [p] = await buscarProductos({ appKey: "k", appSecret: "s" }, "corrector");
+    expect(p.precio).toBe(19900);
+    expect(p.moneda).toBe("COP");
+    expect(p.activo).toBe(false);
+    expect(p.extra).toMatchObject({ costoProveedor: 19900, requierePrecioDeVenta: true });
+  });
+
+  it("sin precio convertido, rotula el precio con SU moneda (USD), no con COP", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => respuesta([{ ...producto, target_sale_price: undefined, target_sale_price_currency: undefined }])));
+    const { buscarProductos } = await import("../aliexpress");
+    const [p] = await buscarProductos({ appKey: "k", appSecret: "s" }, "corrector");
+    expect(p.precio).toBe(4.99);
+    expect(p.moneda).toBe("USD");
+  });
+
+  it("si Ali no acepta la moneda, reintenta en USD en vez de fallar", async () => {
+    const pedidas: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_u: string, o: any) => {
+      const moneda = new URLSearchParams(String(o.body)).get("target_currency") || "";
+      pedidas.push(moneda);
+      return moneda === "COP"
+        ? new Response(JSON.stringify({ code: "InvalidParameter", message: "target_currency not supported" }), { status: 200 })
+        : respuesta([{ ...producto, target_sale_price: "4.99", target_sale_price_currency: "USD" }]);
+    }));
+    const { probarConexion } = await import("../aliexpress");
+    const r = await probarConexion({ appKey: "k", appSecret: "s" }, "COP");
+    expect(pedidas).toEqual(["COP", "USD"]);
+    expect(r).toMatchObject({ ejemplo: "Corrector de postura", moneda: "USD", precio: 4.99 });
+  });
+});
+
 describe("Falabella Seller Center: firma clave=valor&… en hex minúscula", () => {
   afterEach(() => vi.unstubAllGlobals());
   it("firmarSeller = HMAC-SHA256 de los parámetros ordenados y codificados", async () => {

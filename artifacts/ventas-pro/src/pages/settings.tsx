@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { SecretInput } from "@/components/ui/secret-input";
 import { 
   useGetSettings, getGetSettingsQueryKey,
   useUpdateSettings
@@ -9,6 +10,7 @@ import { PaymentCredentials } from "@/components/payment-credentials";
 import { EmailCredentials } from "@/components/email-credentials";
 import { FacebookCredentials } from "@/components/facebook-credentials";
 import { TelegramCredentials } from "@/components/telegram-credentials";
+import { PushNotifications } from "@/components/push-notifications";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -209,11 +211,14 @@ export default function Settings() {
         // verificado el 2026-08-19). Un negocio nuevo arrancaba apuntando a un
         // proveedor apagado. Copilot es otra cosa y sí funciona.
         aiProvider: (settings as any).aiProvider || "github_copilot_internal",
-        githubToken: (settings as any).githubToken || "",
+        // Los secretos NO se cargan en el formulario: el servidor solo manda la
+        // máscara, y reenviarla al guardar podía pisar la clave real. Vacío =
+        // no cambiar (el servidor también lo ignora).
+        githubToken: "",
         githubModel: (settings as any).githubModel || "gpt-4o-mini",
-        copilotSessionToken: (settings as any).copilotSessionToken || "",
+        copilotSessionToken: "",
         copilotSessionExpiresAt: (settings as any).copilotSessionExpiresAt || "",
-        nvidiaApiKey: (settings as any).nvidiaApiKey || "",
+        nvidiaApiKey: "",
         nvidiaModel: (settings as any).nvidiaModel || "meta/llama-3.1-70b-instruct",
         ollamaUrl: (settings as any).ollamaUrl || "",
         ollamaModel: (settings as any).ollamaModel || "hermes3:8b"
@@ -222,7 +227,9 @@ export default function Settings() {
   }, [settings]);
 
   const handleSubmit = () => {
-    updateSettings.mutate({ data: formData }, {
+    const datos: any = { ...formData };
+    for (const k of ["githubToken", "copilotSessionToken", "nvidiaApiKey"]) if (!datos[k]) delete datos[k];
+    updateSettings.mutate({ data: datos }, {
       onSuccess: () => {
         toast.success("Configuración guardada");
         queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() });
@@ -276,6 +283,7 @@ export default function Settings() {
             <EmailCredentials />
             <FacebookCredentials />
             <TelegramCredentials />
+            <PushNotifications />
             <TwoFactorSettings />
 
             <Card className="rounded-3xl border-0 shadow-lg glass-panel overflow-hidden relative">
@@ -411,8 +419,9 @@ export default function Settings() {
                           </>
                         );
                       } else if (formData.aiProvider === "github_copilot_internal") {
-                        const isActive = formData.copilotSessionToken && new Date(formData.copilotSessionExpiresAt) > new Date();
-                        const isExpired = formData.copilotSessionToken && !isActive;
+                        const tieneSesion = !!(settings as any)?.hasCopilotSessionToken;
+                        const isActive = tieneSesion && new Date(formData.copilotSessionExpiresAt) > new Date();
+                        const isExpired = tieneSesion && !isActive;
                         return (
                           <>
                             <div className={`h-2 w-2 rounded-full ${isActive ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : isExpired ? 'bg-yellow-500' : 'bg-red-500'}`} />
@@ -437,7 +446,7 @@ export default function Settings() {
                           </>
                         );
                       } else if (formData.aiProvider === "nvidia") {
-                        const hasToken = !!formData.nvidiaApiKey;
+                        const hasToken = !!formData.nvidiaApiKey || !!(settings as any)?.hasNvidiaApiKey;
                         return (
                           <>
                             <div className={`h-2 w-2 rounded-full ${hasToken ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`} />
@@ -766,10 +775,10 @@ export default function Settings() {
                         </div>
                         <div className="space-y-2">
                           <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">API Key</Label>
-                          <Input 
-                            type="password"
-                            value={formData.nvidiaApiKey || ""} 
-                            onChange={e => setFormData({...formData, nvidiaApiKey: e.target.value})} 
+                          <SecretInput
+                            value={formData.nvidiaApiKey || ""}
+                            onChange={v => setFormData({...formData, nvidiaApiKey: v})}
+                            guardado={(settings as any)?.hasNvidiaApiKey && ((settings as any)?.nvidiaApiKey || true)}
                             placeholder="nvapi-..."
                             className="bg-background/50 border-primary/10"
                           />

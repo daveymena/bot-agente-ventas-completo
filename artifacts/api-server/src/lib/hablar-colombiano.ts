@@ -102,6 +102,9 @@ const TRADUCCION: Array<[RegExp, string]> = (
 
     // ── El verbo ser ──────────────────────────────────────────────────────
     ["sos", "eres"],
+
+    // 09-10-2026, chat de prueba del corrector: "Acá te dejo el valor".
+    ["acá", "aquí"],
   ] as Array<[string, string]>
 )
   // ⚠️ `\b` en JavaScript se define sobre \w, que NO incluye vocales

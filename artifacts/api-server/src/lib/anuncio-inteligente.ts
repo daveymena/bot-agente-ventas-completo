@@ -231,7 +231,14 @@ export interface BriefDeAnuncio {
  */
 export function construirBrief(
   prod: { id: number; name: string; description?: any; features?: any; highlight?: any; price?: any; currency?: any; kind?: any; category?: any; deliveryLink?: any },
-  opciones: { enlace: string; whatsapp?: string },
+  opciones: {
+    enlace: string;
+    whatsapp?: string;
+    /** A dónde lleva el botón. Sin dato, como antes: WhatsApp si hay número. */
+    destino?: "whatsapp" | "web";
+    /** Condiciones REALES del negocio para lo que se despacha (envío, pago al recibir). */
+    oferta?: string[];
+  },
 ): BriefDeAnuncio {
   const respaldo = respaldoDe(prod);
   const kind = String(prod.kind || "digital").toLowerCase();
@@ -248,6 +255,9 @@ export function construirBrief(
     puedeAfirmar.push(`Solo lo que ya dice su descripción: "${String(prod.description).replace(/\s+/g, " ").slice(0, 300)}"`);
   }
   if (esDigital && prod.deliveryLink) puedeAfirmar.push("La entrega es digital: el enlace se manda apenas se confirma el pago.");
+  // La oferta del NEGOCIO (business-context), no la del proveedor: sin esto el
+  // modelo no podía decir "pagas al recibir" y el validador tampoco lo sabía.
+  for (const o of opciones.oferta || []) puedeAfirmar.push(`Condición del negocio: ${o}`);
 
   // ── Lo que NO puede afirmar ───────────────────────────────────────────────
   // Se prueba cada familia contra los datos del producto: si el producto no la
@@ -283,9 +293,13 @@ export function construirBrief(
     ? "Suele llegar gente que YA conoce el problema pero no la solución: nombrá el problema en el gancho y presentá el método, no la ficha técnica."
     : "Suele llegar gente que conoce el producto y compara: andá a utilidad concreta, precio, cómo se compra y cómo llega.";
 
-  const cta = opciones.whatsapp
-    ? `Una sola acción: escribir por WhatsApp (${opciones.whatsapp}). Nada de "compra, comparte y seguinos".`
-    : `Una sola acción: entrar al enlace del producto. Nada de "compra, comparte y seguinos".`;
+  // El destino lo decide la campaña, no el número cargado: con landing
+  // publicada el botón abre la página y el texto no puede pedir WhatsApp
+  // (07-10-2026: decía WhatsApp y el clic iba a la landing).
+  const vaAWhatsApp = opciones.destino ? opciones.destino === "whatsapp" : !!opciones.whatsapp;
+  const cta = vaAWhatsApp
+    ? `Una sola acción: escribir por WhatsApp${opciones.whatsapp ? ` (${opciones.whatsapp})` : ""} — el botón del anuncio abre el chat. Nada de "compra, comparte y síguenos".`
+    : `Una sola acción: entrar al enlace (${opciones.enlace}) — el botón del anuncio lleva ahí, NO a WhatsApp. Nada de "compra, comparte y síguenos".`;
 
   const faltantes: string[] = [];
   if (!features.length) faltantes.push("El producto no tiene características cargadas: el anuncio va a ser pobre y CUALQUIER beneficio que agregues va a rebotar por no estar respaldado. Conviene cargarlas primero.");

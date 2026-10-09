@@ -1,9 +1,9 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
+import { secretoNuevo, ultimos4, enmascararSecreto } from "../lib/secretos";
 import { createHmac, timingSafeEqual } from "crypto";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db, tenants, leads, conversations, messages, products, facebookDrafts } from "@workspace/db";
-import { facebookMessengerService as fbMessenger } from "../lib/facebook-messenger";
-import { facebookCommentsService as fbComments } from "../lib/facebook-comments";
+import { procesarWebhookDeMeta } from "../lib/meta-webhook-pagina";
 import { channelManager } from "../lib/channel-manager";
 import { tenantManager } from "../lib/tenantManager";
 import { adStrategist } from "../lib/ad-strategist";
@@ -84,37 +84,26 @@ router.get("/lead-ads/webhook", (req: Request, res: Response) => {
   return res.status(403).json({ error: "Verification failed" });
 });
 
-// POST /facebook/lead-ads/webhook — Recibir leads de Facebook Lead Ads
-router.post("/lead-ads/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
-  try {
-    const body = req.body;
-    logger.info({ entryCount: body.entry?.length }, "[Facebook] Lead webhook recibido");
+/**
+ * Las tres rutas de webhook de página hacen lo mismo: Meta manda TODO lo de un
+ * objeto a la URL que esté en el panel de la app, así que cualquiera de las
+ * tres tiene que entender mensajes, comentarios y leads, de Facebook y de
+ * Instagram (ver lib/meta-webhook-pagina.ts).
+ *
+ * Se responde 200 ANTES de atender: una respuesta de IA tarda más de lo que
+ * Meta espera, y entonces reintenta el mismo evento (respuesta duplicada).
+ */
+function atenderWebhookDeMeta(req: Request, res: Response) {
+  res.status(200).json({ received: true });
+  const body = req.body;
+  setImmediate(() => {
+    procesarWebhookDeMeta(body).catch((error) =>
+      logger.error({ err: error }, "[MetaWebhook] Error procesando el webhook"));
+  });
+}
 
-    for (const entry of body.entry || []) {
-      for (const change of entry.changes || []) {
-        if (change.field === "leadgen") {
-          const leadgenId = change.value?.leadgen_id;
-          const pageId = change.value?.page_id;
-          const formId = change.value?.form_id;
-
-          if (!leadgenId) continue;
-
-          logger.info({ leadgenId, pageId, formId }, "[Facebook] Nuevo lead recibido");
-          // El negocio sale de la PÁGINA del lead (antes: tenantId = 1 fijo,
-          // y los leads de todos los negocios le llegaban al dueño).
-          const { procesarLeadDeFormulario } = await import("../lib/facebook-leads");
-          const r = await procesarLeadDeFormulario({ leadgenId: String(leadgenId), pageId: String(pageId || ""), formId: formId ? String(formId) : null, adId: change.value?.ad_id ? String(change.value.ad_id) : null });
-          logger.info({ leadgenId, pageId, ...r }, "[Facebook] Lead de formulario procesado");
-        }
-      }
-    }
-
-    res.status(200).json({ received: true });
-  } catch (error) {
-    logger.error({ error }, "[Facebook] Error procesando lead webhook");
-    res.status(200).json({ received: true });
-  }
-});
+// POST /facebook/lead-ads/webhook — leads (y, si es la URL del panel, todo lo demás)
+router.post("/lead-ads/webhook", verifyFacebookSignature, atenderWebhookDeMeta);
 
 // ─── Facebook Messenger Webhook ────────────────────────────────────────────
 // GET /facebook/messenger/webhook — Facebook verification challenge
@@ -135,78 +124,8 @@ router.get("/messenger/webhook", (req: Request, res: Response) => {
   return res.status(403).json({ error: "Verification failed" });
 });
 
-// POST /facebook/messenger/webhook — Receive messages from Messenger
-router.post("/messenger/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
-  try {
-    const body = req.body;
-    if (body.object !== "page") {
-      return res.status(200).json({ received: true });
-    }
-
-    for (const entry of body.entry || []) {
-      for (const event of entry.messaging || []) {
-        const senderPsid = event.sender?.id;
-        const messageText = event.message?.text;
-        const senderName = event.sender?.name || event.message?.from?.name || "Facebook User";
-        const postback = event.postback?.payload;
-
-        if (!senderPsid) continue;
-
-        // Ignorar ecos (mensajes enviados por la propia página) para evitar bucles infinitos
-        if (event.message?.is_echo) continue;
-        // Ignorar acuses de entrega/lectura (no son mensajes entrantes)
-        if (event.delivery || event.read) continue;
-
-        if (messageText) {
-          await fbMessenger.handleIncomingMessage(senderPsid, messageText, senderName);
-        } else if (postback) {
-          await fbMessenger.handleIncomingMessage(senderPsid, postback, senderName);
-        }
-      }
-
-      for (const event of entry.standby || []) {
-        const senderPsid = event.sender?.id;
-        const messageText = event.message?.text;
-        if (senderPsid && messageText) {
-          await fbMessenger.handleIncomingMessage(
-            senderPsid,
-            messageText,
-            event.message?.from?.name || "Facebook User"
-          );
-        }
-      }
-
-      // Facebook envía TODOS los eventos de la página a UNA sola URL de callback.
-      // Además de mensajes (entry.messaging), aquí llegan los comentarios en
-      // publicaciones/anuncios como entry.changes con field "feed". Los procesamos
-      // en el mismo endpoint para que una única URL de webhook cubra Messenger + comentarios.
-      for (const change of entry.changes || []) {
-        if (change.field === "feed") {
-          const value = change.value || {};
-          if (value.item === "comment" && value.verb === "add") {
-            const fromId = value.from?.id || "";
-            const ownPageId = process.env.FB_PAGE_ID || "";
-            // No responder los comentarios de la propia página (evita bucles)
-            if (fromId && fromId !== ownPageId && value.comment_id && value.message) {
-              await channelManager.processMessage({
-                channel: "facebook_comment",
-                contactId: fromId,
-                contactName: value.from?.name || "Usuario",
-                text: value.message,
-                metadata: { commentId: value.comment_id, postId: value.post_id || "" },
-              });
-            }
-          }
-        }
-      }
-    }
-
-    res.status(200).json({ received: true });
-  } catch (error) {
-    logger.error({ error }, "[FB-Messenger] Error processing webhook");
-    res.status(200).json({ received: true });
-  }
-});
+// POST /facebook/messenger/webhook — Messenger, Instagram Direct, comentarios y leads
+router.post("/messenger/webhook", verifyFacebookSignature, atenderWebhookDeMeta);
 
 // ─── Facebook Marketplace Webhook ──────────────────────────────────────────
 router.post("/marketplace/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
@@ -300,42 +219,7 @@ router.get("/comments/webhook", (req: Request, res: Response) => {
   return res.status(403).json({ error: "Verification failed" });
 });
 
-router.post("/comments/webhook", verifyFacebookSignature, async (req: Request, res: Response) => {
-  try {
-    const body = req.body;
-    if (body.object !== "page") return res.status(200).json({ received: true });
-
-    for (const entry of body.entry || []) {
-      for (const change of entry.changes || []) {
-        if (change.field === "feed") {
-          const value = change.value || {};
-          if (value.item === "comment" && value.verb === "add") {
-            const commentId = value.comment_id;
-            const message = value.message || "";
-            const fromId = value.from?.id || "";
-            const fromName = value.from?.name || "Usuario";
-            const postId = value.post_id || "";
-
-            if (commentId && message && fromId) {
-              await channelManager.processMessage({
-                channel: "facebook_comment",
-                contactId: fromId,
-                contactName: fromName,
-                text: message,
-                metadata: { commentId, postId },
-              });
-            }
-          }
-        }
-      }
-    }
-
-    res.status(200).json({ received: true });
-  } catch (error) {
-    logger.error({ error }, "[FB-Comments] Error processing webhook");
-    res.status(200).json({ received: true });
-  }
-});
+router.post("/comments/webhook", verifyFacebookSignature, atenderWebhookDeMeta);
 
 // ─── Messenger & Marketplace Management Endpoints ──────────────────────────
 // Mismo motivo que /validate, /create-ad, etc.: el singleton `fbMessenger`
@@ -372,7 +256,7 @@ router.get("/messenger/page-info", async (req, res, next) => {
 
 router.post("/messenger/save-token", async (req, res, next) => {
   try {
-    const { pageToken } = req.body || {};
+    const pageToken = secretoNuevo(req.body?.pageToken);
     if (!pageToken) {
       return res.status(400).json({ error: "pageToken es requerido" });
     }
@@ -745,6 +629,39 @@ router.get("/strategist/drafts", async (req, res, next) => {
     const tenantId = Number((req as any).tenant?.id);
     if (!tenantId) return res.status(401).json({ error: "Tenant no autenticado" });
     const drafts = await adStrategist.getDrafts(tenantId);
+    // ── La RÚBRICA de cada borrador (anuncio-rubrica.ts) ─────────────────
+    // El dueño aprobaba a ojo: ahora cada borrador trae sus 8 criterios
+    // (gancho, beneficio, prueba, precio, acción vs destino, largos de Meta,
+    // fotos reales, segmentación) para ver QUÉ le falta antes de subirlo.
+    // Lectura pura: si algo falla, la lista sale igual, sin calidad.
+    try {
+      const { evaluarBorrador } = await import("../lib/anuncio-rubrica");
+      const { destinoDeObjetivo } = await import("../lib/anuncio-por-modelo");
+      const { fotosDelProducto } = await import("../lib/fotos-de-producto");
+      const { getAppUrl } = await import("../lib/app-url");
+      const ids = [...new Set(drafts.map((d: any) => Number(d.productId)).filter(Boolean))] as number[];
+      const prods = ids.length ? await db.select().from(products).where(and(eq(products.tenantId, tenantId), inArray(products.id, ids))) : [];
+      const porId = new Map(prods.map((p: any) => [Number(p.id), p]));
+      let garantia = false;
+      try {
+        const { getBusinessContext } = await import("../lib/business-context");
+        garantia = !!(await getBusinessContext(tenantId))?.garantia;
+      } catch { garantia = false; }
+      for (const d of drafts as any[]) {
+        const p = porId.get(Number(d.productId));
+        if (!p) continue;
+        const st: any = d.strategy && typeof d.strategy === "object" ? d.strategy : {};
+        const destino = st.destino ? (st.destino === "whatsapp" ? "whatsapp" : "web") : destinoDeObjetivo(st.objetivo || st.objetivoRecomendado);
+        d.calidad = evaluarBorrador(d, {
+          producto: p,
+          destino,
+          fotosDelProducto: fotosDelProducto(p, getAppUrl()),
+          negocioTieneGarantia: garantia,
+        });
+      }
+    } catch (e: any) {
+      logger.warn({ err: e?.message }, "[strategist/drafts] no se pudo calcular la calidad de los borradores");
+    }
     return res.json({ drafts });
   } catch (e) { return next(e); }
 });
@@ -888,6 +805,24 @@ router.put("/strategist/draft/:id", async (req, res, next) => {
       const st: any = (typeof patch.strategy === "object" && patch.strategy ? { ...(patch.strategy as any) } : (fila?.strategy && typeof fila.strategy === "object" ? { ...(fila.strategy as any) } : {}));
       st.objetivo = objetivo;
       patch.strategy = st;
+      // ── Cambiar el objetivo cambia la ACCIÓN del texto ──────────────────
+      // Si el admin pasa de Mensajes a Ventas (landing), el texto no puede
+      // seguir diciendo "Escríbenos por WhatsApp" (07-10-2026). Solo se
+      // cambia la línea 👉 y solo si contradice el destino nuevo.
+      try {
+        const { accionCoherenteConDestino, destinoDeObjetivo, modeloDelProducto } = await import("../lib/anuncio-por-modelo");
+        const texto = typeof patch.primaryText === "string" ? patch.primaryText : String(fila?.primaryText || "");
+        const [prod] = fila?.productId ? await db.select().from(products).where(and(eq(products.id, Number(fila.productId)), eq(products.tenantId, tenantId))).limit(1) : [];
+        if (prod && texto) {
+          let pago: string | null = null;
+          try {
+            const { getBusinessContext } = await import("../lib/business-context");
+            pago = (await getBusinessContext(tenantId))?.condiciones?.envio?.pago ?? null;
+          } catch { pago = null; }
+          const r = accionCoherenteConDestino(texto, modeloDelProducto(prod as any), destinoDeObjetivo(objetivo), pago);
+          if (r.corregido) patch.primaryText = r.texto;
+        }
+      } catch { /* sin producto: el texto queda como está */ }
     }
     const [updated] = await db.update(facebookDrafts).set(patch).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, tenantId))).returning();
     if (!updated) return res.status(404).json({ ok: false, message: "Borrador no encontrado" });
@@ -1086,16 +1021,22 @@ router.get("/channels/status", async (req, res, next) => {
   } catch (e) { return next(e); }
 });
 
-router.post("/channels/polling/start", async (_req, res, next) => {
+router.post("/channels/polling/start", async (req, res, next) => {
   try {
-    channelManager.startPollingFacebookComments();
+    // Del negocio que lo pide: antes encendía siempre el sondeo del negocio 1.
+    const tenantId = Number((req as any).tenant?.id);
+    if (!tenantId) return res.status(401).json({ error: "Tenant no autenticado" });
+    channelManager.startPollingFacebookComments(60000, tenantId);
     return res.json({ ok: true, message: "Polling de comentarios iniciado" });
   } catch (e) { return next(e); }
 });
 
-router.post("/channels/polling/stop", async (_req, res, next) => {
+router.post("/channels/polling/stop", async (req, res, next) => {
   try {
-    channelManager.stopAll();
+    // Solo el sondeo de ESTE negocio (stopAll apagaba el de todos).
+    const tenantId = Number((req as any).tenant?.id);
+    if (!tenantId) return res.status(401).json({ error: "Tenant no autenticado" });
+    channelManager.stopPolling(tenantId);
     return res.json({ ok: true, message: "Polling detenido" });
   } catch (e) { return next(e); }
 });
@@ -1158,7 +1099,7 @@ router.get("/config", async (req, res, next) => {
     const accessToken = decryptSecret(cfg.accessToken) || env(process.env.FB_ACCESS_TOKEN);
     
     return res.json({
-      accessToken: accessToken ? "•••••" + accessToken.slice(-4) : "",
+      accessToken: enmascararSecreto(accessToken),
       pixelId,
       catalogId,
       pageId,
@@ -1175,7 +1116,15 @@ router.get("/config", async (req, res, next) => {
       hasAppSecret: !!decryptSecret(cfg.appSecret),
       // Tampoco caen al .env, por el mismo motivo que appId/appSecret.
       hasMessengerToken: !!decryptSecret(cfg.messengerPageToken),
-      messengerVerifyToken: cfg.messengerVerifyToken || "",
+      // El verify token del webhook también es un secreto (quien lo tiene
+      // puede suscribir SU servidor a la página): solo si existe y los
+      // últimos 4 para reconocerlo.
+      messengerVerifyToken: "",
+      hasMessengerVerifyToken: !!cfg.messengerVerifyToken,
+      messengerVerifyTokenUltimos4: ultimos4(cfg.messengerVerifyToken),
+      accessTokenUltimos4: ultimos4(accessToken),
+      appSecretUltimos4: ultimos4(decryptSecret(cfg.appSecret)),
+      messengerTokenUltimos4: ultimos4(decryptSecret(cfg.messengerPageToken)),
       loginConfigId: cfg.loginConfigId || "",
     });
   } catch (e) { return next(e); }
@@ -1205,13 +1154,23 @@ router.put("/config", async (req, res, next) => {
     // después de decidir field(), y no antes: si se encriptara `body` entero de
     // entrada, un PUT que NO toca el token re-encriptaría el valor ya
     // encriptado de `current` como si fuera texto plano nuevo.
-    const newAccessToken = "accessToken" in body ? encryptSecret(body.accessToken) : current.accessToken || "";
-    const newAppSecret = "appSecret" in body ? encryptSecret(body.appSecret) : current.appSecret || "";
+    //
+    // Secretos: vacío o enmascarado ("••••abcd") = no tocar lo guardado. El
+    // panel mostraba "••••••••" DENTRO del input: con escribir una letra, la
+    // máscara + esa letra se cifraba como token y Facebook quedaba roto. Para
+    // borrar un secreto a propósito: { borrar: ["accessToken", ...] }.
+    const borrar: string[] = Array.isArray(body.borrar) ? body.borrar.map(String) : [];
+    const secreto = (key: string, cifrar: boolean) => {
+      if (borrar.includes(key)) return "";
+      const nuevo = secretoNuevo(body[key]);
+      if (!nuevo) return current[key] || "";
+      return cifrar ? encryptSecret(nuevo) : nuevo;
+    };
+    const newAccessToken = secreto("accessToken", true);
+    const newAppSecret = secreto("appSecret", true);
     // El token de página de Messenger también es un secreto: permite escribir
     // en nombre de la página. Se cifra igual que los otros dos.
-    const newMessengerToken = "messengerPageToken" in body
-      ? encryptSecret(body.messengerPageToken)
-      : current.messengerPageToken || "";
+    const newMessengerToken = secreto("messengerPageToken", true);
     meta.facebook = {
       ...current,
       accessToken: newAccessToken,
@@ -1226,7 +1185,8 @@ router.put("/config", async (req, res, next) => {
       // servidor. Sin poder editarlos, un negocio con su propia app no tenía
       // forma de conectar Messenger ni de validar sus webhooks.
       messengerPageToken: newMessengerToken,
-      messengerVerifyToken: field("messengerVerifyToken"),
+      // Lo compara el webhook en texto plano; igual nunca vuelve al panel.
+      messengerVerifyToken: secreto("messengerVerifyToken", false),
       // Necesario si la app usa "Facebook Login for Business": ese producto
       // ignora los permisos sueltos y exige el id de una configuración.
       loginConfigId: field("loginConfigId"),

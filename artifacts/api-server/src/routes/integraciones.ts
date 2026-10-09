@@ -54,6 +54,22 @@ integracionesRouter.put("/:plataforma", async (req, res) => {
   const p = plataforma(req); if (!p) return plataformaInvalida(res);
   try {
     const b = req.body || {};
+    // AliExpress: se prueba ANTES de guardar. Antes se guardaba sin probar y
+    // el panel decía "conectada" con claves que Ali rechazaba.
+    let pruebaAli: { ejemplo: string | null; moneda: string; precio: number } | null = null;
+    if (p === "aliexpress") {
+      const { leerCredenciales } = await import("../lib/integraciones/credenciales");
+      const previa: any = await leerCredenciales(t, "aliexpress").catch(() => null);
+      const appKey = String(b.tienda || previa?.tienda || "").trim();
+      const appSecret = String(b.token || previa?.token || "").trim();
+      if (!appKey || !appSecret) throw new Error("Faltan el App Key y el App Secret de AliExpress.");
+      const a = await import("../lib/integraciones/aliexpress");
+      try {
+        pruebaAli = await a.probarConexion({ appKey, appSecret, trackingId: b.secreto || previa?.secreto }, b.moneda || previa?.moneda || "COP");
+      } catch (e: any) {
+        return res.status(400).json({ success: false, error: `AliExpress rechazó las claves, no se guardaron: ${e?.message || e}` });
+      }
+    }
     await guardarCredenciales(t, p, {
       tienda: b.tienda, token: b.token, secreto: b.secreto, refresh: b.refresh,
       expiraEn: b.expiraEn, moneda: b.moneda, vendedorId: b.vendedorId,
@@ -66,6 +82,7 @@ integracionesRouter.put("/:plataforma", async (req, res) => {
       await guardarCredenciales(t, p, { moneda: tienda.moneda });
       return res.json({ success: true, tienda });
     }
+    if (pruebaAli) return res.json({ success: true, aliexpress: pruebaAli });
     return res.json({ success: true });
   } catch (e: any) {
     logger.warn({ err: e?.message, plataforma: p }, "[Integraciones] no se pudo guardar");

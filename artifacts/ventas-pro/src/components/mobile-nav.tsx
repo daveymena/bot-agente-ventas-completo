@@ -1,3 +1,4 @@
+import { IconoDelMenu } from "@/components/icono-del-menu";
 import { useLocation } from "wouter";
 import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store, Activity, Crown, Megaphone, HelpCircle, BadgeCheck, LayoutTemplate, LogOut , Truck, MessageSquareText, GraduationCap, Plug } from "lucide-react";
 import { useState } from "react";
@@ -12,7 +13,7 @@ const mainNavItems = [
 ];
 
 const baseMoreItems = [
-  { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate, external: "https://landings.ventasproia.com" },
+  { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate, external: "/api/landing-forge/entrar" },
   { label: "Atlas VentasPro", href: "/code-agent", icon: Wand2, highlight: true },
   { label: "Marketing", href: "/marketing", icon: Megaphone },
   { label: "Facebook", href: "/facebook", icon: iconoMarca("facebook") },
@@ -54,7 +55,7 @@ export function MobileNav() {
       <nav className="fixed bottom-0 left-0 right-0 z-50 flex min-h-[72px] items-center justify-evenly bg-white border-t border-gray-200 shadow-[0_-4px_20px_rgba(0,0,0,0.06)] px-1 pb-2 safe-area-bottom md:hidden">
         {mainNavItems.map((item) => {
           const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
-          return <a key={item.href} href={item.href} onClick={(e) => { e.preventDefault(); setLocation(item.href); }} className={`flex flex-col items-center justify-center gap-0.5 rounded-2xl px-2 py-1.5 min-w-[48px] transition-all duration-200 flex-1 ${isActive ? "text-indigo-600" : "text-gray-400 hover:text-gray-600"}`}><div className={`flex items-center justify-center w-9 h-7 rounded-xl transition-all duration-200 ${isActive ? "bg-indigo-50" : ""}`}><item.icon className={`w-[20px] h-[20px] ${isActive ? "text-indigo-600" : ""}`} /></div><span className={`text-[10px] font-semibold tracking-tight ${isActive ? "text-indigo-600" : "text-gray-400"}`}>{item.label}</span></a>;
+          return <a key={item.href} href={item.href} onClick={(e) => { e.preventDefault(); setLocation(item.href); }} className={`flex flex-col items-center justify-center gap-0.5 rounded-2xl px-2 py-1.5 min-w-[48px] transition-all duration-200 flex-1 ${isActive ? "text-indigo-600" : "text-gray-400 hover:text-gray-600"}`}><IconoDelMenu icon={item.icon} href={item.href} tam={30} activo={isActive} /><span className={`text-[10px] font-semibold tracking-tight ${isActive ? "text-indigo-600" : "text-gray-400"}`}>{item.label}</span></a>;
         })}
         <button onClick={() => setShowMore(!showMore)} className={`flex flex-col items-center justify-center gap-0.5 rounded-2xl px-2 py-1.5 min-w-[48px] transition-all duration-200 flex-1 ${showMore ? "text-indigo-600" : "text-gray-400 hover:text-gray-600"}`}>
           <div className={`flex items-center justify-center w-9 h-7 rounded-xl ${showMore ? "bg-indigo-50" : ""}`}><MoreHorizontal className={`w-[20px] h-[20px] ${showMore ? "text-indigo-600" : ""}`} /></div>
@@ -71,7 +72,7 @@ export function MobileNav() {
               const isActive = item.href === "/" ? location === "/" : location.startsWith(item.href);
               const isExternal = (item as any).external;
               const urlExterna = typeof isExternal === "string" ? isExternal : item.href;
-              return <a key={item.href} href={isExternal ? urlExterna : item.href} target={isExternal ? "_blank" : undefined} rel={isExternal ? "noopener noreferrer" : undefined} onClick={(e) => { if (isExternal) { e.preventDefault(); setShowMore(false); try { window.open(urlExterna, "_blank", "noopener,noreferrer"); } catch { window.location.href = urlExterna; } return; } e.preventDefault(); setShowMore(false); setLocation(item.href); }} className={`flex flex-col items-center gap-1.5 rounded-2xl p-3 transition-all ${isActive ? "bg-indigo-50 text-indigo-600" : "text-gray-600 hover:bg-gray-50"}`}><div className={`w-10 h-10 rounded-xl flex items-center justify-center ${isActive ? "bg-indigo-100" : "bg-gray-100"}`}><item.icon className={`w-5 h-5 ${isActive ? "text-indigo-600" : "text-gray-500"}`} /></div><span className="text-[10px] font-semibold text-center leading-tight">{item.label}</span></a>;
+              return <a key={item.href} href={isExternal ? urlExterna : item.href} target={isExternal ? "_blank" : undefined} rel={isExternal ? "noopener noreferrer" : undefined} onClick={(e) => { if (isExternal) { e.preventDefault(); setShowMore(false); try { window.open(urlExterna, "_blank", "noopener,noreferrer"); } catch { window.location.href = urlExterna; } return; } e.preventDefault(); setShowMore(false); setLocation(item.href); }} className={`flex flex-col items-center gap-1.5 rounded-2xl p-3 transition-all ${isActive ? "bg-indigo-50 text-indigo-600" : "text-gray-600 hover:bg-gray-50"}`}><IconoDelMenu icon={item.icon} href={item.href} tam={40} activo={isActive} /><span className="text-[10px] font-semibold text-center leading-tight">{item.label}</span></a>;
             })}
           </div>
           {/* En el celular no había forma de cerrar sesión: el botón vivía

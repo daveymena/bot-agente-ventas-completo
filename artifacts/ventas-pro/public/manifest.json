@@ -1,10 +1,12 @@
 {
+  "id": "/?app=ventaspro",
   "name": "VentasPro - Sistema de Ventas con IA",
   "short_name": "VentasPro",
   "description": "Sistema completo de ventas automatizadas con agentes de IA, gestión de conversaciones y análisis en tiempo real",
-  "start_url": "/",
+  "start_url": "/?app=ventaspro",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#4F46E5",
+  "background_color": "#0F172A",
   "theme_color": "#4F46E5",
   "orientation": "portrait-primary",
   "icons": [
@@ -31,6 +33,53 @@
       "sizes": "any",
       "type": "image/svg+xml",
       "purpose": "any"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/dashboard_app.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Panel de ventas con IA"
+    },
+    {
+      "src": "/whatsapp_app.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "label": "Bandeja de WhatsApp"
+    },
+    {
+      "src": "/store_app.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "label": "Tienda y catálogo"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Bandeja de mensajes",
+      "short_name": "Inbox",
+      "url": "/conversations?app=ventaspro",
+      "icons": [{ "src": "/icono-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Hablar con Atlas",
+      "short_name": "Atlas",
+      "url": "/code-agent?app=ventaspro",
+      "icons": [{ "src": "/icono-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Crear landing",
+      "short_name": "Landing",
+      "url": "/landing-studio?app=ventaspro",
+      "icons": [{ "src": "/icono-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Ver tienda",
+      "short_name": "Tienda",
+      "url": "/mi-tienda?app=ventaspro",
+      "icons": [{ "src": "/icono-192.png", "sizes": "192x192" }]
     }
   ],
   "categories": [

@@ -141,6 +141,10 @@ export class AgentOrchestrator {
           .limit(1);
         if (ultimo?.role !== "customer") continue;
         if (c.tenantId == null) continue;
+        // Solo WhatsApp: esta cola contesta por WhatsApp. Una conversación de
+        // Messenger, Instagram o comentarios ("fb:123", "ig_comment:9") se
+        // encolaba igual y se intentaba mandar a "fb:123@s.whatsapp.net".
+        if (/^(fb|ig|fb_comment|ig_comment):/.test(String(c.phone || ""))) continue;
         // Ya está en la cola o atendiéndose: no se duplica la respuesta.
         if (this.enCurso.has(`c${c.id}`) || this.queue.pendingForConversation(Number(c.id)).length) continue;
 
@@ -285,6 +289,39 @@ export class AgentOrchestrator {
         logger.info({ conversationId: convo.id }, '[AgentOrchestrator] Conversación en manos de una persona: el bot no responde');
         for (const m of [message, ...this.queue.pendingForConversation(convo.id, message.id)]) this.queue.markProcessed(m.id);
         return;
+      }
+
+      // Del otro lado hay un CHATBOT (menús, cargas técnicas, "voy a
+      // comunicarte con un asesor"): bot contra bot gasta IA, puede quedar en
+      // bucle y es mensajería automática que WhatsApp castiga. Se deja de
+      // contestar y se le avisa al dueño una vez. Ver lib/contraparte-bot.ts
+      // (caso real: conversación 3 del 07-10).
+      if (convo) {
+        try {
+          const ultimos = await db
+            .select({ content: messages.content })
+            .from(messages)
+            .where(and(eq(messages.conversationId, convo.id), eq(messages.role, "customer")))
+            .orderBy(desc(messages.createdAt))
+            .limit(10);
+          const { pareceUnBot } = await import('../contraparte-bot');
+          const v = pareceUnBot(ultimos.map((m: { content: unknown }) => String(m.content || "")).reverse());
+          if (v.bot) {
+            await db.update(conversations).set({ status: "human" } as any).where(eq(conversations.id, convo.id));
+            logger.warn({ conversationId: convo.id, motivo: v.motivo }, '[AgentOrchestrator] La contraparte es un bot automático: el vendedor deja de responder');
+            try {
+              const { avisarAlDueno } = await import('../avisos');
+              await avisarAlDueno(
+                Number((convo as any).tenantId),
+                `🤖 *Bot detectado* — ${(convo as any).contactName || "un número"} parece un chatbot automático (${v.motivo}). El vendedor dejó de responderle; si es una persona, devolvé la conversación a la IA desde el panel.`,
+              );
+            } catch { /* avisar no puede frenar nada */ }
+            for (const m of [message, ...this.queue.pendingForConversation(convo.id, message.id)]) this.queue.markProcessed(m.id);
+            return;
+          }
+        } catch (e) {
+          logger.warn({ err: String(e) }, '[AgentOrchestrator] no se pudo revisar si la contraparte es un bot (se sigue normal)');
+        }
       }
 
       // Una persona suele mandar varios mensajes seguidos. Esperar un instante

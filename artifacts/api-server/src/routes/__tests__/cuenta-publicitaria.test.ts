@@ -86,6 +86,7 @@ describe("la pantalla de config NO expone las credenciales del dueño", () => {
   );
 
   it("sigue devolviendo el token enmascarado, nunca entero", () => {
-    expect(RUTA).toContain('"•••••"');
+    // La máscara la arma lib/secretos (probada en secretos-no-se-filtran.test.ts).
+    expect(RUTA).toContain("accessToken: enmascararSecreto(accessToken)");
   });
 });

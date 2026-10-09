@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { CAMPOS_WEBHOOK_PAGINA } from "./meta-campos-webhook";
 import { getAppUrl } from "./app-url";
 import { destinoWebDelProducto } from "./landing/destino-del-producto";
 import { db, products } from "@workspace/db";
@@ -44,9 +45,11 @@ export function usarAdvantagePlus(targeting?: {
   genders?: unknown[];
   ageMin?: number;
   ageMax?: number;
+  geoLocations?: { cities?: unknown[] };
 }): boolean {
   const pidioPublicoConcreto =
-    (targeting?.interests?.length ?? 0) > 0
+    (targeting?.geoLocations?.cities?.length ?? 0) > 0
+    || (targeting?.interests?.length ?? 0) > 0
     || (targeting?.genders?.length ?? 0) > 0
     || (targeting?.ageMin != null && targeting.ageMin > 18)
     || (targeting?.ageMax != null && targeting.ageMax < 65);
@@ -146,6 +149,70 @@ export function esErrorTransitorioDeMeta(err: any): boolean {
  * pública absoluta -- Facebook descarga la imagen desde sus servidores, una
  * ruta relativa no le sirve. Mismo helper que facebook-marketplace.ts.
  */
+/**
+ * link_data de un anuncio CARRUSEL: una tarjeta por foto, mismo destino y
+ * mismo botón en todas. Sin `picture` en la raíz (eso lo haría imagen única).
+ */
+/**
+ * La plantilla (estructura de la campaña más reciente) COMPLETA lo que el
+ * pedido no trae; nunca pisa lo que sí trae.
+ *
+ * 08-10, revisión de punta a punta: la plantilla pisaba las edades pedidas con
+ * las de la campaña vieja (18-65), imponía su Advantage+ aunque se pidieran
+ * ciudades y, peor, le sumaba el PAÍS a las ciudades pedidas — en Meta ciudades
+ * + país = todo el país. El arreglo de ciudades se deshacía acá mismo.
+ */
+export function aplicarPlantillaSinPisar(
+  fbTargeting: Record<string, any>,
+  primero: { paises?: string[] | null; tiposDeUbicacion?: string[] | null; edadMin?: number | null; edadMax?: number | null; advantagePlus?: boolean | null },
+  pedido?: { ageMin?: number; ageMax?: number; genders?: unknown[]; interests?: unknown[]; geoLocations?: { countries?: unknown[]; cities?: unknown[] } } | null,
+): void {
+  const pidioCiudades = (pedido?.geoLocations?.cities?.length ?? 0) > 0;
+  const pidioPaises = (pedido?.geoLocations?.countries?.length ?? 0) > 0;
+  if (primero.paises?.length && !pidioPaises && !pidioCiudades) {
+    fbTargeting.geo_locations = { ...(fbTargeting.geo_locations || {}), countries: primero.paises };
+  }
+  if (primero.tiposDeUbicacion?.length && !pidioCiudades) {
+    fbTargeting.geo_locations = { ...(fbTargeting.geo_locations || {}), location_types: primero.tiposDeUbicacion };
+  }
+  if (primero.edadMin && pedido?.ageMin == null) fbTargeting.age_min = primero.edadMin;
+  if (primero.edadMax && pedido?.ageMax == null) fbTargeting.age_max = primero.edadMax;
+  const pidioPublicoConcreto = pidioCiudades || pedido?.ageMin != null || pedido?.ageMax != null
+    || (pedido?.genders?.length ?? 0) > 0 || (pedido?.interests?.length ?? 0) > 0;
+  if (primero.advantagePlus != null && !pidioPublicoConcreto) {
+    fbTargeting.targeting_automation = { advantage_audience: primero.advantagePlus ? 1 : 0 };
+  }
+}
+
+/**
+ * ¿Qué píxel usar? 08-10: VentasPro tenía guardado 1193902929595904, que NO
+ * es de la cuenta publicitaria; la cuenta tenía uno solo (1064770976005166).
+ * Resultado: ninguna campaña de ventas podía medir compras. Si el guardado es
+ * de la cuenta, ese; si no y la cuenta tiene exactamente uno, ese; con varios
+ * no se adivina (null: que el dueño elija).
+ */
+export function elegirPixel(guardado: string, deLaCuenta: string[]): { pixelId: string | null; corregido: boolean } {
+  if (guardado && deLaCuenta.includes(guardado)) return { pixelId: guardado, corregido: false };
+  if (deLaCuenta.length === 1) return { pixelId: deLaCuenta[0]!, corregido: !!guardado };
+  return { pixelId: null, corregido: false };
+}
+
+export function linkDataDeCarrusel(ld: Record<string, any>, fotos: string[], titulo: string): Record<string, any> {
+  const { picture: _unaSola, ...resto } = ld;
+  return {
+    ...resto,
+    child_attachments: fotos.slice(0, 10).map((picture) => ({
+      link: ld.link,
+      picture,
+      name: titulo,
+      call_to_action: ld.call_to_action,
+    })),
+    // Meta reordena las tarjetas según rendimiento; sin tarjeta final de perfil.
+    multi_share_optimized: true,
+    multi_share_end_card: false,
+  };
+}
+
 function absoluteImageUrl(pathOrUrl?: string | null): string | null {
   if (!pathOrUrl) return null;
   if (/^https?:\/\//i.test(pathOrUrl)) return pathOrUrl;
@@ -165,16 +232,66 @@ export async function resolveInterestIds(accessToken: string, names: string[]): 
   const resolved: Array<{ id: string; name: string }> = [];
   for (const name of names) {
     try {
-      const params = new URLSearchParams({ type: "adinterest", q: name, limit: "1", access_token: accessToken });
-      const res = await fetch(`${FB_GRAPH_URL}/search?${params}`, { signal: AbortSignal.timeout(10000) });
-      const data: any = await res.json();
-      const match = data?.data?.[0];
+      // 08-10: "dolor de espalda", "postura" y "trabajo de oficina" volvían
+      // vacíos (la búsqueda sin locale es en inglés). Primero en español.
+      let match: any = null;
+      for (const locale of ["es_LA", ""]) {
+        const params = new URLSearchParams({ type: "adinterest", q: name, limit: "1", access_token: accessToken });
+        if (locale) params.set("locale", locale);
+        const res = await fetch(`${FB_GRAPH_URL}/search?${params}`, { signal: AbortSignal.timeout(10000) });
+        const data: any = await res.json();
+        match = data?.data?.[0];
+        if (match?.id) break;
+      }
       if (match?.id) resolved.push({ id: match.id, name: match.name || name });
     } catch (err: any) {
       logger.warn({ err, name }, "[Facebook] No se pudo resolver el interés en la taxonomía de Facebook");
     }
   }
   return resolved;
+}
+
+/**
+ * Ciudades por NOMBRE → la clave numérica que exige Meta.
+ *
+ * Producción 07/08-10: el dueño pidió Bogotá, Medellín, Cali, Barranquilla,
+ * Bucaramanga y Cartagena y el anuncio salió a TODO el país. Dos fallas:
+ * se mandaba `{ key: "Bogotá" }` (Meta exige la clave de su taxonomía) y el
+ * país iba junto con las ciudades (en geo_locations eso SUMA: país completo).
+ */
+export async function resolverCiudades(
+  accessToken: string,
+  nombres: string[],
+  pais = "CO",
+): Promise<{ resueltas: Array<{ key: string; name: string }>; faltan: string[] }> {
+  const resueltas: Array<{ key: string; name: string }> = [];
+  const faltan: string[] = [];
+  for (const nombre of nombres.map((n) => String(n || "").trim()).filter(Boolean)) {
+    // Ya viene una clave (numérica): se respeta.
+    if (/^\d+$/.test(nombre)) { resueltas.push({ key: nombre, name: nombre }); continue; }
+    try {
+      const params = new URLSearchParams({
+        type: "adgeolocation", location_types: JSON.stringify(["city"]), q: nombre,
+        country_code: pais, limit: "1", access_token: accessToken,
+      });
+      const res = await fetch(`${FB_GRAPH_URL}/search?${params}`, { signal: AbortSignal.timeout(10000) });
+      const data: any = await res.json();
+      const m = data?.data?.[0];
+      if (m?.key) resueltas.push({ key: String(m.key), name: String(m.name || nombre) });
+      else faltan.push(nombre);
+    } catch {
+      faltan.push(nombre);
+    }
+  }
+  return { resueltas, faltan };
+}
+
+/** geo_locations: con ciudades van SOLO las ciudades (con país sumaría todo el país). */
+export function geoConCiudades(paises: string[], ciudades: Array<{ key: string }>): Record<string, any> {
+  if (ciudades.length) {
+    return { cities: ciudades.map((c) => ({ key: c.key, radius: 20, distance_unit: "kilometer" })), location_types: ["home", "recent"] };
+  }
+  return { countries: paises };
 }
 
 export interface FacebookConfig {
@@ -818,6 +935,13 @@ Responde SOLO con este JSON exacto:
     plantilla?: PlantillaDeCampana | null,
     /** A dónde lleva el anuncio web: "landing" (y solo landing), "tienda", o sin preferencia. */
     preferenciaWeb?: import("./landing/destino-del-producto").PreferenciaWeb | null,
+    /**
+     * Fotos del CARRUSEL (2 a 10). 08-10: el borrador guardaba el carrusel
+     * pero acá solo se usaba UNA foto (`picture`): child_attachments no se
+     * armaba nunca, y el anuncio salía de imagen única aunque se pidiera
+     * galería. Sin esto (o con menos de 2 fotos válidas), imagen única.
+     */
+    fotosCarrusel?: string[] | null,
   ): Promise<FbCampaignResult | null> {
     if (!this.config.adAccountId || !this.config.accessToken) return null;
 
@@ -902,7 +1026,7 @@ Responde SOLO con este JSON exacto:
             headline: copyAprobado.headline || "",
             description: copyAprobado.description || "",
           }
-        : await this.generateAdCopy(product);
+        : await this.generateAdCopy(product, vaAWhatsApp ? "whatsapp" : "web");
       // Última barrera antes de Meta, la cruzan TODOS los caminos: un texto
       // que promete algo que este producto no entrega no sale (físico con
       // "acceso de por vida", digital con "pagás al recibir").
@@ -911,7 +1035,7 @@ Responde SOLO con este JSON exacto:
         const motivo = copyDeOtroModelo(`${adCopy.primaryText} ${adCopy.headline} ${adCopy.description}`, modeloDelProducto(product as any));
         if (motivo) {
           logger.warn({ productId, motivo }, "[Facebook] El copy no corresponde al producto: se usa el del plan por modelo");
-          adCopy = await this.generateAdCopy(product);
+          adCopy = await this.generateAdCopy(product, vaAWhatsApp ? "whatsapp" : "web");
         }
       }
       // ── Pulido final: registro y coherencia ────────────────────────────
@@ -925,6 +1049,23 @@ Responde SOLO con este JSON exacto:
           esFisico: String((product as any).kind || "") === "physical",
           pais: String((this.tenant as any)?.country || "CO"),
         });
+      }
+      // ── La acción del texto = el destino del botón (07-10-2026) ──────────
+      // Un borrador escrito para WhatsApp subido como tráfico a la landing
+      // salía diciendo "Escríbenos por WhatsApp" con el botón a la página.
+      // Se corrige SOLO la línea 👉, y solo si contradice el destino.
+      if (OBJ.destino !== "formulario") {
+        const { accionCoherenteConDestino, modeloDelProducto: modeloDe } = await import("./anuncio-por-modelo");
+        let pago: string | null = null;
+        try {
+          const { getBusinessContext } = await import("./business-context");
+          pago = (await getBusinessContext(Number((this.tenant as any)?.id)))?.condiciones?.envio?.pago ?? null;
+        } catch { pago = null; }
+        const r = accionCoherenteConDestino(adCopy.primaryText, modeloDe(product as any), vaAWhatsApp ? "whatsapp" : "web", pago);
+        if (r.corregido) {
+          logger.warn({ productId, destino: vaAWhatsApp ? "whatsapp" : "web" }, "[Facebook] La acción del texto contradecía el destino: se cambió la línea 👉");
+          adCopy = { ...adCopy, primaryText: r.texto };
+        }
       }
 
       // Bug de capacidad: /{adAccount}/adimages requiere la capacidad
@@ -1019,6 +1160,33 @@ Responde SOLO con este JSON exacto:
       // texto placeholder no mejora nada -- puede terminar generando un
       // fondo que se parece todavía menos al curso real.
 
+      // ── Ventas SIN píxel: se corta acá, ANTES de crear nada en Meta ──────
+      // 08-10, campaña del corrector: el dueño pidió VENTAS, no había píxel
+      // de esta cuenta y el conjunto salía en silencio optimizando CLICS
+      // (LINK_CLICKS): 123 clics a $46, cero pedidos. Atlas decía "creé tu
+      // campaña de ventas" y Meta buscaba a quien hace clic, no a quien compra.
+      // Lo pedido o nada: la salida la elige el dueño, no el código.
+      const pixelDeLaCuenta = await this.pixelUsable(adAccount);
+      if (objetivo === "ventas" && !pixelDeLaCuenta) {
+        throw new Error(
+          "Pediste una campaña de VENTAS, pero esta cuenta publicitaria no tiene un píxel suyo conectado: sin píxel Meta no puede buscar compradores " +
+          "y la campaña terminaría comprando clics baratos (así pasó con el corrector: 123 clics, 0 pedidos). No se creó nada. " +
+          "Opciones: (1) conectar el píxel de esta cuenta y ponerlo en la landing, (2) hacerla de MENSAJES a WhatsApp (no necesita píxel), " +
+          "o (3) hacerla de TRÁFICO sabiendo que optimiza clics.",
+        );
+      }
+      // La landing de destino tiene que DISPARAR ese mismo píxel: sin él,
+      // Meta no ve visitas ni compras aunque la cuenta lo tenga.
+      const { esLandingDeForge } = await import("./landingforge-client");
+      if (pixelDeLaCuenta && esLandingDeForge(destinoWeb)) {
+        const { ponerPixelEnLanding } = await import("./landingforge-client");
+        const r = await ponerPixelEnLanding(destinoWeb, pixelDeLaCuenta);
+        logger.info({ destinoWeb, pixel: pixelDeLaCuenta, ...r }, "[Facebook] Píxel de la cuenta en la landing de destino");
+        if (!r.ok && objetivo === "ventas") {
+          throw new Error(`No pude poner el píxel ${pixelDeLaCuenta} en la landing (${r.motivo}): sin él la campaña de ventas no mide compras. No se creó nada.`);
+        }
+      }
+
       // Campaña.
       // special_ad_categories: [] daba error 100 / subcódigo 4834011 --
       // Meta viene exigiendo que TODA campaña declare explícitamente "NONE"
@@ -1065,12 +1233,19 @@ Responde SOLO con este JSON exacto:
         age_max: targetingResolved?.ageMax || 65,
       };
 
-      // Ciudades específicas
+      // Ciudades específicas: por su CLAVE de Meta y SIN el país (ver
+      // resolverCiudades / geoConCiudades). Si alguna no existe, se corta
+      // con el nombre exacto: nada de salir a todo el país en silencio.
       if (targetingResolved?.geoLocations?.cities && targetingResolved.geoLocations.cities.length > 0) {
-        fbTargeting.geo_locations = {
-          ...fbTargeting.geo_locations,
-          cities: targetingResolved.geoLocations.cities.map(name => ({ key: name })),
-        };
+        const { resueltas, faltan } = await resolverCiudades(
+          this.config.userAccessToken || this.config.accessToken,
+          targetingResolved.geoLocations.cities,
+          paisDelNegocio,
+        );
+        if (faltan.length) {
+          throw new Error(`Meta no reconoce estas ciudades: ${faltan.join(", ")}. Revisá el nombre o quitalas; no se publica a todo el país fingiendo que se aplicaron.`);
+        }
+        fbTargeting.geo_locations = geoConCiudades([paisDelNegocio], resueltas);
       }
 
       // Radio alrededor de ubicación
@@ -1213,9 +1388,8 @@ Responde SOLO con este JSON exacto:
       // crear campaña y conjunto. Para no desperdiciar esas llamadas, se
       // verifica ANTES que el pixel realmente esté en la lista de pixeles de
       // ESTA cuenta.
-      const hasUsablePixel = this.config.pixelId
-        ? await this.pixelBelongsToAccount(adAccount, this.config.pixelId)
-        : false;
+      // Ya resuelto arriba (pixelUsable corrige el guardado si no es de la cuenta).
+      const hasUsablePixel = !!pixelDeLaCuenta;
 
       // El monto llega en COP (así razona toda la app); Meta lo quiere en la
       // moneda de la CUENTA. Ver presupuestoDiarioParaMeta().
@@ -1223,13 +1397,7 @@ Responde SOLO con este JSON exacto:
       if (!presu.ok) throw new Error(presu.message);
 
       const primero = plantilla?.conjuntos?.[0] || null;
-      if (primero) {
-        if (primero.paises?.length && !targeting?.geoLocations?.countries) fbTargeting.geo_locations = { ...(fbTargeting.geo_locations || {}), countries: primero.paises };
-        if (primero.tiposDeUbicacion?.length) fbTargeting.geo_locations = { ...(fbTargeting.geo_locations || {}), location_types: primero.tiposDeUbicacion };
-        if (primero.edadMin) fbTargeting.age_min = primero.edadMin;
-        if (primero.edadMax) fbTargeting.age_max = primero.edadMax;
-        if (primero.advantagePlus !== undefined) fbTargeting.targeting_automation = { advantage_audience: primero.advantagePlus ? 1 : 0 };
-      }
+      if (primero) aplicarPlantillaSinPisar(fbTargeting, primero, targetingResolved ?? targeting);
       const adSetBody: Record<string, any> = {
         name: `${campaignName} - ${nombreDeConjunto(primero?.nombre)}`,
         campaign_id: campaign.id,
@@ -1360,7 +1528,37 @@ Responde SOLO con este JSON exacto:
         degrees_of_freedom_spec: { creative_features_spec: creativeFeaturesSpec },
       };
       if (instagramUserId) creativePayload.object_story_spec.instagram_user_id = instagramUserId;
-      if (creativeImageUrl) {
+
+      // ── Carrusel: cada foto una tarjeta, todas validadas como la principal ──
+      const tarjetas: string[] = [];
+      if (Array.isArray(fotosCarrusel) && fotosCarrusel.length >= 2) {
+        // En PARALELO: una por una eran hasta 10 × 12 s y se comían el turno
+        // de Atlas (revisión 08-10). Se conserva el orden de las fotos.
+        const absolutas = [...new Set(fotosCarrusel)].slice(0, 10).map((u) => absoluteImageUrl(u)).filter(Boolean) as string[];
+        // Rechazada por medida o formato (Dropi: 573-598 px, o WebP) → se
+        // convierte a 1080×1080 JPEG en vez de perder la foto.
+        const { prepararFotoParaMeta } = await import("./image-store");
+        const listas = await Promise.all(absolutas.map(async (abs) => {
+          const r = await this.imagenParaMeta(abs).catch(() => ({ ok: false, motivo: null as string | null }));
+          if (r.ok) return abs;
+          if (!r.motivo) return null;
+          const arreglada = absoluteImageUrl(await prepararFotoParaMeta(abs));
+          return arreglada && (await this.imagenParaMeta(arreglada).catch(() => ({ ok: false }))).ok ? arreglada : null;
+        }));
+        for (const u of listas) if (u) tarjetas.push(u);
+        if (tarjetas.length < 2) {
+          logger.warn({ pedidas: fotosCarrusel.length, validas: tarjetas.length }, "[Facebook] Carrusel pedido pero hay menos de 2 fotos que Meta pueda descargar: sale con imagen única");
+          this.avisoDelCreativo = `Pediste carrusel, pero solo ${tarjetas.length} foto(s) se pueden descargar desde Meta: salió con imagen única.`;
+        }
+      }
+      if (tarjetas.length >= 2) {
+        creativePayload.object_story_spec.link_data = linkDataDeCarrusel(creativePayload.object_story_spec.link_data, tarjetas, adCopy.headline);
+        // Los retoques de imagen de Advantage+ son para una sola foto: en
+        // carrusel se mandan solo las mejoras de texto/entrega.
+        creativePayload.degrees_of_freedom_spec = {
+          creative_features_spec: mejorasDelCreativo({ hayFotoReal: false, mejorasCompletas: plantilla?.mejorasCompletas !== false }),
+        };
+      } else if (creativeImageUrl) {
         creativePayload.object_story_spec.link_data.picture = creativeImageUrl;
       }
       const creative = await this.fbPost(`${adAccount}/adcreatives`, creativePayload, "creativo", this.config.userAccessToken);
@@ -1462,6 +1660,8 @@ Responde SOLO con este JSON exacto:
    * asumiendo `| null`), así que sin esto el llamador solo sabe "falló", no
    * por qué. */
   lastAdError: string | null = null;
+  /** Aviso no fatal del creativo (ej. carrusel que salió de imagen única). */
+  avisoDelCreativo: string | null = null;
 
   // ── Agente de crecimiento: lectura de métricas y control de campañas ───────
 
@@ -1672,6 +1872,61 @@ Responde SOLO con este JSON exacto:
    * mudo: si Meta rechaza el monto (mínimos por moneda, cuenta sin método de
    * pago), el admin tiene que poder enterarse de por qué.
    */
+  /**
+   * Corrige la segmentación de un CONJUNTO ya publicado (edades, ciudades,
+   * géneros, Advantage+). Atlas no tenía cómo (08-10: "no tengo habilitada
+   * la edición de a quién se le muestra el anuncio") y el anuncio siguió
+   * saliendo 18-65 a todo el país. Se lee la segmentación actual y se cambia
+   * solo lo pedido.
+   */
+  async editarSegmentacionDeConjunto(
+    adSetId: string,
+    cambios: { edadMin?: number; edadMax?: number; ciudades?: string[]; generos?: number[]; advantagePlus?: boolean },
+    pais = "CO",
+  ): Promise<{ ok: boolean; message?: string; aplicado?: Record<string, any> }> {
+    const token = this.config.userAccessToken || this.config.accessToken;
+    try {
+      const actual = await this.fbGet(adSetId, { fields: "targeting" }, token);
+      const t: Record<string, any> = { ...(actual?.targeting || {}) };
+      if (cambios.edadMin) t.age_min = Math.max(18, Math.min(65, Math.round(cambios.edadMin)));
+      if (cambios.edadMax) t.age_max = Math.max(18, Math.min(65, Math.round(cambios.edadMax)));
+      if (t.age_min && t.age_max && t.age_min > t.age_max) return { ok: false, message: "La edad mínima no puede ser mayor que la máxima." };
+      if (cambios.generos?.length) t.genders = cambios.generos;
+      if (cambios.ciudades?.length) {
+        const { resueltas, faltan } = await resolverCiudades(token, cambios.ciudades, pais);
+        if (faltan.length) return { ok: false, message: `Meta no reconoce estas ciudades: ${faltan.join(", ")}.` };
+        t.geo_locations = geoConCiudades([pais], resueltas);
+      }
+      const pidioConcreto = !!(cambios.ciudades?.length || cambios.generos?.length || (cambios.edadMin ?? 18) > 18 || (cambios.edadMax ?? 65) < 65);
+      if (cambios.advantagePlus !== undefined || pidioConcreto) {
+        t.targeting_automation = { advantage_audience: cambios.advantagePlus === true ? 1 : 0 };
+      }
+      await this.fbPost(adSetId, { targeting: JSON.stringify(t) }, "editar segmentación", token);
+      return { ok: true, aplicado: t };
+    } catch (err: any) {
+      logger.warn({ err: err?.message, adSetId }, "[Facebook] Error editando la segmentación del conjunto");
+      return { ok: false, message: err?.message || "Meta no aceptó el cambio de segmentación." };
+    }
+  }
+
+  /**
+   * Lee de Meta cómo quedó un conjunto (segmentación, estado y el creative de
+   * sus anuncios) para la verificación posterior. Ver
+   * lib/verificar-anuncio-en-meta.ts.
+   */
+  async leerConjuntoParaVerificar(adSetId: string): Promise<{ targeting?: any; optimization_goal?: string; status?: string; effective_status?: string; ads?: any[] }> {
+    const token = this.config.userAccessToken || this.config.accessToken;
+    const conjunto = await this.fbGet(adSetId, { fields: "targeting,status,effective_status,optimization_goal" }, token);
+    const ads = await this.fbGet(`${adSetId}/ads`, { fields: "creative{object_story_spec,asset_feed_spec}", limit: "10" }, token).catch(() => null);
+    return {
+      targeting: conjunto?.targeting,
+      optimization_goal: conjunto?.optimization_goal,
+      status: conjunto?.status,
+      effective_status: conjunto?.effective_status,
+      ads: Array.isArray(ads?.data) ? ads.data : [],
+    };
+  }
+
   async setAdSetBudget(adSetId: string, dailyBudget: number): Promise<{ ok: boolean; message?: string }> {
     // El monto viene en COP y se convierte a la moneda real de la cuenta,
     // con techo de seguridad (ver presupuestoDiarioParaMeta).
@@ -2274,14 +2529,14 @@ Responde SOLO con este JSON exacto:
    * responde y caía a "Aprende X desde casa. Acceso de por vida" para
    * CUALQUIER producto -- así salió el corrector a Meta el 24-09-2026.
    */
-  private async generateAdCopy(product: any): Promise<{ primaryText: string; headline: string; description: string }> {
+  private async generateAdCopy(product: any, destino: "whatsapp" | "web" = "whatsapp"): Promise<{ primaryText: string; headline: string; description: string }> {
     const { planDeAnuncio } = await import("./anuncio-por-modelo");
     let condiciones: any = null;
     try {
       const { getBusinessContext } = await import("./business-context");
       condiciones = (await getBusinessContext(Number((this.tenant as any)?.id)))?.condiciones ?? null;
     } catch { condiciones = null; }
-    const plan = planDeAnuncio(product, condiciones);
+    const plan = planDeAnuncio(product, condiciones, { destino });
     return { primaryText: plan.primaryText, headline: plan.headline, description: plan.description };
   }
 
@@ -2380,7 +2635,10 @@ Responde SOLO con este JSON exacto:
   /** Sin esta suscripción Meta no avisa los leads al webhook. */
   private async suscribirPaginaALeads(tokenDePagina: string): Promise<void> {
     try {
-      await this.fbPost(`${this.config.pageId}/subscribed_apps`, { subscribed_fields: ["leadgen"] }, "suscripción a leads", tokenDePagina);
+      // La lista COMPLETA, no solo "leadgen": este POST reemplaza los campos
+      // suscritos, y con ["leadgen"] crear un formulario apagaba los mensajes
+      // y los comentarios de la página (ver meta-campos-webhook.ts).
+      await this.fbPost(`${this.config.pageId}/subscribed_apps`, { subscribed_fields: [...CAMPOS_WEBHOOK_PAGINA] }, "suscripción a leads", tokenDePagina);
     } catch (e: any) {
       logger.warn({ err: e?.message, pageId: this.config.pageId }, "[Facebook] No se pudo suscribir la página a leadgen: los leads no llegarán solos al webhook");
     }
@@ -2619,6 +2877,27 @@ Responde SOLO con este JSON exacto:
     } catch (e: any) {
       return { ok: false, message: `No se pudo crear el píxel en ${adAccount}: ${e?.message || e}` };
     }
+  }
+
+  /**
+   * El píxel que de verdad sirve en ESTA cuenta (o null). Si el guardado no
+   * es de la cuenta pero la cuenta tiene uno solo, se usa ese (ver elegirPixel).
+   */
+  async pixelUsable(adAccount: string): Promise<string | null> {
+    let deLaCuenta: string[] = [];
+    try {
+      const res = await this.fbGet(`${adAccount}/adspixels`, { fields: "id" }, this.config.userAccessToken);
+      deLaCuenta = (res.data || []).map((p: any) => String(p.id));
+    } catch (err: any) {
+      logger.warn({ err: err?.message }, "[Facebook] No se pudo listar los píxeles de la cuenta");
+      return null;
+    }
+    const r = elegirPixel(String(this.config.pixelId || ""), deLaCuenta);
+    if (r.corregido && r.pixelId) {
+      logger.warn({ guardado: this.config.pixelId, deLaCuenta: r.pixelId }, "[Facebook] El píxel guardado no es de esta cuenta: se usa el único que la cuenta tiene");
+      this.config.pixelId = r.pixelId;
+    }
+    return r.pixelId;
   }
 
   private async pixelBelongsToAccount(adAccount: string, pixelId: string): Promise<boolean> {

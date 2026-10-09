@@ -15,6 +15,7 @@ import { db, leads, remarketingCampaigns } from "@workspace/db";
 import { logger } from "./logger";
 import { enviarComoNegocio } from "./tenant-email";
 import { buildUnsubscribeToken } from "./remarketing";
+import { cuandoLaBaseEsteLista } from "./esperar-base";
 
 const TICK_INTERVAL_MS = 10 * 60 * 1000; // cada 10 minutos
 const EMAIL_BATCH_PER_TICK = 20;
@@ -114,7 +115,11 @@ export class RemarketingScheduler {
   start(intervalMs: number = TICK_INTERVAL_MS): void {
     if (this.intervalId) return;
     logger.info({ intervalMs }, "[RemarketingScheduler] Iniciado");
-    this.tick().catch((e) => logger.error({ err: e?.message }, "[RemarketingScheduler] Error en tick inicial"));
+    // La primera vuelta espera a la base (ver esperar-base.ts): sin esto
+    // fallaba siempre con "Cannot read properties of undefined (reading 'select')".
+    cuandoLaBaseEsteLista()
+      .then(() => this.tick())
+      .catch((e) => logger.error({ err: e?.message }, "[RemarketingScheduler] Error en tick inicial"));
     this.intervalId = setInterval(() => {
       this.tick().catch((e) => logger.error({ err: e?.message }, "[RemarketingScheduler] Error en tick"));
     }, intervalMs);

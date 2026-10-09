@@ -3,6 +3,8 @@ import { z } from "zod";
 import { tenantManager, type TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
 import { dbNow } from "../lib/date-utils";
+import { sinSecretos } from "../lib/secretos";
+import { esDuenoDeLaPlataforma } from "../middleware/requirePlatformOwner";
 
 const router: IRouter = Router();
 
@@ -108,8 +110,10 @@ router.get("/current", async (req: TenantRequest, res) => {
     // Get tenant usage limits
     const limits = await tenantManager.checkTenantLimits(req.tenant.id);
 
+    // req.tenant lleva las credenciales YA DESCIFRADAS (Facebook, SMTP,
+    // MercadoPago/PayPal): así salían completas al navegador. Se enmascaran.
     return res.json({
-      tenant: req.tenant,
+      tenant: sinSecretos(req.tenant),
       usage: limits
     });
 
@@ -125,8 +129,14 @@ router.get("/current", async (req: TenantRequest, res) => {
  * Create a new tenant
  * POST /api/tenants
  */
-router.post("/", async (req, res) => {
+router.post("/", async (req: TenantRequest, res) => {
   try {
+    // Crear negocios es tarea del dueño de la plataforma; un cliente se
+    // registra por /api/auth/register. Antes cualquier sesión podía crear
+    // negocios con credenciales de cobro arbitrarias.
+    if (!esDuenoDeLaPlataforma(req)) {
+      return res.status(403).json({ error: "Acceso solo para administrador" });
+    }
     const validatedData = createTenantSchema.parse(req.body);
 
     const newTenant = await tenantManager.createTenant(validatedData);
@@ -143,7 +153,7 @@ router.post("/", async (req, res) => {
     }, "[Tenants] New tenant created");
 
     return res.status(201).json({ 
-      tenant: newTenant 
+      tenant: sinSecretos(newTenant) 
     });
 
   } catch (error) {
@@ -173,7 +183,11 @@ router.put("/current", async (req: TenantRequest, res) => {
       });
     }
 
-     const validatedData = updateTenantSchema.parse(req.body);
+     const validatedData: any = updateTenantSchema.parse(req.body);
+     // Las credenciales de cobro tienen su propia ruta (PUT
+     // /api/payments/credentials), que las cifra y no deja que una máscara
+     // pise el valor guardado. Por acá entraban en texto plano.
+     delete validatedData.paymentMethods;
 
      const success = await tenantManager.updateTenant(req.tenant.id, validatedData as any);
 
@@ -192,7 +206,7 @@ router.put("/current", async (req: TenantRequest, res) => {
     }, "[Tenants] Tenant updated");
 
     return res.json({ 
-      tenant: updatedTenant 
+      tenant: sinSecretos(updatedTenant) 
     });
 
   } catch (error) {

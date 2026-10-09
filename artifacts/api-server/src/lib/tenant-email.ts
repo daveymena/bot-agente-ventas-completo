@@ -2,6 +2,7 @@ import nodemailer from "nodemailer";
 import { logger } from "./logger";
 import { encryptSecret, decryptSecret } from "./credentials-vault";
 import { tenantManager } from "./tenantManager";
+import { secretoNuevo } from "./secretos";
 
 /**
  * Correo saliente POR NEGOCIO.
@@ -106,7 +107,8 @@ export function construirMetaCorreo(
       ...(datos.user !== undefined ? { user: datos.user } : {}),
       // Vacío = "no lo cambies": el GET nunca devuelve la contraseña, así que
       // el formulario no puede reenviarla.
-      ...(datos.pass ? { pass: cifrarPassCorreo(datos.pass) } : {}),
+      // Tampoco una máscara ("••••abcd"): se cifraría como si fuera la clave.
+      ...(secretoNuevo(datos.pass) ? { pass: cifrarPassCorreo(String(datos.pass)) } : {}),
       ...(datos.fromName !== undefined ? { fromName: datos.fromName } : {}),
       ...(datos.enabled !== undefined ? { enabled: datos.enabled } : {}),
     },

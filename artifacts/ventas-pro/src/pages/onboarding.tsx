@@ -355,6 +355,9 @@ export default function OnboardingPage() {
                     <input
                       type="password"
                       required
+                      autoComplete="new-password"
+                      spellCheck={false}
+                      autoCapitalize="off"
                       placeholder="••••••••"
                       value={formData.password}
                       onChange={e => setFormData(f => ({ ...f, password: e.target.value }))}
@@ -369,6 +372,9 @@ export default function OnboardingPage() {
                     <input
                       type="password"
                       required
+                      autoComplete="new-password"
+                      spellCheck={false}
+                      autoCapitalize="off"
                       placeholder="••••••••"
                       value={formData.confirmPassword}
                       onChange={e => setFormData(f => ({ ...f, confirmPassword: e.target.value }))}

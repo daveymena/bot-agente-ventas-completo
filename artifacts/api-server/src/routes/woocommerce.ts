@@ -3,6 +3,8 @@ import { db, tenants } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { getWooCommerceService, WooCommerceService } from "../lib/woocommerce";
 import { logger } from "../lib/logger";
+import { encryptSecret, decryptSecret } from "../lib/credentials-vault";
+import { secretoNuevo, ultimos4 } from "../lib/secretos";
 
 const router = Router();
 
@@ -39,8 +41,14 @@ router.get("/config", async (req, res) => {
     res.json({
       enabled: config.enabled,
       storeUrl: config.storeUrl,
-      consumerKey: config.consumerKey ? "••••••••" : "",
-      consumerSecret: config.consumerSecret ? "••••••••" : "",
+      // Nunca el valor: el input del panel queda vacío y el placeholder dice
+      // que hay uno guardado (con los últimos 4 para reconocerlo).
+      consumerKey: "",
+      consumerSecret: "",
+      consumerKeyUltimos4: ultimos4(decryptSecret(config.consumerKey)),
+      consumerSecretUltimos4: ultimos4(decryptSecret(config.consumerSecret)),
+      hasConsumerKey: !!config.consumerKey,
+      hasConsumerSecret: !!config.consumerSecret,
       syncProducts: config.syncProducts,
       autoCreateOrders: config.autoCreateOrders,
       syncInterval: config.syncInterval,
@@ -70,8 +78,15 @@ router.put("/config", async (req, res) => {
       syncInterval,
     } = req.body;
 
-    // Validaciones
-    if (enabled && (!storeUrl || !consumerKey || !consumerSecret)) {
+    // Vacío o enmascarado = "no lo cambies" (el GET nunca devuelve el valor).
+    const keyNueva = secretoNuevo(consumerKey);
+    const secretNuevo = secretoNuevo(consumerSecret);
+
+    // Validaciones (lo guardado también cuenta: habilitar no obliga a
+    // volver a pegar las claves).
+    const [previo] = await db.select({ woo: tenants.woocommerceIntegration }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    const prev: any = previo?.woo || {};
+    if (enabled && (!(storeUrl || prev.storeUrl) || !(keyNueva || prev.consumerKey) || !(secretNuevo || prev.consumerSecret))) {
       return res.status(400).json({
         error: "Se requiere storeUrl, consumerKey y consumerSecret para habilitar la integración",
       });
@@ -90,14 +105,15 @@ router.put("/config", async (req, res) => {
     const newConfig = {
       enabled: enabled ?? currentConfig.enabled ?? false,
       storeUrl: storeUrl || currentConfig.storeUrl || "",
-      consumerKey:
-        consumerKey && consumerKey !== "••••••••"
-          ? consumerKey
-          : currentConfig.consumerKey || "",
-      consumerSecret:
-        consumerSecret && consumerSecret !== "••••••••"
-          ? consumerSecret
-          : currentConfig.consumerSecret || "",
+      // Cifradas en la base (antes, texto plano en tenants.woocommerceIntegration).
+      // Lo viejo en claro se sigue leyendo (decryptSecret lo deja pasar) y se
+      // cifra la próxima vez que se guarde.
+      consumerKey: keyNueva
+        ? encryptSecret(keyNueva)
+        : currentConfig.consumerKey ? encryptSecret(decryptSecret(currentConfig.consumerKey)) : "",
+      consumerSecret: secretNuevo
+        ? encryptSecret(secretNuevo)
+        : currentConfig.consumerSecret ? encryptSecret(decryptSecret(currentConfig.consumerSecret)) : "",
       syncProducts: syncProducts ?? currentConfig.syncProducts ?? false,
       autoCreateOrders: autoCreateOrders ?? currentConfig.autoCreateOrders ?? false,
       syncInterval: syncInterval || currentConfig.syncInterval || 60,
@@ -115,8 +131,10 @@ router.put("/config", async (req, res) => {
       message: "Configuración actualizada exitosamente",
       config: {
         ...newConfig,
-        consumerKey: newConfig.consumerKey ? "••••••••" : "",
-        consumerSecret: newConfig.consumerSecret ? "••••••••" : "",
+        consumerKey: "",
+        consumerSecret: "",
+        hasConsumerKey: !!newConfig.consumerKey,
+        hasConsumerSecret: !!newConfig.consumerSecret,
       },
     });
   } catch (error) {

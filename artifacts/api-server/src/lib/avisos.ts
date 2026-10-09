@@ -38,5 +38,19 @@ export async function avisarAlDueno(tenantId: number, texto: string): Promise<Re
     logger.warn({ tenantId, err: e?.message }, "[Avisos] Telegram falló");
   }
   if (!r.whatsapp && !r.telegram) logger.warn({ tenantId }, "[Avisos] ningún canal entregó el aviso");
+  // Push al celular (si el dueño activó "App en tu celular"). No rompe nada.
+  try {
+    const { enviarPushAlDueno } = await import("./push");
+    const primera = texto.split("\n")[0] || "VentasPro";
+    await enviarPushAlDueno(tenantId, {
+      titulo: primera.slice(0, 80),
+      cuerpo: texto.slice(0, 180),
+      url: "/conversations",
+      tag: "aviso",
+      accion: "Abrir",
+    });
+  } catch (e: any) {
+    logger.warn({ tenantId, err: e?.message }, "[Avisos] Push falló");
+  }
   return r;
 }

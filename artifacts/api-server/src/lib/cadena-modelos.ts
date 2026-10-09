@@ -414,8 +414,104 @@ export function filtrarEnfriados(cadena: Candidato[], ahora = Date.now()): Candi
   return vivos.length > 0 ? vivos : cadena;
 }
 
+// ── Modelo retirado: aprender el nombre vigente del propio error ─────────
+//
+// 08-10: Copilot entraba a la cadena como `claude-opus-4.7-fast`, sacado del
+// catálogo LOCAL de OpenCode, que estaba viejo. El servidor real contestaba
+// "The requested model is not available for integrator "opencode". Available
+// models: [gpt-4.1 claude-fable-5.1 … claude-opus-4.8-fast …]" — o sea, el
+// respaldo fallaba SIEMPRE, y con el principal colgado el turno se cortaba.
+// El error trae la lista buena: se elige de ahí y se recuerda.
+const vigentes = new Map<string, string>();
+
+/** Lee la lista "Available models: [...]" de un error. Pura (testeable). */
+export function modelosDisponiblesDelError(error: string): string[] {
+  const m = /available models?:\s*\[([^\]]*)\]?/i.exec(String(error || ""));
+  if (!m) return [];
+  return m[1]!.split(/[\s,]+/).map((s) => s.replace(/["']/g, "").trim()).filter(Boolean);
+}
+
+/** El reemplazo más parecido: misma familia (claude-opus-*-fast → claude-opus-4.8-fast). */
+export function reemplazoVigente(retirado: string, disponibles: string[]): string | null {
+  if (!disponibles.length) return null;
+  if (disponibles.includes(retirado)) return null;
+  const familia = new RegExp(`^${retirado.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\d+(\\\.\d+)*/g, "[\\d.]+")}$`, "i");
+  const mismaFamilia = disponibles.filter((id) => familia.test(id)).sort().reverse();
+  if (mismaFamilia[0]) return mismaFamilia[0];
+  return elegirModelo(disponibles.filter((id) => !/search|exec|embed/i.test(id)));
+}
+
+// 08-10 noche, medido en atlas-diagnostico: tras aprender `claude-opus-4.8-fast`
+// Copilot contestó "The requested model is not supported." — SIN lista. El
+// modelo figura como disponible pero esta cuenta no lo puede usar, y como el
+// error no traía reemplazo la cadena seguía llamándolo turno tras turno. Se
+// guarda la última lista que dio el proveedor y los ids que rechazó, para
+// pasar al siguiente de esa lista.
+const ultimaListaPorProveedor = new Map<string, string[]>();
+const rechazadosPorProveedor = new Map<string, Set<string>>();
+
+/** Si el error dice "modelo no disponible", recuerda el nombre vigente. */
+export function aprenderModeloVigente(candidato: Candidato, error: string): string | null {
+  const e = String(error || "");
+  if (!/not available|not supported|model.*(not found|does not exist|unknown)/i.test(e)) return null;
+  const prov = candidato.providerID;
+  const lista = modelosDisponiblesDelError(e);
+  if (lista.length) ultimaListaPorProveedor.set(prov, lista);
+
+  let nuevo = reemplazoVigente(candidato.modelID, lista);
+  if (!nuevo && !lista.length) {
+    // "not supported" sin lista: figura disponible pero no sirve en esta cuenta.
+    const rechazados = rechazadosPorProveedor.get(prov) ?? new Set<string>();
+    rechazados.add(candidato.modelID);
+    rechazadosPorProveedor.set(prov, rechazados);
+    const libres = (ultimaListaPorProveedor.get(prov) ?? []).filter((id) => !rechazados.has(id));
+    nuevo = reemplazoVigente(candidato.modelID, libres);
+  }
+  if (!nuevo) return null;
+
+  // El candidato que falló puede ser ya un nombre aprendido (4.7 → 4.8-fast):
+  // se actualiza también el original, que es la clave con la que entra a la cadena.
+  for (const [clave, vigente] of vigentes) {
+    if (clave.startsWith(`${prov}|`) && vigente === candidato.modelID) vigentes.set(clave, nuevo);
+  }
+  vigentes.set(claveDe(candidato), nuevo);
+  return nuevo;
+}
+
+/** Cambia en la cadena los modelos retirados por su nombre vigente. */
+export function conNombresVigentes(cadena: Candidato[]): Candidato[] {
+  return cadena.map((c) => {
+    const nuevo = vigentes.get(claveDe(c));
+    return nuevo ? { providerID: c.providerID, modelID: nuevo } : c;
+  });
+}
+
+// ── Quien viene respondiendo no se corta a los 30 s ──────────────────────
+//
+// 08-10, atlas-diagnostico: gpt-5.6-luna contestó TODOS los turnos completos
+// (4-28 s), pero los pedidos grandes (A/B de anuncios, borrar campañas) le
+// piden más de 30 s; el techo lo cortaba y el resto del turno se iba en
+// respaldos muertos (mistral 77 s para decir "sin cupo"). El techo corto sirve
+// para no esperar a un desconocido; a uno que viene respondiendo hay que
+// dejarlo terminar.
+const VENTANA_EXITO_MS = 30 * 60_000;
+const exitos = new Map<string, number>();
+
+export function anotarExito(candidato: Candidato, ahora = Date.now()): void {
+  exitos.set(claveDe(candidato), ahora);
+}
+
+export function respondioHacePoco(candidato: Candidato, ahora = Date.now()): boolean {
+  const t = exitos.get(claveDe(candidato));
+  return t !== undefined && ahora - t <= VENTANA_EXITO_MS;
+}
+
 /** Para diagnóstico y para los tests. */
 export function olvidarFallos(): void {
+  exitos.clear();
   enPenitencia.clear();
   fallosNoTerminales.clear();
+  vigentes.clear();
+  ultimaListaPorProveedor.clear();
+  rechazadosPorProveedor.clear();
 }

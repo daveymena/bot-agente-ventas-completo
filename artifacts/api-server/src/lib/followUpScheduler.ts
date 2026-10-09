@@ -4,7 +4,9 @@ import { logger } from "./logger";
 import { leadScoringEngine, type LeadStage } from "./leadScoring";
 import { getWhatsAppForTenant } from "./whatsapp-factory";
 import { toDbDate } from "./date-utils";
-import { facebookMessengerService } from "./facebook-messenger";
+import { FacebookMessengerService } from "./facebook-messenger";
+import { tenantManager } from "./tenantManager";
+import { cuandoLaBaseEsteLista } from "./esperar-base";
 
 export interface PoliticaSeguimiento {
   demoraMs: number;
@@ -41,6 +43,18 @@ export function calcularFechaSeguimiento(stage: string, score = 0, desde = new D
   return new Date(desde.getTime() + politicaDeSeguimiento(stage, score).demoraMs);
 }
 
+/** Meta solo deja escribir por Messenger/Instagram 24 h después del último mensaje del cliente. */
+const VENTANA_META_MS = 24 * 60 * 60 * 1000;
+
+/** Por dónde se le escribe a este contacto, según cómo se guardó. */
+export function canalDelContacto(contacto: string): "whatsapp" | "facebook" | "instagram" | "comentario" {
+  const c = String(contacto || "");
+  if (c.startsWith("fb_comment:") || c.startsWith("ig_comment:")) return "comentario";
+  if (c.startsWith("fb:")) return "facebook";
+  if (c.startsWith("ig:")) return "instagram";
+  return "whatsapp";
+}
+
 export class FollowUpScheduler {
   private isRunning = false;
   private intervalId: NodeJS.Timeout | null = null;
@@ -54,13 +68,17 @@ export class FollowUpScheduler {
     this.isRunning = true;
     logger.info({ intervalMinutes }, "[FollowUpScheduler] Starting scheduler");
 
-    this.processDueFollowUps().catch(error => {
-      logger.error({ error }, "[FollowUpScheduler] Initial processing failed");
-    });
+    // La primera pasada espera a la base: arrancaba al importar el módulo,
+    // antes de "[DB] Lista para usar", y fallaba siempre (ver esperar-base.ts).
+    cuandoLaBaseEsteLista()
+      .then(() => this.processDueFollowUps())
+      .catch(err => {
+        logger.error({ err }, "[FollowUpScheduler] Initial processing failed");
+      });
 
     this.intervalId = setInterval(() => {
-      this.processDueFollowUps().catch(error => {
-        logger.error({ error }, "[FollowUpScheduler] Scheduled processing failed");
+      this.processDueFollowUps().catch(err => {
+        logger.error({ err }, "[FollowUpScheduler] Scheduled processing failed");
       });
     }, intervalMinutes * 60 * 1000);
   }
@@ -245,7 +263,9 @@ export class FollowUpScheduler {
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
     } catch (error) {
-      logger.error({ error }, "[FollowUpScheduler] Failed to process due follow-ups");
+      // `err` y no `error`: pino solo serializa un Error bajo `err`; con
+      // `error` el log de producción decía literalmente "error: {}".
+      logger.error({ err: error }, "[FollowUpScheduler] Failed to process due follow-ups");
     }
   }
 
@@ -276,6 +296,13 @@ export class FollowUpScheduler {
     }).from(conversations).where(eq(conversations.id, convoId)).limit(1);
 
     if (!conversacion) return { ok: false, motivo: "la conversación ya no existe" };
+    const canal = canalDelContacto(followUp.contactPhone);
+    if (canal === "comentario") {
+      // A quien comentó solo se le puede escribir UNA vez por privado, y eso
+      // ya lo hace la respuesta al comentario. Antes caía al camino de
+      // WhatsApp y se intentaba mandar a "fb_comment:123".
+      return { ok: false, motivo: "es un comentario: no admite seguimiento por mensaje" };
+    }
     if (["confirmed", "approved"].includes(String(conversacion.paymentStatus || "").toLowerCase())) {
       return { ok: false, motivo: "la compra ya fue pagada/confirmada" };
     }
@@ -329,7 +356,17 @@ export class FollowUpScheduler {
       return { ok: false, motivo: "el cliente nunca respondió (no mostró interés)" };
     }
 
-    // 4. Nada de escribir de madrugada: hora local de Colombia (UTC-5).
+    // 4. Messenger e Instagram: Meta solo deja escribir dentro de las 24 h
+    //    desde el último mensaje del cliente. Pasado eso rechaza el envío
+    //    (y insistir afecta a la página), así que no se intenta.
+    if ((canal === "facebook" || canal === "instagram") && ultimoDelCliente) {
+      const desde = Date.now() - new Date(ultimoDelCliente.createdAt).getTime();
+      if (desde > VENTANA_META_MS) {
+        return { ok: false, motivo: "pasaron más de 24 h desde su último mensaje: Meta no permite escribirle" };
+      }
+    }
+
+    // 5. Nada de escribir de madrugada: hora local de Colombia (UTC-5).
     const horaLocal = new Date(Date.now() - 5 * 60 * 60 * 1000).getUTCHours();
     if (horaLocal < 8 || horaLocal >= 21) {
       return { ok: false, motivo: `son las ${horaLocal}:00 en Colombia, fuera del horario para escribir` };
@@ -356,15 +393,28 @@ export class FollowUpScheduler {
       // Los leads de Facebook Messenger se guardan como contactPhone=`fb:<psid>`
       // (ver facebook-messenger.ts). Antes esto se ignoraba y SOLO se enviaba
       // por WhatsApp, dejando a todos los leads de Facebook sin seguimiento.
-      const isFacebookLead = followUp.contactPhone.startsWith("fb:");
+      // El negocio sale de la CONVERSACIÓN. Antes se mandaba todo por el
+      // WhatsApp / la página del negocio por defecto: el seguimiento de un
+      // cliente del negocio 2 salía desde el número del dueño de la plataforma.
+      const [conv] = await db.select({ tenantId: conversations.tenantId })
+        .from(conversations).where(eq(conversations.id, followUp.conversationId)).limit(1);
+      const tenantId = Number(conv?.tenantId) || 0;
+      if (!tenantId) {
+        await db.update(followUps).set({ completed: true }).where(eq(followUps.id, followUp.id));
+        logger.warn({ followUpId: followUp.id }, "[FollowUpScheduler] Conversación sin negocio: no se envía");
+        return;
+      }
+      const canal = canalDelContacto(followUp.contactPhone);
 
-      if (isFacebookLead) {
-        const psid = followUp.contactPhone.slice(3);
-        if (!facebookMessengerService.isConfigured()) {
-          logger.warn({ followUpId: followUp.id }, "[FollowUpScheduler] Facebook Messenger not configured");
+      if (canal === "facebook" || canal === "instagram") {
+        const psid = followUp.contactPhone.slice(followUp.contactPhone.indexOf(":") + 1);
+        const tenant = await tenantManager.getTenantById(tenantId);
+        const svc = tenant ? new FacebookMessengerService(tenant) : null;
+        if (!svc || !svc.isConfigured()) {
+          logger.warn({ followUpId: followUp.id, tenantId }, "[FollowUpScheduler] Facebook Messenger not configured");
           return;
         }
-        const sent = await facebookMessengerService.sendText(psid, followUp.message);
+        const sent = await svc.sendText(psid, followUp.message);
         if (!sent) {
           logger.warn({ followUpId: followUp.id }, "[FollowUpScheduler] Failed to send Facebook follow-up");
           return;
@@ -379,7 +429,7 @@ export class FollowUpScheduler {
         // correcto para un negocio de un solo tenant; si en el futuro hay
         // varios negocios activos con follow-ups propios, esto necesita
         // resolver el tenant real via conversations.tenantId.
-        const wa = getWhatsAppForTenant();
+        const wa = getWhatsAppForTenant(tenantId);
         if (!wa.isConnected()) {
           logger.warn({ followUpId: followUp.id }, "[FollowUpScheduler] WhatsApp not connected");
           return;
@@ -485,7 +535,9 @@ export async function cancelarSeguimientosPendientes(conversationId: number): Pr
 }
 
 export const followUpScheduler = new FollowUpScheduler();
-followUpScheduler.start(30);
+// Se arranca desde app.ts (bloque "relojes que tocan la base"), no al
+// importar: cualquier archivo que importara este módulo --pruebas incluidas--
+// encendía un reloj real que consultaba la base antes de que existiera.
 
 export async function scheduleIntelligentFollowUp(conversationId: number, stage: string, score: number) {
   return followUpScheduler.scheduleFollowUp(conversationId, stage, score);

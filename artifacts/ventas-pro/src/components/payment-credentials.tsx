@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { CreditCard, CheckCircle2, AlertTriangle, Loader, Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { CreditCard, CheckCircle2, AlertTriangle, Loader, ShieldCheck } from "lucide-react";
+import { SecretInput } from "@/components/ui/secret-input";
 import { LogoMarca } from "@/components/logo-marca";
 
 /**
@@ -39,14 +40,12 @@ export function PaymentCredentials() {
   const [guardando, setGuardando] = useState(false);
 
   const [mpToken, setMpToken] = useState("");
-  const [verMp, setVerMp] = useState(false);
   const [mpEnabled, setMpEnabled] = useState(true);
   const [pruebaMp, setPruebaMp] = useState<Prueba>(null);
   const [probandoMp, setProbandoMp] = useState(false);
 
   const [ppId, setPpId] = useState("");
   const [ppSecret, setPpSecret] = useState("");
-  const [verPp, setVerPp] = useState(false);
   const [ppMode, setPpMode] = useState<"sandbox" | "live">("live");
   const [ppEnabled, setPpEnabled] = useState(true);
   const [pruebaPp, setPruebaPp] = useState<Prueba>(null);
@@ -202,21 +201,13 @@ export function PaymentCredentials() {
             <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">
               Access Token {estado?.mercadopago.pista && <span className="normal-case font-normal tracking-normal">· guardado: {estado.mercadopago.pista}</span>}
             </Label>
-            <div className="relative">
-              <Input
-                type={verMp ? "text" : "password"}
+            <SecretInput
                 value={mpToken}
-                onChange={e => { setMpToken(e.target.value); setPruebaMp(null); }}
-                placeholder={estado?.mercadopago.configurado ? "Dejalo vacío para no cambiarlo" : "APP_USR-..."}
-                className="font-mono text-sm bg-muted/30 pr-11"
-                autoComplete="off"
+                onChange={v => { setMpToken(v); setPruebaMp(null); }}
+                guardado={estado?.mercadopago.pista || estado?.mercadopago.configurado}
+                placeholder="APP_USR-..."
+                className="text-sm bg-muted/30"
               />
-              <button type="button" onClick={() => setVerMp(v => !v)}
-                aria-label={verMp ? "Ocultar" : "Mostrar"}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                {verMp ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
             <p className="text-xs text-muted-foreground">
               Lo sacás de tu panel de MercadoPago → Tus integraciones → Credenciales de producción.
             </p>
@@ -263,21 +254,13 @@ export function PaymentCredentials() {
               <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">
                 Client Secret {estado?.paypal.pista && <span className="normal-case font-normal tracking-normal">· {estado.paypal.pista}</span>}
               </Label>
-              <div className="relative">
-                <Input
-                  type={verPp ? "text" : "password"}
-                  value={ppSecret}
-                  onChange={e => { setPpSecret(e.target.value); setPruebaPp(null); }}
-                  placeholder={estado?.paypal.configurado ? "Dejalo vacío para no cambiarlo" : "EG7..."}
-                  className="font-mono text-sm bg-muted/30 pr-11"
-                  autoComplete="off"
-                />
-                <button type="button" onClick={() => setVerPp(v => !v)}
-                  aria-label={verPp ? "Ocultar" : "Mostrar"}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-                  {verPp ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
+              <SecretInput
+                value={ppSecret}
+                onChange={v => { setPpSecret(v); setPruebaPp(null); }}
+                guardado={estado?.paypal.pista || estado?.paypal.configurado}
+                placeholder="EG7..."
+                className="text-sm bg-muted/30"
+              />
             </div>
           </div>
           <div className="flex items-center gap-2">

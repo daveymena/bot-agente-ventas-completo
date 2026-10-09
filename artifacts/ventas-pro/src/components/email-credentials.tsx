@@ -6,7 +6,8 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Mail, CheckCircle2, AlertTriangle, Loader, Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { Mail, CheckCircle2, AlertTriangle, Loader, ShieldCheck } from "lucide-react";
+import { SecretInput } from "@/components/ui/secret-input";
 
 /**
  * Correo saliente del negocio.
@@ -38,7 +39,6 @@ export function EmailCredentials() {
   const [port, setPort] = useState(587);
   const [user, setUser] = useState("");
   const [pass, setPass] = useState("");
-  const [verPass, setVerPass] = useState(false);
   const [fromName, setFromName] = useState("");
   const [enabled, setEnabled] = useState(true);
 
@@ -157,17 +157,11 @@ export function EmailCredentials() {
           <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">
             Contraseña de aplicación {estado?.configurado && <span className="normal-case font-normal tracking-normal">· dejala vacía para no cambiarla</span>}
           </Label>
-          <div className="relative">
-            <Input type={verPass ? "text" : "password"} value={pass}
-              onChange={e => { setPass(e.target.value); setPrueba(null); }}
-              placeholder={estado?.configurado ? "••••••••" : "abcd efgh ijkl mnop"}
-              className="font-mono text-sm bg-muted/30 pr-11" autoComplete="off" />
-            <button type="button" onClick={() => setVerPass(v => !v)}
-              aria-label={verPass ? "Ocultar" : "Mostrar"}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-              {verPass ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-            </button>
-          </div>
+          <SecretInput value={pass}
+            onChange={v => { setPass(v); setPrueba(null); }}
+            guardado={estado?.configurado}
+            placeholder="abcd efgh ijkl mnop"
+            className="text-sm bg-muted/30" />
           {/* El motivo #1 de fallo: la gente pone la contraseña del correo. */}
           <p className="text-xs text-muted-foreground">
             No es la contraseña de tu correo. En Gmail, con verificación en dos pasos activa, andá a

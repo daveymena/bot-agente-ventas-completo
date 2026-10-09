@@ -1,6 +1,13 @@
 import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./index.css";
+import { registrarSW } from "./lib/pwa";
+
+// PWA: service worker (shell offline + push). No bloquea el arranque.
+if (typeof window !== "undefined") {
+  if (document.readyState === "complete") registrarSW();
+  else window.addEventListener("load", () => registrarSW());
+}
 
 // Error handler global
 window.addEventListener("error", (event) => {

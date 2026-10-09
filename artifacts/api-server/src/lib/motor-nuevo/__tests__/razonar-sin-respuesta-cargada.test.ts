@@ -55,7 +55,11 @@ describe("consultar_conocimiento sin respuesta cargada", () => {
     const r = ejecutores.consultar_conocimiento(ctx(), { pregunta: "¿graba si se va la luz?" }) as any;
     expect(r.mensaje).toMatch(/razon/i);
     expect(r.mensaje).not.toMatch(/dile que lo confirmas con el equipo y le respondes/i);
-    expect(r.mensaje).toMatch(/no prometas que alguien/i);
+    // 07-10: ahora el dueño SÍ recibe la pregunta (preguntar_al_dueno), así que
+    // decir "lo consulto con el equipo" deja de ser una promesa vacía; pero
+    // solo como último recurso, después de razonar con ficha + hechos.
+    expect(r.mensaje).toMatch(/preguntar_al_dueno/);
+    expect(r.mensaje).toMatch(/Nunca lo dejes sin respuesta/i);
   });
 
   test("las condiciones comerciales siguen sin inventarse", () => {

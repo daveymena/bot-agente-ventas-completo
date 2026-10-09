@@ -11,14 +11,19 @@ import { encryptionService } from "../lib/encryption-service";
 import { providerValidator } from "../lib/provider-validator";
 import { costTracker } from "../lib/cost-tracker";
 import { logger } from "../lib/logger";
-import { requirePlatformOwner } from "../middleware/requirePlatformOwner";
+import { requirePlatformOwner, esDuenoDeLaPlataforma } from "../middleware/requirePlatformOwner";
+import { esValorEnmascarado, enmascararSecreto } from "../lib/secretos";
 
 const router: IRouter = Router();
 
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req: any, res, next) => {
   try {
     const row = await getOrCreate();
-    return res.json(GetSettingsResponse.parse(serialize(row)));
+    const datos: any = GetSettingsResponse.parse(serialize(row));
+    // `settings` es UNA fila de la plataforma: la URL del Ollama del servidor
+    // (expuesto sin autenticación) no es asunto de cada cliente.
+    if (!esDuenoDeLaPlataforma(req)) datos.ollamaUrl = datos.ollamaUrl ? "(configurado por la plataforma)" : datos.ollamaUrl;
+    return res.json(datos);
   } catch (e) {
     return next(e);
   }
@@ -36,7 +41,7 @@ router.patch("/", requirePlatformOwner(), async (req, res, next) => {
     // sin credenciales. Vacío o enmascarado = no lo toques.
     for (const campo of SECRETOS_DE_IA) {
       const v = (body as any)[campo];
-      if (typeof v === "string" && (v.includes("•") || v.trim() === "")) {
+      if (typeof v === "string" && (esValorEnmascarado(v) || v.trim() === "")) {
         delete (body as any)[campo];
       }
     }
@@ -222,9 +227,11 @@ router.post("/copilot-token", requirePlatformOwner(), async (req, res, next) => 
     // token nuevo no se usa hasta el próximo reinicio.
     process.env.GITHUB_TOKEN = githubToken;
 
+    // El token de sesión de Copilot volvía COMPLETO al navegador. Ya quedó
+    // guardado en el servidor; el panel solo necesita saber que funcionó.
     return res.json({
       success: true,
-      token: sessionToken.token,
+      token: enmascararSecreto(sessionToken.token),
       expires_at: sessionToken.expiresAt
     });
   } catch (e) {
@@ -347,9 +354,7 @@ function parseKeywords(val: unknown): string[] {
 
 /** Deja ver que hay un secreto cargado, sin entregarlo. */
 function enmascarar(valor: string | null | undefined): string {
-  const v = String(valor || "");
-  if (!v) return "";
-  return v.length <= 4 ? "••••" : `••••${v.slice(-4)}`;
+  return enmascararSecreto(valor);
 }
 
 function serialize(row: typeof settings.$inferSelect) {

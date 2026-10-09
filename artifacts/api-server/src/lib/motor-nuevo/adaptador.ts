@@ -437,6 +437,27 @@ function conCita(m: any): string {
  * automáticos en vez de reventar.
  */
 /** Un teléfono real de WhatsApp son dígitos; "sim-…" solo lo crea la ruta de prueba. */
+/** El número del contacto, solo si es un teléfono (10 a 13 dígitos). Los
+ *  LID de WhatsApp tienen 14 o más y no sirven para la transportadora. */
+export function telefonoReal(contacto: unknown): string | null {
+  const d = String(contacto ?? "").split("@")[0].replace(/\D/g, "");
+  return d.length >= 10 && d.length <= 13 ? d : null;
+}
+
+/**
+ * ¿Se reintenta en Dropi un pedido frenado cuando el cliente pregunta por él?
+ * Sí si Dropi lo rechazó por algo nuestro (formato, caída), no está
+ * cancelado, no es simulación y tiene menos de 7 días.
+ */
+export async function debeReintentarAlPreguntar(f: any, ahora = Date.now()): Promise<boolean> {
+  if (!f || f.dropi_order_id || f.estado === "cancelado") return false;
+  if (String(f.notas || "").includes("SIMULACIÓN") || String(f.telefono || "").startsWith("sim-")) return false;
+  const rechazado = f.estado === "rechazado_dropi" || f.dropi_estado === "error";
+  const reciente = ahora - new Date(f.created_at).getTime() < 7 * 24 * 3600 * 1000;
+  const { esReintentable } = await import("../reintento-pedidos");
+  return rechazado && reciente && esReintentable(f.dropi_error);
+}
+
 export function esConversacionDeSimulacion(telefono: unknown): boolean {
   return /^sim-/i.test(String(telefono || ""));
 }
@@ -545,6 +566,24 @@ export function servicioDePedidos(p: {
           return { hay: true, texto: `${base} (simulación: no se envió a Dropi; en un pedido real acá aparecen transportadora y guía).` };
         }
         if (!f.dropi_order_id) {
+          // ── Rechazado por un dato nuestro: se reintenta AHORA ──────────────
+          // Venta perdida (conv 2, Elkin, 06→08-10): Dropi rechazó por
+          // "BOGOTA D C" (ya corregido en destinoParaDropi), el cliente
+          // preguntó dos días después y el bot leyó el error y contestó "el
+          // equipo lo está gestionando" — nadie lo hacía; canceló. Que el
+          // cliente pregunte ES la señal de que el pedido sigue vivo.
+          if (await debeReintentarAlPreguntar(f)) {
+            const ds = await import("../dropshipping");
+            const r = await ds.despacharPedido(ds.aPedido(f)).catch((e: any) => ({ ok: false, error: String(e?.message || e) }) as any);
+            if (r.ok) {
+              const num = r.dropi?.dropiOrderId ? ` con el número ${r.dropi.dropiOrderId}` : "";
+              logger.info({ pedidoId: f.id, conversationId: p.conversationId }, "[MotorV2] pedido rechazado recuperado al preguntar el cliente");
+              const { avisarAlDueno } = await import("../avisos");
+              await avisarAlDueno(p.tenantId, `✅ *Pedido #${f.id} recuperado* — el cliente preguntó por él y entró a Dropi${num}.`).catch(() => null);
+              return { hay: true, texto: `Pedido #${f.id}: ${f.product_name} × ${f.quantity}, a ${f.ciudad || "?"}. Había quedado frenado por un error al registrarlo y LO ACABO DE REGISTRAR en Dropi${num}: ya está en proceso de despacho, plazo ${cond.envio.plazo}. Pídele disculpas por la demora y confírmale que ya salió a proceso.` };
+            }
+            return { hay: true, texto: `${base} Lo volví a intentar registrar en Dropi ahora mismo y lo volvió a rechazar (${String(r.error || "").slice(0, 120)}). El dueño ya recibió el aviso. NO le digas que "el equipo lo está gestionando" ni le prometas fecha: dile la verdad (no se pudo registrar todavía) y usa escalar_a_humano para que una persona le escriba hoy.` };
+          }
           return { hay: true, texto: `${base} Todavía no tiene número en Dropi${f.dropi_error ? ` (Dropi respondió: ${String(f.dropi_error).slice(0, 120)})` : ""}.` };
         }
         const { tokenDropiDelTenant, listarPedidosDropi } = await import("../dropi-directo");
@@ -559,6 +598,38 @@ export function servicioDePedidos(p: {
         };
       } catch (e: any) {
         return { hay: false, texto: `No se pudo consultar: ${e?.message || e}` };
+      }
+    },
+
+    async cancelar() {
+      // 08-10 (conv 2): "Cancela el pedido por fa" → el bot dijo "ya gestiono
+      // la cancelación" y el pedido siguió como rechazado, sin que nadie se
+      // enterara. Ahora se cancela de verdad o se dice qué falta.
+      try {
+        const { rows } = await pool.query(
+          `SELECT * FROM dropshipping_orders WHERE conversation_id = $1 AND estado <> 'borrador' ORDER BY id DESC LIMIT 1`,
+          [p.conversationId],
+        );
+        const f: any = rows[0];
+        if (!f) return { ok: false, texto: "Esta conversación no tiene ningún pedido hecho: no hay nada que cancelar." };
+        if (f.estado === "cancelado") return { ok: true, texto: `El pedido #${f.id} ya estaba cancelado.` };
+        const { avisarAlDueno } = await import("../avisos");
+        if (!f.dropi_order_id) {
+          await pool.query(
+            `UPDATE dropshipping_orders SET estado = 'cancelado', notas = COALESCE(notas, '') || ' | Cancelado por el cliente por WhatsApp', updated_at = now() WHERE id = $1`,
+            [f.id],
+          );
+          await avisarAlDueno(p.tenantId, `🚫 Pedido #${f.id} cancelado por el cliente (${f.nombre || "sin nombre"}, ${f.product_name}). No había llegado a Dropi: no hay nada que hacer allá.`).catch(() => null);
+          return { ok: true, texto: `Pedido #${f.id} CANCELADO en el sistema (no había llegado a Dropi, así que no se despacha nada). Confírmaselo y ofrécele ayuda si quiere hacerlo de nuevo más adelante.` };
+        }
+        await pool.query(
+          `UPDATE dropshipping_orders SET notas = COALESCE(notas, '') || ' | El cliente pidió CANCELAR por WhatsApp', updated_at = now() WHERE id = $1`,
+          [f.id],
+        );
+        await avisarAlDueno(p.tenantId, `🚫 *El cliente pidió CANCELAR el pedido #${f.id}* (${f.nombre || "sin nombre"}, ${f.product_name}). Ya está en Dropi con la orden #${f.dropi_order_id}: hay que cancelarla en Dropi a mano, antes de que salga.`).catch(() => null);
+        return { ok: true, texto: `El pedido #${f.id} ya está en Dropi (orden #${f.dropi_order_id}): la cancelación allá la hace una persona. El dueño YA recibió el aviso. Dile que la solicitud quedó registrada y que le confirman la cancelación; NO le digas que ya quedó cancelado.` };
+      } catch (e: any) {
+        return { ok: false, texto: `No se pudo cancelar: ${e?.message || e}. Usa escalar_a_humano.` };
       }
     },
 
@@ -880,7 +951,10 @@ export async function responderComoVendedor(
     tenantId,
     conversationId,
     leadId: (convo as any).leadId ?? null,
-    telefono: (convo as any).contactPhone ?? null,
+    // Un LID ("198874299904173", el id interno de WhatsApp) NO es un
+    // teléfono: en la venta real del 06-10 salió en el resumen como celular y
+    // el cliente tuvo que corregirlo. Sin teléfono real, el motor lo pide.
+    telefono: telefonoReal((convo as any).contactPhone),
     condiciones: negocio?.condiciones ?? CONDICIONES_DE_RESPALDO,
     simulacion: esConversacionDeSimulacion((convo as any).contactPhone),
   });
@@ -1085,6 +1159,34 @@ async function aplicarEfecto(
       );
     } catch {
       /* avisar no puede frenar la respuesta al cliente */
+    }
+    return;
+  }
+
+  // Pregunta que el vendedor no pudo responder: queda como conocimiento
+  // PENDIENTE (respuesta NULL) y le llega al dueño UNA vez por pregunta. Con
+  // la respuesta cargada (panel o Atlas), el vendedor la usa siempre.
+  if (efecto.tipo === "pregunta_al_dueno") {
+    try {
+      const { esPreguntaRepetida, disparadoresDe } = await import("./preguntas-al-dueno");
+      const existentes = await cargarConocimiento(ctx.tenantId);
+      if (esPreguntaRepetida(efecto.pregunta, existentes)) return;
+      await db.insert(productKnowledge).values({
+        tenantId: ctx.tenantId,
+        productId: efecto.productoId,
+        pregunta: efecto.pregunta,
+        disparadores: disparadoresDe(efecto.pregunta),
+        respuesta: null,
+      } as any);
+      const { avisarAlDueno } = await import("../avisos");
+      await avisarAlDueno(
+        ctx.tenantId,
+        `❓ *Pregunta sin respuesta* — ${ctx.convo?.contactName || "un cliente"} preguntó: "${efecto.pregunta}". ` +
+          `El vendedor le dijo que lo consultaba. Respondéle por WhatsApp y cargá la respuesta para la próxima: ` +
+          `decíle a Atlas "la respuesta a «${efecto.pregunta.slice(0, 80)}» es …".`,
+      );
+    } catch (e: any) {
+      logger.warn({ err: e?.message }, "[MotorV2] no se pudo registrar la pregunta para el dueño");
     }
     return;
   }

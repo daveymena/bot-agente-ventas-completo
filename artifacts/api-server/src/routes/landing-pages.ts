@@ -112,6 +112,11 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
 
     const source = row.source as any;
     if (source?.landingforgeUrl) return res.redirect(302, source.landingforgeUrl);
+    // Landing de Landing Forge: su contenido vive alla. Antes caia al render
+    // local con secciones vacias y la vista previa mostraba una pagina
+    // generica que no era la landing (08-10). Se muestra la real.
+    const urlForge = source?.type === "landingforge" ? String(source?.url || row.publishedUrl || "") : "";
+    if (/^https?:\/\//.test(urlForge)) return res.redirect(302, urlForge);
     if (row.publishedUrl && !/\/l\//.test(String(row.publishedUrl))) return res.redirect(302, row.publishedUrl);
 
     // Vía ESTILO (lib/landing/renderer-estilo.ts): el HTML sale de secciones +

@@ -113,10 +113,12 @@ export class EncryptionService {
    * Enmascarar API key para mostrar (últimos 4 caracteres)
    */
   maskApiKey(apiKey: string): string {
-    if (!apiKey || apiKey.length < 4) {
-      return "****";
+    // Solo los últimos 4 (antes también los 4 primeros: con un prefijo
+    // conocido como "APP_USR-" eso es regalar parte de la clave).
+    if (!apiKey || apiKey.length <= 8) {
+      return "••••";
     }
-    return `${apiKey.substring(0, 4)}...${apiKey.slice(-4)}`;
+    return `••••${apiKey.slice(-4)}`;
   }
 }
 

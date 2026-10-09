@@ -188,7 +188,11 @@ function fechaDeLaPieza(
  * publicación de la semana.
  */
 async function publicarPieza(ctx: { tenantId: number; datos: Record<string, any> }) {
-  const tenant = (await tenantManager.getTenantById(ctx.tenantId)) || tenantManager.getDefaultTenant();
+  // Sin respaldo al negocio por defecto: si el negocio no se encuentra, caer
+  // al de relleno publicaba con la página (y el .env) del dueño de la
+  // plataforma. Se lanza para que el programador lo reintente.
+  const tenant = await tenantManager.getTenantById(ctx.tenantId);
+  if (!tenant) throw new Error(`negocio ${ctx.tenantId} no encontrado`);
   const r = await publishToPage(
     {
       productId: ctx.datos.productId ?? 0,

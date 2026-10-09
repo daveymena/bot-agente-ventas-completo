@@ -25,10 +25,12 @@
  * - El modelo/proveedor de OpenCode es fijo por ahora (ver pickOpencodeModel) --
  *   la tarea de sincronizar las API keys guardadas del admin lo hace dinámico.
  */
+import { clasificarFallo } from "../lib/fallo-reintentable";
 import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { requireAdmin, type TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
+import { anotarExito, respondioHacePoco } from "../lib/cadena-modelos";
 import { esUnSiParaEstePlan } from "../lib/es-un-si";
 import { correrTurnoDirecto, correrTurnoDirectoConRotacion, candidatosDirectos, directoDisponible, configDirecta, type NivelDeEsfuerzo } from "../lib/atlas-directo";
 import { promptDeAtlas, executeAction, verifyMutation, investigacionRapida, mensajeParaAdmin, isReadOnlyTool, notaDeLandingsEnSegundoPlano, type OperatorContext } from "../lib/app-operator";
@@ -48,9 +50,14 @@ import { claveDeTurno, empezarTurno, terminarTurno, pedirDetener, hayTurnoEnVuel
 import { prepararRuta, cerrarTurnoDeRuta, cargarRuta, detectarInicioDeRuta, cerrarRuta, separarAccionesDeLaRuta, sinEncabezadoDePaso } from "../lib/ruta-guiada";
 import { enLenguajeDeDueno } from "../lib/lenguaje-de-dueno";
 import { afirmaHaberloHecho } from "../lib/afirma-haberlo-hecho";
+import {
+  anotarTrabajoReal, contarTurnoDeSesion, trabajoRealReciente, debeAvisarQueNoEjecuto,
+  debePedirLaPropuesta, pedidoDePropuesta, unSoloCierre, medirRespuesta,
+} from "../lib/atlas-cierre-del-turno";
 import { mensajeDeCierre } from "../lib/entrega-por-partes";
 import { partirElPedido } from "../lib/partir-el-pedido";
 import { avisoDeArranque } from "../lib/aviso-de-arranque";
+import { programarContinuacion, reiniciarRondas } from "../lib/continuacion-servidor";
 import { PIDE_FUENTES_EXTERNAS, debeInvestigarAntes, esContinuacionAutomatica as esContinuacionAutomaticaDelPanel } from "../lib/investigacion-previa";
 import { arrancaPedidoNuevo } from "../lib/es-pedido-nuevo";
 import { verloEsAutorizarlo } from "../lib/pedir-ver-el-resultado";
@@ -458,8 +465,15 @@ async function anotarFalloDeCandidato(
   error?: string,
 ): Promise<void> {
   try {
-    const { anotarFallo } = await import("../lib/cadena-modelos");
+    const { anotarFallo, aprenderModeloVigente } = await import("../lib/cadena-modelos");
     const { clasificarFallo } = await import("../lib/optimized-rotation");
+    // Modelo retirado: el error trae los vigentes. Se aprende el nombre nuevo
+    // y NO se castiga: el turno siguiente ya lo llama bien.
+    const nuevo = aprenderModeloVigente(model, String(error || ""));
+    if (nuevo) {
+      logger.warn({ retirado: model.modelID, vigente: nuevo, proveedor: model.providerID }, "[AtlasOpenCode] Modelo retirado: se usa el vigente desde ahora");
+      return;
+    }
     anotarFallo(model, String(error || ""), clasificarFallo);
   } catch {
     // Recordar el fallo es una mejora, no parte del camino de la respuesta.
@@ -577,7 +591,7 @@ async function pickOpencodeModelChain(host: string, authHeader: string): Promise
   //
   // El modelo sale del catálogo que OpenCode ya devuelve, no de un id
   // hardcodeado: un id inventado es un candidato más que quemar.
-  const { armarCadena, filtrarEnfriados, diagnosticarRapidos } = await import("../lib/cadena-modelos");
+  const { armarCadena, filtrarEnfriados, diagnosticarRapidos, conNombresVigentes } = await import("../lib/cadena-modelos");
 
   // Los rápidos que el admin configuró y que igual quedaron afuera se DICEN.
   // Antes desaparecían sin dejar rastro y no había forma de distinguir "no lo
@@ -594,14 +608,14 @@ async function pickOpencodeModelChain(host: string, authHeader: string): Promise
   // eligió un modelo: esa elección tiene que pesar más que la lista curada,
   // o el botón miente. Si no sirve, la cadena sigue normal.
   const primero = await iaActivaDelPanel();
-  const cadena = filtrarEnfriados(armarCadena({
+  const cadena = filtrarEnfriados(conNombresVigentes(armarCadena({
     curados: CANDIDATOS_PAGOS,
     conectados,
     tenemosClave: hayClavePropia,
     modelosPorProveedor: catalogoPorProveedor,
     respaldo: MODELO_RESPALDO,
     primero: primero ?? undefined,
-  }));
+  })));
   if (primero) {
     logger.info(
       {
@@ -786,6 +800,9 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
     // seguía gastando los 135s del turno.
     const claveTurno = claveDeTurno(tenantId, sessionId);
     const senalDeCorte = empezarTurno(claveTurno);
+    // Un pedido nuevo del admin (no una continuación) reinicia la cuenta de
+    // tramos que el servidor sigue solo cuando el admin se fue.
+    if (!esContinuacionAutomaticaDelPanel(String(promptCrudo || ""))) reiniciarRondas(claveTurno);
 
     const sse = (event: string, data: any) => {
       if (!streaming || clienteSeFue || res.writableEnded || res.destroyed) return;
@@ -799,6 +816,16 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
     };
     const progreso = (texto: string) => sse("progress", { texto });
     const finish = (payload: any, status = 200) => {
+      // ── Atlas sigue aunque el admin cierre la app (07-10) ─────────────────
+      // El tramo siguiente lo pedía SOLO la página: con la app cerrada o en
+      // segundo plano, el trabajo quedaba congelado. Si la página no lo pide
+      // en unos segundos, lo pide el servidor. Ver lib/continuacion-servidor.ts.
+      if (status === 200 && payload?.needsContinuation === true) {
+        const cabeceras: Record<string, string> = {};
+        if (req.headers.cookie) cabeceras.cookie = String(req.headers.cookie);
+        if (req.headers.authorization) cabeceras.authorization = String(req.headers.authorization);
+        programarContinuacion({ clave: claveTurno, sessionId, cabeceras, esperaMs: Number(payload?.reintentarEnMs) || undefined });
+      }
       if (streaming) {
         sse(status === 200 ? "result" : "error", payload);
         res.end();
@@ -974,7 +1001,12 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           }
         }
         await clearPendingPlan(tenantId, sessionId);
-        const allOk = executed.every((item) => item.ok);
+        // Lo ejecutado queda anotado para el turno siguiente: si el modelo
+        // cuenta "la landing quedó actualizada", es verdad y el candado de
+        // "ya lo hice" no tiene que desmentirlo (ver atlas-cierre-del-turno.ts).
+        anotarTrabajoReal(tenantId, sessionId, executed.filter((item) => item.ok).map((item) => String(item.tool)));
+        // 08-10: "verificado" solo si lo LEÍDO coincide (ver verificar-anuncio-en-meta.ts).
+        const allOk = executed.every((item) => item.ok && !String(item.verification || "").startsWith("⚠️"));
         // Lo que ya se entrego accion por accion no se repite en el cierre: el
         // admin acaba de leerlo. Con una sola accion nada se entrego antes, asi
         // que el cierre la lleva completa, como siempre.
@@ -984,10 +1016,23 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         const encabezado = allOk
           ? "✅ Plan ejecutado y verificado"
           : "⚠️ El plan terminó con errores; no voy a decir que quedó listo";
-        const reply = paraMarkdown(toEmojiStyle(`${encabezado}${cuerpo || "."}`));
-        await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
-        logger.info({ tenantId, executed: executed.length }, "[AtlasOpenCode] Plan aprobado y ejecutado");
-        return finish({ reply, executed, actionsCount: executed.length, status: allOk ? "executed" : "partial_failure" });
+        // 08-10: una falla ya no cierra el turno en "no quedó". Si Atlas la
+        // puede arreglar, sigue solo (needsContinuation) a diagnosticar y
+        // traer la corrección; si depende del dueño, se le dice qué hacer.
+        // Ver lib/plan-fallido.ts.
+        const { queHacerConLaFalla } = await import("../lib/plan-fallido");
+        const falla = allOk ? null : queHacerConLaFalla(
+          executed.filter((item) => !item.ok || String(item.verification || "").startsWith("⚠️"))
+            .map((item) => `${item.summary || ""} ${item.verification || ""}`),
+        );
+        const reply = paraMarkdown(toEmojiStyle(`${encabezado}${cuerpo || "."}${falla ? `\n\n${falla.linea}` : ""}`));
+        await saveArchitectTurn(tenantId, sessionId, "assistant", reply, falla?.seResuelveSolo ? { parcial: true } : undefined);
+        logger.info({ tenantId, executed: executed.length, sigueSolo: !!falla?.seResuelveSolo }, "[AtlasOpenCode] Plan aprobado y ejecutado");
+        return finish({
+          reply, executed, actionsCount: executed.length,
+          status: allOk ? "executed" : "partial_failure",
+          needsContinuation: !!falla?.seResuelveSolo,
+        });
       }
       // ── Respuesta ambigua: PREGUNTAR, no descartar ──────────────────────
       // Antes, cualquier cosa que no fuera una aprobación exacta borraba el
@@ -1090,6 +1135,8 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       }
     }
 
+    // Un turno normal más desde la última ejecución real (ver trabajoRealReciente).
+    contarTurnoDeSesion(tenantId, sessionId);
     progreso("Pensando...");
     // El primer hito sale al chat, no solo al indicador de carga. En pedidos
     // complejos evita que una espera legítima parezca un bloqueo.
@@ -1492,6 +1539,14 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // del panel: ver lib/investigacion-previa.ts (medido 29-09-2026).
       const pedidoTexto = String(prompt);
       const esContinuacionAutomatica = esContinuacionAutomaticaDelPanel(pedidoTexto);
+      // Viene de un plan que FALLÓ y Atlas dijo "no lo dejo así" (ver
+      // lib/plan-fallido.ts): este tramo es para resolverlo, no para contarlo.
+      if (esContinuacionAutomatica) {
+        const ultimoDeAtlas = [...convo].reverse().find((m: any) => m?.role === "assistant");
+        if (/No lo dejo así: estoy revisando la causa/.test(String(ultimoDeAtlas?.content || ""))) {
+          text += `\n\n[SISTEMA] El plan que el admin aprobó FALLÓ (el motivo exacto está en tu mensaje anterior). Diagnosticá la causa con herramientas de LECTURA y proponé con propose_action la corrección concreta: los MISMOS datos que pidió el admin, cambiando solo lo que hizo fallar. Contale en una línea qué falló y qué corregís. No le pidas que lo intente él ni repitas el error sin cambiar nada; si de verdad no tiene arreglo desde acá, decí exactamente qué tiene que hacer él.`;
+        }
+      }
       const investigacionPrevia = debeInvestigarAntes(pedidoTexto);
       // Investigar varios productos o nichos no entra en un turno: se hace
       // UNO por turno y el modelo declara qué falta. El servidor encadena
@@ -1823,7 +1878,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           // queda menos la reserva del respaldo. Se prueban menos candidatos y
           // se termina el trabajo.
           const anteriorSeQuedoSinTiempo = /timeout|timed out|abort|sin tiempo/i.test(String(ultimo.error || ""));
-          const techo = anteriorSeQuedoSinTiempo
+          // Un candidato que contestó hace poco tampoco se corta a los 30 s:
+          // si tarda es por la tarea (ver respondioHacePoco en cadena-modelos).
+          const vieneRespondiendo = respondioHacePoco(model);
+          const techo = anteriorSeQuedoSinTiempo || vieneRespondiendo
             ? Math.max(restante - RESERVA_RESPALDO_MS, PISO_UTIL_MS)
             : TECHO_POR_CANDIDATO_MS;
           if (anteriorSeQuedoSinTiempo) {
@@ -1876,7 +1934,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             // se puede mirar desde el chat. "Falló porque X" es accionable;
             // un número de segundos a secas manda a diagnosticar de nuevo.
             marcar(`modelo:${model.modelID}${ultimo.error ? `(descartado: ${resumirMotivo(ultimo.error)})` : ""}`, tModelo);
-            if (!ultimo.error) break; // Respuesta real -- no seguir rotando.
+            if (!ultimo.error) {
+              anotarExito(model);
+              break; // Respuesta real -- no seguir rotando.
+            }
             logger.warn({ tenantId, model, error: ultimo.error }, "[AtlasOpenCode] Candidato falló, rotando al siguiente");
             void anotarFalloDeCandidato(model, ultimo.error);
           } catch (err: any) {
@@ -1923,7 +1984,12 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         // 502 genérico ahí le miente al admin -- suena a que no pasó nada.
         // Se responde 200 con un mensaje honesto y accionable, mismo criterio
         // que la salida "esto está tardando" de /operator.
-        const seAcaboElTiempo = /timeout|abort|sin tiempo|sin candidatos/i.test(String(opencodeError));
+        // 08-10: también cupo agotado / proveedor saturado (ver
+        // lib/fallo-reintentable.ts). Solo con timeout|abort, un "Rate limit
+        // exceeded" del último modelo de la cadena mataba el turno sin dejar
+        // respuesta, y el dueño lo veía como que se caía la conexión.
+        const fallo = clasificarFallo(opencodeError);
+        const seAcaboElTiempo = fallo.reintentable;
         logger.warn({ tenantId, tramos, totalMs: Date.now() - t0, opencodeError }, "[AtlasOpenCode] Turno cortado -- reparto real del tiempo");
 
         // Si igual alcanzó a redactar algo útil, se muestra ESO.
@@ -1941,7 +2007,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
             `${parcial}\n\n⏳ (Me quedé sin tiempo para seguir: lo de arriba es lo que alcancé. Si falta algo, pedime que continúe.)`,
           ));
           await saveArchitectTurn(tenantId, sessionId, "assistant", reply, { parcial: true });
-          return finish({ reply, status: "partial", needsContinuation: true });
+          return finish({ reply, status: "partial", needsContinuation: true, reintentarEnMs: fallo.esperaMs });
         }
 
         if (seAcaboElTiempo) {
@@ -1984,7 +2050,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           );
           await saveArchitectTurn(tenantId, sessionId, "assistant", reply, { parcial: true });
           anotarTurno(tenantId, sessionId, { estado: "cortado", totalMs: Date.now() - t0, tramos, error: String(opencodeError), pedido: String(prompt) });
-        return finish({ reply, status: "partial", needsContinuation: true, tramos, totalMs: Date.now() - t0 });
+        return finish({ reply, status: "partial", needsContinuation: true, reintentarEnMs: fallo.esperaMs, tramos, totalMs: Date.now() - t0 });
         }
         // ── Este 502 es el "falló de verdad", no el "se quedó sin tiempo" ──
         //
@@ -2004,6 +2070,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           error: String(opencodeError),
           pedido: String(prompt),
         });
+        // Y queda escrito en el historial: sin esto, al volver a la app el
+        // pedido aparecía sin respuesta y la pantalla lo contaba como un corte
+        // de conexión.
+        await saveArchitectTurn(tenantId, sessionId, "assistant", "No pude terminar de responder esto. ¿Podés intentarlo de nuevo?").catch(() => {});
         return finish({ error: "No pude terminar de responder. ¿Podés intentarlo de nuevo?" }, 502);
       }
 
@@ -2367,8 +2437,21 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // el 2026-09-03, una de ellas encabezando un mensaje que SÍ tenía plan y
       // terminaba en "¿Confirmás?".
       const AFIRMA_HABERLO_HECHO = afirmaHaberloHecho(String(finalReplyVerificado || ""));
+      // ── …salvo que SÍ se haya hecho, en un turno anterior ────────────────
+      // Medido el 07-10-2026: el dueño aprobó un cambio a la landing 1, se
+      // aplicó en segundo plano, y en los dos turnos siguientes Atlas contó
+      // "la landing quedó actualizada" -- verdad -- y este candado lo
+      // desmintió las dos veces. Al tercero el modelo ya creía que no había
+      // hecho nada y pidió confirmar otra vez. Ver atlas-cierre-del-turno.ts.
+      const trabajoReciente = trabajoRealReciente(tenantId, sessionId);
+      if (AFIRMA_HABERLO_HECHO && trabajoReciente.length) {
+        logger.info(
+          { tenantId, sessionId, trabajoReciente },
+          "[AtlasOpenCode] Dice que algo quedó hecho y hay trabajo real reciente en la sesión: no se lo desmiente",
+        );
+      }
 
-      if (AFIRMA_HABERLO_HECHO) {
+      if (debeAvisarQueNoEjecuto(AFIRMA_HABERLO_HECHO, trabajoReciente)) {
         logger.warn(
           { tenantId, sessionId, teniaPlan: plannedActions.length > 0 },
           "[AtlasOpenCode] El modelo dijo que ya había hecho el trabajo sin ejecutar NADA -- se corrige",
@@ -2498,7 +2581,9 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       const estaPreguntando =
         PIDE_DATO_FALTANTE.test(cierreRespuesta) || PIDE_QUE_ELIJA.test(cierreRespuesta);
 
+      let yaSeInsistio = false;
       if (pidioCrearAlgo && !estaPreguntando && plannedActions.length === 0 && sesionOpencode && modeloUsado && quedaTiempo && !opencodeError) {
+        yaSeInsistio = true;
         logger.info({ tenantId, sessionId }, "[AtlasOpenCode] Pidió crear algo y no llamó ninguna herramienta -- se insiste una vez");
         progreso("Guardando lo que preparé...");
         try {
@@ -2555,6 +2640,48 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         }
       }
 
+      // ── Una pregunta de confirmación sin nada que confirmar ─────────────
+      //
+      // Caso real del 07-10-2026: "⚠️ La actualización todavía no se
+      // ejecutó. ¿Confirmás que actualice la landing 1…?" sin propose_action.
+      // El "sí" del dueño no tenía nada que ejecutar, el modelo recién ahí
+      // propuso y el dueño confirmó dos veces. Antes de cerrar se le pide UNA
+      // vez al mismo modelo, en la misma sesión, que lo convierta en
+      // propuesta; si no era un cambio contesta "OK" y queda todo igual.
+      // Solo por OpenCode: en el camino directo la sesión no queda abierta
+      // (pendiente: cablearlo ahí cuando se termine de reescribir).
+      if (
+        sesionOpencode && modeloUsado && !opencodeError && !fueDetenido(senalDeCorte) &&
+        debePedirLaPropuesta({
+          plan: plannedActions.length,
+          textoFinal: String(finalReplyVerificado || ""),
+          pideUnDato: estaPreguntando,
+          avisarQueNoEjecuto,
+          yaSeInsistio,
+          enRutaGuiada: !!rutaActiva,
+          quedaMs: turnDeadline - Date.now(),
+        })
+      ) {
+        progreso("Dejando lista la propuesta...");
+        try {
+          await sendOpencodeMessage(cfg.host, cfg.authHeader, sesionOpencode, {
+            system,
+            model: modeloUsado,
+            tools,
+            text: pedidoDePropuesta({ avisarQueNoEjecuto }),
+            timeoutMs: Math.min(Math.max(turnDeadline - Date.now() - 5_000, 10_000), 30_000),
+            cancelSignal: senalDeCorte,
+          });
+          plannedActions = await drainDraftPlan(tenantId, turnId);
+          logger.info(
+            { tenantId, sessionId, acciones: plannedActions.map((a) => a.tool), porque: avisarQueNoEjecuto ? "dijo-que-lo-hizo" : "pregunta-de-si-o-no" },
+            "[AtlasOpenCode] Cerró sin plan dejando algo para confirmar: se le pidió la propuesta",
+          );
+        } catch (e: any) {
+          logger.warn({ tenantId, err: e?.message }, "[AtlasOpenCode] Pedir la propuesta falló; el turno sigue con lo que había");
+        }
+      }
+
       // ── La misma acción, una sola vez ──────────────────────────────────
       //
       // Al admin le salió un plan con TRES acciones para el mismo anuncio
@@ -2605,7 +2732,12 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           // Una línea cada uno: el aviso salía en TRES renglones arriba de
           // cada respuesta y el admin lo leía diez veces por sesión (11-09-2026).
           ? `⚠️ **Todavía no se guardó nada.** Es una propuesta: se ejecuta cuando confirmés.`
-          : `⚠️ **Todavía no se guardó nada.** Esto es solo texto; si querés que lo haga, pedímelo.`)
+          // Decía "si querés que lo haga, pedímelo": le devolvía al dueño el
+          // trabajo de volver a pedir, y el modelo lo leía en el historial y
+          // lo imitaba ("todavía no se ejecutó, ¿confirmás…?", 07-10-2026).
+          // Ahora se dice el hecho y nada más: antes de llegar acá ya se le
+          // pidió al modelo que lo convierta en propuesta.
+          : `⚠️ **En este mensaje no se ejecutó ningún cambio.**`)
           + `\n\n---\n\n${finalReplyVerificado}`;
       }
 
@@ -2633,12 +2765,25 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
 
       if (plannedActions.length > 0) {
         const planText = plannedActions.map((a, i) => `${i + 1}. ${describePlannedAction(a)}`).join("\n");
+        // La pregunta de confirmación la pone el servidor abajo: la que haya
+        // escrito el modelo al final sobra (dos "¿confirmás?" seguidos).
+        const antesDelPlan = unSoloCierre(String(finalReplyVerificado || ""));
         const reply = paraMarkdown(toEmojiStyle(
-          `${finalReplyVerificado ? finalReplyVerificado + "\n\n" : ""}📋 Plan propuesto (requiere tu confirmación):\n${planText}\n\n❓ ¿Confirmas? Responde sí para ejecutar, o dime qué ajusto.`,
+          `${antesDelPlan ? antesDelPlan + "\n\n" : ""}📋 Plan propuesto (requiere tu confirmación):\n${planText}\n\n❓ ¿Confirmas? Responde sí para ejecutar, o dime qué ajusto.`,
         ));
         await setPendingPlan(tenantId, sessionId, plannedActions, reply);
         await saveArchitectTurn(tenantId, sessionId, "assistant", reply);
         logger.info({ tenantId, planned: plannedActions.length }, "[AtlasOpenCode] Plan propuesto, esperando confirmación");
+        anotarTurno(tenantId, sessionId, {
+          estado: "plan",
+          totalMs: Date.now() - t0,
+          tramos,
+          // El cast es porque TS no ve la asignación dentro del candado y lo da por null.
+          modelo: (modeloUsado as { modelID: string } | null)?.modelID ?? null,
+          pedido: String(prompt),
+          lecturas,
+          forma: medirRespuesta(reply),
+        });
         logger.info(
           { tenantId, tramos, totalMs: Date.now() - t0, acciones: plannedActions.length },
           "[AtlasOpenCode] Turno COMPLETO -- reparto real del tiempo",
@@ -2705,6 +2850,8 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         // Qué consultó de verdad este turno. Es la respuesta a "¿cómo sé si
         // consultó algo o no?": se mira, no se discute.
         lecturas,
+        // Cuánto le llegó al dueño: líneas y preguntas (ver medirRespuesta).
+        forma: medirRespuesta(reply),
       });
       return finish({
         reply,

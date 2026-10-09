@@ -277,6 +277,13 @@ export default function CodeAgent() {
 
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  // 08-10: tarea larga que agotó los tramos automáticos (o el admin volvió
+  // tarde): el parcial viejo NO se relanza solo, pero se ofrece "Retomar
+  // donde quedó" en vez de dejar el pedido a medias. Y si el turno murió sin
+  // dejar respuesta (deploy a mitad de camino), "Reintentar pedido" reenvía
+  // el mismo texto sin que el admin tenga que reescribirlo.
+  const [retomarHistorial, setRetomarHistorial] = useState<any[] | null>(null);
+  const [reintentarTexto, setReintentarTexto] = useState<string | null>(null);
   // Lo que Atlas está haciendo ahora mismo, en lenguaje llano (llega por SSE,
   // ver callAtlas). Sin esto el admin solo veía tres puntitos rebotando y no
   // podía distinguir "está trabajando" de "se colgó".
@@ -430,8 +437,27 @@ export default function CodeAgent() {
         //
         // Se retoma solo. Escribirlo a mano no solo es innecesario: arranca un
         // turno NUEVO y paga la vuelta entera otra vez.
+        // Si el SERVIDOR ya está con el tramo siguiente (la app estaba cerrada
+        // y él siguió solo, ver lib/continuacion-servidor.ts), no se arranca
+        // otro: cortaría el que está corriendo. Se espera su resultado.
+        if (data.hayAlgoPendiente && data.turnoEnCurso === true) {
+          setLoading(true);
+          setProgreso("Atlas siguió trabajando mientras no estabas. Esperando el resultado…");
+          void recuperarDelCorte().finally(() => { setLoading(false); setProgreso(""); });
+          return;
+        }
         if (data.hayAlgoPendiente) {
           void seguirPendiente(data.history);
+          return;
+        }
+        // Parcial VIEJO: no se relanza solo (regla 08-10), pero se ofrece
+        // retomarlo con un botón en vez de mostrarlo como si estuviera listo.
+        if (data.parcialViejo) {
+          setMessages((prev) => [
+            ...prev,
+            { role: "assistant", content: "Esto había quedado a medias (me fui a hacer otra cosa o se acabó el tiempo automático). Si quieres, lo retomo donde quedó.", at: Date.now() },
+          ]);
+          setRetomarHistorial(data.history);
           return;
         }
 
@@ -448,6 +474,8 @@ export default function CodeAgent() {
             ...prev,
             { role: "assistant", content: "Ese último pedido se cortó (el servidor se reinició mientras lo atendía) y no llegué a responderlo. Escribímelo de nuevo y lo retomo.", at: Date.now() },
           ]);
+          const ultimoUser = [...data.history].reverse().find((m: any) => m?.role === "user")?.content;
+          if (typeof ultimoUser === "string" && ultimoUser.trim()) setReintentarTexto(ultimoUser);
           return;
         }
 
@@ -459,10 +487,10 @@ export default function CodeAgent() {
         setProgreso("Retomando lo que Atlas estaba haciendo");
         detenidoRef.current = false;
 
-        // Un turno pesado puede encadenar hasta 4 continuaciones de ~150s, así
-        // que el techo son ~10 min. Pasado eso se suelta el campo en vez de
-        // dejar al admin mirando un reloj para siempre: si de verdad se cayó,
-        // tiene que poder volver a pedirlo.
+        // Un turno pesado encadena tramos en el servidor (~18 min) y acá otros
+        // 4. Pasado eso se ofrece Retomar en vez de dejar al admin mirando
+        // un reloj para siempre: si de verdad se cayó, tiene que poder volver
+        // a pedirlo.
         const CADA = 4000;
         const INTENTOS = 150;
         for (let i = 0; i < INTENTOS && !cancelled; i++) {
@@ -1032,6 +1060,19 @@ export default function CodeAgent() {
   };
 
   /**
+   * Si el turno se cortó porque los proveedores de IA estaban sin cupo, el
+   * servidor pide esperar (`reintentarEnMs`) antes del tramo siguiente:
+   * reintentar en el acto se estrellaba contra la misma pared. Se espera un
+   * poco MENOS que el servidor, que reintenta solo si la página no lo hizo.
+   */
+  const esperarAntesDeReintentar = async (data: any) => {
+    const ms = Math.min(60_000, Number(data?.reintentarEnMs) || 0) - 8_000;
+    if (ms <= 0 || detenidoRef.current) return;
+    setProgreso("Los servidores de IA están ocupados. Reintento solo en unos segundos…");
+    await new Promise((r) => setTimeout(r, ms));
+  };
+
+  /**
    * Retoma un pedido que quedó cortado por tiempo.
    *
    * Es el mismo encadenado que hace `handleSubmit`, pero arrancando desde lo
@@ -1056,6 +1097,7 @@ export default function CodeAgent() {
         };
         setMessages((prev) => [...prev, parcial]);
         if (!data?.needsContinuation) return;
+        await esperarAntesDeReintentar(data);
         history = [...history, { role: "assistant", content: parcial.content }].slice(-HISTORY_LIMIT);
       }
       avisarQueHayQuePedirlo(data);
@@ -1104,8 +1146,8 @@ export default function CodeAgent() {
   const recuperarDelCorte = async (): Promise<boolean> => {
     setProgreso("Se cayó la conexión, pero Atlas sigue trabajando. Recuperando…");
 
-    // El mismo techo que al montar: un turno pesado encadena hasta 4
-    // continuaciones de ~150s, así que ~10 min.
+    // El mismo techo que al montar: el servidor encadena solo hasta 8 tramos
+    // de ~135s (~18 min); la página, otros 4. Pasado eso se ofrece Retomar.
     const CADA = 4000;
     const INTENTOS = 150;
     for (let i = 0; i < INTENTOS; i++) {
@@ -1125,6 +1167,13 @@ export default function CodeAgent() {
       // Quedó a medio hacer: se sigue solo, igual que al montar. Se espera con
       // await --y no `void`-- porque el `finally` de quien llama apaga el
       // spinner: soltándolo, la pantalla se veía quieta mientras Atlas seguía.
+      // El servidor sigue solo con el tramo siguiente: se muestra lo que hay
+      // y se sigue esperando, sin arrancar otro turno encima.
+      if (data?.hayAlgoPendiente && data?.turnoEnCurso === true) {
+        pintarHistorial(h);
+        await new Promise((r) => setTimeout(r, CADA));
+        continue;
+      }
       if (data?.hayAlgoPendiente) {
         pintarHistorial(h);
         await seguirPendiente(h);
@@ -1170,6 +1219,15 @@ export default function CodeAgent() {
         const data: any = await leerHistorial();
         const history = Array.isArray(data?.history) ? data.history : [];
         if (history.length === 0) return;
+        if (data?.hayAlgoPendiente && data?.turnoEnCurso === true) {
+          pintarHistorial(history);
+          setLoading(true);
+          setProgreso("Atlas siguió trabajando mientras no estabas. Esperando el resultado…");
+          await recuperarDelCorte();
+          setLoading(false);
+          setProgreso("");
+          return;
+        }
         if (data?.hayAlgoPendiente) {
           pintarHistorial(history);
           setLoading(true);
@@ -1259,6 +1317,8 @@ export default function CodeAgent() {
   const handleSubmit = async (audio?: { dataUrl: string; mime: string }, textoDirecto?: string) => {
     const escrito = (textoDirecto ?? input).trim();
     if ((!audio && !escrito) || loading) return;
+    setRetomarHistorial(null);
+    setReintentarTexto(null);
     const userMsg = audio ? "" : escrito;
     if (!audio) {
       setInput("");
@@ -1285,6 +1345,7 @@ export default function CodeAgent() {
         };
         setMessages((prev) => [...prev, partial]);
         history = [...history, { role: "user", content: userMsg }, { role: "assistant", content: partial.content }].slice(-HISTORY_LIMIT);
+        await esperarAntesDeReintentar(data);
         data = await callAtlas(CONTINUAR, history);
       }
 
@@ -1605,6 +1666,32 @@ export default function CodeAgent() {
                 onSubmit={(e) => { e.preventDefault(); handleSubmit(); }}
                 className="mx-auto w-full max-w-3xl"
               >
+                {(retomarHistorial || reintentarTexto) && !loading && (
+                  <div className="mb-2 flex flex-wrap gap-2">
+                    {retomarHistorial && (
+                      <Button
+                        type="button"
+                        variant="default"
+                        size="sm"
+                        className="rounded-full"
+                        onClick={() => { const h = retomarHistorial; setRetomarHistorial(null); void seguirPendiente(h); }}
+                      >
+                        ▶ Retomar donde quedó
+                      </Button>
+                    )}
+                    {reintentarTexto && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="rounded-full"
+                        onClick={() => { const t = reintentarTexto; setReintentarTexto(null); void handleSubmit(undefined, t); }}
+                      >
+                        ↻ Reintentar pedido
+                      </Button>
+                    )}
+                  </div>
+                )}
                 <input
                   ref={fileInputRef}
                   type="file"

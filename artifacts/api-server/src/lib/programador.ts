@@ -2,6 +2,7 @@ import { and, asc, eq, lte, sql } from "drizzle-orm";
 import { db, trabajosProgramados } from "@workspace/db";
 import { toDbDate } from "./date-utils";
 import { logger } from "./logger";
+import { cuandoLaBaseEsteLista } from "./esperar-base";
 
 /**
  * ============================================================
@@ -89,7 +90,14 @@ export async function programar(t: NuevoTrabajo): Promise<{ creado: boolean; id?
     .limit(1);
 
   if (existente) {
-    if (existente.estado !== "pendiente") return { creado: false, id: existente.id };
+    // Un trabajo REPETITIVO que se rindió (o quedó colgado) se revive al
+    // volver a programarlo: son rondas (revisión diaria, barrido), no
+    // publicaciones únicas, así que repetirlas no duplica nada. Sin esto,
+    // `activarAgenteOrganico` sobre un negocio cuya ronda diaria había
+    // fallado tres veces no la encendía nunca más.
+    const rondaCaida = !!existente.repiteCadaMin && ["fallado", "corriendo"].includes(String(existente.estado))
+      && (existente.estado === "fallado" || esHuerfano(existente, new Date()));
+    if (existente.estado !== "pendiente" && !rondaCaida) return { creado: false, id: existente.id };
     await db
       .update(trabajosProgramados)
       .set({
@@ -97,6 +105,7 @@ export async function programar(t: NuevoTrabajo): Promise<{ creado: boolean; id?
         datos: t.datos ?? {},
         repiteCadaMin: t.repiteCadaMin ?? null,
         actualizadoAt: toDbDate(new Date()) as any,
+        ...(rondaCaida ? { estado: "pendiente", intentos: 0 } : {}),
       })
       .where(eq(trabajosProgramados.id, existente.id));
     return { creado: false, id: existente.id };
@@ -135,6 +144,79 @@ export async function cancelar(clave: string): Promise<boolean> {
 const MAX_INTENTOS = 3;
 
 /**
+ * Cuánto puede estar un trabajo en "corriendo" antes de darlo por huérfano.
+ *
+ * `tomar()` lo pasa a "corriendo" y solo el final de `correrVencidos` lo saca
+ * de ahí. Si el proceso muere en el medio --y cada deploy lo mata-- la fila se
+ * queda en "corriendo" PARA SIEMPRE: nadie la vuelve a mirar (solo se buscan
+ * "pendiente") y `programar()` con la misma clave tampoco la toca. Una ronda
+ * repetitiva (la revisión diaria del orgánico, el barrido de aprobadas) moría
+ * así en silencio con el primer deploy que la agarrara a mitad.
+ */
+const HUERFANO_MIN = 30;
+
+function esHuerfano(t: { estado: string; actualizadoAt?: any }, ahora: Date): boolean {
+  if (t.estado !== "corriendo") return false;
+  const desde = t.actualizadoAt ? new Date(t.actualizadoAt as any).getTime() : 0;
+  return !Number.isFinite(desde) || ahora.getTime() - desde >= HUERFANO_MIN * 60_000;
+}
+
+/**
+ * La próxima vuelta de una ronda, anclada a SU hora y no a cuándo terminó.
+ *
+ * Antes era `ahora + repite`: la revisión de las 6:00 que corría a las 6:01
+ * quedaba para las 6:01 de mañana, después 6:02... y cada caída del servidor
+ * la corría horas. Ahora se suma el período a la hora pactada hasta caer en
+ * el futuro.
+ */
+export function proximaVuelta(correAt: Date, repiteCadaMin: number, ahora: Date): Date {
+  const paso = repiteCadaMin * 60_000;
+  const base = correAt.getTime();
+  if (!Number.isFinite(base) || paso <= 0) return new Date(ahora.getTime() + Math.max(paso, 60_000));
+  const saltos = Math.max(1, Math.floor((ahora.getTime() - base) / paso) + 1);
+  return new Date(base + saltos * paso);
+}
+
+/**
+ * Devuelve a la vida lo que un reinicio dejó colgado en "corriendo".
+ *
+ * - Una ronda repetitiva vuelve a "pendiente" para ya: repetir una ronda no
+ *   duplica nada.
+ * - Un trabajo de una sola vez (una publicación, una acción de Atlas) queda
+ *   "fallado" con el motivo a la vista. NO se reintenta solo: pudo haber
+ *   salido antes de que el proceso muriera, y publicar dos veces en la página
+ *   de un cliente es peor que avisar que hay que revisarlo.
+ */
+export async function rescatarHuerfanos(ahora = new Date()): Promise<number> {
+  const corriendo = await db
+    .select()
+    .from(trabajosProgramados)
+    .where(eq(trabajosProgramados.estado, "corriendo"));
+  let rescatados = 0;
+  for (const t of corriendo) {
+    if (!esHuerfano(t as any, ahora)) continue;
+    const ronda = !!t.repiteCadaMin;
+    const filas = await db
+      .update(trabajosProgramados)
+      .set({
+        estado: ronda ? "pendiente" : "fallado",
+        ...(ronda ? { correAt: toDbDate(ahora) as any, intentos: 0 } : {}),
+        error: ronda
+          ? "Se interrumpió por un reinicio del servidor; se retomó."
+          : "Se interrumpió por un reinicio del servidor a mitad de la ejecución. No se reintenta solo para no duplicar: revisá si llegó a hacerse y volvé a programarlo si no.",
+        actualizadoAt: toDbDate(new Date()) as any,
+      })
+      .where(and(eq(trabajosProgramados.id, t.id), eq(trabajosProgramados.estado, "corriendo")))
+      .returning();
+    if (filas.length) {
+      rescatados++;
+      logger.warn({ tipo: t.tipo, clave: t.clave, ronda }, "[Programador] Trabajo huérfano (quedó 'corriendo' tras un reinicio)");
+    }
+  }
+  return rescatados;
+}
+
+/**
  * Toma el trabajo para esta instancia, o devuelve false si otro se lo llevó.
  *
  * El `and(id, estado='pendiente')` es el candado, y es portable: Postgres
@@ -167,6 +249,9 @@ export async function correrVencidos(ahora = new Date(), tope = 20): Promise<{
   fallados: number;
   sinManejador: string[];
 }> {
+  await rescatarHuerfanos(ahora).catch((err) =>
+    logger.warn({ err }, "[Programador] No se pudieron revisar los trabajos huérfanos"));
+
   const pendientes = await db
     .select()
     .from(trabajosProgramados)
@@ -199,7 +284,7 @@ export async function correrVencidos(ahora = new Date(), tope = 20): Promise<{
       const resultado = await fn({ tenantId: t.tenantId, datos: t.datos || {}, intentos: t.intentos + 1 });
 
       const proxima = t.repiteCadaMin
-        ? new Date(ahora.getTime() + t.repiteCadaMin * 60_000)
+        ? proximaVuelta(new Date(t.correAt as any), t.repiteCadaMin, ahora)
         : null;
 
       await db
@@ -224,11 +309,19 @@ export async function correrVencidos(ahora = new Date(), tope = 20): Promise<{
       // API de Meta caída o un token vencido, y reintentar de inmediato no
       // arregla ninguna de las dos -- solo gasta cuota.
       const espera = 5 * Math.pow(5, intentos - 1);
+      // Una RONDA que se rinde no se apaga para siempre: pierde esta vuelta y
+      // queda para la siguiente, con el error a la vista. Antes quedaba
+      // "fallada" y la revisión diaria del orgánico no volvía a correr nunca.
+      const rondaSiguiente = seRindio && t.repiteCadaMin
+        ? proximaVuelta(new Date(t.correAt as any), t.repiteCadaMin, ahora)
+        : null;
       await db
         .update(trabajosProgramados)
         .set({
-          estado: seRindio ? "fallado" : "pendiente",
-          ...(seRindio ? {} : { correAt: toDbDate(new Date(ahora.getTime() + espera * 60_000)) as any }),
+          estado: seRindio && !rondaSiguiente ? "fallado" : "pendiente",
+          ...(rondaSiguiente
+            ? { correAt: toDbDate(rondaSiguiente) as any, intentos: 0 }
+            : seRindio ? {} : { correAt: toDbDate(new Date(ahora.getTime() + espera * 60_000)) as any }),
           error: mensaje.slice(0, 500),
           actualizadoAt: toDbDate(new Date()) as any,
         })
@@ -266,7 +359,7 @@ export function iniciarProgramador(): void {
   andando = true;
 
   const vuelta = () => {
-    correrVencidos().then(
+    cuandoLaBaseEsteLista().then(() => correrVencidos()).then(
       (r) => {
         if (r.corridos || r.fallados) {
           logger.info({ ...r }, "[Programador] Vuelta completa");

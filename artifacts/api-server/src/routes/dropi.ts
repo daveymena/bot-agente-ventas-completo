@@ -4,6 +4,7 @@
  */
 import { Router } from "express";
 import { logger } from "../lib/logger";
+import { enmascararSecreto, secretoNuevo } from "../lib/secretos";
 
 const router = Router();
 
@@ -19,9 +20,9 @@ router.get("/config", async (req: any, res: any) => {
     const sugerido = token ? null : await tokenSugeridoDesdeWoo(tenantId);
     res.json({
       conectado: !!token,
-      tokenHuella: token ? `${token.slice(0, 6)}…${token.slice(-6)}` : null,
+      tokenHuella: token ? enmascararSecreto(token) : null,
       integracion: token ? integracionDelToken(token) : null,
-      sugerencia: sugerido ? { tokenHuella: `${sugerido.slice(0, 6)}…${sugerido.slice(-6)}`, integracion: integracionDelToken(sugerido) } : null,
+      sugerencia: sugerido ? { tokenHuella: enmascararSecreto(sugerido), integracion: integracionDelToken(sugerido) } : null,
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
@@ -45,7 +46,8 @@ router.put("/config", async (req: any, res: any) => {
     const tenantId = tenantDe(req);
     if (!tenantId) return res.status(401).json({ error: "No autenticado" });
     const { probarTokenDropi, guardarTokenDropi, tokenSugeridoDesdeWoo, integracionDelToken } = await import("../lib/dropi-directo");
-    let token = String(req.body?.token || "").trim();
+    // Vacío o enmascarado no es un token nuevo.
+    let token = secretoNuevo(req.body?.token) || "";
     if (!token && req.body?.desdeWoo) token = (await tokenSugeridoDesdeWoo(tenantId)) || "";
     if (!token) return res.status(400).json({ ok: false, detalle: "Falta el token." });
     const p = await probarTokenDropi(token);

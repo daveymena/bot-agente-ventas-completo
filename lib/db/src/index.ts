@@ -5,6 +5,17 @@ import fs from "fs";
 import * as sqliteSchema from "./sqlite-schema";
 import * as pgSchema from "./schema";
 
+/** `postgres://u:clave@host:5432/db` -> `postgres://host:5432/db` (sin usuario ni clave). */
+export function describirUrlSinCredenciales(url: string | undefined): string {
+  if (!url) return "NOT SET";
+  try {
+    const u = new URL(url);
+    return `${u.protocol}//${u.host}${u.pathname}`;
+  } catch {
+    return "(definida, formato no reconocido)";
+  }
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -24,7 +35,10 @@ config({ path: rootEnvPath });
 
 // Debug: print resolved DB vars
 console.log(`[DB-ENV] USE_SQLITE=${process.env.USE_SQLITE}`);
-console.log(`[DB-ENV] DATABASE_URL=${process.env.DATABASE_URL ? (process.env.DATABASE_URL.substring(0, 30) + '...') : 'NOT SET'}`);
+// ⚠️ Los primeros 30 caracteres de `postgres://usuario:CLAVE@host` incluyen la
+// contraseña: así salía en el log de producción (07-10-2026). Solo se muestra
+// el destino, nunca la credencial.
+console.log(`[DB-ENV] DATABASE_URL=${describirUrlSinCredenciales(process.env.DATABASE_URL)}`);
 console.log(`[DB-ENV] CWD=${process.cwd()}`);
 
 const USE_SQLITE = process.env.USE_SQLITE === "true";
@@ -75,6 +89,7 @@ export const facebookDrafts = schema.facebookDrafts;
 // leía como un artefacto de compilación viejo.
 export const landingPages = schema.landingPages;
 export const coupons = schema.coupons;
+export const pushSubscriptions = schema.pushSubscriptions;
 export const opencodeConfig = schema.opencodeConfig;
 export const adAgentLogs = schema.adAgentLogs;
 export const remarketingCampaigns = schema.remarketingCampaigns;
@@ -122,6 +137,7 @@ export type {
   MarketingBudget, InsertMarketingBudget,
   MarketingAuditLog, InsertMarketingAuditLog,
   Coupon, InsertCoupon,
+  PushSubscription, InsertPushSubscription,
 } from "./schema";
 export type { AdContext, CommercialProfile } from "./schema/leads";
 export type { AgentStage } from "./schema/agents";
@@ -377,6 +393,7 @@ async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: (
     `CREATE TABLE IF NOT EXISTS consumo_mensual (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, periodo TEXT NOT NULL, mensajes INTEGER NOT NULL DEFAULT 0, actualizado_at TEXT DEFAULT (datetime('now')), UNIQUE(tenant_id, periodo))`,
     `CREATE TABLE IF NOT EXISTS consumo_conversaciones (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, periodo TEXT NOT NULL, conversaciones INTEGER NOT NULL DEFAULT 0, actualizado_at TEXT DEFAULT (datetime('now')), UNIQUE(tenant_id, periodo))`,
     `CREATE TABLE IF NOT EXISTS coupons (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, product_id INTEGER REFERENCES products(id) ON DELETE SET NULL, code TEXT NOT NULL, tipo TEXT NOT NULL DEFAULT 'porcentaje', valor REAL NOT NULL, minimo_compra REAL, usos_max INTEGER, usos INTEGER NOT NULL DEFAULT 0, activo INTEGER DEFAULT 1, vigencia_inicio TEXT, vigencia_fin TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS push_subscriptions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, endpoint TEXT NOT NULL UNIQUE, p256dh TEXT NOT NULL, auth TEXT NOT NULL, dispositivo TEXT, activo INTEGER DEFAULT 1, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
   ];
 
   for (const sql of tables) {

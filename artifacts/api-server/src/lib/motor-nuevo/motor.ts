@@ -1004,7 +1004,10 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
     const focoAhora = estado.productoEnFoco;
     const esFisicoAhora = focoAhora != null && String(catalogo.find((p) => p.id === focoAhora)?.kind || "") === "physical";
     const confirmaCompra = diceQueCompra(mensajeDelCliente) ||
-      (/env[ií]|pedido|llev|compr|lo quieres/i.test(estado.ultimaPreguntaAgente || "") && esConfirmacionBreve(mensajeDelCliente));
+      // "¿lo programamos / lo dejamos listo / te lo separo / lo despachamos?"
+      // también es la pregunta de compra (venta real 05-10: "¿Te gustaría que
+      // lo programemos de una vez?" → "Sii claro" y no salió la lista de datos).
+      (/env[ií]|pedido|llev|compr|lo quieres|program|dej[ae]mos listo|dejarlo listo|separ|apart|reserv|despach|alist/i.test(estado.ultimaPreguntaAgente || "") && esConfirmacionBreve(mensajeDelCliente));
     if (esFisicoAhora && confirmaCompra && ctx.pedidos && !traza.some((t) => t.herramienta === "tomar_pedido") && estado.accionPendiente !== "confirmar_pedido") {
       try { await ejecutores.tomar_pedido(ctx, {}); } catch { /* sigue el texto */ }
     }

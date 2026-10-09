@@ -1,6 +1,7 @@
 import { db, agents, tenants } from "@workspace/db";
 import { eq, and } from "drizzle-orm";
 import { logger } from "./logger";
+import { cuandoLaBaseEsteLista } from "./esperar-base";
 import { responseAnalyticsEngine } from "./response-analytics";
 import { autoTuneEngine } from "./auto-tune";
 import { architectMemoryService } from "./architect-memory-service";
@@ -247,6 +248,7 @@ export function registrarAutoReflexion() {
   logger.info("[AutoReflexion] Activo: ciclo cada 12 horas");
   const correr = async () => {
     try {
+      await cuandoLaBaseEsteLista();
       const negocios = await db.select({ id: tenants.id }).from(tenants);
       for (const n of negocios) {
         await autoReflexionEngine.runAutoReflexion(n.id).catch((e) =>

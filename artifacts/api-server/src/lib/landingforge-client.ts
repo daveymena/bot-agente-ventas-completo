@@ -12,7 +12,12 @@
  * lo exigen; el dashboard usa mismo-origen, el bot usa la key).
  */
 
+import { createHmac } from "node:crypto";
+
 const BASE = (process.env.LANDINGFORGE_URL || "https://landings.ventasproia.com").replace(/\/+$/, "");
+// La clave compartida con Landing Forge vive SOLO en el entorno (pedido del
+// dueño 07-10: "que no quede escrita en el repo"): el MISMO valor en
+// LANDINGFORGE_API_KEY (acá) y LANDING_API_KEY (en Forge).
 const API_KEY = process.env.LANDINGFORGE_API_KEY || process.env.LANDING_API_KEY || "";
 const WHATSAPP_DEFAULT = process.env.WHATSAPP_NUMBER || process.env.ADMIN_PHONE || "573136174267";
 
@@ -80,6 +85,10 @@ export interface ProductData {
   tenantId?: number | null;
   /** Fila del producto: su garantía real (metadata.garantia, de Dropi). */
   producto?: any;
+  /** true = devolver una landing publicada con el mismo nombre si existe.
+   *  Por defecto NO: pedir una landing nueva crea una nueva (orden del dueño
+   *  07-10). Para cambiar una existente está landing_forge_editar. */
+  reutilizar?: boolean;
 }
 
 /** Lo único que la landing puede prometer (Forge: lib/ai/hechos.ts). */
@@ -243,7 +252,10 @@ export async function getOrCreateLanding(
   productKind: "physical" | "digital",
   productData?: ProductData,
 ): Promise<MagicLandingResult> {
-  try {
+  // Antes reutilizaba SIEMPRE una landing publicada con el mismo nombre de
+  // producto -- de cualquier negocio, porque Forge no sabe de negocios --:
+  // el dueño pedía una landing nueva y recibía la vieja. Ahora solo si se pide.
+  if (productData?.reutilizar === true) try {
     const { landings } = await listLandings();
     const existing = (landings || []).find(
       (l) => l.productName?.toLowerCase() === productName.toLowerCase() && l.landing?.status === "published",
@@ -281,6 +293,11 @@ export async function getOrCreateLanding(
         checkoutUrl: productData?.checkoutUrl || productUrl || undefined,
         whatsapp: hechos?.whatsapp || WHATSAPP_DEFAULT,
         hechos,
+        // Negocio + producto: el pedido del formulario vuelve acá y sale a
+        // Dropi con el token del negocio (routes/landing-forge-entrada.ts).
+        ventaspro: productData?.tenantId && productData?.producto?.id
+          ? { tenantId: productData.tenantId, productId: Number(productData.producto.id) }
+          : undefined,
         description: productData?.description || undefined,
         images: productData?.images?.length ? productData.images : undefined,
         videos: productData?.videos?.length ? productData.videos : undefined,
@@ -315,6 +332,50 @@ export async function getForgeSpec(landingId: string): Promise<{ ok: boolean; sp
     return { ok: true, spec: d.spec };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
+  }
+}
+
+/**
+ * Pone el píxel de la cuenta publicitaria en ESA landing (no en todas: Forge
+ * no separa negocios y un píxel global mezclaría los de distintos clientes).
+ *
+ * 08-10: la landing del corrector salió sin píxel; Meta no veía quién entraba
+ * ni quién compraba, y la campaña de ventas terminó comprando clics.
+ * Devuelve qué pasó, para decírselo al dueño.
+ */
+/** ¿Esta URL es una landing pública de Forge? Las de VentasPro también usan
+ *  /l/:slug, así que se mira el HOST, no solo la ruta (revisión 08-10). */
+export function esLandingDeForge(url: string): boolean {
+  try {
+    const u = new URL(String(url || ""));
+    if (!/^\/l\/[^/]+/.test(u.pathname)) return false;
+    // BASE puede ser la dirección INTERNA de EasyPanel; la pública es la que
+    // va en los anuncios. Cualquiera de las dos cuenta como Forge.
+    const hosts = new Set([new URL(BASE).host, "landings.ventasproia.com"]);
+    if (process.env.LANDINGFORGE_PUBLIC_URL) hosts.add(new URL(process.env.LANDINGFORGE_PUBLIC_URL).host);
+    return hosts.has(u.host);
+  } catch {
+    return false;
+  }
+}
+
+export async function ponerPixelEnLanding(urlLanding: string, pixelId: string): Promise<{ ok: boolean; motivo: string }> {
+  if (!esLandingDeForge(urlLanding)) return { ok: false, motivo: "no es una landing de Forge" };
+  const slug = /\/l\/([^/?#]+)/.exec(String(urlLanding || ""))?.[1];
+  if (!slug || !pixelId) return { ok: false, motivo: "no es una landing de Forge o no hay píxel" };
+  try {
+    const { landings } = await listLandings();
+    const fila = (landings || []).find((x) => x.landing?.slug === slug);
+    if (!fila) return { ok: false, motivo: `no encontré la landing ${slug} en Forge` };
+    const actual = await getForgeSpec(fila.landing.id);
+    if (!actual.ok || !actual.spec) return { ok: false, motivo: actual.error || "Forge no devolvió la landing" };
+    const pixeles = actual.spec.settings?.pixels || {};
+    if (pixeles.metaPixelId === pixelId) return { ok: true, motivo: "ya lo tenía" };
+    const spec = { ...actual.spec, settings: { ...(actual.spec.settings || {}), pixels: { ...pixeles, metaPixelId: pixelId } } };
+    const r = await putForgeSpec(fila.landing.id, spec);
+    return r.ok ? { ok: true, motivo: "puesto" } : { ok: false, motivo: r.error || "no se pudo guardar" };
+  } catch (e) {
+    return { ok: false, motivo: (e as Error).message };
   }
 }
 
@@ -420,4 +481,15 @@ export async function extraerFichaForge(url: string, navegador = false): Promise
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
+}
+
+/** Enlace de entrada al panel de Forge con sesión ya abierta (Forge:
+ *  /api/auth/sso, token firmado HMAC-SHA256 con la MISMA LANDING_API_KEY que
+ *  este servidor usa como x-api-key; vence en 2 minutos). Sin clave, Forge
+ *  está en modo abierto y basta con la URL. */
+export function enlaceDeEntradaForge(siguiente = "/"): string {
+  if (!API_KEY) return `${BASE}${siguiente.startsWith("/") ? siguiente : "/"}`;
+  const exp = Math.floor(Date.now() / 1000) + 120;
+  const firma = createHmac("sha256", API_KEY).update(`sso.${exp}`).digest("hex");
+  return `${BASE}/api/auth/sso?t=${encodeURIComponent(`sso.${exp}.${firma}`)}&next=${encodeURIComponent(siguiente)}`;
 }

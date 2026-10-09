@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { SecretInput } from "@/components/ui/secret-input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +18,7 @@ import { getHelpGuide } from "@/data/help-guides";
 import { describeError } from "@/lib/utils";
 import { urlLoginFacebook } from "@/lib/facebook-login";
 import { LogoMarca } from "@/components/logo-marca";
+import { DatoSensibleInput, ValorOculto } from "@/components/ui/dato-sensible";
 
 const HELP_GUIDE = getHelpGuide("facebook")!;
 
@@ -61,6 +63,12 @@ interface FbConfig {
   hasAppSecret?: boolean;
   hasMessengerToken?: boolean;
   messengerVerifyToken?: string;
+  // El servidor nunca devuelve secretos: solo si existen y sus últimos 4.
+  hasMessengerVerifyToken?: boolean;
+  messengerVerifyTokenUltimos4?: string;
+  accessTokenUltimos4?: string;
+  appSecretUltimos4?: string;
+  messengerTokenUltimos4?: string;
   loginConfigId?: string;
 }
 
@@ -91,20 +99,31 @@ interface PageInfo {
   picture?: string;
 }
 
-/** El renglón gris de destino del anuncio (lo que Meta muestra bajo la foto). */
-function destinoDelAnuncio(d: DraftAd | null): string {
-  const st: any = d?.strategy || {};
-  if (Array.isArray(st.ciudades) && st.ciudades.length) return st.ciudades.join(", ");
-  return "En ventasproia.com";
+/**
+ * El renglón gris bajo la foto: en Meta es el DOMINIO del enlace (o
+ * "WhatsApp" en una campaña de mensajes). Antes mostraba las ciudades de la
+ * segmentación, que el cliente nunca ve en el anuncio.
+ */
+function destinoDelAnuncio(objetivo: string): string {
+  if (objetivo === "mensajes") return "WHATSAPP";
+  try { return window.location.hostname.toUpperCase(); } catch { return "TU PÁGINA"; }
 }
 
-/** El texto del botón, según el CTA de la estrategia (como lo llama Meta en el feed). */
-function ctaDelAnuncio(d: DraftAd | null): string {
+/** El texto del botón como lo muestra Meta: depende del OBJETIVO, no solo del ctaType. */
+function ctaDelAnuncio(d: DraftAd | null, objetivo: string): string {
+  if (objetivo === "mensajes") return "Enviar mensaje";
   const st: any = d?.strategy || {};
-  if (st.ctaType === "SIGN_UP") return "Registrarse";
+  if (st.ctaType === "SIGN_UP") return "Registrarte";
   if (st.ctaType === "CONTACT_US") return "Contactarnos";
-  // SHOP_NOW o WHATSAPP_MESSAGE: el feed de Meta lo muestra como "Comprar".
   return "Comprar";
+}
+
+/** Lo que Meta muestra antes del "Ver más" (≈125 letras o 3 renglones). */
+function primeraVista(texto: string): { visible: string; cortado: boolean } {
+  const lineas = texto.split("\n");
+  let visible = lineas.slice(0, 3).join("\n");
+  if (visible.length > 125) visible = visible.slice(0, 125).replace(/\s+\S*$/, "");
+  return { visible, cortado: visible.length < texto.trimEnd().length };
 }
 
 interface DraftAd {
@@ -123,7 +142,9 @@ interface DraftAd {
   niche: string | null;
   budget: number | null;
   /** La estrategia del borrador: ahí viaja la segmentación (interests/edad). */
-  strategy?: { ageMin?: number; ageMax?: number; genders?: number[]; interests?: string[]; ciudades?: string[]; city?: string; angle?: string; hook?: string } | null;
+  strategy?: { ageMin?: number; ageMax?: number; genders?: number[]; interests?: string[]; ciudades?: string[]; city?: string; angle?: string; hook?: string; objetivo?: string; destino?: string } | null;
+  /** La rúbrica de anuncio profesional (backend: lib/anuncio-rubrica.ts). */
+  calidad?: { puntaje: number; criterios: Array<{ id: string; nombre: string; ok: boolean; detalle: string }> } | null;
   createdAt: string;
 }
 
@@ -151,14 +172,14 @@ export default function FacebookAdsPage() {
   const [connected, setConnected] = useState<boolean | null>(null);
 
   const [config, setConfig] = useState<FbConfig>({
-    accessToken: "", pixelId: "", catalogId: "", pageId: "", adAccountId: "", hasToken: false, appId: "", hasAppSecret: false, hasMessengerToken: false, messengerVerifyToken: "", loginConfigId: "",
+    accessToken: "", pixelId: "", catalogId: "", pageId: "", adAccountId: "", hasToken: false, appId: "", hasAppSecret: false, hasMessengerToken: false, messengerVerifyToken: "", hasMessengerVerifyToken: false, loginConfigId: "",
   });
   const [rawToken, setRawToken] = useState("");
   const [rawAppSecret, setRawAppSecret] = useState("");
   const [rawMessengerToken, setRawMessengerToken] = useState("");
-  // Mostrar/ocultar secretos: escribir a ciegas un token largo es la causa
-  // numero uno de "no me lo acepta" cuando en realidad hubo un caracter de mas.
-  const [verSecretos, setVerSecretos] = useState(false);
+  const [rawVerifyToken, setRawVerifyToken] = useState("");
+  // (Mostrar lo escrito lo resuelve SecretInput campo por campo, y solo para
+  // el valor NUEVO: lo guardado nunca llega al navegador.)
 
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -304,8 +325,8 @@ export default function FacebookAdsPage() {
       {
         channel: "comentarios",
         label: "Comentarios en publicaciones",
-        connected: !!config.hasMessengerToken && !!config.messengerVerifyToken,
-        error: config.messengerVerifyToken ? undefined : "Falta el verify token del webhook",
+        connected: !!config.hasMessengerToken && !!config.hasMessengerVerifyToken,
+        error: config.hasMessengerVerifyToken ? undefined : "Falta el verify token del webhook",
       },
       {
         channel: "anuncios",
@@ -315,7 +336,7 @@ export default function FacebookAdsPage() {
       },
     ];
     setChannelStatus(canales);
-  }, [config.hasToken, config.pageId, config.hasMessengerToken, config.messengerVerifyToken, config.adAccountId]);
+  }, [config.hasToken, config.pageId, config.hasMessengerToken, config.hasMessengerVerifyToken, config.adAccountId]);
 
   // Facebook redirige de vuelta con ?code=... en la QUERY STRING (nunca en
   // el fragmento) -- Authorization Code flow, no Implicit. Con el flujo
@@ -377,7 +398,7 @@ export default function FacebookAdsPage() {
       setLoading(true);
       const [cfg, prods] = await Promise.all([
         apiRequest("/facebook/config").catch(() => ({
-          accessToken: "", pixelId: "", catalogId: "", pageId: "", adAccountId: "", hasToken: false, appId: "", hasAppSecret: false, hasMessengerToken: false, messengerVerifyToken: "", loginConfigId: "",
+          accessToken: "", pixelId: "", catalogId: "", pageId: "", adAccountId: "", hasToken: false, appId: "", hasAppSecret: false, hasMessengerToken: false, messengerVerifyToken: "", hasMessengerVerifyToken: false, loginConfigId: "",
         })),
         apiRequest("/products").catch(() => []),
       ]);
@@ -395,7 +416,8 @@ export default function FacebookAdsPage() {
       await apiRequest("/facebook/config", {
         method: "PUT",
         body: JSON.stringify({
-          accessToken: rawToken || undefined,
+          // Vacío = no lo cambies (el servidor también ignora las máscaras).
+          ...(rawToken ? { accessToken: rawToken } : {}),
           pixelId: config.pixelId,
           catalogId: config.catalogId,
           pageId: config.pageId,
@@ -404,7 +426,7 @@ export default function FacebookAdsPage() {
           // Vacío = no lo cambies: el GET nunca devuelve el secret.
           ...(rawAppSecret ? { appSecret: rawAppSecret } : {}),
           ...(rawMessengerToken ? { messengerPageToken: rawMessengerToken } : {}),
-          messengerVerifyToken: config.messengerVerifyToken || "",
+          ...(rawVerifyToken ? { messengerVerifyToken: rawVerifyToken } : {}),
           loginConfigId: config.loginConfigId || "",
         }),
       });
@@ -412,6 +434,7 @@ export default function FacebookAdsPage() {
       setRawToken("");
       setRawAppSecret("");
       setRawMessengerToken("");
+      setRawVerifyToken("");
       const cfg = await apiRequest("/facebook/config");
       if (cfg) setConfig(cfg);
     } catch (e: any) {
@@ -933,7 +956,7 @@ export default function FacebookAdsPage() {
                       {catalogoEstado?.catalogo?.conectado && (
                         <p className="text-xs text-muted-foreground">
                           ✓ Conectado el {new Date(catalogoEstado.catalogo.conectado).toLocaleDateString("es-CO", { day: "numeric", month: "long" })} ·
-                          catálogo {catalogoEstado.catalogo.catalogId} · Meta descarga {catalogoEstado.catalogo.feedUrl?.split("/").pop()} en horario DAILY.
+                          catálogo <ValorOculto valor={catalogoEstado.catalogo.catalogId} /> · Meta descarga {catalogoEstado.catalogo.feedUrl?.split("/").pop()} en horario DAILY.
                         </p>
                       )}
                       <p className="text-xs text-muted-foreground">
@@ -954,13 +977,14 @@ export default function FacebookAdsPage() {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
                         <Label>Access Token</Label>
-                        <Input type="password" value={rawToken || (config.hasToken ? "••••••••" : "")} onChange={e => setRawToken(e.target.value)} placeholder="FB_ACCESS_TOKEN" />
-                        {config.hasToken && !rawToken && <p className="text-xs text-muted-foreground mt-1">Token ya configurado</p>}
+                        {/* Antes el value era "••••••••": con escribir una letra se
+                            mandaba la máscara + esa letra y pisaba el token real. */}
+                        <SecretInput value={rawToken} onChange={setRawToken} guardado={config.hasToken && (config.accessTokenUltimos4 || true)} placeholder="EAA..." />
                       </div>
-                      <div><Label>Pixel ID</Label><Input value={config.pixelId} onChange={e => setConfig({...config, pixelId: e.target.value})} placeholder="FB_PIXEL_ID" /></div>
-                      <div><Label>Catalog ID</Label><Input value={config.catalogId} onChange={e => setConfig({...config, catalogId: e.target.value})} placeholder="FB_CATALOG_ID" /></div>
-                      <div><Label>Page ID</Label><Input value={config.pageId} onChange={e => setConfig({...config, pageId: e.target.value})} placeholder="FB_PAGE_ID" /></div>
-                      <div><Label>Ad Account ID</Label><Input value={config.adAccountId} onChange={e => setConfig({...config, adAccountId: e.target.value})} placeholder="FB_AD_ACCOUNT_ID (solo números)" /></div>
+                      <div><Label>Pixel ID</Label><DatoSensibleInput value={config.pixelId} onChange={e => setConfig({...config, pixelId: e.target.value})} placeholder="FB_PIXEL_ID" /></div>
+                      <div><Label>Catalog ID</Label><DatoSensibleInput value={config.catalogId} onChange={e => setConfig({...config, catalogId: e.target.value})} placeholder="FB_CATALOG_ID" /></div>
+                      <div><Label>Page ID</Label><DatoSensibleInput value={config.pageId} onChange={e => setConfig({...config, pageId: e.target.value})} placeholder="FB_PAGE_ID" /></div>
+                      <div><Label>Ad Account ID</Label><DatoSensibleInput value={config.adAccountId} onChange={e => setConfig({...config, adAccountId: e.target.value})} placeholder="FB_AD_ACCOUNT_ID (solo números)" /></div>
 
                       {/* App ID y App Secret DE ESTE NEGOCIO. El backend ya los
                           guardaba por tenant (PUT /config los persiste) y
@@ -972,13 +996,12 @@ export default function FacebookAdsPage() {
                           para operar con sus propios permisos. */}
                       <div>
                         <Label>App ID</Label>
-                        <Input value={config.appId || ""} onChange={e => setConfig({...config, appId: e.target.value})} placeholder="Tu App ID de Meta" />
+                        <DatoSensibleInput value={config.appId || ""} onChange={e => setConfig({...config, appId: e.target.value})} placeholder="Tu App ID de Meta" />
                         <p className="text-xs text-muted-foreground mt-1">Opcional: solo si usás tu propia app de Facebook.</p>
                       </div>
                       <div>
                         <Label>App Secret</Label>
-                        <Input type={verSecretos ? "text" : "password"} value={rawAppSecret || (config.hasAppSecret ? "••••••••" : "")} onChange={e => setRawAppSecret(e.target.value)} placeholder="Tu App Secret de Meta" />
-                        {config.hasAppSecret && !rawAppSecret && <p className="text-xs text-muted-foreground mt-1">Ya configurado</p>}
+                        <SecretInput value={rawAppSecret} onChange={setRawAppSecret} guardado={config.hasAppSecret && (config.appSecretUltimos4 || true)} placeholder="Tu App Secret de Meta" />
                       </div>
 
                       {/* Messenger y Login for Business: estaban en el modelo
@@ -987,24 +1010,19 @@ export default function FacebookAdsPage() {
                           Messenger ni de validar sus webhooks. */}
                       <div>
                         <Label>Messenger Page Token</Label>
-                        <Input type={verSecretos ? "text" : "password"} value={rawMessengerToken || (config.hasMessengerToken ? "••••••••" : "")} onChange={e => setRawMessengerToken(e.target.value)} placeholder="Token de página para Messenger" />
-                        {config.hasMessengerToken && !rawMessengerToken && <p className="text-xs text-muted-foreground mt-1">Ya configurado</p>}
+                        <SecretInput value={rawMessengerToken} onChange={setRawMessengerToken} guardado={config.hasMessengerToken && (config.messengerTokenUltimos4 || true)} placeholder="Token de página para Messenger" />
                       </div>
                       <div>
                         <Label>Messenger Verify Token</Label>
-                        <Input value={config.messengerVerifyToken || ""} onChange={e => setConfig({...config, messengerVerifyToken: e.target.value})} placeholder="El que pusiste en el webhook de Meta" />
+                        <SecretInput value={rawVerifyToken} onChange={setRawVerifyToken} guardado={config.hasMessengerVerifyToken && (config.messengerVerifyTokenUltimos4 || true)} placeholder="El que pusiste en el webhook de Meta" />
                       </div>
                       <div>
                         <Label>Login Config ID</Label>
-                        <Input value={config.loginConfigId || ""} onChange={e => setConfig({...config, loginConfigId: e.target.value})} placeholder="Solo si usás Login for Business" />
+                        <DatoSensibleInput value={config.loginConfigId || ""} onChange={e => setConfig({...config, loginConfigId: e.target.value})} placeholder="Solo si usás Login for Business" />
                         <p className="text-xs text-muted-foreground mt-1">Meta → Inicio de sesión para empresas → Configuraciones.</p>
                       </div>
                     </div>
 
-                    <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer w-fit">
-                      <input type="checkbox" checked={verSecretos} onChange={e => setVerSecretos(e.target.checked)} className="accent-primary" />
-                      Mostrar los valores ocultos
-                    </label>
                     {/* bottom: el menú móvil (mobile-nav.tsx) mide 72px (min-h) +
                         8px (pb-2) = 80px reales antes de sumar el safe-area del
                         propio nav -- con solo 76px de offset acá, esta barra
@@ -1273,6 +1291,23 @@ export default function FacebookAdsPage() {
                                 {d.fbStatus && <span className="shrink-0 px-2 py-0.5 rounded text-xs bg-blue-500/20 text-blue-500">{d.fbStatus}</span>}
                               </div>
                               {d.niche && <p className="text-xs text-muted-foreground break-words">Estrategia: {d.niche}</p>}
+                              {/* La rúbrica: qué le falta a este borrador para ser profesional. */}
+                              {d.calidad && (
+                                <details className="mt-2">
+                                  <summary className={`text-xs cursor-pointer font-medium ${d.calidad.puntaje >= 100 ? "text-green-600" : d.calidad.puntaje >= 75 ? "text-amber-600" : "text-red-600"}`}>
+                                    Calidad del anuncio: {d.calidad.criterios.filter((c) => c.ok).length}/{d.calidad.criterios.length}
+                                    {d.calidad.criterios.some((c) => !c.ok) ? ` · falta: ${d.calidad.criterios.filter((c) => !c.ok).map((c) => c.nombre.toLowerCase()).join(", ")}` : " · listo para subir"}
+                                  </summary>
+                                  <ul className="mt-2 space-y-1">
+                                    {d.calidad.criterios.map((c) => (
+                                      <li key={c.id} className="text-xs flex gap-1.5 break-words">
+                                        <span className={c.ok ? "text-green-600" : "text-red-600"}>{c.ok ? "✓" : "✗"}</span>
+                                        <span><span className="font-medium">{c.nombre}:</span> <span className="text-muted-foreground">{c.detalle}</span></span>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </details>
+                              )}
                               <div className="flex flex-wrap gap-3 mt-2 text-xs">
                                 {d.budget && <span className="text-muted-foreground">💰 ${d.budget.toLocaleString("es-CO")} COP/día</span>}
                                 {d.headline && <span className="text-foreground font-medium break-words min-w-0">📝 {d.headline}</span>}
@@ -1445,14 +1480,16 @@ export default function FacebookAdsPage() {
                           fallando sin entender por qué. Ahora se muestra el
                           token real del negocio, y si no hay ninguno se dice
                           en vez de inventar uno. */}
+                      {/* Nunca el valor: solo que existe y sus últimos 4. Es el
+                          mismo que el dueño escribió y pegó en Meta. */}
                       <Input
-                        value={config.messengerVerifyToken || ""}
+                        value={config.hasMessengerVerifyToken ? `Guardado ••••${config.messengerVerifyTokenUltimos4 || ""}` : ""}
                         readOnly
                         placeholder="Sin configurar — poné uno en Configuración y usá ESE en Meta"
                         className="font-mono text-sm"
                       />
                       <p className="text-xs text-muted-foreground">
-                        {config.messengerVerifyToken
+                        {config.hasMessengerVerifyToken
                           ? "Usa este token al configurar el webhook en Facebook Developers. La URL del webhook es:"
                           : "Todavía no hay token propio: cargá uno arriba y usá ese mismo en Facebook Developers. La URL del webhook es:"}
                         <code className="block mt-1 p-1 bg-muted rounded text-xs break-all">{window.location.origin}/api/facebook/messenger/webhook</code>
@@ -1494,7 +1531,7 @@ export default function FacebookAdsPage() {
                         {/* Mismo caso que en Messenger: el valor fijo que
                             estaba acá no es el que el servidor valida. */}
                         <span className="block mt-1 text-xs">
-                          Verify Token: <strong>{config.messengerVerifyToken || "sin configurar — cargá uno en Configuración"}</strong>
+                          Verify Token: <strong>{config.hasMessengerVerifyToken ? `el que guardaste (••••${config.messengerVerifyTokenUltimos4 || ""})` : "sin configurar — cargá uno en Configuración"}</strong>
                         </span>
                       </AlertDescription>
                     </Alert>
@@ -1740,12 +1777,16 @@ export default function FacebookAdsPage() {
                   rows={6}
                   placeholder="Ej: Aprende a tocar piano desde cero..."
                 />
-                <p className="text-xs text-muted-foreground mt-1">{editPrimaryText.length} caracteres (max 500 recomendado)</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {editPrimaryText.length} caracteres · lo que se ve antes de "Ver más" son las primeras ~125: ahí tiene que estar el gancho.
+                </p>
               </div>
               <div>
                 <Label>Descripción (línea del enlace)</Label>
-                <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} maxLength={60} placeholder="Ej: Pago contra entrega en toda Colombia" />
-                <p className="text-xs text-muted-foreground mt-1">Se muestra bajo el titular en Meta.</p>
+                <Input value={editDescription} onChange={(e) => setEditDescription(e.target.value)} maxLength={60} placeholder="Ej: $45.000 · Pagas al recibir" />
+                <p className={`text-xs mt-1 ${editDescription.length > 30 ? "text-amber-600" : "text-muted-foreground"}`}>
+                  {editDescription.length}/30 caracteres · se muestra bajo el titular{editDescription.length > 30 ? " — Meta la corta pasando los 30" : ""}.
+                </p>
               </div>
               <div>
                 <Label>Presupuesto diario (COP)</Label>
@@ -1869,7 +1910,17 @@ export default function FacebookAdsPage() {
                       </div>
                     </div>
                     {editPrimaryText ? (
-                      <p className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words px-2.5 pb-2 text-[13px]">{editPrimaryText}</p>
+                      // Como el feed: solo la primera vista y el "Ver más" (lo de
+                      // después lo lee únicamente quien toca).
+                      (() => {
+                        const { visible, cortado } = primeraVista(editPrimaryText);
+                        return (
+                          <p className="whitespace-pre-wrap break-words px-2.5 pb-2 text-[13px]">
+                            {visible}
+                            {cortado ? <span className="text-muted-foreground">… Ver más</span> : null}
+                          </p>
+                        );
+                      })()
                     ) : (
                       <p className="px-2.5 pb-2 text-[13px] text-muted-foreground">(sin texto todavía)</p>
                     )}
@@ -1885,11 +1936,13 @@ export default function FacebookAdsPage() {
                     ) : null}
                     <div className="flex items-center justify-between border-t p-2.5">
                       <div className="min-w-0">
-                        <p className="truncate text-[11px] text-muted-foreground">{destinoDelAnuncio(editingDraft)}</p>
-                        {editDescription ? <p className="truncate text-[12px]">{editDescription}</p> : null}
+                        <p className="truncate text-[11px] text-muted-foreground">{destinoDelAnuncio(editObjetivo)}</p>
+                        {/* El TITULAR va acá, en negrita: antes el mock no lo mostraba. */}
+                        {editHeadline ? <p className="truncate text-[13px] font-semibold">{editHeadline}</p> : <p className="text-[12px] text-amber-600">(sin titular)</p>}
+                        {editDescription ? <p className="truncate text-[12px] text-muted-foreground">{editDescription}</p> : null}
                       </div>
                       <span className="ml-2 shrink-0 rounded bg-primary/10 px-2.5 py-1.5 text-[12px] font-semibold text-primary">
-                        {ctaDelAnuncio(editingDraft)}
+                        {ctaDelAnuncio(editingDraft, editObjetivo)}
                       </span>
                     </div>
                   </div>

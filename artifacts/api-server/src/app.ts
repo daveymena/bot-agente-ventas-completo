@@ -1,4 +1,5 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
+import { esDuenoDeLaPlataforma } from "./middleware/requirePlatformOwner";
 import path from "path";
 import { fileURLToPath } from "url";
 import { existsSync, readdirSync, readFileSync, mkdirSync, writeFileSync } from "fs";
@@ -36,6 +37,10 @@ import { getImageStoreDir } from "./lib/image-store";
 // Auto-start WhatsApp bot on boot (multi-tenant: una instancia por tenant)
 (async () => {
   try {
+    // Primero la base. Sin esto, getTenantById(1) corría antes de que `db`
+    // existiera, fallaba ("[TenantManager] Failed to get tenant by ID",
+    // 07-10) y WhatsApp arrancaba con el negocio de RELLENO, no el real.
+    await ensureDbReady();
     // getDefaultTenant() devuelve un objeto placeholder hardcodeado (sin
     // credenciales de pago/Facebook reales) -- se busca el tenant 1 real en
     // la BD para que la instancia auto-iniciada tenga su brandName/agentPrompt
@@ -93,6 +98,8 @@ registrarAgencia();
 import("./lib/marketing-team/task-executor").then((m) => m.iniciarEjecutorDeTareas()).catch(() => undefined);
 // Tokens de Dropify por producto: se auditan y reparan solos (ver lib/dropify-auditoria.ts).
 import("./lib/dropify-auditoria").then((m) => m.iniciarAuditoriaDropify()).catch(() => undefined);
+// Pedidos que Dropi rechazó: se reintentan solos y se le avisa al cliente (ver lib/reintento-pedidos.ts).
+import("./lib/reintento-pedidos").then((m) => m.iniciarReintentoDePedidos()).catch(() => undefined);
 import("./lib/telegram-atlas").then((m) => m.iniciarAtlasEnTelegramParaTodos()).catch(() => undefined);
 // Productos importados (Dropi/Woo) sin categoría real → se enlazan solos (ver lib/categorias.ts).
 import("./lib/categorias").then((m) => m.iniciarVinculoDeCategorias()).catch(() => undefined);
@@ -121,6 +128,12 @@ registrarAutoReflexion();
 // cuenta -- solo drena lo que el admin ya confirmó, ver remarketing.ts).
 import { remarketingScheduler } from "./lib/remarketing-scheduler";
 remarketingScheduler.start();
+
+// Seguimientos comerciales (follow_ups): antes se encendía solo al importar
+// followUpScheduler.ts, desde donde fuera. Ahora se enciende acá, a la vista,
+// y su primera pasada espera a la base.
+import { followUpScheduler } from "./lib/followUpScheduler";
+followUpScheduler.start(30);
 
 // Auto-start AI Processor (Orchestrator) on boot
 import { getAgentOrchestrator } from "./lib/services/agent-orchestrator";
@@ -399,6 +412,16 @@ app.use(express.urlencoded({ extended: true, limit: "12mb" }));
 // Health check endpoints (sin autenticación)
 app.use("/api", healthRouter);
 
+// Digital Asset Links para la APK (TWA): asocia ventasproia.com con la app.
+// ANDROID_SHA256 = huella SHA-256 (sin :) del keystore de firma (upload key).
+app.get("/.well-known/assetlinks.json", (_req, res) => {
+  const sha256 = String(process.env.ANDROID_SHA256 || "").replace(/:/g, "").toUpperCase();
+  const pkg = process.env.ANDROID_PACKAGE || "com.ventaspro.app";
+  if (!sha256) return res.status(404).json({ error: "assetlinks no configurado" });
+  res.setHeader("Content-Type", "application/json");
+  res.json([{ relation: ["delegate_permission/common.handle_all_urls"], target: { namespace: "android_app", package_name: pkg, sha256_cert_fingerprints: [sha256] } }]);
+});
+
 
 // Servir frontend en producción
 const __filename = fileURLToPath(import.meta.url);
@@ -625,6 +648,9 @@ const publicRoutes = [
   // lista y el pedido le daba 401 a todo cliente real (30-09-2026): solo
   // funcionaba al probarlo con la sesión del dueño abierta.
   "/landing-publica",
+  // Pedidos de las landings de Landing Forge: los autentica la x-api-key
+  // compartida, no una sesión (routes/landing-forge-entrada.ts).
+  "/landing-forge/pedido",
   // "/landing-studio" ya NO es pública (29-09-2026): sin sesión, cualquiera
   // podía reescribir la landing de cualquier negocio (/design, /chat con otro
   // landingId) y gastar los proveedores de IA del negocio 1. El panel la
@@ -753,6 +779,9 @@ app.post("/api/admin/reset-pruebas", async (req, res, next) => {
   try {
     const tenantId = Number((req as any).tenant?.id);
     if (!Number.isInteger(tenantId) || tenantId <= 0) return res.status(401).json({ error: "No autenticado" });
+    // Solo el dueño de la plataforma: el reseteo también vacía tablas GLOBALES
+    // (enlaces de pago y eventos de TODOS los negocios). Cualquier sesión podía.
+    if (!esDuenoDeLaPlataforma(req as any)) return res.status(403).json({ error: "Solo el administrador de la plataforma" });
     const { resetearPruebas } = await import("./lib/reset-pruebas");
     const resultado = await resetearPruebas(tenantId);
     if (!resultado.ok) return res.status(500).json({ error: resultado.error || "No se pudo resetear" });
@@ -766,6 +795,8 @@ app.get("/api/admin/backups", async (req, res, next) => {
   try {
     const tenantId = Number((req as any).tenant?.id);
     if (!Number.isInteger(tenantId) || tenantId <= 0) return res.status(401).json({ error: "No autenticado" });
+    // Los backups son de TODOS los negocios (conversaciones con teléfonos).
+    if (!esDuenoDeLaPlataforma(req as any)) return res.status(403).json({ error: "Solo el administrador de la plataforma" });
     const { listarBackups } = await import("./lib/reset-pruebas");
     return res.json({ ok: true, backups: listarBackups() });
   } catch (e) {
@@ -777,6 +808,9 @@ app.post("/api/admin/restaurar", async (req, res, next) => {
   try {
     const tenantId = Number((req as any).tenant?.id);
     if (!Number.isInteger(tenantId) || tenantId <= 0) return res.status(401).json({ error: "No autenticado" });
+    // Antes: cualquier sesión, con CUALQUIER ruta del disco. Leía un archivo
+    // arbitrario del servidor y reinsertaba filas de otro negocio.
+    if (!esDuenoDeLaPlataforma(req as any)) return res.status(403).json({ error: "Solo el administrador de la plataforma" });
     const { restaurarDesdeBackup } = await import("./lib/reset-pruebas");
     const ruta = String((req.body as any)?.ruta || "");
     if (!ruta) return res.status(400).json({ error: "Falta 'ruta' del backup a restaurar" });
@@ -1218,7 +1252,7 @@ app.use((req, res, next) => {
 // una imagen faltante "cargue bien" y el navegador muestre un roto sin causa
 // visible — y peor, el bot llegaba a mandar ese HTML por WhatsApp creyendo
 // que era la foto del producto. Un 404 dice la verdad.
-const ASSET_EXT = /\.(jpe?g|png|gif|webp|avif|svg|ico|bmp|mp4|webm|mp3|wav|pdf|zip|css|js|mjs|map|woff2?|ttf|eot|json|txt|xml)$/i;
+const ASSET_EXT = /\.(jpe?g|png|gif|webp|avif|svg|ico|bmp|mp4|webm|mp3|wav|pdf|zip|apk|css|js|mjs|map|woff2?|ttf|eot|json|txt|xml)$/i;
 
 app.use((req, res, next) => {
   // Solo manejar rutas que NO son API

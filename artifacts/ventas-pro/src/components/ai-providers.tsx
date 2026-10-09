@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { SecretInput } from "@/components/ui/secret-input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -208,13 +208,13 @@ export function AIProviders() {
             Clave ({p.envKey})
           </Label>
           <div className="flex gap-2">
-            <Input
-              type="password"
-              autoComplete="off"
-              placeholder={p.tieneClave ? "•••••••• (guardada — escribe otra para cambiarla)" : "Pega aquí tu clave"}
+            <SecretInput
+              guardado={p.tieneClave}
+              placeholder="Pega aquí tu clave"
               value={claves[p.id] || ""}
-              onChange={(e) => setClaves((c) => ({ ...c, [p.id]: e.target.value }))}
-              className="font-mono text-xs min-w-0"
+              onChange={(v) => setClaves((c) => ({ ...c, [p.id]: v }))}
+              wrapperClassName="flex-1 min-w-0"
+              className="text-xs"
             />
             <Button size="sm" disabled={guardando === p.id || !claves[p.id]} onClick={() => guardar(p.id)}>
               {guardando === p.id ? <Loader2 className="h-4 w-4 animate-spin" /> : "Guardar"}

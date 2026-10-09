@@ -134,6 +134,7 @@ export type Seccion =
 export type Efecto =
   | { tipo: "pago_reportado"; medio?: string; referencia?: string }
   | { tipo: "escalar"; motivo: string }
+  | { tipo: "pregunta_al_dueno"; pregunta: string; productoId: number | null }
   | { tipo: "dato"; campo: string; valor: string };
 
 export interface ContextoHerramientas {
@@ -217,6 +218,8 @@ export interface ServicioDePedidos {
   confirmar(): Promise<ResultadoConfirmarPedido>;
   /** Seguimiento: el último pedido de esta conversación y lo que dice Dropi de él. */
   estado?(): Promise<{ hay: boolean; texto: string }>;
+  /** El cliente pide cancelar: se cancela de verdad o se avisa al dueño. */
+  cancelar?(): Promise<{ ok: boolean; texto: string }>;
   /**
    * Transportadoras que llegan a la ciudad del cliente (si la tiene) o a la
    * que se le pase. Nombres reales del proveedor: el bot ofrece la lista y el
@@ -513,7 +516,30 @@ export const definicionesDeHerramientas = [
       name: "estado_de_mi_pedido",
       description:
         "SEGUIMIENTO de un pedido YA hecho: cuando el cliente pregunta dónde va, cuándo llega, la guía o la transportadora. " +
-        "Trae el estado real (de la base y de Dropi). Nunca inventes una guía ni una fecha.",
+        "Trae el estado real (de la base y de Dropi). Si el pedido había quedado frenado, lo reintenta en el acto. Nunca inventes una guía ni una fecha.",
+      parameters: { type: "object", properties: {} },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "guia_de_tallas",
+      description:
+        "Preguntas de TALLA o medida (qué talla me sirve, peso X kg, mido Y, ¿me queda?, ¿es ajustable?). " +
+        "Trae la tabla REAL de la ficha, las tallas que existen y si es ajustable, para razonar la recomendación. Úsala antes de decir 'lo confirmo'.",
+      parameters: {
+        type: "object",
+        properties: { productoId: { type: "number", description: "Si no lo pasás, el producto en foco." } },
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "cancelar_mi_pedido",
+      description:
+        "El cliente pide CANCELAR un pedido que ya hizo. Lo cancela de verdad si todavía no salió a Dropi, o avisa al dueño si ya está allá. " +
+        "Nunca digas que quedó cancelado sin llamar esta herramienta.",
       parameters: { type: "object", properties: {} },
     },
   },
@@ -542,6 +568,25 @@ export const definicionesDeHerramientas = [
           referencia: { type: "string", description: "Número de referencia, si lo mandó." },
         },
         required: [],
+      },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "preguntar_al_dueno",
+      description:
+        "Le pasa al DUEÑO una pregunta del cliente que NO se puede responder con la ficha, los hechos del " +
+        "negocio ni la lógica (ej. '¿tienen tienda física?' sin dato cargado). El dueño la recibe y su respuesta " +
+        "queda guardada para siempre. Úsala SOLO después de consultar_conocimiento y solo si no la pudiste " +
+        "responder razonando; no la uses para dudas del producto que se responden con criterio general.",
+      parameters: {
+        type: "object",
+        properties: {
+          pregunta: { type: "string", description: "La pregunta del cliente, corta y clara." },
+          productoId: { type: "number", description: "Si es sobre un producto concreto." },
+        },
+        required: ["pregunta"],
       },
     },
   },
@@ -1185,17 +1230,30 @@ export const ejecutores: Record<string, Ejecutor> = {
       // inventar. Ver __tests__/razonar-sin-respuesta-cargada.test.ts.
       const producto = enFoco ? ctx.catalogo.find((p) => p.id === enFoco) : null;
       const puntos = producto ? puntosDeLaFicha(producto) : [];
+      // Los HECHOS del negocio (pago, envío, cobertura, plazos, datos que cargó
+      // el dueño) van acá: muchas preguntas "fuera del tema" se responden con
+      // lógica de negocio a partir de ellos (07-10, pedido del dueño: "le hacen
+      // preguntas que no son directas del tema pero que sí se pueden responder
+      // con lógica de negocio, y las omite o no sabe qué decir"). Antes solo le
+      // llegaba la ficha, y la regla final le prohibía decir que lo consultaba.
+      const hechos = [...(ctx.guion?.hechos ?? []), ...(ctx.guion?.datosDelNegocio ?? [])].filter(Boolean).slice(0, 10);
       return {
         ok: true,
         mensaje:
           `El dueño no cargó nada sobre "${pregunta}". ` +
           (puntos.length ? `Lo que dice la ficha de ${producto!.name}: ${puntos.join(" · ")}. ` : "") +
-          `Responde RAZONANDO: afirma lo que diga la ficha o los datos del negocio; lo que sepas de cómo funciona ` +
-          `este TIPO de producto dilo como criterio general ("en general, las cámaras que van conectadas…"), nunca ` +
-          `como una característica de este modelo. Si es una condición comercial (garantía, devolución, descuento, ` +
-          `stock, plazo) y no está cargada, no la afirmes. Si la respuesta depende de un dato que no tienes, dilo con ` +
-          `honestidad en una frase y sigue ayudando. No prometas que alguien del equipo le va a responder: nadie ` +
-          `recibe esa pregunta.`,
+          (hechos.length ? `Hechos del negocio: ${hechos.join(" · ")}. ` : "") +
+          `Responde RAZONANDO y responde SIEMPRE algo útil:\n` +
+          `1) Lo que digan la ficha o los hechos, afírmalo.\n` +
+          `2) Lo que se DEDUCE de esos hechos, dilo como consecuencia lógica (ej.: si es contraentrega, "pagas cuando ` +
+          `te llega, y si no estás puede recibirlo y pagarlo quien esté en casa"; si el envío es a todo el país, la ` +
+          `respuesta a "¿llega a mi pueblo?" sale de ahí).\n` +
+          `3) Lo que sepas de cómo funciona este TIPO de producto, dilo como criterio general ("en general…"), nunca ` +
+          `como característica de este modelo.\n` +
+          `4) Una condición comercial (garantía, devolución, descuento, stock, plazo) que no está cargada: no la afirmes.\n` +
+          `Si aun así la respuesta depende de un dato del negocio que no tienes, llama preguntar_al_dueno y dile al ` +
+          `cliente en una frase que ya se lo consultaste al equipo y que le confirmas por acá; y sigue ayudando con lo ` +
+          `demás. Nunca lo dejes sin respuesta ni cambies de tema.`,
       };
     }
 
@@ -1260,6 +1318,38 @@ export const ejecutores: Record<string, Ejecutor> = {
     const r = await ctx.pedidos.estado();
     if (!r.hay) return { ok: true, mensaje: "Esta conversación no tiene ningún pedido hecho. Pregúntale con qué nombre o número lo hizo, sin inventar." };
     return { ok: true, mensaje: `${r.texto} Díselo con tus palabras; si no hay guía todavía, dile que se la pasas apenas la transportadora la asigne.` };
+  },
+
+  async guia_de_tallas(ctx, args) {
+    const id = Number(args?.productoId) || ctx.focoFijo || ctx.estado.productoEnFoco;
+    const p = id ? ctx.catalogo.find((x) => x.id === id) : null;
+    if (!p) return { ok: false, mensaje: "No sé de qué producto pregunta la talla. Ubícalo con buscar_en_catalogo o enfocar_producto." };
+    const { lineasDeTallas, esAjustable, medidasDelTexto, mensajeDeTallas } = await import("./guia-de-tallas");
+    const conocimiento = (ctx.conocimiento || [])
+      .filter((k) => (k.productId == null || k.productId === p.id) && k.respuesta)
+      .map((k) => `${k.pregunta}: ${k.respuesta}`);
+    const fuentes = [
+      p.description,
+      ...(p.caracteristicas || []),
+      ...((p.preguntas || []).map((q) => `${q.p}: ${q.r}`)),
+      ...conocimiento,
+    ];
+    marcarPaso(ctx.estado, `tallas_${p.id}`);
+    return mensajeDeTallas({
+      nombre: p.name,
+      opciones: (p.opciones || []).filter(Boolean),
+      lineas: lineasDeTallas(fuentes),
+      ajustable: esAjustable(fuentes),
+      medidas: medidasDelTexto(ctx.mensajeDelCliente || ""),
+    });
+  },
+
+  async cancelar_mi_pedido(ctx) {
+    if (!ctx.pedidos?.cancelar) {
+      return { ok: false, mensaje: "No puedo cancelar pedidos desde acá. Usa escalar_a_humano y dile que una persona le confirma la cancelación. No digas que ya quedó cancelado." };
+    }
+    const r = await ctx.pedidos.cancelar();
+    return { ok: r.ok, mensaje: r.texto };
   },
 
   async tomar_pedido(ctx, args) {
@@ -1492,6 +1582,20 @@ export const ejecutores: Record<string, Ejecutor> = {
     };
   },
 
+  preguntar_al_dueno(ctx, { pregunta, productoId }) {
+    const q = String(pregunta || "").trim().slice(0, 240);
+    if (!q) return { ok: false, mensaje: "Falta la pregunta del cliente." };
+    const pid = Number(productoId) || ctx.estado.productoEnFoco || null;
+    ctx.efectos.push({ tipo: "pregunta_al_dueno", pregunta: q, productoId: pid ?? null });
+    return {
+      ok: true,
+      mensaje:
+        `Pregunta enviada al dueño ("${q}"); su respuesta queda guardada para las próximas veces. Dile al ` +
+        `cliente en UNA frase que ya lo consultaste con el equipo y que le confirmas por acá, sin prometer un ` +
+        `tiempo exacto, y sigue ayudando con lo que sí sabes.`,
+    };
+  },
+
   escalar_a_humano(ctx, { motivo }) {
     ctx.estado.etapa = "escalado";
     ctx.estado.escalado = { motivo: String(motivo || "sin motivo"), at: ahora() };
@@ -1680,7 +1784,11 @@ export function esConfirmacionBreve(mensaje: string): boolean {
     .replace(/\s+/g, " ")
     .trim();
   if (!t || t.includes("?") || esDudaONegativa(t)) return false;
-  return /^(si+|s+|sip|sep|dale|listo|de una|ok|okay|okey|oki|va|bueno|claro|hagale|hagamole|perfecto|confirmo)$/.test(t);
+  // Un "sí" puede venir acompañado: "sii claro", "sí por favor", "dale de una"
+  // (venta real 05-10: "Sii claro" a "¿lo programamos?" no contaba como sí y
+  // el bot volvió a preguntar tres veces; el cliente volvió al otro día).
+  const SI = "(si+|s+|sip|sep|dale|listo|de una|ok|okay|okey|oki|va|bueno|claro|hagale|hagamole|perfecto|confirmo|por favor|porfa|seguro|obvio|of course|de acuerdo|esta bien)";
+  return new RegExp(`^${SI}( ${SI})*$`).test(t);
 }
 
 /**

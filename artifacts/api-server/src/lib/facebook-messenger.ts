@@ -1,6 +1,6 @@
 import { logger } from "./logger";
 import { db, conversations, messages, leads, tenants, products } from "@workspace/db";
-import { eq, desc } from "drizzle-orm";
+import { and, eq, desc } from "drizzle-orm";
 import { runAgentReply } from "./agent";
 import { toEmojiStyle } from "./conversation-engine";
 import { tenantManager, type TenantContext } from "./tenantManager";
@@ -8,6 +8,7 @@ import { respaldoEnvFacebook } from "./tenant-facebook-credentials";
 import { createHmac } from "crypto";
 
 import { FB_GRAPH_BASE } from "./meta-api-version";
+import { CAMPOS_WEBHOOK_PAGINA } from "./meta-campos-webhook";
 const FB_GRAPH_URL = FB_GRAPH_BASE;
 
 export interface FacebookPageToken {
@@ -174,23 +175,40 @@ export class FacebookMessengerService {
     } catch {}
   }
 
+  /**
+   * Un mensaje entrante de Messenger o de Instagram Direct.
+   *
+   * Los dos llegan por la Messenger Platform y se contestan con el MISMO
+   * token de página por `/me/messages`; lo único que cambia es el prefijo del
+   * contacto (`fb:` / `ig:`) y el canal de la conversación.
+   *
+   * `tenantId` ya no vale 1 por defecto: el webhook nunca lo pasaba, así que
+   * los mensajes de la página de CUALQUIER negocio se guardaban en el negocio
+   * 1. Ahora el webhook lo resuelve por la página que recibió el mensaje (ver
+   * meta-webhook-pagina.ts) y este servicio se construye con ESE negocio.
+   */
   async handleIncomingMessage(
     psid: string,
     text: string,
     senderName: string,
-    tenantId: number = 1
+    tenantId: number = this.tenant.id,
+    canal: "facebook" | "instagram" = "facebook",
   ): Promise<string | null> {
     const { pageAccessToken } = this.getConfig();
-    if (!pageAccessToken) return null;
-
-    await this.setTyping(psid, "typing_on");
+    if (!pageAccessToken) {
+      logger.warn({ tenantId, canal }, "[FB-Messenger] El negocio no tiene token de página: el mensaje no se puede contestar");
+      return null;
+    }
 
     let conversationId: number;
+    const contacto = `${canal === "instagram" ? "ig" : "fb"}:${psid}`;
 
+    // Por negocio: buscar solo por contacto era otra puerta para mezclar
+    // conversaciones entre clientes de la plataforma.
     const existing = await db
       .select()
       .from(conversations)
-      .where(eq(conversations.contactPhone, `fb:${psid}`))
+      .where(and(eq(conversations.contactPhone, contacto), eq(conversations.tenantId, tenantId)))
       .orderBy(desc(conversations.createdAt))
       .limit(1);
 
@@ -200,19 +218,19 @@ export class FacebookMessengerService {
       const [lead] = await db.insert(leads).values({
         tenantId,
         name: senderName,
-        phone: `fb:${psid}`,
-        source: "facebook_messenger",
+        phone: contacto,
+        source: canal === "instagram" ? "instagram_direct" : "facebook_messenger",
         stage: "new",
       }).returning();
 
       const [convo] = await db.insert(conversations).values({
         tenantId,
         contactName: senderName,
-        contactPhone: `fb:${psid}`,
+        contactPhone: contacto,
         status: "ai",
         currentStage: "greeting",
         leadId: lead.id,
-        channel: "facebook_messenger",
+        channel: canal === "instagram" ? "instagram" : "facebook_messenger",
       }).returning();
       conversationId = convo.id;
     }
@@ -223,6 +241,13 @@ export class FacebookMessengerService {
       content: text,
     });
 
+    // Una persona tomó la conversación desde el panel: el bot no contesta.
+    // Es la misma regla del orquestador de WhatsApp; en Messenger no existía.
+    const [estado] = await db.select({ status: conversations.status }).from(conversations)
+      .where(eq(conversations.id, conversationId)).limit(1);
+    if (String(estado?.status || "") === "human") return null;
+
+    await this.setTyping(psid, "typing_on");
     const reply = await runAgentReply(conversationId);
 
     await this.setTyping(psid, "typing_off");
@@ -251,6 +276,35 @@ export class FacebookMessengerService {
     return reply?.content || null;
   }
 
+  /**
+   * La cuenta de Instagram profesional vinculada a la página, o null.
+   *
+   * Los eventos de Instagram traen en `entry.id` el id de ESA cuenta, no el de
+   * la página; para saber de qué negocio son hay que preguntarle a la página
+   * cuál es su Instagram. Se cachea una hora: cambia solo si el negocio
+   * vincula otra cuenta.
+   */
+  async cuentaDeInstagram(): Promise<string | null> {
+    const { pageAccessToken, pageId } = this.getConfig();
+    if (!pageAccessToken || !pageId) return null;
+    const clave = `${this.tenant.id}:${pageId}`;
+    const guardada = CACHE_INSTAGRAM.get(clave);
+    if (guardada && guardada.hasta > Date.now()) return guardada.id;
+    try {
+      const res = await fetch(
+        `${FB_GRAPH_URL}/${pageId}?fields=instagram_business_account&access_token=${pageAccessToken}`,
+        { signal: AbortSignal.timeout(10000) },
+      );
+      const data: any = await res.json();
+      const id = data?.instagram_business_account?.id ? String(data.instagram_business_account.id) : null;
+      CACHE_INSTAGRAM.set(clave, { id, hasta: Date.now() + 60 * 60_000 });
+      return id;
+    } catch (err) {
+      logger.warn({ err, tenantId: this.tenant.id }, "[FB-Messenger] No se pudo leer la cuenta de Instagram de la página");
+      return null;
+    }
+  }
+
   async getSubscribedApps(): Promise<string[]> {
     const { pageAccessToken } = this.getConfig();
     if (!pageAccessToken) return [];
@@ -274,9 +328,17 @@ export class FacebookMessengerService {
     const { pageAccessToken } = this.getConfig();
     if (!pageAccessToken) return false;
     try {
+      // Sin `subscribed_fields` Graph rechaza la suscripción de la página
+      // ("(#100) The parameter subscribed_fields is required"): el botón
+      // "Suscribir" del panel no podía funcionar. Y la lista va COMPLETA
+      // porque cada POST reemplaza la anterior (ver meta-campos-webhook.ts).
       const res = await fetch(
         `${FB_GRAPH_URL}/me/subscribed_apps?access_token=${pageAccessToken}`,
-        { method: "POST", headers: { "Content-Type": "application/json" } }
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subscribed_fields: CAMPOS_WEBHOOK_PAGINA.join(",") }),
+        }
       );
       const data = await res.json();
       if (data.error) {
@@ -310,5 +372,7 @@ export class FacebookMessengerService {
     }
   }
 }
+
+const CACHE_INSTAGRAM = new Map<string, { id: string | null; hasta: number }>();
 
 export const facebookMessengerService = new FacebookMessengerService();

@@ -18,6 +18,7 @@
  *   confirme por el mismo camino que ya existe (`isApproval` +
  *   `executeAction` en `routes/code-agent.ts`, sin tocar).
  */
+import { redactarSecretos } from "./secretos";
 import { db, architectMemory, type ArchitectMemory } from "@workspace/db";
 import {
   executeAction,
@@ -66,6 +67,23 @@ const EXCLUDED_FROM_MCP = new Set<string>(["research_start", "research_check", "
  * nombre -- que es lo que evita el otro fallo conocido, Atlas diciendo "no
  * tengo cómo" sobre algo que sí puede.
  */
+/**
+ * El contrato recortado SIN perder ningún nombre de campo.
+ *
+ * 08-10: el corte seco a 200 caracteres caía en la explicación de `objetivo`
+ * de crear_anuncio, y `formato`, `edadMin`, `edadMax`, `ciudades` (que van
+ * detrás) nunca le llegaban al modelo. Lo crítico de cada contrato va PRIMERO (crear_anuncio: objetivo, formato, edades, ciudades): el admin pedía carrusel y 25-55 en seis
+ * ciudades, Atlas lo prometía, y la acción salía sin esos datos. Primero se
+ * sacan las explicaciones entre paréntesis y tras guion largo (los nombres,
+ * tipos y enums quedan todos); recién si sigue largo se corta.
+ */
+export function contratoQueEntra(contrato: string, max = 200): string {
+  if (contrato.length <= max) return contrato;
+  const sinExplicaciones = contrato.replace(/\s*\([^()]*\)/g, "").replace(/\s+—[^,}]*/g, "");
+  if (sinExplicaciones.length <= max) return sinExplicaciones;
+  return sinExplicaciones.slice(0, max) + " …}";
+}
+
 const CONTRATO_COMPLETO = new Set<string>([
   // Anuncios: `crear_anuncio` hace el trabajo entero y es donde viaja el
   // `objetivo` que decide si el anuncio va a WhatsApp o a la web -- el dato
@@ -73,6 +91,8 @@ const CONTRATO_COMPLETO = new Set<string>([
   "crear_anuncio",
   "fb_upload_draft_to_meta",
   "fb_create_ad",
+  // 08-10: sin contrato adivinaba los nombres de edades y ciudades.
+  "fb_segmentacion_editar",
   // Productos y agente: los otros lugares donde un campo mal nombrado
   // termina en un plan que el admin aprueba y falla después.
   "create_product",
@@ -90,6 +110,21 @@ const CONTRATO_COMPLETO = new Set<string>([
  */
 const TOOL_SCHEMAS: Record<string, object> = {
   agenda_ver: { type: "object", properties: {} },
+  plan_de_lanzamiento: {
+    type: "object",
+    properties: {
+      producto: { type: "string", description: "Nombre del producto tal como lo dijo el admin" },
+      productId: { type: "number", description: "Id del catálogo, si ya lo tenés" },
+      presupuestoDiario: { type: "number", description: "Solo si el admin lo dijo (COP por día)" },
+    },
+    additionalProperties: false,
+  },
+  lanzamiento_estado: {
+    type: "object",
+    properties: { productId: { type: "number", description: "Id del producto" } },
+    required: ["productId"],
+    additionalProperties: false,
+  },
   landing_forge_pendientes: { type: "object", properties: {} },
   // ── Diagnóstico del vendedor de WhatsApp ────────────────────────────────────
   // Esquemas explícitos y no el genérico permisivo: son las herramientas que
@@ -640,7 +675,24 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
       // Meta: si `subirAMeta` no va, esto guarda un borrador local y el
       // objetivo todavía no decide nada. Anunciar un destino ahí sería
       // prometer algo que este paso no hace.
-      return `📢 Crear el anuncio de "${valorLegible(g.producto, 60)}" con $${Number(g.dailyBudget || 0).toLocaleString("es-CO")}/día — el sistema busca el producto, escribe el copy con sus datos reales, lo valida y guarda el borrador${g.subirAMeta === true ? `, y ADEMÁS crea la campaña en Meta EN PAUSA (no gasta hasta que la actives)\n   ➡️ Destino: ${destinoLegible(g.objetivo)}` : " (no toca Meta)"}`;
+      {
+        // Lo que se APRUEBA tiene que mostrar el formato y a quién se muestra:
+        // el 07-10 Atlas prometió "carrusel, 25-55, 6 ciudades" en su texto y
+        // el plan (sin esos datos) se aprobó igual: una imagen, 18-65, todo
+        // el país. Si no van en la acción, el plan lo dice.
+        const fmt = String(g.formato || "").toLowerCase();
+        const ciudades = Array.isArray(g.ciudades) ? g.ciudades : typeof g.ciudades === "string" ? String(g.ciudades).split(",") : [];
+        const edades = g.edadMin || g.edadMax ? `${g.edadMin ?? 18}–${g.edadMax ?? 65} años` : "";
+        const quien = [edades, g.generos && g.generos !== "todos" ? String(g.generos) : "", ciudades.length ? `en ${ciudades.map((c: unknown) => String(c).trim()).join(", ")}` : ""].filter(Boolean).join(" · ");
+        return `📢 Crear el anuncio de "${valorLegible(g.producto, 60)}" con $${Number(g.dailyBudget || 0).toLocaleString("es-CO")}/día — el sistema busca el producto, escribe el copy con sus datos reales, lo valida y guarda el borrador${g.subirAMeta === true ? `, y ADEMÁS crea la campaña en Meta EN PAUSA (no gasta hasta que la actives)\n   ➡️ Destino: ${destinoLegible(g.objetivo)}` : " (no toca Meta)"}` +
+          `\n   🖼️ Formato: ${fmt === "carrusel" ? "carrusel con las fotos reales del producto" : fmt === "imagen" ? "una sola imagen" : "el de siempre (no se pidió formato)"}` +
+          `\n   🎯 Se muestra a: ${quien || "lo que Meta decida (no se pidió edades ni ciudades)"}`;
+      }
+    case "fb_segmentacion_editar": {
+      const ciudades = Array.isArray(g.ciudades) ? g.ciudades : typeof g.ciudades === "string" ? String(g.ciudades).split(",") : [];
+      const partes = [g.edadMin || g.edadMax ? `${g.edadMin ?? "?"}–${g.edadMax ?? "?"} años` : "", g.generos ? String(g.generos) : "", ciudades.length ? `en ${ciudades.join(", ")}` : "", g.advantagePlus !== undefined ? `Advantage+ ${g.advantagePlus ? "encendido" : "apagado"}` : ""].filter(Boolean);
+      return `🎯 Corregir A QUIÉN se muestra el anuncio ${g.draftId ? `(borrador ${g.draftId})` : g.adSetId ? `(conjunto ${g.adSetId})` : ""} en Meta: ${partes.join(" · ") || "?"} — cambia en vivo un anuncio que puede estar gastando`;
+    }
     case "fb_ad_draft":
       // El TEXTO REAL va en el plan, no solo "generar borrador para el
       // producto 76".
@@ -699,6 +751,8 @@ export function describePlannedAction(a: { tool: string; args: any }): string {
    NO gasta: queda pausado hasta que lo actives`;
     case "fb_delete_campaign":
       return `🗑️ BORRAR de Facebook la campaña ${g.campaignId ?? "?"} — se van también sus conjuntos y anuncios. IRREVERSIBLE, no hay papelera${g.borrarAunqueTengaGasto === true ? ", y se pierde su historial de resultados" : ""}`;
+    case "fb_borrar_borrador":
+      return `🗑️ BORRAR el borrador ${g.draftId ?? "?"} (y su campaña en Meta, si ya estaba subido). IRREVERSIBLE${g.borrarAunqueTengaGasto === true ? ", y se pierde su historial de resultados" : ""}`;
     case "fb_set_ad_account":
       return `🔁 Cambiar la cuenta publicitaria activa a ${g.adAccountId ?? "?"} — los anuncios nuevos se crean ahí. No gasta`;
     case "fb_pause_campaign":
@@ -1059,7 +1113,11 @@ async function proposeAction(
     summary:
       `PROPUESTA REGISTRADA — TODAVÍA NO SE EJECUTÓ NADA. No existe ningún cambio en el sistema en este momento. ` +
       `Lo único que pasó es que "${tool}" quedó anotada, esperando que el admin la apruebe; recién ahí se ejecuta de verdad. ` +
-      `Al responderle, NO digas que quedó guardado, creado, publicado ni listo: decile qué preparaste y pedile que lo confirme. ` +
+      // "pedile que lo confirme" (así decía hasta el 07-10-2026) hacía que el
+      // modelo cerrara con su propio "¿Confirmás…?" arriba del que agrega el
+      // servidor debajo del plan: dos preguntas seguidas en cada propuesta.
+      `Al responderle, NO digas que quedó guardado, creado, publicado ni listo: decile en una o dos líneas qué preparaste. ` +
+      `NO cierres preguntando si confirma: el sistema le muestra el plan y le hace esa pregunta. ` +
       `Acción en espera: ${description}`,
   };
 }
@@ -1253,6 +1311,13 @@ const NUCLEO = new Set<string>([
 
 const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
   {
+    // ── Un plan grande: "armame un plan para lanzar X" ───────────────────
+    // Ver lib/plan-de-lanzamiento.ts. Va con el catálogo para poder ubicar el
+    // producto y con el estado del lanzamiento para no repetir lo hecho.
+    patron: /\bplan\b|lanz|lanzamiento|qu[eé] hago para vender|c[oó]mo (lo )?vendo/i,
+    herramientas: ["plan_de_lanzamiento", "list_products", "lanzamiento_estado", "dropi_margen"],
+  },
+  {
     // ── La agenda: "programá", "a las 8", "mañana", "cada noche" ─────────
     patron: /program|agend|reprogram|a las \d|mañana|manana|cada (?:noche|día|dia|mañana|lunes)|en \d+ (?:min|hora)/i,
     herramientas: ["agenda_ver"],
@@ -1282,8 +1347,19 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // `web_search`/`web_fetch` no hace falta listarlas: están en el NÚCLEO y
     // viajan siempre. Eso cubre el caso que reportó el admin en su momento,
     // cuando un pedido de anuncio moría con "todavía no investigaste nada".
-    patron: /facebook|anuncio|campa|meta|ads?\b|publicit|p[uú]blico|audiencia|creativ/i,
+    // 08-10: "anucio", "anucioso", "anunsio" (como escribe el dueño) no
+    // entraban con /anuncio/ y el pedido viajaba sin herramientas de anuncios.
+    patron: /facebook|an?un?n?[cs]i|anucio|campa|meta|ads?\b|publicit|p[uú]blico|audiencia|creativ/i,
     herramientas: ["fb_status", "fb_pixel_status", "fb_suggest_audience", "fb_list_drafts", "fb_page_can_post", "fb_page_preview", "anuncio_datos_expertos"],
+  },
+  {
+    // ── Anuncios: ELIMINAR / PAUSAR / LIMPIAR ────────────────────────────
+    // 08-10, producción: "Elimina todos los anuncios en Meta" → Atlas
+    // contestó tres veces "no tengo acceso al listado de campañas / necesito
+    // el identificador". fb_list_campaigns no viajaba en ningún grupo de
+    // acción: podía borrar (fb_delete_campaign) pero no ver QUÉ borrar.
+    patron: /(elimin|borr|quit|pausa|apag|desactiv|det[eé]n|limpi|reemplaz)[\s\S]{0,80}(an?un?n?[cs]i|anucio|campa|meta\b|facebook|ads?\b)|(an?un?n?[cs]i|anucio|campa)[\s\S]{0,80}(elimin|borr|quit|pausa|apag|desactiv|limpi)/i,
+    herramientas: ["fb_list_campaigns", "fb_campaign_metrics", "fb_list_adsets", "fb_list_drafts"],
   },
   {
     // ── Anuncios: VER LA PROPUESTA ANTES DE GASTAR ───────────────────────
@@ -1326,7 +1402,14 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // Un "¿cómo va mi campaña de Facebook?" matchea los dos grupos y recibe la
     // unión, que es lo correcto: ahí sí hacen falta las dos mitades.
     patron: /m[eé]trica|rendimiento|resultado|c[oó]mo va|c[oó]mo est[aá]|gast|roas|cpa|cpc|conversion|analiz|diagn[oó]stic|atribuci|aprendiz|optimiz|competencia|competidor|estructura|configur|armad|replic|como (las|los) (que|activ)|en pausa|pausad/i,
-    herramientas: ["fb_campaign_metrics", "fb_list_adsets", "fb_agent_logs", "fb_ad_library", "embudo_de_ventas", "marketing_attribution", "marketing_diagnostico", "marketing_aprendizajes", "ad_brief", "fb_radiografia_campana", "metodo_de_venta"],
+    herramientas: ["fb_campaign_metrics", "fb_list_adsets", "fb_agent_logs", "fb_ad_library", "embudo_de_ventas", "marketing_attribution", "marketing_diagnostico", "marketing_aprendizajes", "ad_brief", "fb_radiografia_campana", "metodo_de_venta", "fb_segmentacion_editar"],
+  },
+  {
+    // ── Anuncios: CORREGIR A QUIÉN SE MUESTRA ─────────────────────────────
+    // 08-10: el anuncio salió 18-65 a todo el país y Atlas dijo "no tengo
+    // habilitada la edición de a quién se le muestra el anuncio". Sí la hay.
+    patron: /segment|ciudad|edad|rango de edad|p[uú]blico|a qui[eé]n se (le )?muestra|corrig|cambi[aá] (las|los) (ciudades|edades)/i,
+    herramientas: ["fb_segmentacion_editar", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics"],
   },
   {
     // El método de venta (curso condensado el 01-10-2026): cómo pautar,
@@ -1605,8 +1688,7 @@ export function buildMcpToolRegistry(pedido?: string): McpToolDef[] {
       //
       // Por debajo de 200 se ahorran ~100 tokens y se pierde justamente el
       // dato por el que existe todo esto.
-      const contrato = String(t.args);
-      return `${t.name}: ${resumen}\n    args: ${contrato.length > 200 ? contrato.slice(0, 200) + " …}" : contrato}`;
+      return `${t.name}: ${resumen}\n    args: ${contratoQueEntra(String(t.args))}`;
     });
 
   const proposeTool: McpToolDef = {
@@ -1670,7 +1752,7 @@ const FAMILIAS_DE_CONSULTA: Array<{ tema: string; herramientas: string[] }> = [
   { tema: "Ventas y clientes", herramientas: ["embudo_de_ventas", "dashboard_summary", "list_recent_conversations", "list_pending_transfers", "list_duplicate_contacts", "predict_customer", "analyze_channel_performance"] },
   { tema: "WhatsApp y agente", herramientas: ["whatsapp_status", "get_agent", "configurar_mi_agente", "get_settings", "agente_inspectar", "agente_configurar", "agente_perfil_negocio", "agente_conocimiento", "agente_mensaje", "agente_probar_chat", "agente_disenar", "agente_probar_borrador", "vendedor_diagnosticar", "vendedor_motor_ver", "vendedor_probar"] },
   { tema: "Facebook Ads", herramientas: ["objetivos_de_campana", "fb_permisos_formularios", "fb_status", "fb_ad_accounts", "fb_list_campaigns", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics", "fb_why_not_delivering", "fb_page_can_post", "fb_page_preview", "fb_suggest_audience", "fb_pixel_status", "fb_ad_library", "fb_agent_logs", "que_hago_con_la_campana", "ad_brief"] },
-  { tema: "Marketing y contenido", herramientas: ["marketing_diagnostico", "marketing_aprendizajes", "marketing_attribution", "plan_de_contenido", "generate_image", "web_scrape_images"] },
+  { tema: "Marketing y contenido", herramientas: ["marketing_diagnostico", "marketing_aprendizajes", "marketing_attribution", "plan_de_contenido", "plan_de_lanzamiento", "generate_image", "web_scrape_images"] },
   { tema: "Investigacion", herramientas: ["web_search", "web_fetch", "deep_research", "research_start", "research_check"] },
   // Dropi: las DIRECTAS (token del negocio), no las del puente viejo. El resto
   // (margen, pedidos, radar) llega con el grupo de Dropi al nombrarlo.
@@ -1811,8 +1893,9 @@ export function herramientasPedidasAntes(tenantId: number, sessionId: string): s
  * solo formato, y una prueba que verifica que los dos la usan.
  */
 export function textoDelResultado(result: { ok: boolean; summary: string; data?: any }): string {
-  if (!result.ok) return `❌ ${result.summary}`;
-  return typeof result.data !== "undefined"
+  // Último filtro antes de que el texto llegue al modelo: ningún token completo.
+  if (!result.ok) return redactarSecretos(`❌ ${result.summary}`);
+  return redactarSecretos(typeof result.data !== "undefined"
     ? `${result.summary}\n\n${JSON.stringify(result.data)}`
-    : result.summary;
+    : result.summary);
 }

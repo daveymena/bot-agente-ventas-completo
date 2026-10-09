@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { SecretInput } from "@/components/ui/secret-input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,6 +8,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Loader2, CheckCircle2, Send } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { LogoMarca } from "@/components/logo-marca";
+import { DatoSensibleInput, ValorOculto } from "@/components/ui/dato-sensible";
 
 /**
  * Telegram como canal de avisos: pedidos, rechazos de Dropi, lanzamientos,
@@ -89,7 +91,7 @@ export function TelegramCredentials() {
           <Alert>
             <CheckCircle2 className="h-4 w-4" />
             <AlertDescription className="flex flex-wrap items-center justify-between gap-2">
-              <span><b>Conectado</b>{cfg.bot ? ` · ${cfg.bot}` : ""}{cfg.chatId ? ` · chat ${cfg.chatId}` : ""}{cfg.atlasEscucha ? " · Atlas responde por acá 💬" : ""}</span>
+              <span><b>Conectado</b>{cfg.bot ? ` · ${cfg.bot}` : ""}{cfg.chatId ? <> · chat <ValorOculto valor={cfg.chatId} /></> : ""}{cfg.atlasEscucha ? " · Atlas responde por acá 💬" : ""}</span>
               <span className="flex gap-2">
                 <Button size="sm" variant="outline" onClick={probar} disabled={ocupado === "probar"}>{ocupado === "probar" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Enviar prueba"}</Button>
                 <Button size="sm" variant="outline" onClick={quitar}>Quitar</Button>
@@ -100,12 +102,12 @@ export function TelegramCredentials() {
           <>
             <div className="space-y-1">
               <Label htmlFor="tg-token">Token del bot</Label>
-              <Input id="tg-token" value={token} onChange={(e) => setToken(e.target.value)} placeholder="123456789:AAH…" autoComplete="off" />
+              <SecretInput id="tg-token" value={token} onChange={setToken} guardado={!!cfg?.conectado} placeholder="123456789:AAH-tu-token" />
             </div>
             <div className="flex gap-2 flex-wrap items-end">
               <div className="space-y-1 flex-1 min-w-[200px]">
                 <Label htmlFor="tg-chat">Chat ID</Label>
-                <Input id="tg-chat" value={chatId} onChange={(e) => setChatId(e.target.value)} placeholder="Ej: 123456789 o -100…" autoComplete="off" />
+                <DatoSensibleInput id="tg-chat" value={chatId} onChange={(e) => setChatId(e.target.value)} placeholder="Ej: 123456789 o -100…" />
               </div>
               <Button variant="outline" onClick={descubrir} disabled={!token.trim() || ocupado === "descubrir"}>{ocupado === "descubrir" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Detectar mi chat"}</Button>
               <Button onClick={guardar} disabled={!token.trim() || !chatId.trim() || ocupado === "guardar"}>{ocupado === "guardar" ? <Loader2 className="h-4 w-4 animate-spin" /> : "Guardar y probar"}</Button>

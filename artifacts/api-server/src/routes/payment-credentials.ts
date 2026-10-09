@@ -1,3 +1,4 @@
+import { secretoNuevo } from "../lib/secretos";
 import { Router } from "express";
 import { z } from "zod";
 import { db, tenants } from "@workspace/db";
@@ -134,12 +135,12 @@ router.put("/credentials", async (req, res, next) => {
       nuevo.mercadopago = {
         ...prev,
         // Solo se pisa el token si mandaron uno nuevo y no vacío.
-        ...(mercadopago.accessToken
-          ? { accessToken: cifrarSecreto(mercadopago.accessToken.trim()) }
+        ...(secretoNuevo(mercadopago.accessToken)
+          ? { accessToken: cifrarSecreto(secretoNuevo(mercadopago.accessToken)!) }
           : {}),
         // Solo se pisa el secreto si mandaron uno nuevo y no vacío.
-        ...(mercadopago.webhookSecret
-          ? { webhookSecret: cifrarSecreto(mercadopago.webhookSecret.trim()) }
+        ...(secretoNuevo(mercadopago.webhookSecret)
+          ? { webhookSecret: cifrarSecreto(secretoNuevo(mercadopago.webhookSecret)!) }
           : {}),
         enabled: mercadopago.enabled ?? prev.enabled ?? true,
       };
@@ -150,8 +151,8 @@ router.put("/credentials", async (req, res, next) => {
       nuevo.paypal = {
         ...prev,
         ...(paypal.clientId !== undefined ? { clientId: paypal.clientId.trim() } : {}),
-        ...(paypal.clientSecret
-          ? { clientSecret: cifrarSecreto(paypal.clientSecret.trim()) }
+        ...(secretoNuevo(paypal.clientSecret)
+          ? { clientSecret: cifrarSecreto(secretoNuevo(paypal.clientSecret)!) }
           : {}),
         mode: paypal.mode ?? prev.mode ?? "live",
         enabled: paypal.enabled ?? prev.enabled ?? true,
@@ -198,13 +199,13 @@ router.post("/credentials/test", async (req, res, next) => {
     const cred = credencialesDe(tenant);
 
     if (proveedor === "mercadopago") {
-      const token = String(req.body?.accessToken || "").trim() || cred.mercadopago.accessToken;
+      const token = secretoNuevo(req.body?.accessToken) || cred.mercadopago.accessToken;
       return res.json(await probarMercadoPago(token));
     }
 
     if (proveedor === "paypal") {
       const clientId = String(req.body?.clientId || "").trim() || cred.paypal.clientId;
-      const clientSecret = String(req.body?.clientSecret || "").trim() || cred.paypal.clientSecret;
+      const clientSecret = secretoNuevo(req.body?.clientSecret) || cred.paypal.clientSecret;
       const mode = (req.body?.mode === "sandbox" ? "sandbox" : req.body?.mode === "live" ? "live" : cred.paypal.mode);
       return res.json(await probarPayPal(clientId, clientSecret, mode));
     }

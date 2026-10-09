@@ -29,6 +29,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { logger } from "../logger";
 import { registrarManejador, programar, type ContextoDeTrabajo } from "../programador";
 import { writeAuditLog } from "./audit";
+import { cuandoLaBaseEsteLista } from "../esperar-base";
 
 const TIPO_EJECUTAR = "marketing:ejecutar_aprobada";
 const TIPO_BARRIDO = "marketing:barrido_aprobadas";
@@ -70,6 +71,12 @@ export function registrarEjecutorDeTareas(): void {
  */
 export async function iniciarEjecutorDeTareas(): Promise<void> {
   registrarEjecutorDeTareas();
+  // Se llamaba al cargar app.ts, con la base todavía sin abrir: `programar`
+  // fallaba y el barrido NO se volvía a agendar nunca (no hay reintento), así
+  // que lo aprobado sin ejecutar quedaba sin quién lo levante. Log real del
+  // 07-10: "no se pudo agendar el barrido err: Cannot read properties of
+  // undefined (reading 'select')".
+  await cuandoLaBaseEsteLista();
   try {
     await programar({
       tenantId: 0,

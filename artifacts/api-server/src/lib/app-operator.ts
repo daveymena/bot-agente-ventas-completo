@@ -15,6 +15,7 @@
  * hasta que el modelo marca done:true (o se alcanza el límite de pasos).
  */
 
+import { redactarSecretos, sinSecretos } from "./secretos";
 import { db, products, productCategories, agents, settings, stores, tenants, conversations, messages, leads, architectMemory, facebookDrafts, payments, coupons, ensureDbReady, promptVersions as prompt_versions } from "@workspace/db";
 import { eq, desc, asc, and, or, gt, gte, sql, ilike, inArray } from "drizzle-orm";
 import { execSync } from "child_process";
@@ -642,9 +643,20 @@ export async function notaDeLandingsEnSegundoPlano(ctx: OperatorContext): Promis
   if (terminadas.length) {
     landingsPorAvisar.delete(clave);
     const { landingPages } = await import("@workspace/db");
+    let alguna = false;
     for (const id of terminadas) {
       const [l] = await db.select().from(landingPages).where(eq(landingPages.id, id)).limit(1);
-      if (l) partes.push(estadoDeGeneracion(l).texto);
+      if (!l) continue;
+      const estado = estadoDeGeneracion(l);
+      partes.push(estado.texto);
+      if (estado.estado === "lista") alguna = true;
+    }
+    // Trabajo REAL terminado: si el modelo dice "la landing quedó lista /
+    // actualizada", es verdad, y el candado de "ya lo hice" no lo desmiente
+    // (07-10-2026, ver atlas-cierre-del-turno.ts).
+    if (alguna) {
+      const { anotarTrabajoReal } = await import("./atlas-cierre-del-turno");
+      anotarTrabajoReal(ctx.tenantId, ctx.sessionId, ["landing"]);
     }
   }
   for (const [id, job] of landingsEnCurso) {
@@ -3985,7 +3997,9 @@ ${explicarObjetivos()}` };
           num(args.dailyBudget) || undefined,
           // Un borrador es un borrador: a Meta se sube una sola vez, con el
           // objetivo pedido (fb_upload_draft_to_meta / crear_anuncio).
-          { subirSolo: false },
+          // El objetivo viaja: decide la acción del texto y queda en la
+          // estrategia para que la subida vaya al mismo destino.
+          { subirSolo: false, objetivo: wa ? "mensajes" : (await import("./objetivos-campana")).interpretarObjetivo(String(args.objetivo || "")) || undefined },
         );
         // Que el admin sepa SIEMPRE sobre qué base se escribió el anuncio.
         // Si se hizo sin investigación externa (porque falló o no había), se
@@ -5129,7 +5143,7 @@ ${explicarObjetivos()}` };
   {
     name: "landing_crear",
     description:
-      "Genera una landing HTML del producto. Corre en segundo plano: devuelve el id NUEVO en estado generando; hasta que landing_estado diga lista no describas ninguna landing (menos una vieja). Borrador; publicar: landing_publicar. Va por propose_action.",
+      "Genera una landing HTML NUEVA del producto (nunca reutiliza una existente; para cambiar una que ya existe: landing_editar). Corre en segundo plano: devuelve el id NUEVO en estado generando; hasta que landing_estado diga lista no describas ninguna landing (menos una vieja). Borrador; publicar: landing_publicar. Va por propose_action.",
     args: '{ "productId": number (req), "estilo"?: "pro"|"clinico"|"libre", "instruccion"?: string, "familia"?: string (solo con estilo libre: premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura, launch, electronica, suplemento, gourmet) }',
     run: async (args, ctx) => {
       const id = num(args?.productId);
@@ -5202,7 +5216,7 @@ ${explicarObjetivos()}` };
   {
     name: "landing_forge_crear",
     description:
-      "Crea la landing en LandingForge, el generador bueno (https://landings.ventasproia.com, IA activa): extrae la ficha del producto, la IA ANALIZA primero (avatar, dolores, promesa, angulo para trafico frio de Facebook) y despues arma el copy de venta con AIDA + las fotos colocadas; devuelve URL publica + editor + exportar HTML. Antes de llamar, piensa el marketing con lo que sabes del producto (o preguntale al admin si falta): QUIEN la compra (avatar concreto), QUE le duele (3 dolores en su lenguaje), QUE promesa la vende y QUE prueba hay (precio, pago contra entrega, garantia). Manda todo eso en 'instruccion' con las palabras del admin; el forge lo convierte en copy que vende, no en una ficha descriptiva. La landing queda guardada y visible en landing_listar. Va por propose_action.",
+      "Crea una landing NUEVA en LandingForge (nunca devuelve una existente; si el admin pide CAMBIAR una que ya existe, usa landing_forge_editar), el generador bueno (https://landings.ventasproia.com, IA activa): extrae la ficha del producto, la IA ANALIZA primero (avatar, dolores, promesa, angulo para trafico frio de Facebook) y despues arma el copy de venta con AIDA + las fotos colocadas; devuelve URL publica + editor + exportar HTML. Antes de llamar, piensa el marketing con lo que sabes del producto (o preguntale al admin si falta): QUIEN la compra (avatar concreto), QUE le duele (3 dolores en su lenguaje), QUE promesa la vende y QUE prueba hay (precio, pago contra entrega, garantia). Manda todo eso en 'instruccion' con las palabras del admin; el forge lo convierte en copy que vende, no en una ficha descriptiva. La landing queda guardada y visible en landing_listar. Va por propose_action.",
     args: '{ "productId": number (req), "instruccion"?: string (BRIEF de marketing con las palabras del admin: quien la compra + que le duele + que promesa la vende + que prueba hay; mientras mas completo, mejor vende), "productUrl"?: string (ficha a extraer; si no, usa la del producto) }',
     run: async (args, ctx) => {
       const { landingPages } = await import("@workspace/db");
@@ -5814,6 +5828,84 @@ ${explicarObjetivos()}` };
     },
   },
   {
+    // Ver lib/plan-de-lanzamiento.ts: el plan sale de lo que el negocio YA
+    // tiene hecho, no de una lista genérica, y trae las acciones listas para
+    // proponer en una sola confirmación.
+    name: "plan_de_lanzamiento",
+    description:
+      "PLAN COMPLETO Y EJECUTABLE para lanzar/vender un producto: mira lo que ya existe (ficha, landing, paquete de lanzamiento, Facebook, presupuesto) y devuelve los pasos con su estado " +
+      "(✅ hecho · 🚀 lo hace el sistema ya · 🙋 decide el dueño · ⏳ después) y `accionesParaProponer`: pasalas TODAS a propose_action en el mismo turno y en ese orden. Solo LEE. " +
+      "Usala cuando pidan 'armame un plan para lanzar/vender X', 'qué hago para vender X', 'plan de lanzamiento'.",
+    args: '{ "producto"?: string (nombre como lo dijo el admin), "productId"?: number, "presupuestoDiario"?: number (solo si el admin lo dijo) }',
+    run: async (args, ctx) => {
+      const { armarPlanDeLanzamiento, planEnTexto, elegirProducto } = await import("./plan-de-lanzamiento");
+      const { landingPages } = await import("@workspace/db");
+      const suyos: any[] = await db
+        .select({ id: products.id, name: products.name, price: products.price, currency: products.currency, imageUrl: products.imageUrl, metadata: products.metadata })
+        .from(products)
+        .where(and(eq(products.tenantId, ctx.tenantId), eq(products.isActive, true)))
+        .limit(500);
+      const pedidoId = num(args?.productId);
+      let prod: any = pedidoId ? suyos.find((p) => p.id === pedidoId) || null : null;
+      if (!prod) {
+        const { elegido, candidatos } = elegirProducto(suyos, String(args?.producto || ""));
+        if (!elegido) {
+          return candidatos.length
+            ? { ok: false, summary: `Hay varios productos que coinciden: ${candidatos.map((c: any) => `[${c.id}] ${c.name}`).join(" · ")}. Preguntale al admin cuál (una línea) y volvé a llamar con productId.` }
+            : { ok: false, summary: `No encontré el producto "${String(args?.producto || pedidoId || "").slice(0, 80)}" entre los activos. Buscalo con list_products antes de decir que no existe.` };
+        }
+        prod = elegido;
+      }
+      let meta: any = {};
+      try { meta = typeof prod.metadata === "string" ? JSON.parse(prod.metadata) : (prod.metadata || {}); } catch { /* sin metadata */ }
+
+      const [landing] = await db
+        .select()
+        .from(landingPages)
+        .where(and(eq(landingPages.tenantId, ctx.tenantId), eq(landingPages.productId, prod.id)))
+        .orderBy(desc(landingPages.id))
+        .limit(1);
+      const borradores: any[] = await db
+        .select({ id: facebookDrafts.id, campaignId: facebookDrafts.campaignId })
+        .from(facebookDrafts)
+        .where(and(eq(facebookDrafts.tenantId, ctx.tenantId), eq(facebookDrafts.productId, prod.id)))
+        .orderBy(desc(facebookDrafts.id))
+        .limit(5)
+        .catch(() => []);
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      let facebookConectado = false;
+      try { facebookConectado = new FacebookService(tenant || undefined).isConfigured(); } catch { /* sin Facebook */ }
+
+      const plan = armarPlanDeLanzamiento({
+        producto: {
+          id: prod.id,
+          nombre: String(prod.name),
+          precio: Number(prod.price) || null,
+          moneda: prod.currency || null,
+          tieneFoto: !!String(prod.imageUrl || "").trim(),
+          esDropi: !!meta?.dropiProductId,
+        },
+        landing: landing ? { id: (landing as any).id, publicada: (landing as any).status === "published", url: (landing as any).publishedUrl || null } : null,
+        paqueteListo: !!meta?.lanzamiento,
+        facebookConectado,
+        presupuestoDiario: num(args?.presupuestoDiario) || null,
+        borradorSinSubir: borradores.find((b) => !b.campaignId)?.id ?? null,
+      });
+      const acciones = plan.accionesParaProponer;
+      return {
+        ok: true,
+        summary:
+          planEnTexto(String(prod.name), plan) +
+          (acciones.length
+            ? `\n\n[Para Atlas] Proponé AHORA con propose_action, en este orden: ${acciones.map((a) => `${a.tool} ${JSON.stringify(a.args)}`).join(" → ")}. Una sola confirmación del admin las ejecuta en cadena. Lo 🙋 nombralo como pendiente, sin preguntar.`
+            : "\n\n[Para Atlas] No hay nada que el sistema pueda ejecutar todavía: pedile al admin lo que está en 🙋, en UNA pregunta.") +
+          (plan.lecturasSugeridas.length ? ` Antes, corré: ${plan.lecturasSugeridas.map((l) => `${l.tool} ${JSON.stringify(l.args)}`).join(", ")}.` : ""),
+        data: { productId: prod.id, ...plan },
+      };
+    },
+  },
+  {
     name: "dropi_conectar",
     description: "Guarda y prueba el token de INTEGRACIÓN de Dropi de este negocio (Dropi → Mis Integraciones → token). Con él el bot trae el catálogo y crea los pedidos DIRECTO en Dropi, sin WooCommerce. Requiere confirmación.",
     args: '{ "token": string (req) }',
@@ -5974,10 +6066,11 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
   {
     name: "video_anuncio_crear",
     description: "Genera un VIDEO de anuncio vertical (1080×1920, 15–30 s) del producto con el motor propio: guion por escenas, fotos del producto con movimiento, B-roll real (Pexels, si hay clave), voz en off es-CO, precio, pago contraentrega y CTA. Corre en segundo plano (2–5 min) y avisa por WhatsApp/Telegram con el enlace. Crea un archivo → requiere confirmación.",
-    args: '{ "productId": number (req) }',
+    args: '{ "productId": number (req), "destino"?: "web"|"whatsapp" (a dónde lleva el anuncio que va a usar el video; cambia el cierre. Por defecto whatsapp) }',
     run: async (args, ctx) => {
       const id = num(args?.productId);
       if (!id) return { ok: false, summary: "Falta 'productId'." };
+      const destinoVideo = String(args?.destino || "").toLowerCase() === "web" ? "web" as const : "whatsapp" as const;
       const { generarVideoEnSegundoPlano, hayFfmpeg } = await import("./video-anuncio");
       if (!(await hayFfmpeg())) return { ok: false, summary: "El servidor no tiene ffmpeg todavía (falta el redeploy con el Dockerfile nuevo)." };
       const estado = generarVideoEnSegundoPlano(ctx.tenantId, id, async (r) => {
@@ -5987,7 +6080,7 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
             ? `🎬 *Video de anuncio listo* (${r.video.duracion}s, ${r.video.escenas} escenas${r.video.conBroll ? ", con clips reales" : ""})\n${r.video.url}`
             : `⚠️ No pude generar el video del producto ${id}: ${r.error}`);
         } catch { /* sin aviso */ }
-      });
+      }, { destino: destinoVideo });
       return { ok: true, summary: estado === "ya_en_curso" ? `🎬 El video del producto ${id} ya se está generando; en unos minutos llega el enlace.` : `🎬 Generando el video del producto ${id}: guion → escenas → voz → montaje. Tarda 2–5 minutos; te llega el enlace por WhatsApp/Telegram. Para consultarlo: video_anuncio_estado.` };
     },
   },
@@ -7138,10 +7231,10 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
   {
     name: "crear_anuncio",
     description:
-      "LA FORMA CORRECTA DE CREAR UN ANUNCIO. Hace TODO el trabajo de una sola vez: busca el producto por su nombre, arma el brief con sus datos reales, escribe el copy, lo valida y guarda el borrador. " +
+      "LA FORMA CORRECTA DE CREAR UN ANUNCIO; mensajes=WhatsApp, ventas/trafico=web; A/B web+WhatsApp=2 llamadas. Hace TODO el trabajo de una sola vez: busca el producto por su nombre, arma el brief con sus datos reales, escribe el copy, lo valida y guarda el borrador. " +
       "Usala SIEMPRE que te pidan un anuncio (\"anunciá mi curso\", \"creá un anuncio para X\") en vez de encadenar list_products + ad_brief + fb_ad_draft: eso son muchas idas y vueltas y el turno se corta antes de terminar. " +
       "Con esto solo tenés que pasar el nombre del producto tal como lo dijo el admin y el presupuesto. Todo lo demás lo resuelve el servidor.",
-    args: '{ "producto": string (req, como lo dijo el admin), "dailyBudget": number (req, diario), "destinoWeb"?: "landing"|"tienda", "objetivo"?: "ventas"|"trafico"|"mensajes"|"reconocimiento" (opcional pero IMPORTANTE — decide A DÓNDE va la gente y A QUIÉN le muestra Meta el anuncio: "mensajes" abre WhatsApp, "trafico" lleva a la web buscando clics, "ventas" lleva a la web buscando compradores. Si el admin dijo WhatsApp, mensajes, tráfico o alcance, PASALO; sin ese dato sale de ventas a la web, que es otra campaña distinta), "subirAMeta"?: boolean (por defecto false; si es true, además crea la campaña en Meta EN PAUSA), "nueva"?: boolean (solo si el admin pide EXPLÍCITAMENTE otra campaña aunque ya exista una del mismo producto al mismo destino), "ignorarMargen"?: boolean (solo si el admin, sabiendo que el producto pierde plata por pedido, pide anunciarlo igual) }',
+    args: '{ "producto": string (req, como lo dijo el admin), "dailyBudget": number (req, diario), "objetivo"?: "ventas"|"trafico"|"mensajes"|"reconocimiento" (IMPORTANTE: "mensajes"=WhatsApp, "trafico"/"ventas"=web; si el admin dijo WhatsApp/tráfico/alcance, PASALO. A/B web+WhatsApp = DOS llamadas), "formato"?: "carrusel"|"imagen", "edadMin"?: number, "edadMax"?: number, "ciudades"?: string[], "generos"?: "mujeres"|"hombres", "subirAMeta"?: boolean (por defecto false; si es true, además crea la campaña en Meta EN PAUSA), "destinoWeb"?: "landing"|"tienda", "intereses"?: string[] (formato y público acordados van ACÁ o no se aplican), "nueva"?: boolean (solo si pide EXPLÍCITAMENTE otra campaña igual a una existente), "ignorarMargen"?: boolean (solo si el admin, sabiendo que el producto pierde plata por pedido, pide anunciarlo igual) }',
     run: async (args, ctx) => {
       {
         const { rechazoPorObjetivoNoCreable } = await import("./objetivos-campana");
@@ -7159,8 +7252,15 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
       // Misma búsqueda por palabras que list_products: frase exacta primero,
       // y si no hay nada, palabras sueltas contra nombre y descripción.
       const soloTenant = eq(products.tenantId, ctx.tenantId);
-      let filas = await db.select().from(products).where(and(soloTenant, ilike(products.name, `%${texto}%`))).orderBy(products.id).limit(10);
-      if (filas.length === 0) {
+      // 08-10: Atlas mandó producto "155" (el id que dijo el admin) y la
+      // búsqueda por texto lo buscaba dentro de nombres y descripciones.
+      const porId = /^\d+$/.test(texto)
+        ? await db.select().from(products).where(and(soloTenant, eq(products.id, Number(texto)))).limit(1)
+        : [];
+      let filas = porId.length
+        ? porId
+        : await db.select().from(products).where(and(soloTenant, ilike(products.name, `%${texto}%`))).orderBy(products.id).limit(10);
+      if (filas.length === 0 && !/^\d+$/.test(texto)) {
         const VACIAS = new Set(["del", "las", "los", "una", "unos", "unas", "para", "por", "con", "que", "mis", "tus", "sus", "curso", "producto"]);
         const raices = (texto.toLowerCase().match(/[a-záéíóúñ0-9]{3,}/g) || [])
           .filter((w) => !VACIAS.has(w))
@@ -7260,9 +7360,45 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
       // ── 2. El brief lo arma el SERVIDOR ──────────────────────────────────
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
       const { construirBrief, puntuarCopy } = await import("./anuncio-inteligente");
+      // ── A DÓNDE va el anuncio, ANTES de escribirlo (07-10-2026) ─────────
+      // El copy pedía "una sola acción con 👉" sin saber el destino: el
+      // modelo escribía "Escríbenos por WhatsApp" y la subida lo mandaba a la
+      // landing. El objetivo pedido manda; sin pedido, la misma regla que la
+      // subida (landing publicada → tráfico; si no, mensajes). Y el enlace del
+      // brief es el que de verdad recibe el clic, no la `/p/:id` vieja.
+      const { interpretarObjetivo: leerObjetivo } = await import("./objetivos-campana");
+      const { destinoPorDefecto, enlaceParaVerElProducto } = await import("./landing/destino-del-producto");
+      const { destinoDeObjetivo, lineaDeAccion, planDeAnuncio, ajustarCopyAMeta, modeloDelProducto: modeloDe } = await import("./anuncio-por-modelo");
+      const objetivoFinal: string =
+        leerObjetivo(String(ctx.objetivoDelAdmin || "")) || leerObjetivo(String(args.objetivo || "")) ||
+        (await destinoPorDefecto(ctx.tenantId, prod.id, "mensajes").catch(() => ({ objetivo: "mensajes" as const }))).objetivo;
+      const destinoDelCopy = destinoDeObjetivo(objetivoFinal);
+      let condicionesNegocio: any = null;
+      let garantiaNegocio = false;
+      try {
+        const { getBusinessContext } = await import("./business-context");
+        const bc: any = await getBusinessContext(ctx.tenantId);
+        condicionesNegocio = bc?.condiciones ?? null;
+        garantiaNegocio = !!bc?.garantia;
+      } catch { /* sin contexto: el brief sale sin oferta del negocio */ }
+      const modeloDelProd = modeloDe(prod as any);
+      const accionExacta = lineaDeAccion(modeloDelProd, destinoDelCopy, condicionesNegocio?.envio?.pago);
+      const planDeRespaldo = planDeAnuncio(prod as any, condicionesNegocio, { destino: destinoDelCopy });
+      const enlaceReal = (await enlaceParaVerElProducto({ id: prod.id, tenantId: ctx.tenantId }).catch(() => null))?.url
+        || `${getAppUrl().replace(/\/+$/, "")}/p/${prod.id}`;
       const brief = construirBrief(prod, {
-        enlace: `${getAppUrl().replace(/\/+$/, "")}/p/${prod.id}`,
+        enlace: enlaceReal,
         whatsapp: (tenant as any)?.whatsappNumber || undefined,
+        destino: destinoDelCopy,
+        // La oferta del NEGOCIO (envío/pago) solo para lo que se despacha:
+        // sin esto el modelo no podía decir "pagas al recibir" y el plan sí.
+        oferta: modeloDelProd === "fisico" && condicionesNegocio?.envio
+          ? [
+              condicionesNegocio.envio.pago === "contraentrega" ? "Se paga al recibir (contraentrega)." : "",
+              condicionesNegocio.envio.costo === "incluido" ? "El envío está incluido en el precio (decir \"envío incluido\", nunca \"gratis\")." : condicionesNegocio.envio.costo ? `Envío: ${condicionesNegocio.envio.costo}.` : "",
+              condicionesNegocio.envio.plazo ? `Llega en ${condicionesNegocio.envio.plazo}.` : "",
+            ].filter(Boolean)
+          : [],
       });
 
       // ── 3. UNA sola llamada al modelo: escribir el copy ──────────────────
@@ -7302,6 +7438,19 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
         if (utiles.length) investigacion = utiles.map((f: any) => String(f.content).slice(0, 2500)).join("\n\n---\n\n");
       } catch { /* sin investigación reciente: el copy sale igual, con el brief */ }
 
+      // Ángulo distinto al de los borradores anteriores de este producto (ver
+      // angulos-de-anuncio.ts: el A/B salía con dos anuncios casi iguales).
+      const { elegirAngulo, bloqueDeAngulo, ganchoDe } = await import("./angulos-de-anuncio");
+      const anteriores = await db
+        .select({ primaryText: facebookDrafts.primaryText, headline: facebookDrafts.headline, strategy: facebookDrafts.strategy })
+        .from(facebookDrafts)
+        .where(and(eq(facebookDrafts.tenantId, ctx.tenantId), eq(facebookDrafts.productId, prod.id)))
+        .orderBy(desc(facebookDrafts.createdAt))
+        .limit(6)
+        .catch(() => [] as Array<{ primaryText: string | null; headline: string | null; strategy: unknown }>);
+      const angulo = elegirAngulo(anteriores.map((a: any) => a?.strategy?.angulo));
+      const textoDelAngulo = bloqueDeAngulo(angulo, anteriores.map((a: any) => ({ headline: a.headline, gancho: ganchoDe(a.primaryText) })));
+
       const { callMarketingAI, tryParseJson } = await import("./marketing-team/ai");
       const { FORMATO_COPY } = await import("./publicidad-persuasiva");
       const pedirCopy = async (reparo?: string) => {
@@ -7309,7 +7458,7 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
           tenantId: ctx.tenantId,
           systemPrompt:
             "Sos un copywriter senior de publicidad digital, especializado en Meta Ads (Facebook e Instagram). " +
-            "Escribís en español rioplatense, directo y sin relleno.\n\n" +
+            "Escribes en español neutro de Colombia y le hablas al cliente de TÚ (\"tienes\", \"pide\", \"escríbenos\"), nunca de vos (\"tenés\", \"pedí\", \"escribinos\"). Directo y sin relleno.\n\n" +
             "Tu objetivo NO es escribir mucho: es que alguien que está haciendo scroll PARE, ENTIENDA, SE INTERESE y ACTÚE. " +
             "Cada línea tiene que ganarse el lugar. Si una frase no aporta atención, beneficio, confianza o acción, no va.\n\n" +
             "Claridad antes que cantidad. Beneficio antes que característica. Que se pueda escanear antes que párrafos lindos.\n\n" +
@@ -7321,16 +7470,19 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
             (investigacion
               ? `🔍 LO QUE ESTÁ FUNCIONANDO HOY EN ESTE NICHO (investigación real de este turno). Usalo para el ÁNGULO y el gancho, NUNCA para copiar condiciones comerciales de la competencia: sus garantías, cupos y formatos de entrega no son los de este negocio.\n${investigacion}\n\n`
               : "") +
+            `${textoDelAngulo}\n\n` +
             `Escribí el anuncio para este producto.\n` +
-            `- primaryText: el texto del anuncio EN BLOQUES separados por una línea en blanco (\\n\\n), con la forma de arriba: ` +
+            `- primaryText: el texto del anuncio EN BLOQUES separados por una línea en blanco (\\n\\n), con la forma de arriba adaptada al ángulo: ` +
             // El emoji de cada punto NO se fija acá: sale del catálogo. Ver el
             // punto 3 de FORMATO_COPY -- este renglón decía "3-5 puntos con ✅"
             // y era la cuarta instrucción que empujaba al mismo ✅ repetido.
             `gancho con emoji → beneficio → 3-5 puntos (cada uno con el emoji que esa característica trae en el catálogo, ✅ solo si no trae) → precio con 🔥 → una sola acción con 👉. ` +
             `Arrancá interpelando con un problema o deseo real del cliente (nunca "Tenemos disponible" ni "Comprá ahora"). ` +
             `NO lo entregues como un párrafo corrido: un bloque de texto sin saltos se rechaza automáticamente.\n` +
-            `- headline: título corto, máximo 40 caracteres.\n` +
-            `- description: una línea de refuerzo.\n\n` +
+            `- headline: título corto, máximo 40 caracteres, DISTINTO de la primera línea del texto (el gancho no repite el título).\n` +
+            `- description: máximo 30 caracteres (Meta corta ahí), por ejemplo "${planDeRespaldo.description}".\n` +
+            `- La acción final (👉) es UNA y va a ${destinoDelCopy === "web" ? "la página del producto (el botón abre el enlace, NO WhatsApp)" : "WhatsApp (el botón abre el chat)"}. Usa esta o una equivalente: "${accionExacta}".\n` +
+            `- El único precio que puede aparecer es el del brief.\n\n` +
             `PROHIBIDO inventar: nada que no esté en el brief. Ni garantías, ni plazos, ni cupos, ni estadísticas ("el 80% de..."), ni cuánta gente lo compró, ni testimonios.` +
             (reparo ? `\n\nTu intento anterior fue RECHAZADO por esto: ${reparo}\nCorregilo y devolvé el JSON de nuevo.` : ""),
           json: true,
@@ -7387,14 +7539,82 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
       }
       if (problema) return { ok: false, summary: `No pude escribir un copy que pase la validación: ${problema}` };
 
+      // ── 4b. La rúbrica de anuncio profesional (anuncio-rubrica.ts) ──────
+      // Lo que el validador no mira: la acción contra el destino, un precio
+      // que no es el del producto, garantías/testimonios sin dato. Una sola
+      // vuelta de corrección; si el modelo insiste, manda el plan
+      // determinístico (datos reales) en vez de guardar un anuncio incoherente.
+      {
+        const { evaluarBorrador, reparosDeRedaccion } = await import("./anuncio-rubrica");
+        const ajustado = () => ajustarCopyAMeta(
+          { primaryText: String(copy.primaryText || ""), headline: String(copy.headline || ""), description: String(copy.description || "") },
+          { esFisico: modeloDelProd === "fisico", pais: condicionesNegocio?.pais, respaldo: planDeRespaldo },
+        );
+        const reparoDe = () => reparosDeRedaccion(evaluarBorrador(ajustado(), { producto: prod, destino: destinoDelCopy, negocioTieneGarantia: garantiaNegocio }));
+        let reparo = reparoDe();
+        if (reparo && !salioDelRespaldo) {
+          const otro = await pedirCopy(reparo);
+          if (otro?.primaryText) {
+            const prev = copy;
+            copy = otro;
+            if (await validarContenidoAnuncio({ productId: prod.id, primaryText: copy.primaryText, headline: copy.headline, description: copy.description }, ctx)) copy = prev;
+            reparo = reparoDe();
+          }
+        }
+        if (reparo) {
+          logger.warn({ tenantId: ctx.tenantId, producto: prod.id, reparo }, "[CrearAnuncio] el copy del modelo no pasa la rúbrica: se usa el plan con datos reales");
+          copy = { primaryText: planDeRespaldo.primaryText, headline: planDeRespaldo.headline, description: planDeRespaldo.description };
+        }
+        copy = { ...copy, ...ajustado() };
+      }
+
       // ── 5. Guardar el borrador (INSERT, sin IA) ──────────────────────────
       const guardado = await executeAction(
         "fb_ad_draft",
-        { productId: prod.id, primaryText: copy.primaryText, headline: copy.headline, description: copy.description, dailyBudget: presupuesto },
+        { productId: prod.id, primaryText: copy.primaryText, headline: copy.headline, description: copy.description, dailyBudget: presupuesto, objetivo: objetivoFinal },
         ctx,
       );
       if (!guardado.ok) return { ok: false, summary: `Escribí el anuncio pero no se pudo guardar: ${guardado.summary}` };
       const draftId = Number((guardado as any)?.data?.id) || null;
+
+      // ── 5b. Formato y segmentación que pidió el admin ────────────────────
+      // Producción 07/08-10: Atlas le confirmó al dueño "carrusel" y
+      // "25-55 años en Bogotá, Medellín, Cali…", pero esta herramienta no
+      // recibía ninguno de los dos: salió UNA imagen, 18-65, a todo el país.
+      // Ahora se guardan en el borrador (la subida los lleva a Meta) y el
+      // resumen dice lo que QUEDÓ guardado, no lo que se conversó.
+      const lineasDeFormato: string[] = [];
+      if (draftId) {
+        const { segmentacionPedida, describirSegmentacion } = await import("./anuncio-segmentacion-pedida");
+        const seg = segmentacionPedida(args);
+        const [fila] = await db.select().from(facebookDrafts).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, ctx.tenantId))).limit(1);
+        const st: any = { ...((fila as any)?.strategy || {}) };
+        Object.assign(st, seg.estrategia);
+        st.angulo = angulo.id;
+        const set: any = { strategy: st };
+        const formato = String(args?.formato || "").toLowerCase();
+        if (formato === "carrusel" || formato === "imagen") {
+          const { fotosUnicasDelProducto } = await import("./fotos-de-producto");
+          const fotos: string[] = (await fotosUnicasDelProducto(prod as any).catch(() => [] as string[])).filter(Boolean);
+          if (formato === "carrusel") {
+            if (fotos.length >= 2) {
+              set.images = fotos.slice(0, 10);
+              set.imageUrl = fotos[0];
+              lineasDeFormato.push(`🖼️ Formato: carrusel de ${set.images.length} fotos reales del producto`);
+            } else {
+              lineasDeFormato.push(`⚠️ Pediste carrusel, pero el producto tiene ${fotos.length} foto(s) real(es): sale como imagen única. Subí más fotos al producto para el carrusel.`);
+            }
+          } else if (fotos[0]) {
+            set.images = [fotos[0]];
+            set.imageUrl = fotos[0];
+            lineasDeFormato.push("🖼️ Formato: una sola imagen");
+          }
+          st.formato = formato;
+        }
+        await db.update(facebookDrafts).set(set).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, ctx.tenantId)));
+        const desc = describirSegmentacion(st);
+        lineasDeFormato.push(desc ? `🎯 Se muestra a: ${desc}` : "🎯 Se muestra a: lo que Meta decida (no se pidió segmentación)");
+      }
 
       // ── 6. Subir a Meta, si lo pidieron (4 llamadas a Graph, sin IA) ─────
       let meta = "";
@@ -7411,7 +7631,9 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
         // piso. Toda campaña creada por este camino salía de ventas a la web,
         // que es exactamente lo que el admin viene reportando ("todo lo lanza
         // a la web y eso está mal").
-        const subida = await executeAction("fb_upload_draft_to_meta", { draftId, objetivo: args.objetivo, destinoWeb: args.destinoWeb }, ctx);
+        // Sin objetivo pedido, el MISMO que decidió el texto (antes caía a
+        // "ventas" a la web aunque el copy se hubiera escrito para WhatsApp).
+        const subida = await executeAction("fb_upload_draft_to_meta", { draftId, objetivo: args.objetivo || objetivoFinal, destinoWeb: args.destinoWeb }, ctx);
         meta = subida.ok
           ? `\n\n📤 ${subida.summary}`
           : `\n\n⚠️ El borrador quedó guardado, pero NO se pudo subir a Meta: ${subida.summary}`;
@@ -7434,6 +7656,7 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
           copy.primaryText,
           ``,
           `💰 Presupuesto: $${presupuesto.toLocaleString("es-CO")}/día`,
+          ...lineasDeFormato,
           lineaDeMargen,
           `⭐ Calidad del copy: ${nota.puntaje}/100${nota.notas.length ? `\n${nota.notas.map((n: string) => `   ⚠️ ${n}`).join("\n")}` : ""}`,
           meta,
@@ -8132,6 +8355,74 @@ ${r.texto}`, data: r.grupos };
     },
   },
   {
+    // 08-10: el dueño pidió "elimina los que estén publicados, en pausa o en
+    // BORRADOR" y Atlas no tenía cómo borrar un borrador. Si el borrador ya
+    // subió a Meta, su campaña se borra con el MISMO freno por gasto que
+    // fb_delete_campaign (deleteDraftWithMeta no lo tenía).
+    name: "fb_borrar_borrador",
+    description: "BORRA un borrador (fb_list_drafts) y, si ya subió, su campaña en Meta (mismo freno por gasto que fb_delete_campaign). Irreversible.",
+    args: '{ "draftId": number (req), "borrarAunqueTengaGasto"?: boolean }',
+    run: async (args, ctx) => {
+      const draftId = num(args?.draftId);
+      if (!draftId) return { ok: false, summary: "Falta el id del borrador (usá fb_list_drafts para obtenerlo)." };
+      const [fila] = await db.select().from(facebookDrafts)
+        .where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, ctx.tenantId))).limit(1);
+      if (!fila) return { ok: false, summary: `No existe el borrador ${draftId} en este negocio.` };
+      const campaignId = String((fila as any).campaignId || "").trim();
+      let enMeta = "";
+      if (campaignId && (fila as any).fbStatus !== "DELETED") {
+        const bloqueo = await bloqueoDeMeta("fb_delete_campaign", ctx);
+        if (bloqueo) return { ok: false, summary: bloqueo };
+        const tenant = await tenantManager.getTenantById(ctx.tenantId);
+        const { FacebookService } = await import("./facebook");
+        const fb = new FacebookService(tenant || undefined);
+        if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado: no puedo borrar su campaña en Meta." };
+        const r = await fb.borrarCampana(campaignId, { permitirConGasto: args.borrarAunqueTengaGasto === true });
+        if (!r.ok) return { ok: false, summary: r.message };
+        enMeta = ` y su campaña en Meta (${r.nombre ? `"${r.nombre}"` : campaignId}${(r.gasto || 0) > 0 ? `, había gastado $${Number(r.gasto).toLocaleString("es-CO")}` : ", nunca gastó"})`;
+      }
+      await db.delete(facebookDrafts).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, ctx.tenantId)));
+      return { ok: true, summary: `🗑️ Borrador ${draftId} borrado${enMeta}.` };
+    },
+  },
+  {
+    name: "fb_segmentacion_editar",
+    description:
+      "Corrige A QUIÉN se muestra un anuncio ya publicado (edades, ciudades, género, Advantage+) sin rehacerlo.",
+    args: '{ "draftId"?: number, "adSetId"?: string, "edadMin"?: number, "edadMax"?: number, "ciudades"?: string[], "generos"?: "mujeres"|"hombres"|"todos", "advantagePlus"?: boolean }',
+    run: async (args, ctx) => {
+      let adSetId = String(args?.adSetId || "").trim();
+      const draftId = num(args?.draftId);
+      let fila: any = null;
+      if (draftId) {
+        [fila] = await db.select().from(facebookDrafts).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, ctx.tenantId))).limit(1);
+        if (!fila) return { ok: false, summary: `No existe el borrador ${draftId}.` };
+        adSetId = adSetId || String(fila.adSetId || "");
+      }
+      if (!adSetId) return { ok: false, summary: "Ese anuncio todavía no está en Meta (no tiene conjunto). Pasame el borrador ya subido o el id del conjunto." };
+      const { segmentacionPedida, describirSegmentacion } = await import("./anuncio-segmentacion-pedida");
+      const seg = segmentacionPedida(args);
+      if (!Object.keys(seg.estrategia).length && args?.advantagePlus === undefined) {
+        return { ok: false, summary: "No me dijiste qué cambiar (edades, ciudades o género)." };
+      }
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return { ok: false, summary: "Facebook no está conectado." };
+      const r = await fb.editarSegmentacionDeConjunto(adSetId, {
+        edadMin: seg.estrategia.ageMin, edadMax: seg.estrategia.ageMax,
+        ciudades: seg.estrategia.ciudades, generos: seg.estrategia.genders,
+        advantagePlus: typeof args?.advantagePlus === "boolean" ? args.advantagePlus : undefined,
+      });
+      if (!r.ok) return { ok: false, summary: `Meta no aceptó el cambio: ${r.message}` };
+      if (fila) {
+        await db.update(facebookDrafts).set({ strategy: { ...((fila.strategy as any) || {}), ...seg.estrategia } } as any)
+          .where(and(eq(facebookDrafts.id, fila.id), eq(facebookDrafts.tenantId, ctx.tenantId)));
+      }
+      return { ok: true, summary: `✅ Segmentación del conjunto ${adSetId} corregida en Meta: ${describirSegmentacion(seg.estrategia)}. Advantage+ ${r.aplicado?.targeting_automation?.advantage_audience ? "encendido" : "apagado"}.` };
+    },
+  },
+  {
     name: "fb_set_budget",
     description: "Fijar el presupuesto DIARIO de un conjunto de anuncios, en pesos (no en porcentaje). El presupuesto vive en el conjunto de anuncios, NO en la campaña: si solo tenés el id de la campaña, usá fb_list_adsets primero para obtener el del conjunto.",
     args: '{ "adSetId": string (req, id del CONJUNTO de anuncios), "dailyBudget": number (req, monto diario en la moneda de la cuenta) }',
@@ -8587,18 +8878,42 @@ ${r.texto}`, data: r.grupos };
     args: '{ "accion": "listar"|"guardar"|"borrar", "productId"?: number, "pregunta"?: string, "disparadores"?: string, "respuesta"?: string, "id"?: number }',
     run: async (args, ctx) => {
       const { productKnowledge } = await import("@workspace/db");
-      const accion = String(args?.accion || "listar");
+      // 09-10-2026: Atlas mandó {eliminarRespuestas:[1,2], pregunta, disparadores,
+      // respuesta} SIN "accion"; caía en "listar", devolvía ok y el plan se daba
+      // por "ejecutado y verificado" sin haber guardado ni borrado nada.
+      const traeDatos = Boolean(String(args?.pregunta || "").trim() || String(args?.respuesta || "").trim());
+      // El nombre de la lista lo inventa el modelo (eliminarRespuestas, ids,
+      // respuestaIds…): vale cualquier arreglo de números cuyo nombre hable de ids o de borrar.
+      const aBorrar: number[] = Object.entries(args || {})
+        .filter(([k, v]) => Array.isArray(v) && /ids?$|elimin|borrar/i.test(k))
+        .flatMap(([, v]) => v as unknown[])
+        .map(Number).filter((n) => Number.isInteger(n) && n > 0);
+      if (String(args?.accion || "") === "borrar" && !args?.id && aBorrar.length) args = { ...args, accion: undefined };
+      if (aBorrar.length) {
+        for (const id of aBorrar) {
+          await db.delete(productKnowledge).where(and(eq(productKnowledge.id, id), eq(productKnowledge.tenantId, ctx.tenantId)));
+        }
+        if (!traeDatos) return { ok: true, summary: `Respuestas ${aBorrar.join(", ")} eliminadas.`, data: { ids: aBorrar } };
+      }
+      if (Array.isArray(args?.disparadores)) args = { ...args, disparadores: args.disparadores.join(", ") };
+      const accion = String(args?.accion || (traeDatos ? "guardar" : args?.id ? "borrar" : "listar"));
 
       if (accion === "listar") {
         const filas = await db
           .select()
           .from(productKnowledge)
           .where(eq(productKnowledge.tenantId, ctx.tenantId));
+        // Las que dejaron los CLIENTES (preguntar_al_dueno) y siguen sin
+        // respuesta van primero: son las que el vendedor ya prometió consultar.
+        const pendientes = filas.filter((f: any) => !f.respuesta);
         return {
           ok: true,
-          summary: filas.length
+          summary: (filas.length
             ? `El agente tiene ${filas.length} respuesta${filas.length === 1 ? "" : "s"} cargada${filas.length === 1 ? "" : "s"} por vos.`
-            : "Todavía no le cargaste ninguna respuesta propia al agente. Responde solo con lo genérico (garantía, envío, stock).",
+            : "Todavía no le cargaste ninguna respuesta propia al agente. Responde solo con lo genérico (garantía, envío, stock).") +
+            (pendientes.length
+              ? ` ⚠️ ${pendientes.length} pregunta${pendientes.length === 1 ? "" : "s"} de clientes sin responder: ${pendientes.slice(0, 5).map((f: any) => `«${f.pregunta}» (id ${f.id})`).join(", ")}.`
+              : ""),
           data: filas.map((f: any) => ({
             id: f.id,
             productId: f.productId,
@@ -8640,6 +8955,28 @@ ${r.texto}`, data: r.grupos };
 
       const respuesta = String(args?.respuesta || "").trim();
       const productId = args?.productId ? Number(args.productId) : null;
+
+      // Si un cliente ya la había preguntado (quedó PENDIENTE por
+      // preguntar_al_dueno), se completa esa fila en vez de duplicarla.
+      if (respuesta) {
+        const { esPreguntaRepetida } = await import("./motor-nuevo/preguntas-al-dueno");
+        const pendientes: any[] = (await db.select().from(productKnowledge).where(eq(productKnowledge.tenantId, ctx.tenantId)))
+          .filter((f: any) => !f.respuesta);
+        const igual = pendientes.find((f: any) =>
+          esPreguntaRepetida(pregunta, [{ productId: f.productId ?? null, pregunta: String(f.pregunta || ""), disparadores: String(f.disparadores || "").split(",").map((d: string) => d.trim()).filter(Boolean), respuesta: null }]),
+        );
+        if (igual) {
+          await db
+            .update(productKnowledge)
+            .set({ respuesta, disparadores: [...new Set([...String(igual.disparadores || "").split(",").map((d: string) => d.trim()), ...utiles])].filter(Boolean).join(", "), updatedAt: new Date() } as any)
+            .where(and(eq(productKnowledge.id, igual.id), eq(productKnowledge.tenantId, ctx.tenantId)));
+          return {
+            ok: true,
+            summary: `Listo: completé la pregunta que había dejado un cliente («${igual.pregunta}»). Desde ahora el agente la responde sola.`,
+            data: { id: igual.id, completada: true },
+          };
+        }
+      }
 
       const [fila] = await db
         .insert(productKnowledge)
@@ -9671,6 +10008,20 @@ function esErrorDeBaseDeDatos(e: any): boolean {
  */
 export const DISABLED_TOOLS = new Set(["deep_research"]);
 
+/** Resultado de herramienta sin secretos en el texto ni en los datos. */
+export function redactarResultado(result: ToolResult): ToolResult {
+  if (!result || typeof result !== "object") return result;
+  const out: any = { ...result, summary: redactarSecretos(result.summary ?? "") };
+  if (typeof result.data !== "undefined") {
+    try {
+      out.data = JSON.parse(redactarSecretos(JSON.stringify(sinSecretos(result.data))));
+    } catch {
+      out.data = sinSecretos(result.data);
+    }
+  }
+  return out;
+}
+
 export async function executeAction(tool: string, args: any, ctx: OperatorContext): Promise<ToolResult> {
   if (DISABLED_TOOLS.has(tool)) {
     return {
@@ -9688,7 +10039,9 @@ export async function executeAction(tool: string, args: any, ctx: OperatorContex
     turnId: (ctx as OperatorContext & { turnId?: string }).turnId,
     actor: "atlas",
     tool,
-    arguments: args || {},
+    // La bitácora guarda los argumentos: un `dropi_conectar {token}` quedaba
+    // con el token en claro en la base. Se guardan enmascarados.
+    arguments: sinSecretos(args || {}),
   };
 
   // ── Código fuente: solo el admin de la plataforma ──────────────────────
@@ -9719,7 +10072,11 @@ export async function executeAction(tool: string, args: any, ctx: OperatorContex
     return { ok: false, summary: "La acción no se ejecutó porque la auditoría de seguridad no está disponible." };
   }
   try {
-    const result = await def.run(args || {}, ctx);
+    // Lo que devuelve una herramienta llega al chat de Atlas (y por el puente
+    // MCP a OpenCode). Un error de `git push https://x-access-token:TOKEN@...`
+    // o de una URL de Graph con `access_token=` traía el secreto completo en
+    // `summary`. Se limpia acá, en el único punto por el que pasan todas.
+    const result = redactarResultado(await def.run(args || {}, ctx));
     await recordControlPlaneAudit({
       ...auditBase,
       phase: "finished",
@@ -9730,13 +10087,13 @@ export async function executeAction(tool: string, args: any, ctx: OperatorContex
   } catch (e: any) {
     const detalle = e?.message || e?.detail || "";
     const codigoError = String(e?.code || "");
-    logger.error({ tool, err: detalle, code: e?.code, stack: e?.stack }, "[AppOperator] Tool error");
+    logger.error({ tool, err: redactarSecretos(detalle), code: e?.code, stack: redactarSecretos(e?.stack || "") }, "[AppOperator] Tool error");
     const result: ToolResult = esErrorDeBaseDeDatos(e) ? {
         ok: false,
         summary:
           `La operación falló por un error de base de datos (código ${codigoError || "desconocido"}). ` +
           `El cambio NO se aplicó y no se expusieron datos internos. Revisá la bitácora del sistema para el detalle técnico.`,
-      } : { ok: false, summary: `Error ejecutando ${tool}: ${detalle}` };
+      } : { ok: false, summary: redactarSecretos(`Error ejecutando ${tool}: ${detalle}`) };
     await recordControlPlaneAudit({
       ...auditBase,
       phase: "finished",
@@ -9861,6 +10218,13 @@ export const READ_ONLY_TOOLS = new Set([
   "negocio_que_falta",
   // Solo dice qué decisión sigue. Pedir permiso para preguntar sería absurdo.
   "configurar_mi_agente",
+  // Arma el plan de lanzamiento desde lo que ya existe; los CAMBIOS que trae
+  // los propone Atlas aparte, con propose_action (ver plan-de-lanzamiento.ts).
+  "plan_de_lanzamiento",
+  // Lee el paquete de lanzamiento de un producto. Estaba FUERA del set pese a
+  // decir "Lectura pura": para mirar el estado había que proponerlo y que el
+  // admin confirmara una lectura.
+  "lanzamiento_estado",
   // Inspección del agente: solo lee configuración, no cambia nada.
   "agente_inspectar",
   // Cupones: listar y previsualizar un descuento son lectura pura; crear y
@@ -9942,6 +10306,33 @@ export function isDestructiveTool(name: string): boolean {
  */
 export async function verifyMutation(tool: string, args: any, ctx: OperatorContext): Promise<string> {
   try {
+    // ── Anuncios: se LEE de Meta cómo quedó (08-10) ──────────────────────
+    // Antes no había ningún caso de anuncios acá, y el "✅ verificado" salía
+    // de lo que se mandó. El carrusel 25-55 en seis ciudades quedó como una
+    // imagen 18-65 a todo el país y nadie lo vio hasta mirar los resultados.
+    if (tool === "crear_anuncio" || tool === "fb_upload_draft_to_meta" || tool === "fb_segmentacion_editar") {
+      const draftId = Number(args?.draftId);
+      let fila: any = null;
+      if (Number.isInteger(draftId) && draftId > 0) {
+        [fila] = await db.select().from(facebookDrafts).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, ctx.tenantId))).limit(1);
+      } else if (tool === "crear_anuncio") {
+        [fila] = await db.select().from(facebookDrafts).where(eq(facebookDrafts.tenantId, ctx.tenantId)).orderBy(desc(facebookDrafts.createdAt)).limit(1);
+      }
+      const adSetId = String(args?.adSetId || fila?.adSetId || "").trim();
+      if (!adSetId) return fila ? "🔎 Quedó como borrador local: todavía no está en Meta, no gasta." : "";
+      const { segmentacionPedida } = await import("./anuncio-segmentacion-pedida");
+      const st: any = { ...((fila?.strategy as any) || {}), ...segmentacionPedida(args).estrategia };
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const { FacebookService } = await import("./facebook");
+      const fb = new FacebookService(tenant || undefined);
+      if (!fb.isConfigured()) return "";
+      const { compararConLoPedido } = await import("./verificar-anuncio-en-meta");
+      const leido = await fb.leerConjuntoParaVerificar(adSetId);
+      return compararConLoPedido(
+        { ageMin: st.ageMin, ageMax: st.ageMax, ciudades: st.ciudades, genders: st.genders, formato: String(args?.formato || st.formato || "") || undefined, objetivo: String(args?.objetivo || st.objetivo || "") || undefined },
+        leido,
+      ).linea;
+    }
     if (tool === "update_product" || tool === "create_product") {
       const id = args?.id ? Number(args.id) : undefined;
       let row;
@@ -10013,7 +10404,8 @@ const FAMILIAS: Array<{ cuando: RegExp; prefijos: string[] }> = [
   // programa es activar/pausar anuncios y publicar en la página.
   { cuando: /program|agend|a las \d|ma[ñn]ana|cada (?:noche|d[ií]a|lunes)|en \d+ (?:min|hora)/i,
     prefijos: ["programar_accion", "agenda_", "fb_"] },
-  { cuando: /facebook|anuncio|campa[ñn]a|meta|publicar|p[uú]blico|audiencia|instagram|ads?\b/i,
+  // 08-10: "anucio"/"anucioso" (como escribe el dueño) no entraban con /anuncio/.
+  { cuando: /facebook|an?un?n?[cs]i|anucio|campa[ñn]a|meta|publicar|p[uú]blico|audiencia|instagram|ads?\b/i,
     prefijos: ["fb_", "ad_", "crear_anuncio", "optimize_copy", "generate_image"] },
   { cuando: /producto|precio|cat[aá]logo|curso|pack|stock|categor[ií]a|imagen/i,
     prefijos: ["product", "categor", "create_product", "update_product", "delete_product", "generate_image", "optimize_copy", "terabox"] },
@@ -10216,7 +10608,8 @@ PRINCIPIOS OBLIGATORIOS:
 2. PLANIFICÁ, NO EJECUTES A CIEGAS: cuando vayas a CAMBIAR algo (crear/editar/borrar un producto, categoría, agente, configuración, tienda, campaña, anuncio, pedido, envío masivo), la ÚNICA forma de hacerlo es llamar la herramienta "propose_action" con el nombre EXACTO de la herramienta de cambio real y sus argumentos ya resueltos (ids reales, no inventados). "propose_action" NUNCA aplica el cambio -- solo lo deja preparado para que el sistema se lo muestre al admin y pida su confirmación explícita en un mensaje futuro. Nunca digas que ya hiciste un cambio antes de llamar "propose_action" y recibir su resultado. Si lo que vas a crear es CONTENIDO (copy de un anuncio, descripción de un producto, mensaje de una campaña), tu respuesta al admin tiene que incluir el CONTENIDO REAL completo ANTES de llamar "propose_action" -- el admin no puede aprobar a ciegas algo que no vio.
    ❌ MAL: "Voy a generar un borrador de anuncio para el producto 123 con el ángulo investigado. ¿Confirmas?" (el admin no sabe qué va a decir el anuncio)
    ❌ MAL TAMBIÉN: "📝 Borrador listo para confirmar — Título: 'Toca tus canciones favoritas en 30 días'. Texto: '...(copy completo)...'. ¿Confirmas?" (todo pegado en una sola línea corrida, sin separación real entre campos -- ver FORMATO DE RESPUESTA más abajo)
-   ✅ BIEN: "📝 Borrador listo para confirmar\n\nTítulo:\nToca tus canciones favoritas en 30 días\n\nTexto principal:\n...(copy completo)...\n\n¿Confirmás?" (cada campo en su PROPIA línea, con salto real \n\n entre uno y otro, y RECIÉN DESPUÉS llamás propose_action)
+   ✅ BIEN: "📝 Borrador del anuncio\n\nTítulo:\nToca tus canciones favoritas en 30 días\n\nTexto principal:\n...(copy completo)..." (cada campo en su PROPIA línea, con salto real \n\n entre uno y otro) y en ESE MISMO turno llamás propose_action.
+   ⛔ NUNCA cierres con "¿Confirmás?", "¿Lo genero?" ni "¿Querés que lo actualice?" sobre un cambio: el admin solo puede confirmar lo que propusiste con propose_action, y la pregunta la pone el sistema debajo del plan. Una pregunta de confirmación escrita SIN propose_action no confirma nada: su "sí" no ejecuta y tiene que confirmar dos veces.
 3. HONESTIDAD: si no encontrás algo (ej: un producto), decilo claramente y ofrecé alternativas ("no encontré 'X', ¿te referís a este [ID N]?"). Nunca fabriques un id ni un resultado.
 3b. ARCHIVOS SÍ SE RECIBEN (nunca digas lo contrario): en el chat del panel hay botón 📎 (imágenes, PDF, Excel, Word) y por Telegram llegan fotos y documentos. Las imágenes te llegan como ![...](url), los documentos como texto pegado ("Te paso el contenido de..."), las fotos de Telegram como [Foto recibida: ...]. Si pediste un archivo y no llegó, pedilo de nuevo por la vía que corresponda; jamás declares que el chat "no recibe archivos".
 4. Hacé EXACTAMENTE lo que el admin pide, ni más ni menos.
@@ -10231,6 +10624,7 @@ PRINCIPIOS OBLIGATORIOS:
 5.6. SI TE PIDEN UNA ACCIÓN, HACÉ EL CAMINO COMPLETO EN EL MISMO TURNO. Ejemplo real: ante "activá el anuncio del piano" NO contestes "te propongo diagnosticar primero, ¿confirmás?". Encadenalo vos: buscá la campaña, revisá por qué no entrega (lectura, sin preguntar), identificá el anuncio apagado y recién ahí proponé el ÚNICO cambio real que hace falta, ya con el id concreto y diciendo cuánto va a gastar por día. Una sola confirmación, sobre la acción de verdad.
 5.9. ANUNCIOS: EXPERTO, NO GENÉRICO. Antes de escribir o proponer CUALQUIER anuncio llamá anuncio_datos_expertos {productId}: ahí está lo que ya convirtió en esta cuenta (gancho, formato, costo por resultado), la estructura de campaña a repetir, las referencias del rubro, qué DEBE decir el anuncio, el formato del copy (emoji al inicio de cada línea, línea en blanco entre bloques, 3-5 beneficios, precio exacto y cómo llega, una sola acción, 8-12 líneas) y las sugerencias de imagen/video para ese producto. El anuncio que entregues cita esos datos: "arranco con pregunta porque el gancho que mejor convirtió fue X", "meta: costo por conversación ≤ $Y", "imagen: el producto en uso, 4:5, con el precio en etiqueta". Un anuncio sin precio, sin cómo llega o sin sugerencia creativa está incompleto. Al subirlo (fb_upload_draft_to_meta) se replica la estructura real de la cuenta (dos conjuntos, Instagram, mejoras) salvo que el admin pida otra cosa. Y después de publicar, tu trabajo sigue: leé métricas a las 24-48 h y aplicá las reglas de decisión (cambiar gancho, pausar conjunto, escalar 20%).
 5.10. MÉTODO DE VENTA, NO INTUICIÓN. Para elegir producto, poner precio, armar la página o diagnosticar ventas, llamá metodo_de_venta {tema} (con números: costeo o metricas). Citá la fuente (autor/verificado/hipótesis) y nunca recomiendes lo de no_se_hace.
+5.11. UN PLAN SE ENTREGA EJECUTABLE. Ante "armame un plan para lanzar/vender X" llamá plan_de_lanzamiento {producto}: sale de lo que el negocio YA tiene hecho. Mostrá sus pasos tal cual (uno por línea, sin agregar pasos genéricos de manual) y en el MISMO turno proponé con propose_action cada acción de "accionesParaProponer", en ese orden: una sola confirmación del admin las ejecuta en cadena. Lo marcado 🙋 va en una línea al final como lo que falta que él decida (sin preguntar, para no frenar lo que sí se puede hacer); si no hay nada para proponer, ahí sí preguntalo en UNA pregunta. Encender la pauta nunca se propone solo.
 5.8. PARA ENTRENAR AL VENDEDOR DE WHATSAPP, MEDÍ, NO OPINES. El ciclo es siempre el mismo: (1) reproducí el caso con agente_probar_chat (los mensajes del cliente en orden, o el conversationId real) y leé lo que el cliente RECIBIRÍA y los HALLAZGOS; (2) si hay algo mal, corregí la CAUSA con la herramienta que corresponde: un dato del negocio o del producto → agente_perfil_negocio / update_product; una regla o un dato que el vendedor debe saber o no puede decir → agente_conocimiento; identidad, tono o instrucciones → update_agent (todas pasan por confirmación del admin); (3) volvé a correr agente_probar_chat con los MISMOS mensajes y mostrá el antes/después. Nunca digas "no puedo simular un chat": sí podés. Nunca afirmes que el agente "ya responde bien" sin haberlo reproducido en este turno. Esto vale para cualquier negocio de la plataforma, no solo para uno.
 5.4. SI ALGO NO FUNCIONA, DIAGNOSTICALO VOS. Ante un "esto no anda", "por qué no responde" o "algo está roto", llamá system_diagnose: prueba cada conexión de verdad (Facebook, WhatsApp, IA, cobros) y devuelve qué falla, por qué y cómo se arregla. No le pidas al admin que averigüe él lo que vos podés ver.
 6. LARGO Y ORDEN (el admin lee en el celular; medido el 11-09-2026: respuestas de 40 líneas con la acción al final, tres avisos repetidos y dos preguntas de cierre):
@@ -10239,10 +10633,11 @@ PRINCIPIOS OBLIGATORIOS:
    c) Máximo 5 ítems por lista. Si hay más, los 5 que importan y "y N más".
    d) UN solo cierre: una pregunta O un siguiente paso. Nunca dos preguntas, nunca "¿preferís A o B?" seguido de "¿y además C?".
    e) No repitas lo que ya dijiste en un mensaje anterior de esta charla (el mismo hueco, la misma limitación). Si sigue pendiente, una línea: "Sigue pendiente: X".
-   f) QUE SE LEA DE UN VISTAZO (el admin dijo que el texto plano "da pereza leer"): cada bloque con un título corto en **negrita** y su emoji de marcador (📦 producto, 🔎 competencia, 💰 plata, 📢 anuncio, 📊 resultados, ✅ listo, ⚠️ ojo), línea en blanco entre bloques, párrafos de 2-3 líneas, y lista con viñetas cuando enumerás. Cifras y nombres de producto en **negrita**. Un emoji por bloque como marcador, no en cada línea.
-   f) Sin anunciar que vas a ser honesto ("te lo digo derecho", "no te lo quiero disfrazar", "honestidad ante todo"): decilo y ya.
+   f) QUE SE LEA DE UN VISTAZO (el admin dijo que el texto plano "da pereza leer"): si hay varios bloques, cada uno con un título corto en **negrita** y su emoji de marcador (📦 producto, 🔎 competencia, 💰 plata, 📢 anuncio, 📊 resultados, ✅ listo, ⚠️ ojo), línea en blanco entre bloques, párrafos de 2-3 líneas. Cifras y nombres de producto en **negrita**.
+   f2) Sin anunciar que vas a ser honesto ("te lo digo derecho", "no te lo quiero disfrazar", "honestidad ante todo"): decilo y ya.
    g) Cuando el admin tiene que hacer algo en orden, pasos numerados 1. 2. 3., cada uno con la acción concreta.
-   h) Lo normal son 6 a 12 líneas. Un diagnóstico completo puede ser más largo; una charla casual, nunca.
+   h) Lo normal son 6 a 12 líneas. Una pregunta puntual se contesta en 1 a 3. Un diagnóstico completo puede ser más largo; una charla casual, nunca.
+   i) No repitas el pedido ni anuncies lo que vas a hacer ("Entendido, voy a revisar…", "Perfecto, te preparo…"): hacelo y contá el resultado. No vuelvas a explicar el contexto que el admin ya conoce.
    Español siempre, sin mezclar caracteres de otro idioma/alfabeto por error.
 6.1. REGISTRO SEGÚN EL CONTENIDO, NO SEGÚN CÓMO PREGUNTÓ: el emoji por línea (regla 8) sigue siendo el formato normal para cualquier respuesta con contenido real -- datos, hallazgos, varios puntos, un diagnóstico, una lista, un plan -- AUNQUE la pregunta haya sido casual ("che, ¿cómo ves las ventas?", "¿y eso por qué pasa?"). El admin prefiere ese formato, ayuda a leer rápido; no lo elimines. Lo único que cambia a prosa corta y natural, sin emoji por línea, es cuando la respuesta NO tiene contenido informativo real: un saludo, un "dale", un "jaja", un agradecimiento, charla pura sin datos que transmitir -- ahí un menú o una lista no tiene nada que organizar, así que no la fuerces.
 6.2. Sea cual sea el registro: NUNCA uses encabezados markdown (##, ###) ni te firmes con una etiqueta de personaje tipo "Análisis de Situación:", "Diagnóstico:" o "Recomendación como Director de Marketing:" -- eso suena a informe de consultora, no a alguien que te está ayudando. Decí el hallazgo o la recomendación directo, con una línea de emoji si hace falta (ej: "🎯 Para cerrar esa venta, yo le mandaría...").
@@ -10251,8 +10646,7 @@ PRINCIPIOS OBLIGATORIOS:
 7. NO ANUNCIES, HACÉ: nunca digas "voy a…", "déjame…", "a continuación…", "en seguida…" ni "siguiente paso:" y ahí termines el turno sin llamar la herramienta. Si necesitás datos, llamalos YA en este mismo turno (podés encadenar varias herramientas antes de responder). El admin no debería tener que escribir "segui" o "dale" para que avances con algo que ya podías hacer vos mismo.
    ❌ MAL: "Ya tengo la info del producto. Ahora voy a revisar la campaña de Facebook…" (y no llama la herramienta)
    ✅ BIEN: llama fb_campaign_metrics en este mismo turno y responde con el resultado real.
-8. ESTILO EMOJI PARA CONTENIDO ESTRUCTURADO (ver 6.1 -- esto NO aplica a charla casual): cuando la respuesta sí es una lista de varios ítems, un plan de cambios o un resumen con varios datos, nunca uses *negrita*, ni **, ni viñetas con • o -.
-   Encabeza cada línea de lista con un emoji que aporte significado.
+8. ESTILO EMOJI PARA CONTENIDO ESTRUCTURADO (ver 6.1 -- esto NO aplica a charla casual): cuando la respuesta es una lista de varios ítems, un plan o un resumen con varios datos, cada ítem va en su línea encabezado con un emoji que aporte significado, en vez de viñetas • o - (el sistema convierte las viñetas en ✅ y todos los ítems quedarían iguales). La negrita queda para títulos de bloque, cifras y nombres de producto (regla 6.f), no para cada ítem.
    ❌ MAL:  • **Productos**: crear, editar
    ✅ BIEN: 📦 Productos: crear, editar
    Referencias útiles: 📦 productos · 🏷️ categorías · 🤖 agente · ⚙️ configuración · 🛒 tienda
@@ -10263,17 +10657,17 @@ PRINCIPIOS OBLIGATORIOS:
    A) RESPUESTA NORMAL (sin pedido de acción): corta y natural, sin forzar plantilla.
       Ej: "Soy Atlas, tu asistente de VentasPro. Puedo crear y editar productos, categorías, agentes, configuraciones y tiendas.\n\n¿Qué necesitás?"
 
-   B) CUANDO EL ADMIN PIDE UNA ACCIÓN (antes de llamar propose_action, ver regla 2): primero decí QUÉ ENTENDISTE y QUÉ VAS A HACER, sin volcar todavía todos los datos técnicos, y cerrá pidiendo confirmación.
-      Ej: "Entendido.\n\nVoy a preparar un borrador de anuncio para:\n\n🎹 Curso de Piano\n🤖 Curso de Inteligencia Artificial\n\nQueda guardado local, sin publicar ni tocar tu cuenta de Meta.\n\n¿Lo genero?"
+   B) CUANDO EL ADMIN PIDE UN CAMBIO: en 1-2 líneas qué vas a cambiar y con qué valores (y el contenido real si es un texto que se va a publicar, regla 2), y en ESE MISMO turno llamás propose_action. No cierres con una pregunta: el sistema muestra el plan y pide el sí.
+      Ej: "Te dejo listo el borrador de anuncio del 🎹 Curso de Piano, guardado local y sin tocar tu cuenta de Meta." + propose_action
 
-   C) DESPUÉS DE QUE EL ADMIN CONFIRMÓ Y EL SISTEMA EJECUTÓ (respuesta final, en un turno posterior): un bloque por cada ítem afectado con su propio encabezado, y un bloque de ESTADO al final que resuma qué se hizo y qué NO se tocó. Cada campo (Título, Texto principal, Descripción, Precio, etc.) arranca en su PROPIA línea -- nunca pegado al campo anterior.
-      Ej: "✅ Campaña preparada\n\n🎹 Curso de Piano\n\nObjetivo: Ventas\nPrecio: $60.000 COP\n\nTexto principal:\n¿Siempre soñaste con aprender a tocar piano...?\n\nTítulo:\n🎹 Aprende Piano Desde Cero Hasta Avanzado\n\nDescripción:\nCurso completo de piano por solo $60.000 COP.\n\n📌 Estado\n\n1 campaña creada correctamente.\n🟢 Guardada en pausa\n🟢 No gasta hasta que la actives"
+   C) DESPUÉS DE QUE EL ADMIN CONFIRMÓ Y EL SISTEMA EJECUTÓ (turno posterior): el sistema ya le mostró el resultado de cada acción. Vos contá en 1-3 líneas qué quedó y qué sigue, sin repetirle los datos que ya vio. Si hay contenido que todavía no vio (el copy de un anuncio, una URL), mostralo con cada campo (Título, Texto principal, Descripción, Precio) en su PROPIA línea -- nunca pegado al campo anterior.
+      Ej: "✅ Campaña del 🎹 Curso de Piano creada en pausa: no gasta hasta que la actives.\n\n🚀 Cuando quieras encenderla, decímelo."
 
    ❌ PROHIBIDO — NUNCA pegues una etiqueta justo después de otra sin salto real en el medio:
    ❌ MAL: "🎯 Título: 🔥 Curso de Piano Completo: De Cero a ✍️ Texto principal: ..." (el valor del título se comió el salto de línea y quedó pegado a la siguiente etiqueta)
    Eso pasa cuando escribís el valor de un campo y seguís directo con la próxima etiqueta sin \n\n en el medio. Cada etiqueta (Título:, Texto principal:, Descripción:) SIEMPRE termina con su valor y un salto real ANTES de que empiece la siguiente.
 
-   Pensá internamente esta secuencia antes de responder (es para ordenar tu propia respuesta, NUNCA la muestres tal cual ni con estas palabras técnicas): ACCIÓN → ITEMS AFECTADOS → PLAN → (pedir CONFIRMACIÓN si es un cambio, vía propose_action) → RESULTADO → ESTADO. Convertila siempre a los bloques A/B/C de arriba en lenguaje natural.
+   Pensá internamente esta secuencia antes de responder (es para ordenar tu propia respuesta, NUNCA la muestres tal cual ni con estas palabras técnicas): ACCIÓN → ITEMS AFECTADOS → (si es un cambio: propose_action, que pide la confirmación por vos) → RESULTADO. Convertila siempre a los bloques A/B/C de arriba en lenguaje natural.
 
 
 @@SECCION:marketing@@
