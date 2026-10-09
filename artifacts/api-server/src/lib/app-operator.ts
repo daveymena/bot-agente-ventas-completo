@@ -6077,7 +6077,7 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
         try {
           const { avisarAlDueno } = await import("./avisos");
           await avisarAlDueno(ctx.tenantId, r.ok && r.video
-            ? `🎬 *Video de anuncio listo* (${r.video.duracion}s, ${r.video.escenas} escenas${r.video.conBroll ? ", con clips reales" : ""})\n${r.video.url}`
+            ? `🎬 *Video de anuncio listo* (${r.video.duracion}s, ${r.video.escenas} escenas${r.video.tomasSora ? `, ${r.video.tomasSora} toma(s) de Sora` : r.video.conBroll ? ", con clips reales" : ""})\n${r.video.url}`
             : `⚠️ No pude generar el video del producto ${id}: ${r.error}`);
         } catch { /* sin aviso */ }
       }, { destino: destinoVideo });

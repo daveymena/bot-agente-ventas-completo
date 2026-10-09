@@ -34,6 +34,8 @@ export interface EscenaDeVideo {
   /** Qué mostrar: "producto" (foto), "broll" (clip de Pexels con esta búsqueda en inglés) */
   visual: "producto" | "broll";
   busqueda?: string;
+  /** Para broll: la toma descrita en inglés, una frase, SIN el producto (la usa Sora). */
+  toma?: string;
   /** Segundos mínimos. */
   duracion: number;
 }
@@ -51,6 +53,8 @@ export interface VideoGenerado {
   duracion: number;
   escenas: number;
   conBroll: boolean;
+  /** Cuántas escenas generó Sora (cada una se cobra). */
+  tomasSora?: number;
   guion: GuionDeVideo;
   en: string;
 }
@@ -89,9 +93,10 @@ async function duracionDe(archivo: string): Promise<number> {
 const SYSTEM_GUION = `Sos director creativo de anuncios de video verticales (TikTok/Reels/Meta) para productos de dropshipping en Colombia.
 Escribís guiones de 5 o 6 escenas, 18 a 28 segundos en total, en español colombiano cercano (vos/tú neutro, sin "vosotros").
 Reglas: nada inventado (solo lo que dicen los datos), sin garantías ni cifras que no estén, sin marcas ajenas, sin promesas médicas.
-Estructura: 1) gancho con el problema (broll), 2) el producto como solución (producto), 3-4) beneficios concretos (producto), 5) precio y pago contraentrega (producto), 6) llamado a la acción (producto).
+Estructura: 1) gancho con el problema (broll), 2) el producto como solución (producto), 3) el resultado que vive la persona (broll), 4) beneficio concreto (producto), 5) precio y pago contraentrega (producto), 6) llamado a la acción (producto).
+En las escenas broll NO aparece el producto: solo la persona y la situación (el producto se muestra con sus fotos reales en las otras).
 Devolvés SOLO JSON:
-{"escenas":[{"texto":"≤8 palabras en pantalla","locucion":"1-2 frases habladas","visual":"producto|broll","busqueda":"inglés, 2-4 palabras, solo si visual=broll","duracion":3}],"precio":"$59.999","cta":"Escríbenos por WhatsApp"}`;
+{"escenas":[{"texto":"≤8 palabras en pantalla","locucion":"1-2 frases habladas","visual":"producto|broll","busqueda":"inglés, 2-4 palabras, solo si visual=broll","toma":"inglés, una frase que describe la toma real (quién, dónde, qué hace), solo si visual=broll","duracion":3}],"precio":"$59.999","cta":"Escríbenos por WhatsApp"}`;
 
 function guionDeRespaldo(p: any, ficha: any, modelo: string): GuionDeVideo {
   const precio = `$${Number(p.price || 0).toLocaleString("es-CO")}`;
@@ -134,6 +139,7 @@ export async function escribirGuion(tenantId: number, p: any, ficha: any, modelo
         locucion: hablarColombiano(String(e.locucion || "").trim()).slice(0, 220),
         visual: e.visual === "broll" ? "broll" : "producto",
         busqueda: e.busqueda ? String(e.busqueda).trim().slice(0, 60) : undefined,
+        toma: e.toma ? String(e.toma).trim().slice(0, 300) : undefined,
         duracion: Math.min(6, Math.max(2.5, Number(e.duracion) || 3.5)),
       })).filter((e: EscenaDeVideo) => e.texto && e.locucion);
       if (escenas.length >= 4) return { escenas, precio: String(j.precio || `$${Number(p.price || 0).toLocaleString("es-CO")}`), cta: hablarColombiano(String(j.cta || "Escríbenos por WhatsApp")), autor: r.proveedor ? `${r.proveedor}/${r.modelo}` : undefined };
@@ -350,10 +356,23 @@ export async function generarVideoDeAnuncio(tenantId: number, productId: number,
     // Escenas: capturas + B-roll + voz.
     const escenas = guion.escenas;
     let conBroll = false;
+    // Sora para las tomas de ambiente, con tope por video (ver video-sora.ts).
+    // Las que Sora genera van en paralelo: cada una tarda 1-3 min.
+    const { tomaConSora, escenasSoraPorVideo } = await import("./video-sora");
+    const topeSora = escenasSoraPorVideo();
+    const paraSora = escenas
+      .map((e, i) => ({ e, i }))
+      .filter(({ e }) => e.visual === "broll" && (e.toma || e.busqueda))
+      .slice(0, topeSora);
+    const deSora = new Map<number, string>();
+    await Promise.all(paraSora.map(async ({ e, i }) => {
+      const t = await tomaConSora(tenantId, e.toma || e.busqueda || "", e.texto, path.join(tmp, `sora-${i}.mp4`));
+      if (t) deSora.set(i, t);
+    }));
     const brolls: Array<string | null> = [];
     for (let i = 0; i < escenas.length; i++) {
       const e = escenas[i]!;
-      const b = e.visual === "broll" ? await brollDePexels(tenantId, e.busqueda || "", path.join(tmp, `broll-${i}.mp4`)) : null;
+      const b = deSora.get(i) || (e.visual === "broll" ? await brollDePexels(tenantId, e.busqueda || "", path.join(tmp, `broll-${i}.mp4`)) : null);
       if (b) conBroll = true;
       brolls.push(b);
       if (e.visual === "broll" && !b) e.visual = "producto"; // sin clip, se muestra el producto
@@ -444,7 +463,7 @@ export async function generarVideoDeAnuncio(tenantId: number, productId: number,
 
     const duracion = await duracionDe(final);
     const appUrl = (process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "");
-    const video: VideoGenerado = { archivo: nombre, url: `${appUrl}/videos/anuncios/${nombre}`, duracion: Math.round(duracion * 10) / 10, escenas: escenas.length, conBroll, guion, en: new Date().toISOString() };
+    const video: VideoGenerado = { archivo: nombre, url: `${appUrl}/videos/anuncios/${nombre}`, duracion: Math.round(duracion * 10) / 10, escenas: escenas.length, conBroll, tomasSora: deSora.size, guion, en: new Date().toISOString() };
     await db.update(products).set({ metadata: JSON.stringify({ ...m, videoAnuncio: video }) } as any).where(eq(products.id, productId));
     logger.info({ tenantId, productId, duracion: video.duracion, escenas: escenas.length, conBroll, guionPor: guion.autor }, "[VideoAnuncio] video generado");
     return { ok: true, video };
