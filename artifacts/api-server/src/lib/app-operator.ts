@@ -8882,10 +8882,13 @@ ${r.texto}`, data: r.grupos };
       // respuesta} SIN "accion"; caía en "listar", devolvía ok y el plan se daba
       // por "ejecutado y verificado" sin haber guardado ni borrado nada.
       const traeDatos = Boolean(String(args?.pregunta || "").trim() || String(args?.respuesta || "").trim());
-      const aBorrar: number[] = [
-        ...(Array.isArray(args?.eliminarRespuestas) ? args.eliminarRespuestas : []),
-        ...(Array.isArray(args?.ids) ? args.ids : []),
-      ].map(Number).filter((n) => Number.isInteger(n) && n > 0);
+      // El nombre de la lista lo inventa el modelo (eliminarRespuestas, ids,
+      // respuestaIds…): vale cualquier arreglo de números cuyo nombre hable de ids o de borrar.
+      const aBorrar: number[] = Object.entries(args || {})
+        .filter(([k, v]) => Array.isArray(v) && /ids?$|elimin|borrar/i.test(k))
+        .flatMap(([, v]) => v as unknown[])
+        .map(Number).filter((n) => Number.isInteger(n) && n > 0);
+      if (String(args?.accion || "") === "borrar" && !args?.id && aBorrar.length) args = { ...args, accion: undefined };
       if (aBorrar.length) {
         for (const id of aBorrar) {
           await db.delete(productKnowledge).where(and(eq(productKnowledge.id, id), eq(productKnowledge.tenantId, ctx.tenantId)));
