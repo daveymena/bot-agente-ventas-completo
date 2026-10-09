@@ -87,9 +87,12 @@ export default function ConfigurationPage() {
                   </p>
                 </div>
                 <div className="border-l-4 border-green-600 pl-4">
-                  <h3 className="font-semibold">Historial de Pagos</h3>
+                  <h3 className="font-semibold">Facturas a tus clientes</h3>
                   <p className="text-gray-600 text-sm mt-1">
-                    Descarga facturas y ve el detalle de tu consumo por provider/modelo
+                    {/* Antes decía "Descarga facturas": no había nada detrás (09-10-2026). */}
+                    VentasPro no emite facturas. Conecta tu sistema (Alegra u otro) en{" "}
+                    <a href="/integraciones" className="text-blue-600 underline">Integraciones → Facturación</a>{" "}
+                    y la factura sale sola al confirmar cada pago.
                   </p>
                 </div>
                 <div className="border-l-4 border-orange-600 pl-4">

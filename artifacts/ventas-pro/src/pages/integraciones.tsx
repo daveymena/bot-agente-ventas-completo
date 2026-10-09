@@ -27,6 +27,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Layout } from "@/components/layout";
 import { describeError } from "@/lib/utils";
 import { urlLoginFacebook, type ConfigAppFacebook } from "@/lib/facebook-login";
+import { TarjetaFacturacion } from "@/components/tarjeta-facturacion";
 import { LogoMarca } from "@/components/logo-marca";
 import { DatoSensibleInput, ValorOculto } from "@/components/ui/dato-sensible";
 
@@ -338,6 +339,7 @@ export default function IntegracionesPage() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
             <TarjetaFacebook />
+            <TarjetaFacturacion />
             {(["shopify", "mercadolibre", "aliexpress", "falabella"] as Plataforma[]).map((p) => (
               <TarjetaPlataforma key={p} p={p} estado={estado[p]} recargar={recargar} />
             ))}
