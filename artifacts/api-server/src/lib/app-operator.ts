@@ -6066,10 +6066,11 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
   {
     name: "video_anuncio_crear",
     description: "Genera un VIDEO de anuncio vertical (1080×1920, 15–30 s) del producto con el motor propio: guion por escenas, fotos del producto con movimiento, B-roll real (Pexels, si hay clave), voz en off es-CO, precio, pago contraentrega y CTA. Corre en segundo plano (2–5 min) y avisa por WhatsApp/Telegram con el enlace. Crea un archivo → requiere confirmación.",
-    args: '{ "productId": number (req) }',
+    args: '{ "productId": number (req), "destino"?: "web"|"whatsapp" (a dónde lleva el anuncio que va a usar el video; cambia el cierre. Por defecto whatsapp) }',
     run: async (args, ctx) => {
       const id = num(args?.productId);
       if (!id) return { ok: false, summary: "Falta 'productId'." };
+      const destinoVideo = String(args?.destino || "").toLowerCase() === "web" ? "web" as const : "whatsapp" as const;
       const { generarVideoEnSegundoPlano, hayFfmpeg } = await import("./video-anuncio");
       if (!(await hayFfmpeg())) return { ok: false, summary: "El servidor no tiene ffmpeg todavía (falta el redeploy con el Dockerfile nuevo)." };
       const estado = generarVideoEnSegundoPlano(ctx.tenantId, id, async (r) => {
@@ -6079,7 +6080,7 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
             ? `🎬 *Video de anuncio listo* (${r.video.duracion}s, ${r.video.escenas} escenas${r.video.conBroll ? ", con clips reales" : ""})\n${r.video.url}`
             : `⚠️ No pude generar el video del producto ${id}: ${r.error}`);
         } catch { /* sin aviso */ }
-      });
+      }, { destino: destinoVideo });
       return { ok: true, summary: estado === "ya_en_curso" ? `🎬 El video del producto ${id} ya se está generando; en unos minutos llega el enlace.` : `🎬 Generando el video del producto ${id}: guion → escenas → voz → montaje. Tarda 2–5 minutos; te llega el enlace por WhatsApp/Telegram. Para consultarlo: video_anuncio_estado.` };
     },
   },

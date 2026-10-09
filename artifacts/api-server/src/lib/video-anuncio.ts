@@ -180,38 +180,100 @@ async function brollDePexels(tenantId: number, busqueda: string, destino: string
 
 // ─── Escenas en Chromium ────────────────────────────────────────────────────
 
-function htmlDeEscena(e: EscenaDeVideo, i: number, total: number, ctx: { foto: string | null; color: string; marca: string; precio: string; cta: string; modelo: string }): string {
+export type RolDeEscena = "gancho" | "producto" | "precio" | "cierre";
+
+/** Qué papel cumple cada escena: abre, muestra, cobra o cierra. */
+export function rolDeEscena(e: EscenaDeVideo, i: number, total: number): RolDeEscena {
+  if (i === total - 1) return "cierre";
+  if (i === 0) return "gancho";
+  if (/\$\s?\d/.test(e.texto) || i === total - 2) return "precio";
+  return "producto";
+}
+
+/**
+ * 08-10-2026, el dueño vio el video del corrector: "necesitamos convertir esto
+ * en un verdadero video de anuncios". Era una diapositiva repetida 6 veces
+ * (foto chica en tarjeta + texto + medio cuadro vacío). Ahora cada escena
+ * llena la pantalla (la foto encima de su propia versión difuminada), el texto
+ * va como subtítulo resaltado de anuncio, y el diseño cambia por rol.
+ */
+export function htmlDeEscena(e: EscenaDeVideo, i: number, total: number, ctx: { foto: string | null; detalle?: boolean; color: string; marca: string; precio: string; cta: string; modelo: string; destino: "web" | "whatsapp" }): string {
   const esc = (s: string) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const ultima = i === total - 1;
   const broll = e.visual === "broll";
-  // Tarjeta de precio en la penúltima escena, salvo que el texto ya lo diga.
-  const conTarjetaPrecio = !ultima && i === total - 2 && !/\$\s?\d/.test(e.texto);
-  const tinta = "#FFFFFF";
+  const rol = rolDeEscena(e, i, total);
+  const largo = e.texto.length;
+  const tam = rol === "gancho" ? (largo > 30 ? 92 : 112) : (largo > 34 ? 76 : 92);
+  const fisico = ctx.modelo === "fisico";
+  const botonCierre = ctx.destino === "web"
+    ? `<div class="boton web">👇 ${esc(ctx.cta)}</div>`
+    : `<div class="boton wa">💬 ${esc(ctx.cta)}</div>`;
   return `<!doctype html><html><head><meta charset="utf-8"><style>
-  html,body{margin:0;width:${ANCHO}px;height:${ALTO}px;overflow:hidden;font-family:"Liberation Sans",Arial,Helvetica,sans-serif;color:${tinta}}
-  body{background:${broll ? "transparent" : `radial-gradient(120% 80% at 50% 0%, ${ctx.color} 0%, #0B0B14 75%)`}}
-  .velo{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.35) 0%,rgba(0,0,0,.05) 30%,rgba(0,0,0,.05) 55%,rgba(0,0,0,.82) 100%)}
-  .marca{position:absolute;top:70px;left:0;right:0;text-align:center;font-weight:700;font-size:34px;letter-spacing:3px;text-transform:uppercase;opacity:.9;text-shadow:0 2px 12px rgba(0,0,0,.5)}
-  .badge{position:absolute;top:130px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,.16);border:2px solid rgba(255,255,255,.4);border-radius:999px;padding:14px 34px;font-size:32px;font-weight:700;white-space:nowrap}
-  .foto{position:absolute;top:330px;left:90px;width:900px;height:900px;border-radius:44px;background:#fff;box-shadow:0 40px 120px rgba(0,0,0,.55);overflow:hidden;display:flex;align-items:center;justify-content:center}
-  .foto img{width:100%;height:100%;object-fit:contain}
-  .texto{position:absolute;left:60px;right:60px;top:${broll ? 1150 : 1290}px;font-size:${e.texto.length > 36 ? 84 : 104}px;line-height:1.06;font-weight:800;text-align:center;text-shadow:0 8px 30px rgba(0,0,0,.65);text-wrap:balance}
-  .precio{position:absolute;left:50%;transform:translateX(-50%);top:1585px;background:#FFFFFF;color:#111;border-radius:32px;padding:22px 60px;font-size:80px;font-weight:900;box-shadow:0 20px 60px rgba(0,0,0,.4);white-space:nowrap}
-  .cta{position:absolute;left:90px;right:90px;top:1620px;background:#25D366;color:#fff;border-radius:999px;padding:34px 20px;text-align:center;font-size:54px;font-weight:800;box-shadow:0 20px 60px rgba(0,0,0,.4)}
-  .paso{position:absolute;bottom:56px;left:0;right:0;text-align:center;font-size:26px;opacity:.6;letter-spacing:2px}
+  html,body{margin:0;width:${ANCHO}px;height:${ALTO}px;overflow:hidden;font-family:"Liberation Sans",Arial,Helvetica,sans-serif;color:#fff;background:${broll ? "transparent" : "#0B0B14"}}
+  .fondo{position:absolute;inset:-80px;background-size:cover;background-position:center;filter:blur(46px) brightness(.5) saturate(1.2)}
+  .foto{position:absolute;left:0;right:0;top:${rol === "gancho" ? 470 : 250}px;height:1180px;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .foto img{width:100%;height:100%;object-fit:${ctx.detalle ? "cover" : "contain"};${ctx.detalle ? "transform:scale(1.25);" : ""}filter:drop-shadow(0 30px 60px rgba(0,0,0,.45))}
+  .velo{position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.55) 0%,rgba(0,0,0,0) 22%,rgba(0,0,0,0) 58%,rgba(0,0,0,.85) 100%)}
+  .marca{position:absolute;top:64px;left:64px;font-weight:700;font-size:30px;letter-spacing:2px;text-transform:uppercase;opacity:.85}
+  .texto{position:absolute;left:56px;right:56px;${rol === "gancho" ? "top:150px" : "bottom:330px"};text-align:center;font-size:${tam}px;line-height:1.18;font-weight:900;text-wrap:balance}
+  .texto span{background:${rol === "gancho" ? "#FFD60A" : ctx.color};color:${rol === "gancho" ? "#111" : "#fff"};padding:6px 22px;border-radius:14px;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+  .sello{position:absolute;right:70px;top:${rol === "precio" ? 1080 : 1180}px;width:330px;height:330px;border-radius:50%;background:#FFD60A;color:#111;display:flex;flex-direction:column;align-items:center;justify-content:center;transform:rotate(-8deg);box-shadow:0 24px 60px rgba(0,0,0,.45);font-weight:900}
+  .sello b{font-size:74px;line-height:1}.sello small{font-size:30px;margin-top:6px}
+  .cinta{position:absolute;left:0;right:0;bottom:130px;text-align:center}
+  .cinta span{display:inline-block;background:#fff;color:#111;font-size:36px;font-weight:800;padding:16px 36px;border-radius:999px;white-space:nowrap}
+  .boton{position:absolute;left:80px;right:80px;bottom:150px;border-radius:999px;padding:38px 24px;text-align:center;font-size:56px;font-weight:900;box-shadow:0 20px 60px rgba(0,0,0,.45)}
+  .boton.wa{background:#25D366;color:#fff}.boton.web{background:#FFD60A;color:#111}
+  .extra{position:absolute;left:0;right:0;bottom:80px;text-align:center;font-size:34px;opacity:.9;font-weight:700}
   </style></head><body>
-  ${broll ? '<div class="velo"></div>' : ""}
-  <div class="marca">${esc(ctx.marca)}</div>
-  ${ctx.modelo === "fisico" ? '<div class="badge">📦 Pago contraentrega</div>' : ""}
-  ${ctx.foto && !broll ? `<div class="foto"><img src="${ctx.foto}"></div>` : ""}
-  <div class="texto">${esc(e.texto)}</div>
-  ${conTarjetaPrecio ? `<div class="precio">${esc(ctx.precio)}</div>` : ""}
-  ${ultima ? `<div class="cta">💬 ${esc(ctx.cta)}</div>` : ""}
-  <div class="paso">${i + 1} / ${total}</div>
+  ${!broll && ctx.foto ? `<div class="fondo" style="background-image:url('${ctx.foto}')"></div><div class="foto"><img src="${ctx.foto}"></div>` : ""}
+  <div class="velo"></div>
+  ${ctx.marca ? `<div class="marca">${esc(ctx.marca)}</div>` : ""}
+  <div class="texto"><span>${esc(e.texto)}</span></div>
+  ${rol === "precio" && !/\$\s?\d/.test(e.texto) ? `<div class="sello"><b>${esc(ctx.precio)}</b>${fisico ? "<small>pagas al recibir</small>" : ""}</div>` : ""}
+  ${rol === "precio" && fisico ? `<div class="cinta"><span>📦 Pago contraentrega · Envío a toda Colombia</span></div>` : ""}
+  ${rol === "cierre" ? botonCierre : ""}
+  ${rol === "cierre" && fisico ? `<div class="extra">📦 Pagas cuando lo recibes</div>` : ""}
   </body></html>`;
 }
 
-async function capturarEscenas(items: Array<{ e: EscenaDeVideo; i: number; foto: string | null }>, total: number, ctx: { color: string; marca: string; precio: string; cta: string; modelo: string }, dir: string): Promise<string[]> {
+/**
+ * Fotos que NO sirven de escena: tablas de tallas, afiches del proveedor con
+ * mucho texto, capturas. En el video del corrector (08-10) la tabla de tallas
+ * en inglés salió dos veces, una de ellas con "Alinea tu postura". Se le
+ * pregunta al modelo de visión; sin visión, se usan todas (no saber no es
+ * motivo para quedarse sin fotos).
+ */
+export function fotoEsDeTextoSegunVision(descripcion: string | null): boolean {
+  const d = String(descripcion || "").toLowerCase().trim();
+  if (!d) return false;
+  if (/^[^\p{L}]*s[ií]\b/u.test(d)) return true;
+  if (/^[^\p{L}]*no\b/u.test(d)) return false;
+  return /tabla de tallas|size chart|gu[ií]a de tallas|infograf|mucho texto|afiche/.test(d);
+}
+
+async function fotosAptasParaEscena(tenantId: number, locales: string[]): Promise<string[]> {
+  try {
+    const { describirImagen } = await import("./media-entrante");
+    const pregunta = "¿Es una tabla de tallas/medidas, una infografía o un afiche con mucho texto escrito encima? Responde empezando con SI o NO y luego qué es.";
+    const veredictos = await Promise.all(locales.map(async (f) => {
+      try {
+        const buf = await readFile(f);
+        const mime = /\.png$/i.test(f) ? "image/png" : /\.webp$/i.test(f) ? "image/webp" : "image/jpeg";
+        const r = await Promise.race([describirImagen(buf, mime, pregunta, tenantId), new Promise<null>((ok) => setTimeout(() => ok(null), 15_000))]);
+        return !fotoEsDeTextoSegunVision(r);
+      } catch { return true; }
+    }));
+    const aptas = locales.filter((_, i) => veredictos[i]);
+    if (aptas.length < locales.length) logger.info({ descartadas: locales.length - aptas.length }, "[VideoAnuncio] fotos con texto/tablas fuera de las escenas");
+    return aptas.length ? aptas : locales;
+  } catch {
+    return locales;
+  }
+}
+
+/** Transiciones que se alternan (antes, la misma en todas). */
+const TRANSICIONES = ["smoothleft", "circleopen", "slideup", "fadeblack", "smoothright", "zoomin"];
+
+async function capturarEscenas(items: Array<{ e: EscenaDeVideo; i: number; foto: string | null; detalle?: boolean }>, total: number, ctx: { color: string; marca: string; precio: string; cta: string; modelo: string; destino: "web" | "whatsapp" }, dir: string): Promise<string[]> {
   const puppeteer: any = (await import("puppeteer")).default;
   const navegador = await puppeteer.launch({
     headless: true, executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
@@ -223,7 +285,7 @@ async function capturarEscenas(items: Array<{ e: EscenaDeVideo; i: number; foto:
     const salidas: string[] = [];
     for (const it of items) {
       const archivo = path.join(dir, `escena-${it.i}.png`);
-      await pagina.setContent(htmlDeEscena(it.e, it.i, total, { ...ctx, foto: it.foto }), { waitUntil: "load", timeout: 30_000 });
+      await pagina.setContent(htmlDeEscena(it.e, it.i, total, { ...ctx, foto: it.foto, detalle: it.detalle }), { waitUntil: "load", timeout: 30_000 });
       await pagina.screenshot({ path: archivo, type: "png", omitBackground: it.e.visual === "broll" });
       salidas.push(archivo);
     }
@@ -250,7 +312,8 @@ async function vozDe(texto: string, destino: string): Promise<string | null> {
 /**
  * Genera el video completo. `foto` = URL o ruta local de la foto principal.
  */
-export async function generarVideoDeAnuncio(tenantId: number, productId: number, opts: { guion?: GuionDeVideo; modelo?: string } = {}): Promise<{ ok: boolean; error?: string; video?: VideoGenerado }> {
+export async function generarVideoDeAnuncio(tenantId: number, productId: number, opts: { guion?: GuionDeVideo; modelo?: string; destino?: "web" | "whatsapp" } = {}): Promise<{ ok: boolean; error?: string; video?: VideoGenerado }> {
+  const destino = opts.destino === "web" ? "web" : "whatsapp";
   if (!(await hayFfmpeg())) return { ok: false, error: "ffmpeg no está instalado en el servidor (falta en el Dockerfile)." };
   const [p] = await db.select().from(products).where(and(eq(products.id, productId), eq(products.tenantId, tenantId))).limit(1);
   if (!p) return { ok: false, error: `No existe el producto ${productId}.` };
@@ -266,17 +329,20 @@ export async function generarVideoDeAnuncio(tenantId: number, productId: number,
   const marca = String((t as any)?.brandName || negocio?.businessName || "");
 
   const guion = opts.guion || await escribirGuion(tenantId, p, ficha, modelo, m?.lanzamiento?.copies);
+  // El cierre dice lo que hace el anuncio (antes: "Escríbenos por WhatsApp" también en la campaña a la landing).
+  if (destino === "web") guion.cta = modelo === "fisico" ? "Pídelo en el enlace" : "Entra al enlace";
   const tmp = await mkdirTmp(productId);
   try {
-    // Fotos: la principal, única por contenido.
+    // Fotos únicas por contenido, sin tablas de tallas ni afiches con texto.
     const { fotosUnicasDelProducto } = await import("./fotos-de-producto");
-    const fotos = await fotosUnicasDelProducto(p, { max: 6, timeoutMs: 8000 }).catch(() => [] as string[]);
-    const fotosLocales: string[] = [];
-    for (let i = 0; i < Math.min(fotos.length, 4); i++) {
+    const fotos = await fotosUnicasDelProducto(p, { max: 8, timeoutMs: 8000 }).catch(() => [] as string[]);
+    const bajadas: string[] = [];
+    for (let i = 0; i < Math.min(fotos.length, 8); i++) {
       const local = await bajar(fotos[i]!, path.join(tmp, `foto-${i}`));
-      if (local) fotosLocales.push(local);
+      if (local) bajadas.push(local);
     }
-    if (!fotosLocales.length) return { ok: false, error: "El producto no tiene fotos utilizables." };
+    if (!bajadas.length) return { ok: false, error: "El producto no tiene fotos utilizables." };
+    const fotosLocales = await fotosAptasParaEscena(tenantId, bajadas);
 
     // Escenas: capturas + B-roll + voz.
     const escenas = guion.escenas;
@@ -293,9 +359,15 @@ export async function generarVideoDeAnuncio(tenantId: number, productId: number,
     // Las escenas de producto rotan entre las fotos únicas.
     const dataUrl = async (f: string) => `data:image/${/\.png$/i.test(f) ? "png" : /\.webp$/i.test(f) ? "webp" : "jpeg"};base64,${(await readFile(f)).toString("base64")}`;
     const fotosData = await Promise.all(fotosLocales.map(dataUrl));
+    // Cuando hay menos fotos que escenas, la vuelta siguiente usa plano de
+    // detalle (recorte ampliado) para que no se vea la misma toma dos veces.
     let k = 0;
-    const items = escenas.map((e, i) => ({ e, i, foto: e.visual === "producto" ? fotosData[(k++) % fotosData.length]! : null }));
-    const capturas = await capturarEscenas(items, escenas.length, { color, marca, precio: guion.precio, cta: guion.cta, modelo }, tmp);
+    const items = escenas.map((e, i) => {
+      if (e.visual !== "producto") return { e, i, foto: null, detalle: false };
+      const n = k++;
+      return { e, i, foto: fotosData[n % fotosData.length]!, detalle: Math.floor(n / fotosData.length) % 2 === 1 };
+    });
+    const capturas = await capturarEscenas(items, escenas.length, { color, marca, precio: guion.precio, cta: guion.cta, modelo, destino }, tmp);
 
     // Voz por escena y duración real.
     const duraciones: number[] = [];
@@ -353,7 +425,7 @@ export async function generarVideoDeAnuncio(tenantId: number, productId: number,
     for (let i = 1; i < clips.length; i++) {
       offset += duraciones[i - 1]! - CRUCE;
       const salida = i === clips.length - 1 ? "[v]" : `[x${i}]`;
-      filtro += `${ultimo}[${i}:v]xfade=transition=fade:duration=${CRUCE}:offset=${offset.toFixed(3)}${salida};`;
+      filtro += `${ultimo}[${i}:v]xfade=transition=${TRANSICIONES[(i - 1) % TRANSICIONES.length]}:duration=${CRUCE}:offset=${offset.toFixed(3)}${salida};`;
       ultimo = salida;
     }
     if (clips.length === 1) filtro = "[0:v]copy[v];";
@@ -426,9 +498,9 @@ export async function leerVideoDeProducto(tenantId: number, productId: number): 
 
 // Un video por producto a la vez, en segundo plano.
 const enCurso = new Map<number, Promise<{ ok: boolean; error?: string; video?: VideoGenerado }>>();
-export function generarVideoEnSegundoPlano(tenantId: number, productId: number, alTerminar?: (r: { ok: boolean; error?: string; video?: VideoGenerado }) => void): "iniciado" | "ya_en_curso" {
+export function generarVideoEnSegundoPlano(tenantId: number, productId: number, alTerminar?: (r: { ok: boolean; error?: string; video?: VideoGenerado }) => void, opts: { destino?: "web" | "whatsapp" } = {}): "iniciado" | "ya_en_curso" {
   if (enCurso.has(productId)) return "ya_en_curso";
-  const p = generarVideoDeAnuncio(tenantId, productId).finally(() => enCurso.delete(productId));
+  const p = generarVideoDeAnuncio(tenantId, productId, opts).finally(() => enCurso.delete(productId));
   enCurso.set(productId, p);
   void p.then((r) => alTerminar?.(r)).catch(() => {});
   return "iniciado";
