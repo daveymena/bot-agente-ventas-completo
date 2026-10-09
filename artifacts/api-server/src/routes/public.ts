@@ -127,6 +127,15 @@ router.get("/products/:slug", async (req, res, next) => {
       // regalar el producto digital sin una compra verificada.
     }));
 
+    // Un negocio de servicios (abogados, médicos, asesores) no se presenta
+    // como tienda: ver lib/presentacion-del-negocio.ts.
+    let perfil: Record<string, unknown> = {};
+    try {
+      const meta: any = typeof tenant.metadata === "string" ? JSON.parse(tenant.metadata as any) : tenant.metadata;
+      perfil = (meta?.businessProfile as Record<string, unknown>) || {};
+    } catch { /* sin perfil: se deduce de los productos */ }
+    const { presentacionDelNegocio, perfilPublico } = await import("../lib/presentacion-del-negocio");
+
     return res.json({
       store: {
         name: tenant.brandName || tenant.name,
@@ -138,6 +147,8 @@ router.get("/products/:slug", async (req, res, next) => {
         // Mismo shape que routes/branding.ts (updateBrandingSchema.brandSocial)
         // -- ese es el schema "oficial" que ya valida el PUT /api/branding.
         socialLinks: (tenant.brandSocial as any) || {},
+        presentacion: presentacionDelNegocio(perfil, serialized.map((p: { linea: string }) => p.linea)),
+        perfil: perfilPublico(perfil),
       },
       products: serialized,
     });

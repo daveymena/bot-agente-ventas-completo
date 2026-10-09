@@ -99,6 +99,17 @@ const guardarSchema = z.object({
   }).nullable().optional(),
   /** Cómo se agenda un servicio ("por este chat, lunes a viernes 8-18"). */
   agenda: z.string().max(300).nullable().optional(),
+  /**
+   * 09-10-2026: la página pública de un negocio de servicios (abogados,
+   * médicos, asesores) no es una tienda. Ver lib/presentacion-del-negocio.ts.
+   * Sin elegir, se deduce de los productos (todos servicios → servicios).
+   */
+  presentacion: z.enum(["tienda", "servicios"]).nullable().optional(),
+  /** Credenciales REALES que se muestran ("Tarjeta profesional N°…", "10 años en derecho laboral"). */
+  credenciales: z.array(z.string().max(160)).max(8).nullable().optional(),
+  direccion: z.string().max(200).nullable().optional(),
+  /** "Presencial en Cali y virtual en todo el país". */
+  modalidad: z.string().max(120).nullable().optional(),
 });
 
 router.get("/", async (req, res, next) => {
