@@ -506,6 +506,28 @@ export function respondioHacePoco(candidato: Candidato, ahora = Date.now()): boo
   return t !== undefined && ahora - t <= VENTANA_EXITO_MS;
 }
 
+/**
+ * ¿Vale la pena cortar a este candidato a los 30 s para darle tiempo a otro?
+ *
+ * ⚠️ 09-10-2026 (atlas-diagnostico, sesión s-1790803911928): con la app
+ * cerrada el servidor SÍ seguía pidiendo los tramos, pero cada uno moría
+ * igual: gpt-5.6-luna --el único vivo-- se cortaba a los 30 s y el resto de la
+ * cadena estaba muerta (deepseek sin crédito, mistral sin cupo, Copilot "not
+ * supported", big-pickle solo dentro de OpenCode). `respondioHacePoco` lo
+ * salvaba solo si había contestado en los últimos 30 min, y ese recuerdo vive
+ * en RAM: tras un deploy, o al volver después de un rato, se cortaba siempre.
+ *
+ * Cortar a uno solo sirve si hay OTRO que pueda contestar. Sin ninguna
+ * evidencia de que algún candidato de más abajo esté vivo, se le da el turno
+ * entero al que está primero (el preferido); los de abajo conservan la
+ * reserva del respaldo. Si este se cuelga de verdad, `anotarFallo` lo aparta
+ * al segundo golpe.
+ */
+export function convieneCortarloATiempo(cadena: Candidato[], i: number, ahora = Date.now()): boolean {
+  if (respondioHacePoco(cadena[i], ahora)) return false;
+  return cadena.slice(i + 1).some((c) => respondioHacePoco(c, ahora));
+}
+
 /** Para diagnóstico y para los tests. */
 export function olvidarFallos(): void {
   exitos.clear();
