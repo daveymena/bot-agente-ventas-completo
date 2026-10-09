@@ -1607,6 +1607,52 @@ export async function bloqueoDeMeta(
   return null;
 }
 
+/** Las herramientas que hacen que una campaña EXISTENTE vuelva a mostrarse. */
+export const ENCIENDEN_CAMPANA = new Set(["fb_make_campaign_deliver", "fb_resume_campaign"]);
+
+/**
+ * ¿El texto que ya está publicado en esta campaña promete algo que el producto
+ * no respalda? Devuelve el motivo para no encenderla, o null.
+ *
+ * ⚠️ 09-10-2026: Atlas revisó las 2 campañas pausadas del Corrector (155),
+ * dijo él mismo "no conviene reactivarlas: prometen 'sin dolor', 'al
+ * instante', 'envío incluido'"... y en el MISMO mensaje propuso encender la
+ * 120249903421270097. `validarContenidoAnuncio` solo corría al crear: un
+ * anuncio escrito antes de las reglas se podía prender sin control, y gastar
+ * prometiendo lo que el negocio no cumple. Ahora encender pasa por el mismo
+ * validador, leyendo el texto REAL de Meta y el producto de la campaña.
+ *
+ * Si no se sabe de qué producto es (campaña hecha fuera de VentasPro) o Meta
+ * no deja leer el texto, no se bloquea: no hay contra qué comparar.
+ */
+export async function copyVivoSinRespaldo(campaignId: string, ctx: OperatorContext): Promise<string | null> {
+  const id = String(campaignId || "").trim();
+  if (!id) return null;
+  const [borrador] = await db
+    .select({ productId: facebookDrafts.productId })
+    .from(facebookDrafts)
+    .where(and(eq(facebookDrafts.tenantId, ctx.tenantId), eq(facebookDrafts.campaignId, id)))
+    .orderBy(desc(facebookDrafts.id))
+    .limit(1);
+  if (!borrador?.productId) return null;
+
+  const tenant = await tenantManager.getTenantById(ctx.tenantId);
+  const { FacebookService } = await import("./facebook");
+  const fb = new FacebookService(tenant || undefined);
+  if (!fb.isConfigured()) return null;
+  const textos = await fb.textosDeLosAnuncios(id);
+  if (!textos || textos.length === 0) return null;
+
+  const problema = await validarContenidoAnuncio({ productId: borrador.productId, primaryText: textos.join("\n") }, ctx);
+  if (!problema) return null;
+  return (
+    `NO se enciende la campaña ${id}: el texto que YA está publicado en sus anuncios no pasa el control de contenido. ${problema}\n\n` +
+    `Encenderla así es gastar prometiendo algo que el negocio no cumple. El texto de un anuncio publicado no se edita: ` +
+    `lo correcto es crear uno nuevo con crear_anuncio (producto ${borrador.productId}, copy solo con datos de la ficha; sale en pausa) ` +
+    `y borrar esta campaña con fb_delete_campaign. Proponele ESO al admin, no encenderla.`
+  );
+}
+
 /**
  * Deja un mensaje de error listo para que lo LEA EL ADMIN.
  *
@@ -6696,6 +6742,8 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
       if (!campaignId) return { ok: false, summary: "Falta el id de la campaña (usá fb_list_campaigns para obtenerlo)." };
       const bloqueo = await bloqueoDeMeta("fb_make_campaign_deliver", ctx);
       if (bloqueo) return { ok: false, summary: bloqueo };
+      const copyMalo = await copyVivoSinRespaldo(campaignId, ctx);
+      if (copyMalo) return { ok: false, summary: copyMalo };
 
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
       const { FacebookService } = await import("./facebook");
@@ -7184,6 +7232,8 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
     run: async (_args, ctx) => {
       const campaignId = String(_args.campaignId || "").trim();
       if (!campaignId) return { ok: false, summary: "Falta el id de la campaña a reactivar." };
+      const copyMalo = await copyVivoSinRespaldo(campaignId, ctx);
+      if (copyMalo) return { ok: false, summary: copyMalo };
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
       const { FacebookService } = await import("./facebook");
       const fb = new FacebookService(tenant || undefined);

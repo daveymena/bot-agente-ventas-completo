@@ -27,6 +27,8 @@ import {
   READ_ONLY_TOOLS,
   validarContenidoAnuncio,
   bloqueoDeMeta,
+  copyVivoSinRespaldo,
+  ENCIENDEN_CAMPANA,
   type OperatorContext,
 } from "./app-operator";
 import { logger } from "./logger";
@@ -1084,6 +1086,15 @@ async function proposeAction(
   // confirmar. El admin aprobaba una campaña que no tenía forma de correr.
   const bloqueo = await bloqueoDeMeta(tool, ctx);
   if (bloqueo) return { ok: false, summary: bloqueo };
+
+  // ── Encender una campaña vieja pasa por el MISMO control que crearla ─────
+  // 09-10-2026: Atlas diagnosticó "no conviene reactivarlas, prometen 'sin
+  // dolor'" y en el mismo mensaje propuso encenderla. Se frena ANTES de que el
+  // admin la apruebe (ver copyVivoSinRespaldo).
+  if (ENCIENDEN_CAMPANA.has(tool)) {
+    const copyMalo = await copyVivoSinRespaldo(String(toolArgs?.campaignId || ""), ctx);
+    if (copyMalo) return { ok: false, summary: copyMalo };
+  }
 
   let description = describePlannedAction({ tool, args: toolArgs });
 
