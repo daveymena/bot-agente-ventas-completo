@@ -21,6 +21,7 @@ import activationRouter from "./routes/activation";
 import aiCatalogRouter from "./routes/ai-catalog";
 import { integracionesRouter, integracionesWebhooksRouter } from "./routes/integraciones";
 import { facturacionRouter } from "./routes/facturacion";
+import { posRouter } from "./routes/pos";
 import { logger } from "./lib/logger";
 import { securityShield } from "./lib/security-shield";
 import { imageUrlFixer } from "./lib/image-url-fixer";
@@ -996,6 +997,8 @@ app.use("/api/integraciones", integracionesRouter);
 app.use("/api/integraciones/webhooks", integracionesWebhooksRouter);
 // Facturación: cada negocio conecta SU sistema (Alegra o webhook). Con sesión.
 app.use("/api/facturacion", facturacionRouter);
+// POS tienda física: inventario, caja, ventas, devoluciones. Con sesión.
+app.use("/api/pos", posRouter);
 app.use("/api", router);
 
 // Short URL redirect: /p/:productId → /tienda/:slug/producto/:productId

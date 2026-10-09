@@ -90,6 +90,9 @@ export const facebookDrafts = schema.facebookDrafts;
 export const landingPages = schema.landingPages;
 export const coupons = schema.coupons;
 export const pushSubscriptions = schema.pushSubscriptions;
+export const inventoryMovements = schema.inventoryMovements;
+export const cajaSesiones = schema.cajaSesiones;
+export const posDevoluciones = schema.posDevoluciones;
 export const opencodeConfig = schema.opencodeConfig;
 export const adAgentLogs = schema.adAgentLogs;
 export const remarketingCampaigns = schema.remarketingCampaigns;
@@ -394,6 +397,9 @@ async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: (
     `CREATE TABLE IF NOT EXISTS consumo_conversaciones (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, periodo TEXT NOT NULL, conversaciones INTEGER NOT NULL DEFAULT 0, actualizado_at TEXT DEFAULT (datetime('now')), UNIQUE(tenant_id, periodo))`,
     `CREATE TABLE IF NOT EXISTS coupons (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, product_id INTEGER REFERENCES products(id) ON DELETE SET NULL, code TEXT NOT NULL, tipo TEXT NOT NULL DEFAULT 'porcentaje', valor REAL NOT NULL, minimo_compra REAL, usos_max INTEGER, usos INTEGER NOT NULL DEFAULT 0, activo INTEGER DEFAULT 1, vigencia_inicio TEXT, vigencia_fin TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS push_subscriptions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, endpoint TEXT NOT NULL UNIQUE, p256dh TEXT NOT NULL, auth TEXT NOT NULL, dispositivo TEXT, activo INTEGER DEFAULT 1, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS inventory_movements (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, product_id INTEGER REFERENCES products(id) ON DELETE SET NULL, tipo TEXT NOT NULL DEFAULT 'ajuste', cantidad INTEGER NOT NULL DEFAULT 0, saldo INTEGER, motivo TEXT, ref_tipo TEXT, ref_id INTEGER, creado_por TEXT, created_at TEXT DEFAULT (datetime('now')))`,
+    `CREATE TABLE IF NOT EXISTS caja_sesiones (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, abierta_en TEXT NOT NULL DEFAULT (datetime('now')), cerrada_en TEXT, abierta_por TEXT, cerrada_por TEXT, fondo_inicial REAL NOT NULL DEFAULT 0, estado TEXT NOT NULL DEFAULT 'abierta', ventas_efectivo REAL NOT NULL DEFAULT 0, ventas_otros REAL NOT NULL DEFAULT 0, esperado REAL, contado REAL, diferencia REAL, notas TEXT)`,
+    `CREATE TABLE IF NOT EXISTS pos_devoluciones (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, pago_id INTEGER REFERENCES payments(id) ON DELETE SET NULL, items TEXT NOT NULL DEFAULT '[]', motivo TEXT, total REAL NOT NULL DEFAULT 0, creado_por TEXT, created_at TEXT DEFAULT (datetime('now')))`,
   ];
 
   for (const sql of tables) {

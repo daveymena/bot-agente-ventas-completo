@@ -53,6 +53,51 @@ export const tenants = sqliteTable("tenants", {
   updatedAt: text("updated_at").notNull().default(sql`(datetime('now'))`),
 });
 
+// ── POS tienda física: movimientos, caja y devoluciones ─────────────────────
+// Misma forma que en schema/pos.ts (Postgres). `products.stock` es el
+// acumulado; `inventory_movements` es la auditoría con el saldo resultante.
+export const inventoryMovements = sqliteTable("inventory_movements", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  productId: integer("product_id").references(() => products.id, { onDelete: "set null" }),
+  tipo: text("tipo").notNull().default("ajuste"),
+  cantidad: integer("cantidad").notNull().default(0),
+  saldo: integer("saldo"),
+  motivo: text("motivo"),
+  refTipo: text("ref_tipo"),
+  refId: integer("ref_id"),
+  creadoPor: text("creado_por"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
+export const cajaSesiones = sqliteTable("caja_sesiones", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  abiertaEn: text("abierta_en").notNull().default(sql`(datetime('now'))`),
+  cerradaEn: text("cerrada_en"),
+  abiertaPor: text("abierta_por"),
+  cerradaPor: text("cerrada_por"),
+  fondoInicial: real("fondo_inicial").notNull().default(0),
+  estado: text("estado").notNull().default("abierta"),
+  ventasEfectivo: real("ventas_efectivo").notNull().default(0),
+  ventasOtros: real("ventas_otros").notNull().default(0),
+  esperado: real("esperado"),
+  contado: real("contado"),
+  diferencia: real("diferencia"),
+  notas: text("notas"),
+});
+
+export const posDevoluciones = sqliteTable("pos_devoluciones", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
+  pagoId: integer("pago_id").references(() => payments.id, { onDelete: "set null" }),
+  items: text("items", { mode: "json" }).$type<Array<{ productId: number | null; cantidad: number; precio: number }>>().notNull().default([]),
+  motivo: text("motivo"),
+  total: real("total").notNull().default(0),
+  creadoPor: text("creado_por"),
+  createdAt: text("created_at").notNull().default(sql`(datetime('now'))`),
+});
+
 // ── agents ───────────────────────────────────────────────────────────────────
 export const agents = sqliteTable("agents", {
   id: integer("id").primaryKey({ autoIncrement: true }),

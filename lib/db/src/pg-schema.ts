@@ -719,5 +719,59 @@ export const ALL_TABLES = [
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `
+  },
+  {
+    name: 'inventory_movements',
+    sql: `
+      CREATE TABLE IF NOT EXISTS inventory_movements (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL,
+        product_id INTEGER REFERENCES products(id) ON DELETE SET NULL,
+        tipo TEXT NOT NULL DEFAULT 'ajuste',
+        cantidad INTEGER NOT NULL DEFAULT 0,
+        saldo INTEGER,
+        motivo TEXT,
+        ref_tipo TEXT,
+        ref_id INTEGER,
+        creado_por TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
+  },
+  {
+    name: 'caja_sesiones',
+    sql: `
+      CREATE TABLE IF NOT EXISTS caja_sesiones (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL,
+        abierta_en TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        cerrada_en TIMESTAMPTZ,
+        abierta_por TEXT,
+        cerrada_por TEXT,
+        fondo_inicial DOUBLE PRECISION NOT NULL DEFAULT 0,
+        estado TEXT NOT NULL DEFAULT 'abierta',
+        ventas_efectivo DOUBLE PRECISION NOT NULL DEFAULT 0,
+        ventas_otros DOUBLE PRECISION NOT NULL DEFAULT 0,
+        esperado DOUBLE PRECISION,
+        contado DOUBLE PRECISION,
+        diferencia DOUBLE PRECISION,
+        notas TEXT
+      )
+    `
+  },
+  {
+    name: 'pos_devoluciones',
+    sql: `
+      CREATE TABLE IF NOT EXISTS pos_devoluciones (
+        id SERIAL PRIMARY KEY,
+        tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL,
+        pago_id INTEGER REFERENCES payments(id) ON DELETE SET NULL,
+        items JSONB NOT NULL DEFAULT '[]'::jsonb,
+        motivo TEXT,
+        total DOUBLE PRECISION NOT NULL DEFAULT 0,
+        creado_por TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `
   }
 ];
