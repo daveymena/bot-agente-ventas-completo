@@ -24,6 +24,7 @@ import { eq } from "drizzle-orm";
 import { db, products } from "@workspace/db";
 import { logger } from "./logger";
 import { hablarColombiano } from "./hablar-colombiano";
+import * as anuncioInteligente from "./anuncio-inteligente";
 
 export interface TextosDePresentacion {
   gancho: string;
@@ -98,7 +99,9 @@ export async function presentacionDelProducto(p: any): Promise<TextosDePresentac
   const meta = typeof p.metadata === "string" ? safeJson(p.metadata) : (p.metadata || {});
   const firma = firmaDePresentacion(p, indicaciones);
   const guardada: Guardada | undefined = meta?.presentacion;
-  if (guardada?.firma === firma && guardada.gancho && guardada.beneficios?.length === 3) return guardada;
+  // La guardada también se revisa: una redactada antes de que existiera este
+  // control (09-10-2026) seguía saliendo con "de manera inmediata".
+  if (guardada?.firma === firma && guardada.gancho && guardada.beneficios?.length === 3 && !prometeDeMas(guardada, p)) return guardada;
 
   const clave = `${p.id}:${firma}`;
   if (!enCurso.has(clave)) {
@@ -119,10 +122,10 @@ async function redactar(p: any, indicaciones: string[], firma: string, meta: any
     const r = await redactarConProveedores({
       tenantId: Number(p.tenantId), system: SYSTEM, user, timeoutMs: 20_000, maxTokens: 500,
       orden: ORDEN_GRATUITOS_PRIMERO, tarea: "presentacion-producto",
-      validar: (t: string) => leerPresentacion(t) !== null,
+      validar: (t: string) => { const x = leerPresentacion(t); return x !== null && !prometeDeMas(x, p); },
     });
     const textos = r.text ? leerPresentacion(r.text) : null;
-    if (!textos) return null;
+    if (!textos || prometeDeMas(textos, p)) return null;
     const guardada: Guardada = { ...textos, firma, autor: r.proveedor ? `${r.proveedor}/${r.modelo}` : undefined, generadaEn: new Date().toISOString() };
     await db.update(products).set({ metadata: JSON.stringify({ ...(meta || {}), presentacion: guardada }) } as any).where(eq(products.id, p.id));
     logger.info({ productId: p.id, autor: guardada.autor }, "[Presentacion] redactada con las indicaciones del dueño");
@@ -131,6 +134,16 @@ async function redactar(p: any, indicaciones: string[], firma: string, meta: any
     logger.warn({ err: e?.message, productId: p?.id }, "[Presentacion] no se pudo redactar; sale la ficha de siempre");
     return null;
   }
+}
+
+/**
+ * ¿La presentación promete algo que el producto no respalda? Mismo criterio
+ * que los anuncios (anuncio-inteligente: PROMESAS y RESULTADOS), no una lista
+ * propia: si divergen, la ficha dice lo que el anuncio tiene prohibido.
+ */
+export function prometeDeMas(t: TextosDePresentacion, p: any): boolean {
+  const { afirmacionesSinRespaldo, respaldoDe } = anuncioInteligente;
+  return afirmacionesSinRespaldo([t.gancho, ...t.beneficios].join("\n"), respaldoDe(p || {})).length > 0;
 }
 
 function safeJson(s: string): any {

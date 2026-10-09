@@ -19,6 +19,8 @@
  * igual. Que cambie el cerebro no puede cambiar el resto del cuerpo.
  */
 
+import { fotosDelProducto } from "../fotos-de-producto";
+import { plazoDeEntrega } from "../modelo-de-negocio";
 import { and, desc, eq } from "drizzle-orm";
 import {
   db,
@@ -79,13 +81,16 @@ export async function cargarCatalogoDelNegocio(tenantId: number): Promise<Produc
     // Todas las fotos reales (la principal primero): "más fotos" manda las
     // que faltan sin repetir. Salen de la metadata que deja la importación
     // (Dropi trae hasta 20); sin esto el vendedor solo conoce la principal.
+    //
+    // ⚠️ 09-10-2026: acá se armaba una lista PROPIA con `imageUrls` o
+    // `imagenes`, y se perdía la galería de WooCommerce/Dropify
+    // (`metadata.woocommerce.imageUrls`). Con el Corrector el vendedor creía
+    // tener una sola foto y le contestaba al cliente "ya te mandé todas las
+    // que tengo". Ahora sale de `fotosDelProducto`, la misma lista que usan la
+    // ficha, la landing y los anuncios.
     let fotos: string[] | null = null;
     try {
-      const crudas = meta?.imageUrls || meta?.imagenes || [];
-      const lista = [p.imageUrl, ...(Array.isArray(crudas) ? crudas : [])]
-        .map((u: any) => String(u || "").trim())
-        .filter(Boolean);
-      fotos = [...new Set(lista)];
+      fotos = fotosDelProducto({ ...p, metadata: meta ?? p.metadata }, undefined, 20);
       if (!fotos.length) fotos = null;
     } catch {
       fotos = p.imageUrl ? [String(p.imageUrl)] : null;
@@ -208,7 +213,13 @@ export async function cargarGuion(tenantId: number, catalogo: Producto[], produc
     loQueDebeSaber: ctx.loQueDebeSaber,
     modoCatalogo: ctx.modoCatalogo,
     condiciones: ctx.condiciones
-      ? { pais: ctx.condiciones.pais ?? null, envio: ctx.condiciones.envio ?? null, agenda: ctx.condiciones.agenda ?? null }
+      ? {
+          pais: ctx.condiciones.pais ?? null,
+          // Envío de relleno = el negocio no lo configuró: no se le da al
+          // vendedor como hecho para afirmar (09-10-2026, ver envioConfirmado).
+          envio: ctx.condiciones.fuente === "respaldo" ? null : (ctx.condiciones.envio ?? null),
+          agenda: ctx.condiciones.agenda ?? null,
+        }
       : null,
     negociaPrecio: ctx.negociaPrecio,
   };
@@ -580,7 +591,7 @@ export function servicioDePedidos(p: {
               logger.info({ pedidoId: f.id, conversationId: p.conversationId }, "[MotorV2] pedido rechazado recuperado al preguntar el cliente");
               const { avisarAlDueno } = await import("../avisos");
               await avisarAlDueno(p.tenantId, `✅ *Pedido #${f.id} recuperado* — el cliente preguntó por él y entró a Dropi${num}.`).catch(() => null);
-              return { hay: true, texto: `Pedido #${f.id}: ${f.product_name} × ${f.quantity}, a ${f.ciudad || "?"}. Había quedado frenado por un error al registrarlo y LO ACABO DE REGISTRAR en Dropi${num}: ya está en proceso de despacho, plazo ${cond.envio.plazo}. Pídele disculpas por la demora y confírmale que ya salió a proceso.` };
+              return { hay: true, texto: `Pedido #${f.id}: ${f.product_name} × ${f.quantity}, a ${f.ciudad || "?"}. Había quedado frenado por un error al registrarlo y LO ACABO DE REGISTRAR en Dropi${num}: ya está en proceso de despacho, plazo ${plazoDeEntrega(cond)}. Pídele disculpas por la demora y confírmale que ya salió a proceso.` };
             }
             return { hay: true, texto: `${base} Lo volví a intentar registrar en Dropi ahora mismo y lo volvió a rechazar (${String(r.error || "").slice(0, 120)}). El dueño ya recibió el aviso. NO le digas que "el equipo lo está gestionando" ni le prometas fecha: dile la verdad (no se pudo registrar todavía) y usa escalar_a_humano para que una persona le escriba hoy.` };
           }
@@ -594,7 +605,7 @@ export function servicioDePedidos(p: {
         if (!d) return { hay: true, texto: `${base} Número en Dropi: ${f.dropi_order_id} (no aparece entre los últimos 50 de Dropi).` };
         return {
           hay: true,
-          texto: `${base} En Dropi: ${d.estado}${d.transportadora ? `, transportadora ${d.transportadora}` : ""}${d.guia ? `, guía ${d.guia}` : ", todavía sin guía"}. Plazo del negocio: ${cond.envio.plazo}.`,
+          texto: `${base} En Dropi: ${d.estado}${d.transportadora ? `, transportadora ${d.transportadora}` : ""}${d.guia ? `, guía ${d.guia}` : ", todavía sin guía"}. Plazo del negocio: ${plazoDeEntrega(cond)}.`,
         };
       } catch (e: any) {
         return { hay: false, texto: `No se pudo consultar: ${e?.message || e}` };
@@ -718,7 +729,7 @@ export function servicioDePedidos(p: {
             confirmacion:
               `Producto: ${pedido.productName} × ${pedido.quantity}. ` +
               `${pedido.metodoPago === "contraentrega" ? "Paga contraentrega al recibir" : "Pago ya acordado"}. ` +
-              `Llega a ${pedido.direccion}${pedido.barrio ? `, barrio ${pedido.barrio}` : ""} — ${pedido.ciudad}, ${pedido.departamento}, en ${cond.envio.plazo}.`,
+              `Llega a ${pedido.direccion}${pedido.barrio ? `, barrio ${pedido.barrio}` : ""} — ${pedido.ciudad}, ${pedido.departamento}, en ${plazoDeEntrega(cond)}.`,
           };
         }
         await ds.marcarEstado(pedido.id, "confirmado");

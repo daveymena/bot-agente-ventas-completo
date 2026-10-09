@@ -1781,7 +1781,7 @@ ${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo 
           } else
           bloqueDropshipping = r.ok
             ? `\n\n✅ PEDIDO REGISTRADO (#${r.wooOrderId}). Ya quedó creado y se despacha.\n`
-              + `Confirmáselo al cliente, ordenado y en líneas cortas: producto, total (${cond.envio.costo === "incluido" ? "envío incluido" : `envío ${cond.envio.costo}`}), ${cond.envio.pago === "contraentrega" ? "pago contraentrega al recibir" : "pago ya acordado"}, la dirección exacta a la que llega (${pedido.direccion}${pedido.barrio ? `, barrio ${pedido.barrio}` : ""} — ${pedido.ciudad}, ${pedido.departamento}), que la entrega es en ${cond.envio.plazo} y que le compartís el número de guía por este chat apenas la transportadora lo genere.\n`
+              + `Confirmáselo al cliente, ordenado y en líneas cortas: producto, total (${(await import("./modelo-de-negocio")).costoDeEnvioEnFrase(cond)}), ${cond.envio.pago === "contraentrega" ? "pago contraentrega al recibir" : "pago ya acordado"}, la dirección exacta a la que llega (${pedido.direccion}${pedido.barrio ? `, barrio ${pedido.barrio}` : ""} — ${pedido.ciudad}, ${pedido.departamento}), que la entrega es en ${(await import("./modelo-de-negocio")).plazoDeEntrega(cond)} y que le compartís el número de guía por este chat apenas la transportadora lo genere.\n`
               + `NO le pidas más datos: ya están todos. NO inventes número de guía.`
             : `\n\n⚠️ El cliente confirmó pero el pedido NO se pudo registrar (${r.error}).\n`
               + `Decile que ya tomaste sus datos y que en un momento le confirmás el despacho. NO inventes número de pedido ni de guía.`;

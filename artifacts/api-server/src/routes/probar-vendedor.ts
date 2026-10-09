@@ -144,8 +144,30 @@ router.post("/mensaje", async (req: TenantRequest, res) => {
 
     const mensajes = await mensajesComoEnWhatsApp(tenantId, turno?.partes || []);
 
+    // ── La revisión: qué de esta respuesta no se puede sostener ────────────
+    // El dueño (09-10-2026): "que sí corrija y mejore, que no me responda eso
+    // porque es mentira". Antes encontrar lo falso dependía de su ojo.
+    let revision: any[] = [];
+    try {
+      const { revisarRespuesta } = await import("../lib/revisar-respuesta");
+      const { db, products } = await import("@workspace/db");
+      const { and, eq } = await import("drizzle-orm");
+      const enFoco = Number((r.estado as any)?.productoEnFoco) || Number(mensajes.find((m) => m.productoId)?.productoId) || 0;
+      const [producto] = enFoco
+        ? await db.select().from(products).where(and(eq(products.id, enFoco), eq(products.tenantId, tenantId))).limit(1)
+        : [];
+      revision = revisarRespuesta({
+        textos: mensajes.map((m) => m.texto),
+        producto: producto ?? null,
+        condiciones: await condicionesDe(tenantId),
+      });
+    } catch (e: any) {
+      logger.warn({ tenantId, err: e?.message }, "[ProbarVendedor] no se pudo revisar la respuesta");
+    }
+
     return res.json({
       mensajes,
+      revision,
       texto: turno?.texto || "",
       estado: r.estado,
       pedido: pedidos.pedido(),
