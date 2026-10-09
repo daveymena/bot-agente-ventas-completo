@@ -5226,7 +5226,11 @@ ${explicarObjetivos()}` };
       const [prod] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
       if (!prod) return { ok: false, summary: `No encontre el producto ${id}.` };
       const p: any = prod;
-      const kind = p.kind === "digital" ? "digital" : "physical";
+      // 09-10-2026: un servicio (abogado, clínica, asesoría) iba como "physical"
+      // y Forge armaba una tienda contraentrega. Misma regla que la tienda
+      // pública (lineaDeProducto): servicio → página de servicio en Forge.
+      const { lineaDeProducto } = await import("./taxonomia");
+      const kind: "physical" | "digital" | "service" = lineaDeProducto(p) === "servicio" ? "service" : p.kind === "digital" ? "digital" : "physical";
       const price = p.price ? String(p.price) : "";
       const currency = String(p.currency || "COP");
       const productUrl = String(args?.productUrl || p.paymentLink || p.checkoutUrl || "").trim();
@@ -5236,9 +5240,9 @@ ${explicarObjetivos()}` };
       const images = imgRaw ? [String(imgRaw).startsWith("/") ? appBase + String(imgRaw) : String(imgRaw)] : [];
       // Prompt PRO: lo que convierte es pais + precio + publico + promesa.
       const prompt = [
-        `Landing para vender ${p.name}`,
-        price ? `a ${price} ${currency}` : "",
-        kind === "digital" ? "producto digital" : "con pago contra entrega en Colombia",
+        kind === "service" ? `Pagina de servicio para ${p.name}: se agenda una consulta, no se compra` : `Landing para vender ${p.name}`,
+        price && kind !== "service" ? `a ${price} ${currency}` : "",
+        kind === "digital" ? "producto digital" : kind === "service" ? "" : "con pago contra entrega en Colombia",
         p.description ? `. ${String(p.description).slice(0, 400)}` : "",
         productUrl ? `. El boton de compra lleva a ${productUrl}` : "",
         instruccion ? `. Enfoque del dueno: ${instruccion}` : "",
