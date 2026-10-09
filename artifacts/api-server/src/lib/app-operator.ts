@@ -8865,7 +8865,7 @@ ${r.texto}`, data: r.grupos };
       "⚠️ Va por propose_action: cambia lo que el bot le dice a TODOS los clientes. " +
       "Un dato inventado acá se convierte en una promesa falsa repetida en cada conversación. " +
       "Mostrá primero el estado con agente_inspectar ANTES de proponer cambios.",
-    args: '{ "descripcion"?: string, "nicho"?: string, "cobertura"?: string, "horario"?: string, "entrega"?: { "metodo": string, "plazo": string, "detalle"?: string }, "garantia"?: { "dias": number, "descripcion"?: string }, "acceso"?: { "tipo": string, "descripcion"?: string }, "noPuede"?: string[], "loQueDebeSaber"?: string[], "tono"?: string, "modoCatalogo"?: "digital" | "fisico" | "mixto" (qué ve el agente en el catálogo: "digital" y "fisico" ESCONDEN el otro tipo de producto; "mixto" muestra todo), "pais"?: string (ISO-2, ej "CO", "MX"), "envio"?: { "plazo"?: string, "pago"?: "contraentrega"|"anticipado"|"ambos", "costo"?: string ("incluido" o el valor), "cobertura"?: string } (cómo despacha y cobra lo FÍSICO este negocio; sin esto el bot usa 3-5 días/contraentrega/envío incluido, que son las condiciones del dueño de la plataforma, no las del negocio), "agenda"?: string (cómo se agenda un servicio) }',
+    args: '{ "descripcion"?: string, "nicho"?: string, "cobertura"?: string, "horario"?: string, "entrega"?: { "metodo": string, "plazo": string, "detalle"?: string }, "garantia"?: { "dias": number, "descripcion"?: string }, "acceso"?: { "tipo": string, "descripcion"?: string }, "noPuede"?: string[], "loQueDebeSaber"?: string[], "tono"?: string, "modoCatalogo"?: "digital" | "fisico" | "mixto" (qué ve el agente en el catálogo: "digital" y "fisico" ESCONDEN el otro tipo de producto; "mixto" muestra todo), "pais"?: string (ISO-2, ej "CO", "MX"), "envio"?: { "plazo"?: string, "pago"?: "contraentrega"|"anticipado"|"ambos", "costo"?: string ("incluido" o el valor), "cobertura"?: string } (cómo despacha y cobra lo FÍSICO este negocio; sin esto el bot usa 3-5 días/contraentrega/envío incluido, que son las condiciones del dueño de la plataforma, no las del negocio), "agenda"?: string (cómo se agenda un servicio), "presentacion"?: "tienda"|"servicios", "credenciales"?: string[] (solo reales), "direccion"?: string, "modalidad"?: string }',
     run: async (args, ctx) => {
       const [t] = await db.select().from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
       if (!t) return { ok: false, summary: "No se encontró el negocio." };
@@ -8897,6 +8897,14 @@ ${r.texto}`, data: r.grupos };
       // Condiciones que antes estaban fijas en código (ver modelo-de-negocio.ts).
       if (args.pais !== undefined) cambios.pais = String(args.pais).trim();
       if (args.agenda !== undefined) cambios.agenda = String(args.agenda).trim();
+      // Página pública de servicios (ver presentacion-del-negocio.ts).
+      if (args.presentacion !== undefined) {
+        const p = String(args.presentacion).toLowerCase();
+        if (p === "tienda" || p === "servicios") cambios.presentacion = p;
+      }
+      if (args.credenciales !== undefined) cambios.credenciales = (Array.isArray(args.credenciales) ? args.credenciales : [args.credenciales]).map((c: unknown) => String(c).trim()).filter(Boolean).slice(0, 8);
+      if (args.direccion !== undefined) cambios.direccion = String(args.direccion).trim();
+      if (args.modalidad !== undefined) cambios.modalidad = String(args.modalidad).trim();
       if (args.envio !== undefined) {
         const e = args.envio && typeof args.envio === "object" ? args.envio : { plazo: String(args.envio) };
         const pagoTxt = String(e.pago ?? "").toLowerCase();

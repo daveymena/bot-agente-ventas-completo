@@ -11,6 +11,7 @@ import Wishlist from './pages/Wishlist';
 import AdminDashboard from './pages/AdminDashboard';
 import EditorPage from './pages/EditorPage';
 import LandingPageNicho from './pages/LandingPageNicho';
+import InicioDelNegocio from './pages/InicioDelNegocio';
 import { useStore } from './store/useStore';
 
 /**
@@ -155,11 +156,7 @@ const App = () => {
         />
         <Route
           path="/tienda/:slug"
-          element={
-            <PublicLayout>
-              <Shop />
-            </PublicLayout>
-          }
+          element={<InicioDelNegocio />}
         />
         <Route
           path="/tienda/:slug/producto/:productId"
