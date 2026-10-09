@@ -28,6 +28,7 @@ import { Layout } from "@/components/layout";
 import { describeError } from "@/lib/utils";
 import { urlLoginFacebook, type ConfigAppFacebook } from "@/lib/facebook-login";
 import { LogoMarca } from "@/components/logo-marca";
+import { DatoSensibleInput, ValorOculto } from "@/components/ui/dato-sensible";
 
 type Plataforma = "shopify" | "aliexpress" | "mercadolibre" | "falabella";
 interface EstadoIntegracion { conectada: boolean; autorizada: boolean; tienda?: string; activa: boolean; actualizadaEn?: string }
@@ -42,23 +43,23 @@ async function api<T = any>(endpoint: string, options: RequestInit = {}): Promis
 }
 
 /** Qué pide cada plataforma. `tienda`/`token`/`secreto` son los nombres que guarda el servidor. */
-const CAMPOS: Record<Plataforma, Array<{ clave: "tienda" | "token" | "secreto" | "moneda"; etiqueta: string; ayuda: string; secreto?: boolean; opcional?: boolean }>> = {
+const CAMPOS: Record<Plataforma, Array<{ clave: "tienda" | "token" | "secreto" | "moneda"; etiqueta: string; ayuda: string; secreto?: boolean; sensible?: boolean; opcional?: boolean }>> = {
   shopify: [
     { clave: "tienda", etiqueta: "Dominio de la tienda", ayuda: "tu-tienda.myshopify.com" },
     { clave: "token", etiqueta: "Token de acceso (Admin API)", ayuda: "shpat_… — Shopify → Configuración → Apps → Desarrollar apps → tu app → Credenciales", secreto: true },
     { clave: "secreto", etiqueta: "Clave secreta de la app (para verificar webhooks)", ayuda: "API secret key de la misma app", secreto: true, opcional: true },
   ],
   mercadolibre: [
-    { clave: "tienda", etiqueta: "Client ID (App ID)", ayuda: "developers.mercadolibre.com.co → Mis aplicaciones" },
+    { clave: "tienda", etiqueta: "Client ID (App ID)", ayuda: "developers.mercadolibre.com.co → Mis aplicaciones", sensible: true },
     { clave: "token", etiqueta: "Client Secret", ayuda: "Clave secreta de la misma app", secreto: true },
   ],
   aliexpress: [
-    { clave: "tienda", etiqueta: "App Key", ayuda: "AliExpress Open Platform / Portals de afiliados" },
+    { clave: "tienda", etiqueta: "App Key", ayuda: "AliExpress Open Platform / Portals de afiliados", sensible: true },
     { clave: "token", etiqueta: "App Secret", ayuda: "Clave secreta de la app", secreto: true },
     { clave: "secreto", etiqueta: "Tracking ID (afiliados)", ayuda: "Opcional, para enlaces de afiliado", secreto: true, opcional: true },
   ],
   falabella: [
-    { clave: "tienda", etiqueta: "Usuario del Seller Center (email)", ayuda: "El correo con el que entras al Seller Center" },
+    { clave: "tienda", etiqueta: "Usuario del Seller Center (email)", ayuda: "El correo con el que entras al Seller Center", sensible: true },
     { clave: "token", etiqueta: "API Key", ayuda: "Seller Center → Mi cuenta → Integraciones → API Key", secreto: true },
   ],
 };
@@ -164,7 +165,7 @@ function TarjetaPlataforma({ p, estado, recargar }: { p: Plataforma; estado?: Es
           </div>
           <EstadoBadge e={estado} oauth={oauth} />
         </div>
-        {estado?.tienda && <p className="text-xs text-muted-foreground truncate">Cuenta: {estado.tienda}</p>}
+        {estado?.tienda && <p className="text-xs text-muted-foreground truncate">Cuenta: {CAMPOS[p].some((c) => c.clave === "tienda" && c.sensible) ? <ValorOculto valor={estado.tienda} /> : estado.tienda}</p>}
       </CardHeader>
       <CardContent className="space-y-4">
         {abierta ? (
@@ -180,6 +181,13 @@ function TarjetaPlataforma({ p, estado, recargar }: { p: Plataforma; estado?: Es
                     placeholder={c.ayuda}
                     value={valores[c.clave] || ""}
                     onChange={(nuevo) => setValores((v) => ({ ...v, [c.clave]: nuevo }))}
+                  />
+                ) : c.sensible ? (
+                  <DatoSensibleInput
+                    id={`${p}-${c.clave}`}
+                    placeholder={c.ayuda}
+                    value={valores[c.clave] || ""}
+                    onChange={(e) => setValores((v) => ({ ...v, [c.clave]: e.target.value }))}
                   />
                 ) : (
                   <Input
@@ -294,7 +302,7 @@ function TarjetaFacebook() {
             ? <Badge className="gap-1 bg-emerald-600 hover:bg-emerald-600"><CheckCircle2 className="h-3 w-3" />Conectada</Badge>
             : <Badge variant="outline" className="gap-1"><CircleDashed className="h-3 w-3" />Sin conectar</Badge>}
         </div>
-        {conectada && <p className="text-xs text-muted-foreground">Página {estado?.pageId}{estado?.adAccountId ? ` · cuenta publicitaria ${estado.adAccountId}` : " · falta elegir la cuenta publicitaria"}</p>}
+        {conectada && <p className="text-xs text-muted-foreground">Página <ValorOculto valor={estado?.pageId} />{estado?.adAccountId ? <> · cuenta publicitaria <ValorOculto valor={estado.adAccountId} /></> : " · falta elegir la cuenta publicitaria"}</p>}
       </CardHeader>
       <CardContent className="flex flex-wrap gap-2">
         <Button onClick={() => url && window.open(url, "_blank", "noopener,noreferrer")} disabled={!cfg.enabled || !url} className="bg-[#1877F2] hover:bg-[#166FE5]">

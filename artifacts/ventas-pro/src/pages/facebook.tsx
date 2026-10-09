@@ -18,6 +18,7 @@ import { getHelpGuide } from "@/data/help-guides";
 import { describeError } from "@/lib/utils";
 import { urlLoginFacebook } from "@/lib/facebook-login";
 import { LogoMarca } from "@/components/logo-marca";
+import { DatoSensibleInput, ValorOculto } from "@/components/ui/dato-sensible";
 
 const HELP_GUIDE = getHelpGuide("facebook")!;
 
@@ -955,7 +956,7 @@ export default function FacebookAdsPage() {
                       {catalogoEstado?.catalogo?.conectado && (
                         <p className="text-xs text-muted-foreground">
                           ✓ Conectado el {new Date(catalogoEstado.catalogo.conectado).toLocaleDateString("es-CO", { day: "numeric", month: "long" })} ·
-                          catálogo {catalogoEstado.catalogo.catalogId} · Meta descarga {catalogoEstado.catalogo.feedUrl?.split("/").pop()} en horario DAILY.
+                          catálogo <ValorOculto valor={catalogoEstado.catalogo.catalogId} /> · Meta descarga {catalogoEstado.catalogo.feedUrl?.split("/").pop()} en horario DAILY.
                         </p>
                       )}
                       <p className="text-xs text-muted-foreground">
@@ -980,10 +981,10 @@ export default function FacebookAdsPage() {
                             mandaba la máscara + esa letra y pisaba el token real. */}
                         <SecretInput value={rawToken} onChange={setRawToken} guardado={config.hasToken && (config.accessTokenUltimos4 || true)} placeholder="EAA..." />
                       </div>
-                      <div><Label>Pixel ID</Label><Input value={config.pixelId} onChange={e => setConfig({...config, pixelId: e.target.value})} placeholder="FB_PIXEL_ID" /></div>
-                      <div><Label>Catalog ID</Label><Input value={config.catalogId} onChange={e => setConfig({...config, catalogId: e.target.value})} placeholder="FB_CATALOG_ID" /></div>
-                      <div><Label>Page ID</Label><Input value={config.pageId} onChange={e => setConfig({...config, pageId: e.target.value})} placeholder="FB_PAGE_ID" /></div>
-                      <div><Label>Ad Account ID</Label><Input value={config.adAccountId} onChange={e => setConfig({...config, adAccountId: e.target.value})} placeholder="FB_AD_ACCOUNT_ID (solo números)" /></div>
+                      <div><Label>Pixel ID</Label><DatoSensibleInput value={config.pixelId} onChange={e => setConfig({...config, pixelId: e.target.value})} placeholder="FB_PIXEL_ID" /></div>
+                      <div><Label>Catalog ID</Label><DatoSensibleInput value={config.catalogId} onChange={e => setConfig({...config, catalogId: e.target.value})} placeholder="FB_CATALOG_ID" /></div>
+                      <div><Label>Page ID</Label><DatoSensibleInput value={config.pageId} onChange={e => setConfig({...config, pageId: e.target.value})} placeholder="FB_PAGE_ID" /></div>
+                      <div><Label>Ad Account ID</Label><DatoSensibleInput value={config.adAccountId} onChange={e => setConfig({...config, adAccountId: e.target.value})} placeholder="FB_AD_ACCOUNT_ID (solo números)" /></div>
 
                       {/* App ID y App Secret DE ESTE NEGOCIO. El backend ya los
                           guardaba por tenant (PUT /config los persiste) y
@@ -995,7 +996,7 @@ export default function FacebookAdsPage() {
                           para operar con sus propios permisos. */}
                       <div>
                         <Label>App ID</Label>
-                        <Input value={config.appId || ""} onChange={e => setConfig({...config, appId: e.target.value})} placeholder="Tu App ID de Meta" />
+                        <DatoSensibleInput value={config.appId || ""} onChange={e => setConfig({...config, appId: e.target.value})} placeholder="Tu App ID de Meta" />
                         <p className="text-xs text-muted-foreground mt-1">Opcional: solo si usás tu propia app de Facebook.</p>
                       </div>
                       <div>
@@ -1017,7 +1018,7 @@ export default function FacebookAdsPage() {
                       </div>
                       <div>
                         <Label>Login Config ID</Label>
-                        <Input value={config.loginConfigId || ""} onChange={e => setConfig({...config, loginConfigId: e.target.value})} placeholder="Solo si usás Login for Business" />
+                        <DatoSensibleInput value={config.loginConfigId || ""} onChange={e => setConfig({...config, loginConfigId: e.target.value})} placeholder="Solo si usás Login for Business" />
                         <p className="text-xs text-muted-foreground mt-1">Meta → Inicio de sesión para empresas → Configuraciones.</p>
                       </div>
                     </div>

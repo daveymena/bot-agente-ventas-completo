@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Facebook, CheckCircle2, AlertTriangle, Loader, Eye, EyeOff } from "lucide-react";
 import { LogoMarca } from "@/components/logo-marca";
+import { DatoSensibleInput, ValorOculto } from "@/components/ui/dato-sensible";
 
 interface Estado {
   propias: boolean;
@@ -172,7 +173,7 @@ export default function FacebookCredentialsPage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <Label className="text-xs font-semibold uppercase tracking-wider">App ID</Label>
-                  <Input value={appId} onChange={e => setAppId(e.target.value)} placeholder="1234567890" className="font-mono text-sm bg-slate-900 border-slate-700 mt-1" />
+                  <DatoSensibleInput value={appId} onChange={e => setAppId(e.target.value)} placeholder="1234567890" className="font-mono text-sm bg-slate-900 border-slate-700 mt-1" />
                 </div>
                 <div>
                   <Label className="text-xs font-semibold uppercase tracking-wider">App Secret</Label>
@@ -203,19 +204,19 @@ export default function FacebookCredentialsPage() {
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
                   <Label className="text-xs font-semibold uppercase tracking-wider">Page ID</Label>
-                  <Input value={pageId} onChange={e => setPageId(e.target.value)} placeholder="1234567890" className="font-mono text-sm bg-slate-900 border-slate-700 mt-1" />
+                  <DatoSensibleInput value={pageId} onChange={e => setPageId(e.target.value)} placeholder="1234567890" className="font-mono text-sm bg-slate-900 border-slate-700 mt-1" />
                 </div>
                 <div>
                   <Label className="text-xs font-semibold uppercase tracking-wider">Ad Account ID</Label>
-                  <Input value={adAccountId} onChange={e => setAdAccountId(e.target.value)} placeholder="act_1234567890" className="font-mono text-sm bg-slate-900 border-slate-700 mt-1" />
+                  <DatoSensibleInput value={adAccountId} onChange={e => setAdAccountId(e.target.value)} placeholder="act_1234567890" className="font-mono text-sm bg-slate-900 border-slate-700 mt-1" />
                 </div>
                 <div>
                   <Label className="text-xs font-semibold uppercase tracking-wider">Pixel ID</Label>
-                  <Input value={pixelId} onChange={e => setPixelId(e.target.value)} placeholder="1234567890" className="font-mono text-sm bg-slate-900 border-slate-700 mt-1" />
+                  <DatoSensibleInput value={pixelId} onChange={e => setPixelId(e.target.value)} placeholder="1234567890" className="font-mono text-sm bg-slate-900 border-slate-700 mt-1" />
                 </div>
                 <div>
                   <Label className="text-xs font-semibold uppercase tracking-wider">Catalog ID</Label>
-                  <Input value={catalogId} onChange={e => setCatalogId(e.target.value)} placeholder="1234567890" className="font-mono text-sm bg-slate-900 border-slate-700 mt-1" />
+                  <DatoSensibleInput value={catalogId} onChange={e => setCatalogId(e.target.value)} placeholder="1234567890" className="font-mono text-sm bg-slate-900 border-slate-700 mt-1" />
                 </div>
               </div>
             </div>

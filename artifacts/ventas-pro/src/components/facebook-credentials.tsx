@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { Facebook, CheckCircle2, AlertTriangle, Loader, ShieldCheck } from "lucide-react";
 import { SecretInput } from "@/components/ui/secret-input";
 import { LogoMarca } from "@/components/logo-marca";
+import { DatoSensibleInput, ValorOculto } from "@/components/ui/dato-sensible";
 
 interface Estado {
   propias: boolean;
@@ -204,7 +205,7 @@ export function FacebookCredentials() {
         <div className="space-y-3 pt-2 border-t border-border/50">
           <div className="space-y-2">
             <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Page ID</Label>
-            <Input value={pageId} onChange={e => { setPageId(e.target.value); setPruebaToken(null); }}
+            <DatoSensibleInput value={pageId} onChange={e => { setPageId(e.target.value); setPruebaToken(null); }}
               placeholder="123456789012345" className="font-mono text-sm bg-muted/30" autoComplete="off" />
             <p className="text-xs text-muted-foreground">El ID numérico de tu página de Facebook.</p>
           </div>
@@ -214,25 +215,25 @@ export function FacebookCredentials() {
         <div className="grid gap-3 sm:grid-cols-2 pt-2 border-t border-border/50">
           <div className="space-y-2">
             <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Ad Account ID</Label>
-            <Input value={adAccountId} onChange={e => { setAdAccountId(e.target.value); setPruebaToken(null); }}
+            <DatoSensibleInput value={adAccountId} onChange={e => { setAdAccountId(e.target.value); setPruebaToken(null); }}
               placeholder="act_1234567890" className="font-mono text-sm bg-muted/30" autoComplete="off" />
             <p className="text-xs text-muted-foreground">ID de tu cuenta de anuncios (formato act_...).</p>
           </div>
           <div className="space-y-2">
             <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Pixel ID</Label>
-            <Input value={pixelId} onChange={e => { setPixelId(e.target.value); setPruebaToken(null); }}
+            <DatoSensibleInput value={pixelId} onChange={e => { setPixelId(e.target.value); setPruebaToken(null); }}
               placeholder="1234567890123456" className="font-mono text-sm bg-muted/30" autoComplete="off" />
             <p className="text-xs text-muted-foreground">ID del Facebook Pixel para tracking.</p>
           </div>
           <div className="space-y-2">
             <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">Catalog ID</Label>
-            <Input value={catalogId} onChange={e => { setCatalogId(e.target.value); setPruebaToken(null); }}
+            <DatoSensibleInput value={catalogId} onChange={e => { setCatalogId(e.target.value); setPruebaToken(null); }}
               placeholder="1234567890123456" className="font-mono text-sm bg-muted/30" autoComplete="off" />
             <p className="text-xs text-muted-foreground">ID de tu catálogo de productos en Commerce Manager.</p>
           </div>
           <div className="space-y-2">
             <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">App ID</Label>
-            <Input value={appId} onChange={e => { setAppId(e.target.value); setPruebaToken(null); }}
+            <DatoSensibleInput value={appId} onChange={e => { setAppId(e.target.value); setPruebaToken(null); }}
               placeholder="123456789012345" className="font-mono text-sm bg-muted/30" autoComplete="off" />
             <p className="text-xs text-muted-foreground">App ID de tu app en Facebook Developers.</p>
           </div>
