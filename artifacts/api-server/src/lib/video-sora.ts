@@ -18,7 +18,17 @@
 import { writeFile } from "node:fs/promises";
 import { logger } from "./logger";
 
-const BASE = (process.env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "");
+// 09-10: con OPENAI_BASE_URL la primera prueba dio "404 {}" (otro servicio,
+// no OpenAI). Se resuelve igual que el catálogo de IA (/api/ai/models/openai),
+// que sí consulta api.openai.com y lista sora-2.
+async function baseOpenAI(): Promise<string> {
+  try {
+    const { getProviderConfig } = await import("@workspace/integrations-openai-ai-server");
+    const b = (getProviderConfig("openai") as any)?.baseUrl;
+    if (b && /openai\.com/i.test(b)) return String(b).replace(/\/+$/, "");
+  } catch { /* sin config: la oficial */ }
+  return "https://api.openai.com/v1";
+}
 const MODELO = process.env.SORA_MODEL || "sora-2";
 const SEGUNDOS = process.env.SORA_SEGUNDOS || "4";
 const TAMANO = "720x1280";
@@ -42,6 +52,11 @@ export async function claveOpenAI(tenantId: number): Promise<string | null> {
     const k = (await clavesDelTenant(tenantId))?.openai?.apiKey;
     if (k) return k;
   } catch { /* sin clave del negocio */ }
+  try {
+    const { getProviderConfig } = await import("@workspace/integrations-openai-ai-server");
+    const k = (getProviderConfig("openai") as any)?.apiKey;
+    if (k) return k;
+  } catch { /* sin config */ }
   return process.env.OPENAI_API_KEY || null;
 }
 
@@ -64,6 +79,7 @@ export async function tomaConSora(tenantId: number, toma: string, contexto: stri
   const clave = await claveOpenAI(tenantId);
   if (!clave) return fallo("no hay OPENAI_API_KEY en el servidor ni clave de OpenAI del negocio");
   const auth = { Authorization: `Bearer ${clave}` };
+  const BASE = await baseOpenAI();
   try {
     const form = new FormData();
     form.set("model", MODELO);
@@ -71,11 +87,13 @@ export async function tomaConSora(tenantId: number, toma: string, contexto: stri
     form.set("seconds", SEGUNDOS);
     form.set("size", TAMANO);
     const r = await fetch(`${BASE}/videos`, { method: "POST", headers: auth, body: form, signal: AbortSignal.timeout(30_000) });
-    const j: any = await r.json().catch(() => ({}));
+    const crudo = await r.text().catch(() => "");
+    let j: any = {};
+    try { j = JSON.parse(crudo); } catch { /* no es JSON: se informa el texto */ }
     if (!r.ok || !j?.id) {
-      const motivo = j?.error?.message || JSON.stringify(j).slice(0, 300);
-      logger.warn({ status: r.status, error: motivo }, "[Sora] no aceptó el pedido");
-      return fallo(`OpenAI respondió ${r.status}: ${motivo}`);
+      const motivo = j?.error?.message || crudo.slice(0, 200) || "(sin cuerpo)";
+      logger.warn({ status: r.status, url: `${BASE}/videos`, error: motivo }, "[Sora] no aceptó el pedido");
+      return fallo(`${BASE}/videos respondió ${r.status}: ${motivo}`);
     }
     const id = String(j.id);
     const hasta = Date.now() + esperaMs;
