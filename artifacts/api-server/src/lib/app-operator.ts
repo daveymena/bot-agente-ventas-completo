@@ -8878,7 +8878,22 @@ ${r.texto}`, data: r.grupos };
     args: '{ "accion": "listar"|"guardar"|"borrar", "productId"?: number, "pregunta"?: string, "disparadores"?: string, "respuesta"?: string, "id"?: number }',
     run: async (args, ctx) => {
       const { productKnowledge } = await import("@workspace/db");
-      const accion = String(args?.accion || "listar");
+      // 09-10-2026: Atlas mandó {eliminarRespuestas:[1,2], pregunta, disparadores,
+      // respuesta} SIN "accion"; caía en "listar", devolvía ok y el plan se daba
+      // por "ejecutado y verificado" sin haber guardado ni borrado nada.
+      const traeDatos = Boolean(String(args?.pregunta || "").trim() || String(args?.respuesta || "").trim());
+      const aBorrar: number[] = [
+        ...(Array.isArray(args?.eliminarRespuestas) ? args.eliminarRespuestas : []),
+        ...(Array.isArray(args?.ids) ? args.ids : []),
+      ].map(Number).filter((n) => Number.isInteger(n) && n > 0);
+      if (aBorrar.length) {
+        for (const id of aBorrar) {
+          await db.delete(productKnowledge).where(and(eq(productKnowledge.id, id), eq(productKnowledge.tenantId, ctx.tenantId)));
+        }
+        if (!traeDatos) return { ok: true, summary: `Respuestas ${aBorrar.join(", ")} eliminadas.`, data: { ids: aBorrar } };
+      }
+      if (Array.isArray(args?.disparadores)) args = { ...args, disparadores: args.disparadores.join(", ") };
+      const accion = String(args?.accion || (traeDatos ? "guardar" : args?.id ? "borrar" : "listar"));
 
       if (accion === "listar") {
         const filas = await db
