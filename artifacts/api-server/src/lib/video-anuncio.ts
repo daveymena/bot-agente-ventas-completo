@@ -53,10 +53,6 @@ export interface VideoGenerado {
   duracion: number;
   escenas: number;
   conBroll: boolean;
-  /** Cuántas escenas generó Sora (cada una se cobra). */
-  tomasSora?: number;
-  /** Por qué Sora no generó alguna de las tomas pedidas. */
-  errorSora?: string;
   guion: GuionDeVideo;
   en: string;
 }
@@ -358,23 +354,13 @@ export async function generarVideoDeAnuncio(tenantId: number, productId: number,
     // Escenas: capturas + B-roll + voz.
     const escenas = guion.escenas;
     let conBroll = false;
-    // Sora para las tomas de ambiente, con tope por video (ver video-sora.ts).
-    // Las que Sora genera van en paralelo: cada una tarda 1-3 min.
-    const { tomaConSora, escenasSoraPorVideo, ultimoErrorDeSora } = await import("./video-sora");
-    const topeSora = escenasSoraPorVideo();
-    const paraSora = escenas
-      .map((e, i) => ({ e, i }))
-      .filter(({ e }) => e.visual === "broll" && (e.toma || e.busqueda))
-      .slice(0, topeSora);
-    const deSora = new Map<number, string>();
-    await Promise.all(paraSora.map(async ({ e, i }) => {
-      const t = await tomaConSora(tenantId, e.toma || e.busqueda || "", e.texto, path.join(tmp, `sora-${i}.mp4`));
-      if (t) deSora.set(i, t);
-    }));
+    // 09-10-2026: se probó Sora para estas tomas y OpenAI apagó su API de video
+    // el 24-09-2026 (/v1/videos da 404). Las tomas de ambiente salen de Pexels;
+    // `toma` queda en el guion para el próximo generador que se conecte.
     const brolls: Array<string | null> = [];
     for (let i = 0; i < escenas.length; i++) {
       const e = escenas[i]!;
-      const b = deSora.get(i) || (e.visual === "broll" ? await brollDePexels(tenantId, e.busqueda || "", path.join(tmp, `broll-${i}.mp4`)) : null);
+      const b = e.visual === "broll" ? await brollDePexels(tenantId, e.busqueda || "", path.join(tmp, `broll-${i}.mp4`)) : null;
       if (b) conBroll = true;
       brolls.push(b);
       if (e.visual === "broll" && !b) e.visual = "producto"; // sin clip, se muestra el producto
@@ -465,7 +451,7 @@ export async function generarVideoDeAnuncio(tenantId: number, productId: number,
 
     const duracion = await duracionDe(final);
     const appUrl = (process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "");
-    const video: VideoGenerado = { archivo: nombre, url: `${appUrl}/videos/anuncios/${nombre}`, duracion: Math.round(duracion * 10) / 10, escenas: escenas.length, conBroll, tomasSora: deSora.size, ...(paraSora.length > deSora.size ? { errorSora: ultimoErrorDeSora() || "sin motivo" } : {}), guion, en: new Date().toISOString() };
+    const video: VideoGenerado = { archivo: nombre, url: `${appUrl}/videos/anuncios/${nombre}`, duracion: Math.round(duracion * 10) / 10, escenas: escenas.length, conBroll, guion, en: new Date().toISOString() };
     await db.update(products).set({ metadata: JSON.stringify({ ...m, videoAnuncio: video }) } as any).where(eq(products.id, productId));
     logger.info({ tenantId, productId, duracion: video.duracion, escenas: escenas.length, conBroll, guionPor: guion.autor }, "[VideoAnuncio] video generado");
     return { ok: true, video };
