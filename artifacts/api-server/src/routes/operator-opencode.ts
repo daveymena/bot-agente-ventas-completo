@@ -30,7 +30,7 @@ import { Router } from "express";
 import { randomUUID } from "node:crypto";
 import { requireAdmin, type TenantRequest } from "../lib/tenantManager";
 import { logger } from "../lib/logger";
-import { anotarExito, respondioHacePoco } from "../lib/cadena-modelos";
+import { anotarExito, convieneCortarloATiempo } from "../lib/cadena-modelos";
 import { esUnSiParaEstePlan } from "../lib/es-un-si";
 import { correrTurnoDirecto, correrTurnoDirectoConRotacion, candidatosDirectos, directoDisponible, configDirecta, type NivelDeEsfuerzo } from "../lib/atlas-directo";
 import { promptDeAtlas, executeAction, verifyMutation, investigacionRapida, mensajeParaAdmin, isReadOnlyTool, notaDeLandingsEnSegundoPlano, type OperatorContext } from "../lib/app-operator";
@@ -1880,8 +1880,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
           const anteriorSeQuedoSinTiempo = /timeout|timed out|abort|sin tiempo/i.test(String(ultimo.error || ""));
           // Un candidato que contestó hace poco tampoco se corta a los 30 s:
           // si tarda es por la tarea (ver respondioHacePoco en cadena-modelos).
-          const vieneRespondiendo = respondioHacePoco(model);
-          const techo = anteriorSeQuedoSinTiempo || vieneRespondiendo
+          // Y cortarlo solo sirve si hay otro más abajo que venga contestando
+          // (ver convieneCortarloATiempo).
+          const cortarATiempo = convieneCortarloATiempo(cadena, i);
+          const techo = anteriorSeQuedoSinTiempo || !cortarATiempo
             ? Math.max(restante - RESERVA_RESPALDO_MS, PISO_UTIL_MS)
             : TECHO_POR_CANDIDATO_MS;
           if (anteriorSeQuedoSinTiempo) {
