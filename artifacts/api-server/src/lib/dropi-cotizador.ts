@@ -122,6 +122,12 @@ async function tokensParaCotizar(tenantId: number): Promise<Array<{ token: strin
 const cacheCiudadesInt = new Map<string, { en: number; lista: Array<{ nombre: string; depto: number; dane: string; tarifas: string }> }>();
 const cacheDeptosInt = new Map<string, { en: number; lista: Array<{ id: number; nombre: string }> }>();
 
+/** Solo para tests: las cachés de 12 h contaminarían un test con otro. */
+export function vaciarCacheCotizador(): void {
+  cacheCiudadesInt.clear();
+  cacheDeptosInt.clear();
+}
+
 async function ciudadesPorIntegracion(token: string, ciudad: string, departamento: string): Promise<Array<{ nombre: string; depto: number; dane: string; tarifas: string }>> {
   const k = token.slice(-12);
   const c = cacheCiudadesInt.get(k);
@@ -158,6 +164,17 @@ async function cotizarPorIntegracion(
   const nombreDepto = (id: number) => deptos.find((d) => d.id === id)?.nombre || "";
   const candidatas = ciudades.filter((c) => norm(c.nombre) === norm(e.ciudad));
   const enDepto = e.departamento ? candidatas.filter((c) => norm(nombreDepto(c.depto)) === norm(e.departamento)) : [];
+  if (!candidatas.length) return { ok: false, error: `Dropi no tiene a ${e.ciudad} en su cobertura.` };
+  // 10-10-2026, caso Armenia: si se pidió un departamento y ningún homónimo
+  // es de ahí, NO se cotiza en silencio otra ciudad (era cotizar Antioquia
+  // creyendo que era Quindío). Se devuelve el error con dónde sí la tiene.
+  if (e.departamento && !enDepto.length) {
+    const donde = [...new Set(candidatas.map((c) => nombreDepto(c.depto)).filter(Boolean))];
+    if (donde.length) {
+      return { ok: false, error: `Dropi no lista ${e.ciudad} en la cobertura de ${e.departamento} (la tiene en: ${donde.join(", ")}). Verifica ciudad y departamento.` };
+    }
+    logger.warn({ ciudad: e.ciudad, departamento: e.departamento }, "[DropiCotizador] sin departamentos para desempatar; se usa el primer homónimo");
+  }
   const ciudad = enDepto[0] || candidatas[0];
   if (!ciudad) return { ok: false, error: `Dropi no tiene a ${e.ciudad} en su cobertura.` };
   const departamento = nombreDepto(ciudad.depto) || String(e.departamento || "");

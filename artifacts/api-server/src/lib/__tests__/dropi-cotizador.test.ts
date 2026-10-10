@@ -112,6 +112,45 @@ describe("cotizador por la API de integraciones (formas reales de Dropi, 30-09-2
     expect(r.transportadoras![0].ganancia).toBe(85000 - 39900 - 14599);
     expect(r.motivos).toEqual([{ transportadora: "DOMINA", motivo: "No se tiene configurada tarifa" }]);
   });
+
+  // 10-10-2026, caso real Armenia: dos homónimos; el primero (Antioquia)
+  // sin recaudo y el del Quindío con recaudo. Cotizar "Armenia, Quindío"
+  // NO puede usar en silencio la de Antioquia.
+  function responderArmenia(path: string, body: any, enviado: { v: any }) {
+    if (path === "trajectory/bycity") return { ok: true, data: { cities: [
+      { name: "ARMENIA", department_id: 5, cod_dane: "05031000", rate_type: '["SIN RECAUDO"]' },
+      { name: "ARMENIA", department_id: 63, cod_dane: "63001000", rate_type: '["CON RECAUDO","SIN RECAUDO"]' },
+    ] } };
+    if (path === "department") return { ok: true, data: [{ id: 5, name: "ANTIOQUIA" }, { id: 63, name: "QUINDIO" }] };
+    if (path === "orders/cotizaEnvioTransportadoraV2") {
+      enviado.v = body;
+      return { ok: true, data: [{ transportadora: "SERVIENTREGA", transportadora_id: 1, objects: { precioEnvio: 12000 } }] };
+    }
+    return { ok: false, error: "ruta inesperada" };
+  }
+
+  it("Armenia + Quindío cotiza la del Quindío, no la primera (Antioquia)", async () => {
+    const { vaciarCacheCotizador } = await import("../dropi-cotizador");
+    vaciarCacheCotizador();
+    const enviado: { v: any } = { v: null };
+    integracion.responder = (path, body) => responderArmenia(path, body, enviado);
+    const r = await cotizarEnvioDropi(7, { dropiProductId: 155, ciudad: "Armenia", departamento: "Quindío", precioVenta: 55000 });
+    expect(r.ok).toBe(true);
+    expect(r.ciudad).toEqual({ nombre: "ARMENIA", departamento: "QUINDIO", aceptaContraentrega: true });
+    expect(enviado.v.ciudad_destino).toMatchObject({ nombre: "ARMENIA", departamento: "QUINDIO", cod_dane: "63001000" });
+  });
+
+  it("Armenia + un departamento donde no está se dice en voz alta, no se cotiza otra", async () => {
+    const { vaciarCacheCotizador } = await import("../dropi-cotizador");
+    vaciarCacheCotizador();
+    const enviado: { v: any } = { v: null };
+    integracion.responder = (path, body) => responderArmenia(path, body, enviado);
+    const r = await cotizarEnvioDropi(7, { dropiProductId: 155, ciudad: "Armenia", departamento: "Huila", precioVenta: 55000 });
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/cobertura/);
+    expect(r.error).toMatch(/ANTIOQUIA|QUINDIO/);
+    expect(enviado.v).toBeNull();
+  });
 });
 
 describe("selector de transportadora en el formulario de la landing", () => {
