@@ -161,6 +161,28 @@ describe("transportadorasQueLlegan", () => {
     expect(nada.data?.ciudad?.cubierta).toBe(false);
   });
 
+  // 09-10-2026, caso real Armenia: dos municipios homónimos; el primero
+  // (otro departamento) sin recaudo y el del Quindío con recaudo. Antes se
+  // tomaba el primero y el vendedor sentenciaba "NO hay contraentrega".
+  it("homónimos: prefiere el del departamento pedido (Armenia, Quindío)", async () => {
+    const HOMONIMOS = {
+      objects: {
+        cities: [
+          { id: 1, name: "ARMENIA", department_id: 99, rate_type: '["SIN RECAUDO"]', trajectory_type: "TRAYECTO ESPECIAL" },
+          { id: 2, name: "ARMENIA", department_id: 63, rate_type: '["CON RECAUDO","SIN RECAUDO"]', trajectory_type: "URBANO" },
+        ],
+      },
+    };
+    const DEPTOS = [{ id: 63, name: "QUINDIO" }, { id: 99, name: "ANTIOQUIA" }];
+    vi.stubGlobal("fetch", vi.fn()
+      .mockImplementationOnce(okJson(GENERAL))
+      .mockImplementationOnce(okJson(HOMONIMOS))
+      .mockImplementationOnce(okJson(DEPTOS)));
+    const r = await transportadorasQueLlegan(TOKEN, { ciudad: "Armenia", departamento: "Quindío" });
+    expect(r.ok).toBe(true);
+    expect(r.data?.ciudad).toMatchObject({ cubierta: true, aceptaContraentrega: true });
+  });
+
   it("si la cobertura falla, devuelve la lista general sin inventar filtro", async () => {
     const fetchMock = vi.fn()
       .mockImplementationOnce(okJson(GENERAL))
