@@ -697,7 +697,7 @@ export function servicioDePedidos(p: {
           if (c && !c.cubierta) {
             return { ok: false, mensaje: `Dropi no tiene a ${destino} en su cobertura. Pídele al cliente que confirme cómo se escribe su ciudad o municipio; no le ofrezcas transportadoras.` };
           }
-          const contra = c?.aceptaContraentrega === false ? " Ojo: a esa ciudad NO hay contraentrega; el pago sería anticipado." : c?.aceptaContraentrega ? " Acepta pago contraentrega." : "";
+          const contra = c?.aceptaContraentrega === false ? " Ojo: Dropi no me confirma contraentrega para esa ciudad (lo verifico al despachar); si prefieres asegurar, el pago puede ser anticipado." : c?.aceptaContraentrega ? " Acepta pago contraentrega." : "";
           return {
             ok: true,
             mensaje:
