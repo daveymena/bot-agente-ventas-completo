@@ -120,6 +120,7 @@ describe("cotizador por la API de integraciones (formas reales de Dropi, 30-09-2
     if (path === "trajectory/bycity") return { ok: true, data: { cities: [
       { name: "ARMENIA", department_id: 5, cod_dane: "05031000", rate_type: '["SIN RECAUDO"]' },
       { name: "ARMENIA", department_id: 63, cod_dane: "63001000", rate_type: '["CON RECAUDO","SIN RECAUDO"]' },
+      { name: "ARMENIA Q", department_id: 63, cod_dane: "63001001", rate_type: '["CON RECAUDO"]' },
     ] } };
     if (path === "department") return { ok: true, data: [{ id: 5, name: "ANTIOQUIA" }, { id: 63, name: "QUINDIO" }] };
     if (path === "orders/cotizaEnvioTransportadoraV2") {
@@ -149,6 +150,7 @@ describe("cotizador por la API de integraciones (formas reales de Dropi, 30-09-2
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/cobertura/);
     expect(r.error).toMatch(/ANTIOQUIA|QUINDIO/);
+    expect(r.error).toMatch(/Parecidos/);
     expect(enviado.v).toBeNull();
   });
 });

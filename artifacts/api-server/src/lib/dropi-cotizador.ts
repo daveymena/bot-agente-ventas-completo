@@ -171,7 +171,16 @@ async function cotizarPorIntegracion(
   if (e.departamento && !enDepto.length) {
     const donde = [...new Set(candidatas.map((c) => nombreDepto(c.depto)).filter(Boolean))];
     if (donde.length) {
-      return { ok: false, error: `Dropi no lista ${e.ciudad} en la cobertura de ${e.departamento} (la tiene en: ${donde.join(", ")}). Verifica ciudad y departamento.` };
+      // 10-10-2026: además de decir dónde sí está, se muestran nombres
+      // parecidos por si Dropi la registra distinto (la capital podría no
+      // llamarse igual que el municipio homónimo).
+      const parecidos = [...new Map(
+        ciudades
+          .filter((c) => norm(c.nombre).includes(norm(e.ciudad)) && norm(c.nombre) !== norm(e.ciudad))
+          .slice(0, 5)
+          .map((c) => [`${c.nombre} (${nombreDepto(c.depto) || "?"})`, null] as const),
+      ).keys()];
+      return { ok: false, error: `Dropi no lista ${e.ciudad} en la cobertura de ${e.departamento} (la tiene en: ${donde.join(", ")})${parecidos.length ? `. Parecidos en Dropi: ${parecidos.join(", ")}` : ""}. Verifica ciudad y departamento.` };
     }
     logger.warn({ ciudad: e.ciudad, departamento: e.departamento }, "[DropiCotizador] sin departamentos para desempatar; se usa el primer homónimo");
   }
