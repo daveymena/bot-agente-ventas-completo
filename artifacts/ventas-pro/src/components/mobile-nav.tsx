@@ -96,7 +96,7 @@ export function MobileNav() {
                       <ChevronDown className={`h-4 w-4 transition-transform ${open ? "rotate-180" : ""}`} />
                     </button>
                   </CollapsibleTrigger>
-                  <CollapsibleContent className="mt-1.5 flex flex-col gap-1 border-l border-gray-200 ml-5 pl-3">
+                  <CollapsibleContent className="mt-2 grid grid-cols-3 gap-2">
                     {group.items.map((item) => {
                       const isActive = location === item.href || location.startsWith(`${item.href}/`);
                       const isExternal = !!item.external;
@@ -104,9 +104,9 @@ export function MobileNav() {
                       return (
                         <a key={item.href} href={isExternal ? urlExterna : item.href} target={isExternal ? "_blank" : undefined} rel={isExternal ? "noopener noreferrer" : undefined}
                           onClick={(e) => { if (isExternal) { e.preventDefault(); setShowMore(false); try { window.open(urlExterna, "_blank", "noopener,noreferrer"); } catch { window.location.href = urlExterna; } return; } e.preventDefault(); setShowMore(false); setLocation(item.href); }}
-                          className={`flex min-h-10 items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${isActive ? "bg-indigo-100 font-semibold text-indigo-700" : "text-gray-600 hover:bg-gray-50"}`}>
-                          <IconoDelMenu icon={item.icon} href={item.href} tam={20} activo={isActive} />
-                          <span>{item.label}</span>
+                          className={`flex flex-col items-center gap-1.5 rounded-2xl p-3 transition-all ${isActive ? "bg-indigo-50 text-indigo-600" : "text-gray-600 hover:bg-gray-50"}`}>
+                          <IconoDelMenu icon={item.icon} href={item.href} tam={40} activo={isActive} />
+                          <span className="text-[10px] font-semibold text-center leading-tight">{item.label}</span>
                         </a>
                       );
                     })}
