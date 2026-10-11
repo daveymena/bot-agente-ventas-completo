@@ -36,6 +36,7 @@ import { useSession } from "@/App";
 import { MobileNav } from "./mobile-nav";
 import { HelpChatWidget } from "./HelpChatWidget";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { iconoMarca } from "@/components/logo-marca";
 
 type NavItem = { label: string; href: string; icon: any; external?: boolean | string };
 type NavGroup = { id: string; label: string; icon: any; items: NavItem[] };
