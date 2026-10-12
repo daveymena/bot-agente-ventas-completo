@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import MainLayout from './components/MainLayout';
 import PublicLayout from './components/PublicLayout';
 import Home from './pages/Home';
@@ -13,6 +13,51 @@ import EditorPage from './pages/EditorPage';
 import LandingPageNicho from './pages/LandingPageNicho';
 import InicioDelNegocio from './pages/InicioDelNegocio';
 import { useStore } from './store/useStore';
+
+/**
+ * Evita que el gesto "atrás" cierre la PWA/tienda cuando se abrió en pestaña nueva.
+ * Caso reportado: "siempre que estoy en leasing Estudio o en la tienda y me devuelvo la aplicación se sale".
+ * - Si history.length===1 y estamos en /tienda/*, no hay a dónde volver: el navegador cierra la vista.
+ * - Truco: empujar un estado dummy al entrar, así "atrás" cae en popstate y lo llevamos al inicio de la tienda en vez de salir.
+ * - También intercepta popstate en raíz de tienda para no dejar salir sin querer (doble atrás sí sale).
+ */
+const NavegacionSeguraTienda = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  useEffect(() => {
+    const esTienda = location.pathname.startsWith('/tienda');
+    if (!esTienda) return;
+    // Si entramos directo (WhatsApp, QR, ?from=panel en pestaña nueva) history=1 → empujar dummy
+    try {
+      if (window.history.length === 1) {
+        window.history.pushState({ vp_seguro: true }, '', window.location.href);
+      }
+    } catch {}
+    const onPopState = () => {
+      // Si el usuario dio atrás y quedó sin historial, llevarlo al inicio de SU tienda, no cerrar
+      try {
+        const m = window.location.pathname.match(/^\/tienda\/([^/]+)/);
+        const base = m ? `/tienda/${m[1]}` : '/tienda';
+        // Si después del pop la ruta sigue siendo tienda pero sin estado, quedó en el dummy → ir al base
+        if (window.location.pathname.startsWith('/tienda')) {
+          // pequeña demora para dejar que el router procese el pop
+          setTimeout(() => {
+            if (window.location.pathname === base) {
+              // ya está en base, empujar de nuevo para que el siguiente atrás no cierre de golpe
+              try { window.history.pushState({ vp_seguro: true }, '', window.location.href); } catch {}
+            }
+          }, 50);
+        } else {
+          // si salió de /tienda por atrás (ej: a / ), volver a la tienda
+          navigate(base, { replace: true });
+        }
+      } catch {}
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [location.pathname, navigate]);
+  return null;
+};
 
 /**
  * A dónde mandar una ruta desconocida dentro de la tienda.
@@ -87,6 +132,7 @@ const App = () => {
 
   return (
     <Router>
+      <NavegacionSeguraTienda />
       <VolverAlPanel />
       <Routes>
         {/* Public Routes */}
