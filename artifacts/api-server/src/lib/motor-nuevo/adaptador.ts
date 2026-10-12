@@ -21,6 +21,9 @@
 
 import { fotosDelProducto } from "../fotos-de-producto";
 import { plazoDeEntrega } from "../modelo-de-negocio";
+import { registrarManejadorFollowupPro } from "../whatsapp/followup-pro-manejador";
+// Registra el drip pro al cargar el adaptador (una vez por proceso)
+try { registrarManejadorFollowupPro(); } catch {}
 import { and, desc, eq } from "drizzle-orm";
 import {
   db,
@@ -911,6 +914,14 @@ export async function responderComoVendedor(
   // si hay traspaso), y de ahí salen su voz y SUS productos.
   const ultimoMensaje = [...historial].reverse().find((m) => m.role === "customer")?.content ?? "";
 
+  // ── Follow-up Pro: el cliente respondió → cancela drip pendiente ─────────
+  // Sin esto, un drip programado para +15m seguiría disparando aunque el
+  // cliente ya contestó. La clave programador es por conversacion+plantilla.
+  try {
+    const { cancelarDripPro } = await import("../whatsapp/followup-pro");
+    await cancelarDripPro(conversationId);
+  } catch {}
+
   // ¿Vino de un anuncio? Meta manda "¡Hola! Quiero más información" para
   // todos; el producto viaja en la metadata del primer mensaje. Conv 221
   // (24-09-2026): lead `meta_ads` y el bot preguntó "¿qué producto te
@@ -1216,6 +1227,31 @@ async function aplicarEfecto(
     } catch {
       /* idem */
     }
+    return;
+  }
+
+  if (efecto.tipo === "followup_pro") {
+    try {
+      const { programarDripPro } = await import("../whatsapp/followup-pro");
+      const producto = efecto.productoNombre || "este producto";
+      // Precio/ciudad salen del catálogo/catálogo completo para el mensaje
+      const prod = ctx.catalogo.find((p: any) => p.id === efecto.productoId);
+      const precio = prod?.price ? `$${Number(prod.price).toLocaleString("es-CO")}` : "";
+      const ciudad = String((ctx.estado as any)?.datos?.ciudad || "").trim() || undefined;
+      const nombre = String(ctx.convo?.contactName || "").trim() || "";
+      await programarDripPro(ctx.conversationId, efecto.disparador as any, { nombre, producto, precio, ciudad }, ctx.tenantId);
+    } catch (e: any) {
+      // no tumbar la respuesta por el drip
+    }
+    return;
+  }
+
+  if (efecto.tipo === "cancelar_followup") {
+    try {
+      const { cancelarDripPro } = await import("../whatsapp/followup-pro");
+      await cancelarDripPro(ctx.conversationId);
+    } catch {}
+    return;
   }
 }
 

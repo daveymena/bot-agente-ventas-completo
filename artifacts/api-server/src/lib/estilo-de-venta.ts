@@ -49,17 +49,20 @@ export interface EstiloDeVenta {
 }
 
 /**
- * Lo que se usa cuando el negocio no eligió nada.
+ * Lo que se usa cuando el negocio no eligió nada — MODO PRO 2026-10-12.
  *
- * No es un "modo neutro": es el que mejor funciona por WhatsApp según lo que
- * este proyecto ya midió. Averiguar antes de presentar --salvo que el cliente
- * haya pedido el precio, donde interrogarlo es lo que lo hace irse-- y el
- * video como gancho, que es la carnada más fuerte del catálogo.
+ * Cambio: `calificacion: "siempre"` + `anteLaDuda: "preguntar_que_frena"`.
+ * Por qué: 50 USD con 0 ventas midió que el pitch temprano (ficha completa en
+ * turno 1) mata la conversación. Agencias pro cierran con 1 pregunta calificadora
+ * ANTES del pitch (micro-compromiso) y con objeción diagnosticada (“¿es por precio,
+ * entrega o si te sirve?”) en vez de “pensalo”. El viejo “salvo_si_pidio_dato”
+ * sigue disponible como perfil Equilibrado para quien lo elija, pero el default
+ * ahora es el que convierte.
  */
 export const ESTILO_POR_DEFECTO: EstiloDeVenta = {
-  calificacion: "salvo_si_pidio_dato",
+  calificacion: "siempre",
   ganchoVideo: true,
-  anteLaDuda: "algo_concreto",
+  anteLaDuda: "preguntar_que_frena",
 };
 
 export interface PerfilDeVenta {
@@ -85,16 +88,16 @@ export const PERFILES: PerfilDeVenta[] = [
     etiqueta: "Consultivo",
     comoSeSiente: "Pregunta primero, recomienda después. Se siente como un asesor.",
     cuandoConviene:
-      "Cuando tenés varios productos parecidos y el cliente puede elegir mal, o cuando el ticket es alto y la decisión se piensa.",
+      "Cuando tenés varios productos parecidos y el cliente puede elegir mal, o cuando el ticket es alto y la decisión se piensa. Es el que más convierte por WhatsApp (default).",
     estilo: { calificacion: "siempre", ganchoVideo: true, anteLaDuda: "preguntar_que_frena" },
+    recomendado: true,
   },
   {
     id: "equilibrado",
     etiqueta: "Equilibrado",
     comoSeSiente: "Averigua una cosa antes de presentar, pero si le piden el precio lo da sin rodeos.",
-    cuandoConviene: "Para casi cualquier negocio. Es lo que mejor funciona por WhatsApp.",
-    estilo: ESTILO_POR_DEFECTO,
-    recomendado: true,
+    cuandoConviene: "Para casi cualquier negocio. Antes era el default; ahora es opción para quien quiere calificar solo si no pidió dato.",
+    estilo: { calificacion: "salvo_si_pidio_dato", ganchoVideo: true, anteLaDuda: "algo_concreto" },
   },
   {
     id: "directo",
