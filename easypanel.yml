@@ -21,6 +21,9 @@ services:
       USE_SQLITE: "true"
       SQLITE_PATH: "./data/tecnovariedades.db"
 
+      # ========== DIOS — Video/Imagen/Landing premium (2026-10-12) ==========
+      DIOS: "1"
+
       # ========== AI FALLBACK ==========
       AI_FALLBACK_ENABLED: "${AI_FALLBACK_ENABLED:-true}"
       AI_FALLBACK_ORDER: "${AI_FALLBACK_ORDER:-ollama_cloud,opencode,groq,github,g4f}"
