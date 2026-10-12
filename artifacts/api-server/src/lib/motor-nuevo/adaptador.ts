@@ -1,7 +1,6 @@
 /**
  * ADAPTADOR: EL MOTOR NUEVO CONECTADO AL SISTEMA REAL
- * ===================================================
- *
+ * ============================================ *
  * `motor.ts` no sabe nada de la base ni del proveedor de IA: recibe un
  * cliente, un catálogo, un guion y una voz. Acá se construyen esas piezas con
  * lo que YA existe en el repo, sin reimplementar nada:
