@@ -10080,6 +10080,46 @@ ${r.texto}`, data: r.grupos };
       };
     },
   },
+  // ── Canva Connect — solo lectura/estado (no gasta, no publica) ──
+  {
+    name: "canva_estado",
+    description: "Estado Canva Connect (OAuth PKCE docs, scopes, redirect, si está habilitado). Solo lectura, no toca Canva. Usa lib/canva-connector estadoCanva().",
+    args: '{}',
+    run: async (_args, _ctx) => {
+      try {
+        const { estadoCanva } = await import("./canva-connector");
+        const e = await estadoCanva();
+        return { ok: true, summary: e.motivo + ` Docs: ${e.docs} | Scopes: ${e.scopes.join(", ")} | FFmpeg local sigue activo como alternativa costo 0.`, data: e };
+      } catch (e:any) { return { ok:false, summary: `canva_estado falló: ${e?.message||e}` }; }
+    },
+  },
+  {
+    name: "canva_status",
+    description: "Alias de canva_estado.",
+    args: '{}',
+    run: async (a,c) => {
+      const def = TOOLS.find(t=>t.name==="canva_estado")!;
+      return def.run(a,c);
+    },
+  },
+  {
+    name: "atlas_canva",
+    description: "Alias de canva_estado (para Atlas).",
+    args: '{}',
+    run: async (a,c) => {
+      const def = TOOLS.find(t=>t.name==="canva_estado")!;
+      return def.run(a,c);
+    },
+  },
+  {
+    name: "atlas_canva_estado",
+    description: "Alias de canva_estado.",
+    args: '{}',
+    run: async (a,c) => {
+      const def = TOOLS.find(t=>t.name==="canva_estado")!;
+      return def.run(a,c);
+    },
+  },
   // ── DIOS — Agencia Dios (ResearchDeep → ImagenDios → VideoDios → Landing) — solo lectura/preview, no toca Meta ──
   {
     name: "dios_orquestar",
@@ -10545,6 +10585,8 @@ export const READ_ONLY_TOOLS = new Set([
   // escritura (codigo_escribir, git_commit_push, deploy) quedan FUERA del set
   // → solo se alcanzan por propose_action, con el sí del admin.
   "codigo_leer", "codigo_buscar", "codigo_listar", "tests_correr", "git_estado",
+  // Canva Connect (solo lectura: estado/docs, no gasta ni publica). Atlas debe poder responder qué es Canva sin inventar.
+  "canva_estado", "canva_status", "atlas_canva", "atlas_canva_estado",
   // DIOS — Orquestador Dios + ImagenDios + VideoDios: solo leen/generan previews, no tocan Meta ni gastan.
   // atlas_* alias para que grep audit `atlas_video` / `atlas_dios` lo encuentre.
   "dios_orquestar", "atlas_dios_orquestar",
