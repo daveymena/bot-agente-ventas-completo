@@ -28,9 +28,19 @@ export interface RunResult { code:number; out:string; err:string; ms:number; }
 
 export async function runSeguro(bin: "ffmpeg"|"ffprobe", args: string[], timeoutMs=180_000, cwd?: string): Promise<RunResult> {
   if (!ALLOWED_BIN.has(bin)) throw new Error(`Bin no permitido: ${bin}`);
-  // valida que no haya inyección
-  for (const a of args) {
-    if (/[;&|`$]/.test(a) && !a.startsWith("file '")) throw new Error(`Arg inseguro: ${a}`);
+  // valida que no haya inyección — spawn es sin shell, así que ; y | en grafos de filtros son legítimos
+  for (let i=0;i<args.length;i++) {
+    const a = args[i];
+    const prev = args[i-1] || "";
+    const esGrafoFiltro = prev === "-filter_complex" || prev === "-vf" || prev === "-af" || prev === "-lavfi" || prev === "-filter:v" || prev === "-filter:a";
+    // file list de concat demuxer empieza con "file '...'" y puede tener caracteres especiales
+    if (a.startsWith("file '")) continue;
+    // grafo de filtros (xfade con ;) usa ; y : y = y [ ] — es seguro porque no pasa por shell
+    if (esGrafoFiltro) {
+      if (/[&`$]/.test(a)) throw new Error(`Arg inseguro en filtro: ${a}`);
+      continue;
+    }
+    if (/[;&|`$]/.test(a)) throw new Error(`Arg inseguro: ${a}`);
   }
   // valida rutas tras -i y destinos
   for (let i=0;i<args.length;i++) if (args[i]==="-i" && args[i+1]) try{ validarRuta(args[i+1]); }catch{}
