@@ -25,6 +25,7 @@ import { hablarColombiano } from "./hablar-colombiano";
 import { db, products } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { logger } from "./logger";
+import { runSeguro as runSeguroConnector, hayFfmpegSeguro } from "./ffmpeg-connector";
 
 export interface EscenaDeVideo {
   /** Texto grande en pantalla (≤ 8 palabras). */
@@ -77,11 +78,21 @@ function run(cmd: string, args: string[], timeoutMs = 180_000): Promise<{ code: 
 }
 
 export async function hayFfmpeg(): Promise<boolean> {
-  try { return (await run("ffmpeg", ["-version"], 10_000)).code === 0; } catch { return false; }
+  try {
+    // Usa conector seguro (allowlist) si está disponible, cae a spawn directo
+    const r = await hayFfmpegSeguro().catch(()=> null);
+    if (r !== null) return !!r;
+    return (await runSeguroConnector("ffmpeg", ["-version"], 10_000)).code === 0;
+  } catch { return false; }
 }
 
 async function duracionDe(archivo: string): Promise<number> {
-  const r = await run("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", archivo], 20_000);
+  try {
+    const r = await runSeguroConnector("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", archivo], 20_000);
+    const n = Number(String(r.out).trim());
+    if (Number.isFinite(n) && n>0) return n;
+  } catch {}
+  const r = await runSeguroConnector("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", archivo], 20_000);
   const n = Number(String(r.out).trim());
   return Number.isFinite(n) ? n : 0;
 }
@@ -405,12 +416,12 @@ export async function generarVideoDeAnuncio(tenantId: number, productId: number,
       const zoom = i % 2 === 0 ? `min(zoom+0.0012,1.12)` : `if(eq(on,1),1.12,max(zoom-0.0012,1.0))`;
       if (brolls[i]) {
         // B-roll de fondo + captura (con transparencia) encima.
-        const r = await run("ffmpeg", ["-y", "-stream_loop", "-1", "-i", brolls[i]!, "-loop", "1", "-i", capturas[i]!, "-filter_complex",
+        const r = await runSeguroConnector("ffmpeg", ["-y", "-stream_loop", "-1", "-i", brolls[i]!, "-loop", "1", "-i", capturas[i]!, "-filter_complex",
           `[0:v]scale=${ANCHO}:${ALTO}:force_original_aspect_ratio=increase,crop=${ANCHO}:${ALTO},setsar=1,fps=${FPS}[bg];[bg][1:v]overlay=0:0:format=auto,format=yuv420p[v]`,
           "-map", "[v]", "-t", String(d), "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", salida], 240_000);
         if (r.code !== 0) throw new Error(`ffmpeg broll ${i}: ${r.err.slice(-400)}`);
       } else {
-        const r = await run("ffmpeg", ["-y", "-loop", "1", "-i", capturas[i]!, "-filter_complex",
+        const r = await runSeguroConnector("ffmpeg", ["-y", "-loop", "1", "-i", capturas[i]!, "-filter_complex",
           `[0:v]scale=${ANCHO * 2}:${ALTO * 2},zoompan=z='${zoom}':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=${ANCHO}x${ALTO}:fps=${FPS},format=yuv420p[v]`,
           "-map", "[v]", "-t", String(d), "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", salida], 240_000);
         if (r.code !== 0) throw new Error(`ffmpeg escena ${i}: ${r.err.slice(-400)}`);
@@ -426,14 +437,14 @@ export async function generarVideoDeAnuncio(tenantId: number, productId: number,
       const args = audios[i]
         ? ["-y", "-i", audios[i]!, "-af", `apad`, "-t", String(largo), "-ar", "44100", "-ac", "2", salida]
         : ["-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-t", String(largo), salida];
-      const r = await run("ffmpeg", args, 60_000);
+      const r = await runSeguroConnector("ffmpeg", args, 60_000);
       if (r.code !== 0) throw new Error(`ffmpeg audio ${i}: ${r.err.slice(-300)}`);
       tramos.push(salida);
     }
     const listaAudio = path.join(tmp, "audio.txt");
     await writeFile(listaAudio, tramos.map((t) => `file '${t.replace(/\\/g, "/").replace(/'/g, "'\\''")}'`).join("\n"));
     const pistaVoz = path.join(tmp, "voz.wav");
-    let r = await run("ffmpeg", ["-y", "-f", "concat", "-safe", "0", "-i", listaAudio, "-c", "copy", pistaVoz], 60_000);
+    let r = await runSeguroConnector("ffmpeg", ["-y", "-f", "concat", "-safe", "0", "-i", listaAudio, "-c", "copy", pistaVoz], 60_000);
     if (r.code !== 0) throw new Error(`ffmpeg concat audio: ${r.err.slice(-300)}`);
 
     // Video: transiciones cruzadas entre clips.
@@ -453,8 +464,21 @@ export async function generarVideoDeAnuncio(tenantId: number, productId: number,
     await mkdir(dirVideos(), { recursive: true });
     const nombre = `${productId}-${Date.now()}.mp4`;
     const final = path.join(dirVideos(), nombre);
-    r = await run("ffmpeg", ["-y", ...entradas, ...audioArgs, "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-shortest", "-movflags", "+faststart", final], 300_000);
+    r = await runSeguroConnector("ffmpeg", ["-y", ...entradas, ...audioArgs, "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-shortest", "-movflags", "+faststart", final], 300_000);
     if (r.code !== 0) throw new Error(`ffmpeg final: ${r.err.slice(-500)}`);
+
+    // Verificación calidad auto: 1080x1920, duración 15-30s, ffprobe (control calidad FASE 6)
+    try {
+      const probe = await runSeguroConnector("ffprobe", ["-v","error","-select_streams","v:0","-show_entries","stream=width,height,duration","-of","json", final], 20_000);
+      if (probe.code===0) {
+        const j = JSON.parse(probe.out||"{}");
+        const st = j?.streams?.[0]||{};
+        const w = Number(st.width), h = Number(st.height);
+        if (w !== 1080 || h !== 1920) logger.warn({ w, h, final }, "[VideoAnuncio] resolución no es 1080x1920");
+        const dProbe = Number(st.duration);
+        if (Number.isFinite(dProbe) && (dProbe < 14 || dProbe > 32)) logger.warn({ dProbe }, "[VideoAnuncio] duración fuera de 15-30s");
+      }
+    } catch {}
 
     const duracion = await duracionDe(final);
     const appUrl = (process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "");

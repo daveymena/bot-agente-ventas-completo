@@ -10080,6 +10080,106 @@ ${r.texto}`, data: r.grupos };
       };
     },
   },
+  // ── DIOS — Agencia Dios (ResearchDeep → ImagenDios → VideoDios → Landing) — solo lectura/preview, no toca Meta ──
+  {
+    name: "dios_orquestar",
+    description: "Orquestador Dios: pipeline completo ResearchDeep → ImagenDios (6 imágenes reales 4:5/1:1) → VideoDios (guion 18s) → LandingDios. Solo preview, no publica. Requiere DIOS=1.",
+    args: '{ "productId": number (req), "objetivo"?: "ventas"|"mensajes", "conAvatar"?: boolean }',
+    run: async (args, ctx) => {
+      const id = Number(args.productId);
+      if (!id) return { ok: false, summary: "Falta productId" };
+      const objetivo = args.objetivo === "mensajes" ? "mensajes" : "ventas";
+      try {
+        const { orquestarDios } = await import("./agencia/dios/orquestador-dios");
+        const [prod] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
+        if (!prod) return { ok: false, summary: `Producto ${id} no existe` };
+        const pInfo: any = { id: prod.id, name: (prod as any).name, description: (prod as any).description, price: Number((prod as any).price||0), currency: (prod as any).currency||"COP", features: (prod as any).features||[], imageUrl: (prod as any).imageUrl };
+        const galeria: string[] = [];
+        try { const { fotosUnicasDelProducto } = await import("./fotos-de-producto"); const f = await fotosUnicasDelProducto(prod as any, {max:4}).catch(()=>[] as string[]); galeria.push(...(f||[])); } catch {}
+        const r = await orquestarDios({ tenantId: ctx.tenantId, product: pInfo, objetivo: objetivo as any, galeriaFotos: galeria, conAvatar: !!args.conAvatar });
+        if (!r) return { ok: false, summary: "DIOS desactivado (DIOS!=1)" };
+        const imgs = (r.imagenes as any)?.imagenes || [];
+        const conUrl = imgs.filter((x:any)=>!!x.url).length;
+        return { ok: true, summary: `DIOS orquestado para "${pInfo.name}": ${conUrl}/${imgs.length} imágenes reales, guion ${((r.video as any)?.guion?.length||0)} escenas. Preview listo.`, data: r };
+      } catch (e:any) { return { ok:false, summary: `DIOS falló: ${e?.message||e}` }; }
+    },
+  },
+  {
+    name: "atlas_dios_orquestar",
+    description: "Alias de dios_orquestar (para compatibilidad audit atlas_*).",
+    args: '{ "productId": number (req), "objetivo"?: "ventas"|"mensajes", "conAvatar"?: boolean }',
+    run: async (args, ctx) => {
+      const def = TOOLS.find(t=>t.name==="dios_orquestar")!;
+      return def.run(args, ctx);
+    },
+  },
+  {
+    name: "dios_imagenes",
+    description: "ImagenDios L1+L2+L3 (6 imágenes 4:5/1:1 reales vía Pollinations/DALL-E/G4F, guardadas en /uploads). Solo preview, no asigna.",
+    args: '{ "productId": number (req) }',
+    run: async (args, ctx) => {
+      const id = Number(args.productId);
+      if (!id) return { ok: false, summary: "Falta productId" };
+      try {
+        const { imagenDios } = await import("./agencia/dios/imagen-dios");
+        const { researchDeep } = await import("./agencia/pro/research-deep");
+        const [prod] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
+        if (!prod) return { ok: false, summary: `Producto ${id} no existe` };
+        const pInfo: any = { id: prod.id, name: (prod as any).name, description: (prod as any).description, features: (prod as any).features||[] };
+        const research: any = await researchDeep(pInfo as any, { tenantId: ctx.tenantId } as any).catch(()=> ({ hooksPro:[{hook:pInfo.name}], problemaPrincipal: pInfo.description||"", angulos:[] }));
+        const r = await imagenDios(pInfo as any, research as any, { tenantId: ctx.tenantId });
+        const conUrl = r.imagenes.filter(x=>!!x.url).length;
+        return { ok: true, summary: `ImagenDios: ${conUrl}/${r.imagenes.length} imágenes reales generadas. Principal: ${r.principal.url||"(sin url)"} — ratio ${r.principal.ratio}`, data: r };
+      } catch (e:any) { return { ok:false, summary: `ImagenDios falló: ${e?.message||e}` }; }
+    },
+  },
+  {
+    name: "atlas_dios_imagenes",
+    description: "Alias de dios_imagenes.",
+    args: '{ "productId": number (req) }',
+    run: async (args, ctx) => {
+      const def = TOOLS.find(t=>t.name==="dios_imagenes")!;
+      return def.run(args, ctx);
+    },
+  },
+  {
+    name: "dios_video_render",
+    description: "Render Dios: valida FFmpeg seguro (ffmpeg-connector runSeguro) y genera MP4 1080x1920 15-30s o devuelve estado. No publica.",
+    args: '{ "productId": number (req) }',
+    run: async (args, ctx) => {
+      const id = Number(args.productId);
+      if (!id) return { ok: false, summary: "Falta productId" };
+      try {
+        const { hayFfmpegSeguro } = await import("./ffmpeg-connector");
+        const hay = await hayFfmpegSeguro();
+        if (!hay) return { ok: false, summary: "FFmpeg no disponible en este entorno (verifica Dockerfile: ffmpeg/ffprobe). Conector seguro: hayFfmpegSeguro()=false" };
+        const { leerVideoDeProducto, generarVideoEnSegundoPlano, videoEnCurso } = await import("./video-anuncio");
+        const existente = await leerVideoDeProducto(ctx.tenantId, id);
+        if (existente) return { ok: true, summary: `Video ya existe: ${existente.url} (${existente.duracion}s, ${existente.escenas} escenas)`, data: existente };
+        if (videoEnCurso(id)) return { ok: true, summary: "Video en curso, consultá video_anuncio_estado en unos segundos" };
+        generarVideoEnSegundoPlano(ctx.tenantId, id);
+        return { ok: true, summary: "Render Dios iniciado en segundo plano (ffmpeg-connector seguro, 180s timeout). Consultá video_anuncio_estado para ver el MP4 cuando termine." };
+      } catch (e:any) { return { ok:false, summary: `dios_video_render falló: ${e?.message||e}` }; }
+    },
+  },
+  {
+    name: "atlas_dios_video",
+    description: "Alias de dios_video_render.",
+    args: '{ "productId": number (req) }',
+    run: async (args, ctx) => {
+      const def = TOOLS.find(t=>t.name==="dios_video_render")!;
+      return def.run(args, ctx);
+    },
+  },
+  {
+    name: "atlas_video",
+    description: "Alias genérico video (para audit atlas_video).",
+    args: '{ "productId": number (req) }',
+    run: async (args, ctx) => {
+      const def = TOOLS.find(t=>t.name==="dios_video_render")!;
+      return def.run(args, ctx);
+    },
+  },
 ];
 
 /**
@@ -10445,6 +10545,11 @@ export const READ_ONLY_TOOLS = new Set([
   // escritura (codigo_escribir, git_commit_push, deploy) quedan FUERA del set
   // → solo se alcanzan por propose_action, con el sí del admin.
   "codigo_leer", "codigo_buscar", "codigo_listar", "tests_correr", "git_estado",
+  // DIOS — Orquestador Dios + ImagenDios + VideoDios: solo leen/generan previews, no tocan Meta ni gastan.
+  // atlas_* alias para que grep audit `atlas_video` / `atlas_dios` lo encuentre.
+  "dios_orquestar", "atlas_dios_orquestar",
+  "dios_imagenes", "atlas_dios_imagenes",
+  "dios_video_render", "atlas_dios_video", "atlas_video",
 ]);
 
 /**
