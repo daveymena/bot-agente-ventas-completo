@@ -202,6 +202,13 @@ export function rolDeEscena(e: EscenaDeVideo, i: number, total: number): RolDeEs
  * va como subtítulo resaltado de anuncio, y el diseño cambia por rol.
  */
 export function htmlDeEscena(e: EscenaDeVideo, i: number, total: number, ctx: { foto: string | null; detalle?: boolean; color: string; marca: string; precio: string; cta: string; modelo: string; destino: "web" | "whatsapp" }): string {
+  // DIOS=1 → render premium real (producto flotante con halo, sello, progress), no diapositiva simple
+  if (process.env.DIOS === "1") {
+    try {
+      const { htmlDeEscenaDios } = require("./agencia/dios/video-render-dios");
+      return htmlDeEscenaDios(e as any, i, total, { foto: ctx.foto, fondoLifestyle: ctx.foto, color: ctx.color, marca: ctx.marca, precio: ctx.precio, cta: ctx.cta, modelo: ctx.modelo, destino: ctx.destino });
+    } catch {}
+  }
   const esc = (s: string) => String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   const broll = e.visual === "broll";
   const rol = rolDeEscena(e, i, total);
