@@ -22,6 +22,7 @@ import {
   Beaker,
   BarChart3,
   MessageSquareText,
+  ReceiptText,
   GraduationCap,
   Plug,
   ChevronDown,

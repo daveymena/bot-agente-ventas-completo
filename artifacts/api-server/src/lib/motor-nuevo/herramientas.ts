@@ -135,7 +135,9 @@ export type Efecto =
   | { tipo: "pago_reportado"; medio?: string; referencia?: string }
   | { tipo: "escalar"; motivo: string }
   | { tipo: "pregunta_al_dueno"; pregunta: string; productoId: number | null }
-  | { tipo: "dato"; campo: string; valor: string };
+  | { tipo: "dato"; campo: string; valor: string }
+  | { tipo: "followup_pro"; disparador: "precio_enviado" | "pago_enviado" | "datos_pedido_incompletos"; productoId: number; productoNombre: string }
+  | { tipo: "cancelar_followup" };
 
 export interface ContextoHerramientas {
   estado: EstadoConversacion;
@@ -1156,6 +1158,13 @@ export const ejecutores: Record<string, Ejecutor> = {
     }
     if (sec === "entrega" && ctx.estado.entregaEstado === "pendiente_datos") ctx.estado.entregaEstado = "datos_listos";
 
+    // ── Follow-up Pro anti-fantasma (2026-10-12): si le mostramos precio/pago y no responde, drip 15m/2h/24h. Se cancela al responder.
+    if (sec === "precio" || sec === "completa") {
+      ctx.efectos.push({ tipo: "followup_pro", disparador: "precio_enviado", productoId: p.id, productoNombre: p.name });
+    } else if (sec.startsWith("pago")) {
+      ctx.efectos.push({ tipo: "followup_pro", disparador: "pago_enviado", productoId: p.id, productoNombre: p.name });
+    }
+
     return {
       ok: true,
       mensaje:
@@ -1527,6 +1536,7 @@ export const ejecutores: Record<string, Ejecutor> = {
         ctx.estado.pedidoPorConfirmarEnTurno = null;
         ctx.estado.accionPendiente = "pedir_datos_envio";
         ctx.estado.entregaEstado = "pendiente_datos";
+        ctx.efectos.push({ tipo: "followup_pro", disparador: "datos_pedido_incompletos", productoId: p.id, productoNombre: p.name });
         {
           // La lista la pega el SISTEMA (maquetaDeDatosDeEnvio): completa la
           // primera vez, solo lo que falta después. El modelo ya no la redacta

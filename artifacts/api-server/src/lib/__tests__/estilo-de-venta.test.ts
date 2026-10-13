@@ -50,12 +50,17 @@ describe("la perilla de calificación cambia el turno", () => {
   // arreglo que este proyecto ya peleó una vez.
   const pidioPrecio = [cliente("hola"), bot("¡Hola! ¿Qué necesitas?"), cliente("cuánto vale el curso de piano?")];
 
-  it('"salvo_si_pidio_dato" (el defecto) le contesta el precio en vez de interrogarlo', () => {
+  it('"siempre" (el defecto pro 2026-10-12) averigua primero, aunque le hayan pedido el precio', () => {
     const p = proximoPaso({ etapa: "interesado", historial: pidioPrecio, estilo: ESTILO_POR_DEFECTO });
+    expect(p.movimiento).toBe("calificar");
+  });
+
+  it('"salvo_si_pidio_dato" (equilibrado) le contesta el precio en vez de interrogarlo', () => {
+    const p = proximoPaso({ etapa: "interesado", historial: pidioPrecio, estilo: { calificacion: "salvo_si_pidio_dato", ganchoVideo: true, anteLaDuda: "algo_concreto" } });
     expect(p.movimiento).toBe("presentar");
   });
 
-  it('"siempre" averigua primero, aunque le hayan pedido el precio', () => {
+  it('"siempre" averigua primero, aunque le hayan pedido el precio (explícito)', () => {
     const p = proximoPaso({
       etapa: "interesado",
       historial: pidioPrecio,
@@ -133,8 +138,13 @@ describe("la perilla del “lo voy a pensar” cambia cómo se destraba", () => 
     expect(p.instruccion).toMatch(/qué lo está frenando/i);
   });
 
-  it('"algo_concreto" (el defecto) le deja algo para pensar', () => {
+  it('"preguntar_que_frena" (el defecto pro) pregunta qué lo frena', () => {
     const p = proximoPaso({ ...base, estilo: ESTILO_POR_DEFECTO });
+    expect(p.instruccion).toMatch(/qué lo está frenando/i);
+  });
+
+  it('"algo_concreto" (equilibrado) le deja algo para pensar', () => {
+    const p = proximoPaso({ ...base, estilo: { calificacion: "salvo_si_pidio_dato", ganchoVideo: true, anteLaDuda: "algo_concreto" } });
     expect(p.instruccion).toMatch(/una cosa concreta/i);
   });
 
@@ -166,7 +176,8 @@ describe("lo guardado se lee sin romper la venta", () => {
 
 describe("lo que el dueño elige es lo que se guarda", () => {
   it("el id del perfil se traduce a las perillas", () => {
-    expect(estiloElegido("equilibrado")).toEqual(ESTILO_POR_DEFECTO);
+    expect(estiloElegido("consultivo")).toEqual(ESTILO_POR_DEFECTO);
+    expect(estiloElegido("equilibrado")!.calificacion).toBe("salvo_si_pidio_dato");
     expect(estiloElegido("directo")!.calificacion).toBe("nunca");
     expect(estiloElegido("consultivo")!.calificacion).toBe("siempre");
   });

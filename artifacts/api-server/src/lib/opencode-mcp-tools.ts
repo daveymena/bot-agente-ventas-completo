@@ -523,6 +523,60 @@ const TOOL_SCHEMAS: Record<string, object> = {
     },
     additionalProperties: false,
   },
+  canva_estado: { type: "object", properties: {}, additionalProperties: false },
+  canva_status: { type: "object", properties: {}, additionalProperties: false },
+  atlas_canva: { type: "object", properties: {}, additionalProperties: false },
+  atlas_canva_estado: { type: "object", properties: {}, additionalProperties: false },
+  dios_orquestar: {
+    type: "object",
+    properties: {
+      productId: { type: "number", description: "Id del producto" },
+      objetivo: { type: "string", enum: ["ventas","mensajes"], description: "Destino del anuncio" },
+      conAvatar: { type: "boolean", description: "Incluir avatar HeyGen stub" },
+    },
+    required: ["productId"],
+    additionalProperties: false,
+  },
+  atlas_dios_orquestar: {
+    type: "object",
+    properties: {
+      productId: { type: "number" },
+      objetivo: { type: "string", enum: ["ventas","mensajes"] },
+      conAvatar: { type: "boolean" },
+    },
+    required: ["productId"],
+    additionalProperties: false,
+  },
+  dios_imagenes: {
+    type: "object",
+    properties: { productId: { type: "number" } },
+    required: ["productId"],
+    additionalProperties: false,
+  },
+  atlas_dios_imagenes: {
+    type: "object",
+    properties: { productId: { type: "number" } },
+    required: ["productId"],
+    additionalProperties: false,
+  },
+  dios_video_render: {
+    type: "object",
+    properties: { productId: { type: "number" } },
+    required: ["productId"],
+    additionalProperties: false,
+  },
+  atlas_dios_video: {
+    type: "object",
+    properties: { productId: { type: "number" } },
+    required: ["productId"],
+    additionalProperties: false,
+  },
+  atlas_video: {
+    type: "object",
+    properties: { productId: { type: "number" } },
+    required: ["productId"],
+    additionalProperties: false,
+  },
   dropi_transportadoras_sondeo: {
     type: "object",
     properties: { ciudad: { type: "string" }, departamento: { type: "string" }, valor: { type: "number" } },
@@ -1506,6 +1560,15 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     patron: /contenido|publicacion|publicar|org[aá]nic|calendario|estrategia|agencia|redes|instagram|posteo|postear/i,
     herramientas: ["plan_de_contenido", "propuesta_campana", "list_products", "marketing_aprendizajes"],
   },
+  {
+    patron: /canva|dise[ñn]o.*canva|connect.*canva|plantilla.*canva/i,
+    herramientas: ["canva_estado", "canva_status", "atlas_canva", "atlas_canva_estado", "generate_image"],
+  },
+  {
+    // DIOS — agencia premium: activa orquestador + imágenes reales + video Dios 9:16
+    patron: /dios|agencia (premium|dios)|orquest|atlas.*video|video.*dios|imagen.*dios|anuncio.*dios/i,
+    herramientas: ["dios_orquestar", "atlas_dios_orquestar", "dios_imagenes", "atlas_dios_imagenes", "dios_video_render", "atlas_dios_video", "atlas_video", "video_anuncio_estado", "generate_image"],
+  },
 ];
 
 // Cuando el pedido no cae en ningún grupo (ej. "¿cómo está el sistema?"), NO
@@ -1784,6 +1847,8 @@ const FAMILIAS_DE_CONSULTA: Array<{ tema: string; herramientas: string[] }> = [
   // Dropi: las DIRECTAS (token del negocio), no las del puente viejo. El resto
   // (margen, pedidos, radar) llega con el grupo de Dropi al nombrarlo.
   { tema: "Entregas y Dropi", herramientas: ["dropi_status", "dropi_buscar", "dropi_con_ordenes", "terabox_list_folder", "verificar_link_entrega", "payment_status"] },
+  { tema: "Canva / Diseño", herramientas: ["canva_estado", "canva_status", "atlas_canva", "atlas_canva_estado", "generate_image"] },
+  { tema: "Dios — Agencia premium", herramientas: ["dios_orquestar", "atlas_dios_orquestar", "dios_imagenes", "atlas_dios_imagenes", "dios_video_render", "atlas_dios_video", "atlas_video", "video_anuncio_estado"] },
   { tema: "Sistema", herramientas: ["analyze_system", "system_diagnose", "automatizacion_estado", "negocio_que_falta", "plataforma_info", "test_ai_models", "reason_business_decision"] },
 ];
 
