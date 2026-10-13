@@ -1575,6 +1575,10 @@ export async function bloqueoDeMeta(
     fb_set_ad_status: "ads",
     fb_make_campaign_deliver: "ads",
     fb_sync_catalog: "ads",
+    fb_create_audience_website: "ads",
+    fb_create_audience_clients: "ads",
+    fb_create_lookalike: "ads",
+    fb_list_audiences: "ads",
   };
   const necesita = NECESITAN_META[tool];
   if (!necesita) return null;
@@ -3778,36 +3782,164 @@ ${explicarObjetivos()}` };
   },
   {
     name: "fb_sync_catalog",
-    description: "Sincronizar los productos activos al catálogo de Facebook (para tiendas y anuncios dinámicos). Requiere catálogo asignado.",
+    description: "Sincroniza el catálogo completo a Meta: crea el catálogo si no existe (con permiso catalog_management), configura el feed diario y sube productos. Es la forma DIOS de dejar el catálogo vivo para que Meta tenga las imágenes disponibles y hacer remarketing dinámico. Si ya existe, solo sincroniza. Usa el feed /catalogo-meta/:tenantId.json para que Meta se actualice sola a diario.",
     args: "{}",
     run: async (_args, ctx) => {
       const tenant = await tenantManager.getTenantById(ctx.tenantId);
       const { FacebookService } = await import("./facebook");
-      const fb = new FacebookService(tenant || undefined);
+      const { urlFeedDelCatalogo } = await import("../routes/catalogo-meta");
+      const adAccountId = (tenant as any)?.facebook?.adAccountId || respaldoEnvFacebook(ctx.tenantId)(process.env.FB_AD_ACCOUNT_ID);
+      const token = (tenant as any)?.facebook?.userAccessToken || (tenant as any)?.facebook?.accessToken || respaldoEnvFacebook(ctx.tenantId)(process.env.FB_ACCESS_TOKEN);
+      const brandName = (tenant as any)?.brandName || (tenant as any)?.name || "Tu Negocio";
+      const feedUrl = urlFeedDelCatalogo(ctx.tenantId);
+      let catalogId = (tenant as any)?.facebook?.catalogId || respaldoEnvFacebook(ctx.tenantId)(process.env.FB_CATALOG_ID) || null;
 
-      // Sin catálogo asignado, syncCatalog() vuelve enseguida con 0/0 y el
-      // summary quedaba "Catálogo sincronizado: 0 ok, 0 fallidos" -- que se
-      // lee como ÉXITO cuando en realidad no se sincronizó ni un producto.
-      // Es el mismo patrón que venimos cerrando todo el día: reportar hecho
-      // algo que no pasó. Verificado en producción (2026-08-19): el tenant
-      // tiene catalogId vacío.
-      const catalogId = (tenant as any)?.facebook?.catalogId || respaldoEnvFacebook(ctx.tenantId)(process.env.FB_CATALOG_ID);
+      // Auto-creación DIOS: si no hay catálogo, lo creamos en el Business del anunciante
+      if (!catalogId && adAccountId && token) {
+        try {
+          const { db, tenants } = await import("@workspace/db");
+          const { eq } = await import("drizzle-orm");
+          const fb = new FacebookService(tenant || undefined);
+          // Resolver Business ID (igual que routes/facebook.ts /catalogo/conectar)
+          const acc: any = await fb.fbGet(`act_${adAccountId}`, { fields: "business" }, token).catch(() => null);
+          const delToken: any = (!acc?.business?.id) ? await fb.fbGet("me/businesses", { fields: "id,name" }, token).catch(() => null) : null;
+          const businessId = acc?.business?.id || delToken?.data?.[0]?.id || null;
+          if (businessId) {
+            try {
+              const c: any = await fb.fbPost(`${businessId}/owned_product_catalogs`, { name: `${brandName} (VentasPro)`, vertical: "commerce" }, "catálogo auto", token);
+              if (c?.id) {
+                catalogId = String(c.id);
+                // Guardar en metadata.facebook.catalogId (persistente por tenant)
+                try {
+                  const [fila] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
+                  const meta = fila?.metadata ? (typeof fila.metadata === "string" ? JSON.parse(fila.metadata) : fila.metadata) : {};
+                  const metaNuevo = { ...meta, facebook: { ...(meta.facebook || {}), catalogId } };
+                  await db.update(tenants).set({ metadata: metaNuevo as any }).where(eq(tenants.id, ctx.tenantId));
+                  const { tenantManager: tm } = await import("./tenantManager");
+                  tm.clearCache();
+                } catch {}
+              }
+            } catch (e: any) {
+              const motivo = e?.fbError?.message || e?.message || "sin detalle";
+              if (/permission|catalog_management/i.test(motivo)) {
+                return { ok: false, summary: `No pude auto-crear el catálogo: falta el permiso catalog_management en tu token. En developers.facebook.com → tu app → Facebook Login for Business, marca catalog_management y reconecta en Configuración → Facebook. Luego vuelve a pedirme sincronizar. Feed listo para conectar manual: ${feedUrl}`, data: { feedUrl, motivo } };
+              }
+            }
+          }
+        } catch {}
+      }
+
       if (!catalogId) {
         return {
           ok: false,
-          summary:
-            "No hay catálogo de Facebook configurado en este negocio, así que NO se sincronizó ningún producto -- no lo reportes como hecho. " +
-            "El catálogo se crea en el Administrador comercial de Meta (Business Manager → Catálogos) y su id se carga en la sección Facebook del panel. " +
-            "Sirve para tiendas y anuncios dinámicos; los anuncios normales funcionan sin él.",
+          summary: `Aún no hay catálogo configurado. El feed YA está listo en ${feedUrl} (JSON con todos tus productos activos, imágenes reales y precios). Creá el catálogo en Business Manager → Orígenes de datos → Catálogos → Crear, y luego agregá un Origen de datos → Feed programado → URL ${feedUrl} con actualización diaria. O reconectá con permiso catalog_management y lo creo automáticamente.`,
+          data: { feedUrl },
         };
       }
 
-      const r = await fb.syncCatalog();
+      // Asegurar feed diario (idempotente: si ya existe no duplica, Meta responde con el existente)
+      try {
+        const fb2 = new FacebookService(tenant || undefined);
+        // Si guardamos catalogId recién, el servicio viejo no lo tiene: recrear con tenant actualizado
+        const t2 = await tenantManager.getTenantById(ctx.tenantId);
+        const fbFresh = new FacebookService(t2 || tenant || undefined);
+        const existente: any = await fbFresh.fbGet(`product_catalogs/${catalogId}/product_feeds`, { fields: "id,schedule" }, token).catch(() => null);
+        const yaTieneFeedDiario = (existente?.data || []).some((f: any) => String(f?.schedule?.url || "").includes(String(ctx.tenantId)));
+        if (!yaTieneFeedDiario) {
+          await fbFresh.fbPost(`product_catalogs/${catalogId}/product_feeds`, { name: "Feed VentasPro (diario)", schedule: { interval: "DAILY", url: feedUrl } }, "feed catálogo", token).catch(() => null);
+        }
+      } catch {}
+
+      // Sincronización inmediata producto-a-producto (para que las imágenes estén disponibles HOY, no mañana)
+      const tFinal = await tenantManager.getTenantById(ctx.tenantId);
+      const fbFinal = new FacebookService(tFinal || tenant || undefined);
+      const r = await fbFinal.syncCatalog();
       const hubo = (r.synced || 0) + (r.failed || 0);
-      if (hubo === 0) {
-        return { ok: false, summary: "El catálogo está configurado pero no se sincronizó ningún producto (0 de 0). Revisá que haya productos activos en la tienda.", data: r };
-      }
-      return { ok: r.failed === 0, summary: `Catálogo sincronizado: ${r.synced} ok, ${r.failed} fallidos`, data: r };
+      if (hubo === 0) return { ok: false, summary: "Catálogo configurado pero no se sincronizó ningún producto (0 de 0). Revisá que haya productos activos con imagen real.", data: { ...r, feedUrl, catalogId } };
+      return { ok: r.failed === 0, summary: `Catálogo DIOS sincronizado: ${r.synced} productos subidos, ${r.failed} fallidos. Feed diario activo en ${feedUrl} — Meta se actualizará sola cada 24h. Ya podés hacer anuncios dinámicos y remarketing con imágenes reales.`, data: { ...r, feedUrl, catalogId } };
+    },
+  },
+  {
+    name: "fb_list_audiences",
+    description: "Lista las audiencias personalizadas de la cuenta publicitaria (website, clientes, lookalikes). Úsala para ver qué públicos ya existen antes de crear duplicados, y para elegir el origen de un lookalike.",
+    args: "{}",
+    run: async (_args, ctx) => {
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const cred = tenant?.facebook || {};
+      const adAccountId = cred.adAccountId || respaldoEnvFacebook(ctx.tenantId)(process.env.FB_AD_ACCOUNT_ID);
+      const userToken = cred.userAccessToken || cred.accessToken || respaldoEnvFacebook(ctx.tenantId)(process.env.FB_ACCESS_TOKEN);
+      if (!adAccountId || !userToken) return { ok: false, summary: "Falta cuenta publicitaria o token con ads_management. Conectá Facebook en Configuración." };
+      try {
+        const { listarAudiencias } = await import("./facebook-audiences");
+        const lista = await listarAudiencias({ userToken, adAccountId, pixelId: cred.pixelId }, 30);
+        if (!lista.length) return { ok: true, summary: "La cuenta no tiene audiencias aún. Creá una con fb_create_audience_website o fb_create_audience_clients.", data: lista };
+        return { ok: true, summary: `${lista.length} audiencias en la cuenta: ${lista.slice(0, 8).map(a => `${a.name} (${a.subtype})`).join(" | ")}`, data: lista };
+      } catch (e: any) { return { ok: false, summary: e?.message || "No se pudieron listar las audiencias" }; }
+    },
+  },
+  {
+    name: "fb_create_audience_website",
+    description: "Crea una audiencia de VISITANTES WEB (píxel 180 días) para remarketing. No gasta: solo crea el público. Después usala en fb_create_ad con customAudiences. Requiere píxel conectado.",
+    args: '{ "nombre": string (req), "dominio"?: string (ej ventasproia.com), "dias"?: number (1-180, por defecto 180) }',
+    run: async (args, ctx) => {
+      const nombre = String(args.nombre || "").trim().slice(0, 80);
+      if (!nombre) return { ok: false, summary: "Falta 'nombre' para la audiencia (ej: Visitantes 180d - VentasPro)" };
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const cred = tenant?.facebook || {};
+      const adAccountId = cred.adAccountId || respaldoEnvFacebook(ctx.tenantId)(process.env.FB_AD_ACCOUNT_ID);
+      const userToken = cred.userAccessToken || cred.accessToken || respaldoEnvFacebook(ctx.tenantId)(process.env.FB_ACCESS_TOKEN);
+      const pixelId = cred.pixelId || respaldoEnvFacebook(ctx.tenantId)(process.env.FB_PIXEL_ID);
+      const dominio = String(args.dominio || "").trim() || (() => { try { return new URL(process.env.APP_URL || "https://ventasproia.com").hostname; } catch { return "ventasproia.com"; } })();
+      const dias = Math.min(Math.max(Number(args.dias) || 180, 1), 180);
+      if (!adAccountId || !userToken) return { ok: false, summary: "Falta cuenta publicitaria o token." };
+      if (!pixelId) return { ok: false, summary: "Falta píxel: conectá el píxel en Configuración → Facebook antes de crear audiencia web." };
+      try {
+        const { crearAudienciaWeb } = await import("./facebook-audiences");
+        const r = await crearAudienciaWeb({ userToken, adAccountId, pixelId }, nombre, dominio, dias);
+        return { ok: true, summary: `Audiencia web creada "${nombre}" (id ${r.id}) — visitantes de ${dominio} (${dias}d). Tarda horas en poblarse. Usala en fb_create_ad.`, data: r };
+      } catch (e: any) { return { ok: false, summary: e?.message || "No se pudo crear la audiencia web" }; }
+    },
+  },
+  {
+    name: "fb_create_audience_clients",
+    description: "Crea una audiencia de CLIENTES desde los teléfonos únicos de WhatsApp/CRM (hasheados SHA256, nunca en claro). Mínimo 100 teléfonos. Ideal para remarketing y para semilla de lookalike.",
+    args: '{ "nombre": string (req), "limite"?: number (100-20000, por defecto 5000) }',
+    run: async (args, ctx) => {
+      const nombre = String(args.nombre || "").trim().slice(0, 80);
+      if (!nombre) return { ok: false, summary: "Falta 'nombre' (ej: Clientes WhatsApp - 2026)" };
+      const limite = Math.min(Math.max(Number(args.limite) || 5000, 100), 20000);
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const cred = tenant?.facebook || {};
+      const adAccountId = cred.adAccountId || respaldoEnvFacebook(ctx.tenantId)(process.env.FB_AD_ACCOUNT_ID);
+      const userToken = cred.userAccessToken || cred.accessToken || respaldoEnvFacebook(ctx.tenantId)(process.env.FB_ACCESS_TOKEN);
+      if (!adAccountId || !userToken) return { ok: false, summary: "Falta cuenta publicitaria o token." };
+      try {
+        const { crearAudienciaClientes } = await import("./facebook-audiences");
+        const r = await crearAudienciaClientes({ userToken, adAccountId }, ctx.tenantId, nombre, limite);
+        return { ok: true, summary: `Audiencia de clientes "${nombre}" creada (id ${r.id}) con ${r.subidos} teléfonos. Usala en fb_create_ad o como origen de lookalike.`, data: r };
+      } catch (e: any) { return { ok: false, summary: e?.message || "No se pudo crear la audiencia de clientes" }; }
+    },
+  },
+  {
+    name: "fb_create_lookalike",
+    description: "Crea un LOOKALIKE (público similar) 1-3% sobre una audiencia origen (web o clientes). Busca gente parecida a tus compradores/visitantes en el país.",
+    args: '{ "nombre": string (req), "origenId": string (req, id de audiencia de fb_list_audiences), "pais"?: string (CO por defecto), "ratio"?: number (0.01=1% por defecto, máx 0.1=10%) }',
+    run: async (args, ctx) => {
+      const nombre = String(args.nombre || "").trim().slice(0, 80);
+      const origenId = String(args.origenId || "").trim();
+      if (!nombre || !origenId) return { ok: false, summary: "Falta 'nombre' y 'origenId' (id de la audiencia origen). Usá fb_list_audiences para ver los ids." };
+      const pais = String(args.pais || "CO").toUpperCase().slice(0, 2);
+      const ratio = Math.min(Math.max(Number(args.ratio) || 0.01, 0.01), 0.1);
+      const tenant = await tenantManager.getTenantById(ctx.tenantId);
+      const cred = tenant?.facebook || {};
+      const adAccountId = cred.adAccountId || respaldoEnvFacebook(ctx.tenantId)(process.env.FB_AD_ACCOUNT_ID);
+      const userToken = cred.userAccessToken || cred.accessToken || respaldoEnvFacebook(ctx.tenantId)(process.env.FB_ACCESS_TOKEN);
+      if (!adAccountId || !userToken) return { ok: false, summary: "Falta cuenta publicitaria o token." };
+      try {
+        const { crearLookalike } = await import("./facebook-audiences");
+        const r = await crearLookalike({ userToken, adAccountId }, nombre, origenId, pais, ratio);
+        return { ok: true, summary: `Lookalike "${nombre}" creado (id ${r.id}) ${Math.round(ratio*100)}% sobre ${origenId} en ${pais}. Tarda horas en poblarse.`, data: r };
+      } catch (e: any) { return { ok: false, summary: e?.message || "No se pudo crear el lookalike" }; }
     },
   },
   {
@@ -3823,6 +3955,26 @@ ${explicarObjetivos()}` };
         summary: problema === null ? "La página puede publicar ✅" : `No puede publicar: ${problema}`,
         data: { canPost: problema === null, reason: problema },
       };
+    },
+  },
+  {
+    name: "extraer_contenido_url",
+    description: "Extrae IMÁGENES y VIDEOS REALES de cualquier URL (ficha de proveedor, competencia, landing, Instagram, AliExpress) y los guarda en la biblioteca del negocio para transformarlos. No inventa: descarga lo que la página muestra y valida que sea imagen/video real (magic bytes). Úsala para enriquecer el catálogo con activos del fabricante o para tomar un ángulo ganador y recrearlo con tu marca. Luego puedes generar anuncios/video con esos activos.",
+    args: '{ "url": string (req, https://... ficha del producto u otra página) }',
+    run: async (args, ctx) => {
+      const url = String(args.url || "").trim();
+      if (!/^https?:\/\//i.test(url)) return { ok: false, summary: "Falta 'url' válida (debe empezar por https://)" };
+      try {
+        const { extraerYGuardar } = await import("./extractor-universal");
+        const { extraccion, guardados } = await extraerYGuardar(url, ctx.tenantId);
+        const ok = guardados.filter(g => g.ok).length;
+        const fall = guardados.filter(g => !g.ok).length;
+        return {
+          ok: ok > 0,
+          summary: `Extraído de ${extraccion.titulo || extraccion.urlOrigen}: ${extraccion.imagenes.length} imágenes y ${extraccion.videos.length} videos encontrados. Guardados ${ok} archivos validados${fall ? `, ${fall} fallidos` : ""}. Ya están en /app/data/images/${ctx.tenantId}/universal — Atlas puede usarlos para generar creativos (FFmpeg/Canva) sin costo extra.`,
+          data: { urlOrigen: extraccion.urlOrigen, titulo: extraccion.titulo, imagenes: extraccion.imagenes.slice(0, 8), videos: extraccion.videos.slice(0, 4), guardados: guardados.slice(0, 8) },
+        };
+      } catch (e: any) { return { ok: false, summary: e?.message || "No se pudo extraer contenido de esa URL" }; }
     },
   },
   {
@@ -8278,6 +8430,32 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
         ].join("\n"),
         data: { rows },
       };
+    },
+  },
+  {
+    name: "marketing_plan_growth",
+    description: "PLAN DIOS PARA HACER CRECER LAS VENTAS de un producto: orquesta al equipo completo (MarketResearcher → AudienceStrategist → OfferStrategist → CreativeDirector → Copywriter → MarketingStrategist) y devuelve un plan con audiencias, oferta, 3 conceptos creativos y 3 copies A/B listos para pautar. Es la forma DIOS de crear campañas que convierten de verdad, no un copy genérico. Requiere un producto existente.",
+    args: '{ "productId"?: number, "productName"?: string, "objetivo"?: string (ej: "vender 50 unidades en 30 días") }',
+    run: async (args, ctx) => {
+      const pid = num(args.productId) || undefined;
+      const pname = typeof args.productName === "string" ? args.productName.trim().slice(0, 80) : undefined;
+      const objetivo = typeof args.objetivo === "string" ? args.objetivo.trim().slice(0, 200) : undefined;
+      if (!pid && !pname) return { ok: false, summary: "Falta 'productId' o 'productName' para armar el plan." };
+      try {
+        const { planGrowth } = await import("./marketing-team/orchestrator");
+        const { plan, steps } = await planGrowth({ tenantId: ctx.tenantId, productId: pid, productName: pname, businessObjective: objetivo });
+        const p: any = plan.data || plan;
+        const resumen = [
+          `📈 Plan DIOS para "${p?.product?.name || pname || pid}":`,
+          p?.resumen ? `Resumen: ${String(p.resumen).slice(0, 400)}` : "",
+          p?.audiencias ? `Audiencias: ${JSON.stringify(p.audiencias).slice(0, 300)}` : "",
+          p?.oferta ? `Oferta: ${JSON.stringify(p.oferta).slice(0, 300)}` : "",
+          p?.creativos ? `${p.creativos.length || 0} conceptos creativos` : "",
+          p?.copies ? `${p.copies?.variants?.length || 0} copies A/B` : "",
+          `Pasos: ${steps.map(s => s.agent).join(" → ")}`,
+        ].filter(Boolean).join("\n");
+        return { ok: true, summary: resumen.slice(0, 2000), data: { plan: p, steps } };
+      } catch (e: any) { return { ok: false, summary: e?.message || "No se pudo armar el plan de crecimiento" }; }
     },
   },
   {

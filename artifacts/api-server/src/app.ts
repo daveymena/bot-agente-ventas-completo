@@ -89,6 +89,7 @@ startAdGrowthAgent();
 // vuelta siguiente, nunca se marca "hecho" en falso.
 import { iniciarProgramador } from "./lib/programador";
 import { registrarOrganico } from "./lib/agente-organico";
+import { iniciarCatalogoAutoSync } from "./lib/catalogo-auto-sync";
 import { registrarAgencia } from "./lib/agencia-ritmo";
 import { registrarGuardia } from "./lib/agente-horario";
 import { registrarAgendaDeAtlas } from "./lib/atlas-agenda";
@@ -112,6 +113,8 @@ registrarGuardia();
 // Las acciones que el admin deja programadas desde Atlas (ver lib/atlas-agenda.ts).
 registrarAgendaDeAtlas();
 iniciarProgramador();
+// Catálogo vivo + orgánico diario sin que el admin tenga que pedirlo (DIOS)
+iniciarCatalogoAutoSync();
 
 // Reporte diario del equipo de marketing. Los 13 agentes existian pero no
 // corria ninguno solo: habia que ir a despertarlos entrando a la pagina. Un
