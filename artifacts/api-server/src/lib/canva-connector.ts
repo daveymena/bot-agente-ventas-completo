@@ -25,7 +25,7 @@ export interface CanvaEstado {
   env: { CANVA_ENABLED: string; tieneClientId: boolean; tieneSecret: boolean; redirectUri: string };
 }
 
-const SCOPES = ["design:content:read","design:content:write","asset:read","asset:write","brandtemplate:content:read","profile:read"];
+const SCOPES = ["design:content:read","design:content:write","design:meta:read","asset:read","asset:write","brandtemplate:content:read","profile:read"];
 const ENDPOINTS = ["POST /rest/v1/oauth/token","GET /rest/v1/designs","POST /rest/v1/designs","POST /rest/v1/autofills","POST /rest/v1/exports","GET /rest/v1/exports/{id}","POST /rest/v1/assets"];
 
 export async function estadoCanva(): Promise<CanvaEstado> {

@@ -324,7 +324,7 @@ function TarjetaCanva() {
             <div className="min-w-0">
               <CardTitle className="text-lg">Canva Connect</CardTitle>
               <CardDescription>Usa tus diseños y plantillas de Canva para las fotos de tus productos y anuncios.</CardDescription>
-              <p className="mt-1 text-xs text-muted-foreground">Permisos: ver y crear diseños, subir archivos, leer plantillas de marca y perfil.</p>
+              <p className="mt-1 text-xs text-muted-foreground">Permisos: ver y crear diseños, listar tu catálogo de diseños, subir archivos, leer plantillas de marca y perfil.</p>
             </div>
           </div>
           {cargando ? <Badge variant="outline">Cargando</Badge> : conectada ? <Badge className="gap-1 bg-emerald-600 hover:bg-emerald-600"><CheckCircle2 className="h-3 w-3" />Conectada</Badge> : deshabilitado ? <Badge variant="outline" className="gap-1"><CircleDashed className="h-3 w-3" />Deshabilitado</Badge> : <Badge variant="outline" className="gap-1"><CircleDashed className="h-3 w-3" />Sin conectar</Badge>}

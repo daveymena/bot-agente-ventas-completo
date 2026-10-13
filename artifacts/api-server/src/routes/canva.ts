@@ -28,7 +28,8 @@ function redirectUri(): string {
 }
 function canvaAuthorizeUrl(clientId: string, challenge: string, state: string): string {
   // Nombres exactos según OpenAPI oficial Canva: brandtemplate SIN guion bajo (brand_template da invalid_scope).
-  const scopes = ["design:content:read","design:content:write","asset:read","asset:write","brandtemplate:content:read","profile:read"].join(" ");
+  // design:meta:read es obligatorio para LISTAR diseños (el endpoint lo exige aunque solo leas contenido).
+  const scopes = ["design:content:read","design:content:write","design:meta:read","asset:read","asset:write","brandtemplate:content:read","profile:read"].join(" ");
   const params = new URLSearchParams({
     code_challenge: challenge,
     code_challenge_method: "S256",
