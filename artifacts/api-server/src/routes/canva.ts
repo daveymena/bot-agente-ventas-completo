@@ -27,7 +27,8 @@ function redirectUri(): string {
   return String(process.env.CANVA_REDIRECT_URI || `${baseUrl()}/api/canva/callback`).trim();
 }
 function canvaAuthorizeUrl(clientId: string, challenge: string, state: string): string {
-  const scopes = ["design:content:read","design:content:write","asset:read","asset:write","brand_template:content:read","profile:read"].join(" ");
+  // Nombres exactos según OpenAPI oficial Canva: brandtemplate SIN guion bajo (brand_template da invalid_scope).
+  const scopes = ["design:content:read","design:content:write","asset:read","asset:write","brandtemplate:content:read","profile:read"].join(" ");
   const params = new URLSearchParams({
     code_challenge: challenge,
     code_challenge_method: "S256",

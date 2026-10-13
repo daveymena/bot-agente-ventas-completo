@@ -320,7 +320,7 @@ function TarjetaCanva() {
             <div className="min-w-0">
               <CardTitle className="text-lg">Canva Connect</CardTitle>
               <CardDescription>Diseños con tu marca, relleno automático y export. OAuth PKCE con state anti-CSRF.</CardDescription>
-              <p className="mt-1 text-xs text-muted-foreground">Scopes: design:content:read/write, asset:read/write, brand_template:content:read</p>
+              <p className="mt-1 text-xs text-muted-foreground">Scopes: design:content:read/write, asset:read/write, brandtemplate:content:read</p>
             </div>
           </div>
           {cargando ? <Badge variant="outline">Cargando</Badge> : conectada ? <Badge className="gap-1 bg-emerald-600 hover:bg-emerald-600"><CheckCircle2 className="h-3 w-3" />Conectada</Badge> : deshabilitado ? <Badge variant="outline" className="gap-1"><CircleDashed className="h-3 w-3" />Deshabilitado</Badge> : <Badge variant="outline" className="gap-1"><CircleDashed className="h-3 w-3" />Sin conectar</Badge>}
