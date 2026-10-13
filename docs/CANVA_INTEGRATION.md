@@ -8,7 +8,7 @@ Canva no expone API key directa. Es OAuth 2.0 `authorization_code + PKCE`. Sin a
 ## Requisitos
 1. Crear App en https://www.canva.com/developers → Create an App → Connect API → Team mínimo para producción.
 2. Redirect URI exacta: `https://ventasproia.com/api/canva/callback` (dev: `http://localhost:3002/api/canva/callback`)
-3. Scopes: `design:content:read`, `design:content:write`, `asset:read`, `asset:write`, `brand_template:content:read`, `profile:read` (+ `offline_access` si quieres refresh)
+3. Scopes: `design:content:read`, `design:content:write`, `asset:read`, `asset:write`, `brandtemplate:content:read`, `profile:read` (+ `offline_access` si quieres refresh)
 4. Endpoints: `POST /rest/oauth/token`, `POST /rest/designs`, `POST /rest/autofills`, `POST /rest/exports`, `GET /rest/exports/{id}`, `POST /rest/assets`
 5. Limitaciones reales 2026: `Autofill` video = Enterprise (Free/Pro solo imagen, 403), diseño debe partir de template tuyo con placeholders, export `MP4` consume 1 diseño, rate ~50/min, review obligatoria.
 

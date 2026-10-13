@@ -27,7 +27,7 @@ function redirectUri(): string {
   return String(process.env.CANVA_REDIRECT_URI || `${baseUrl()}/api/canva/callback`).trim();
 }
 function canvaAuthorizeUrl(clientId: string, challenge: string, state: string): string {
-  const scopes = ["design:content:read","design:content:write","asset:read","asset:write","brand_template:content:read","profile:read"].join(" ");
+  const scopes = ["design:content:read","design:content:write","asset:read","asset:write","brandtemplate:content:read","profile:read"].join(" ");
   const params = new URLSearchParams({
     code_challenge: challenge,
     code_challenge_method: "S256",
@@ -153,31 +153,54 @@ canvaRouter.delete("/desconectar", async (req, res) => {
   return res.json({ success: true });
 });
 
-/** POST /api/canva/probar — crea un diseño de prueba desde template (si hay token). */
+/** POST /api/canva/probar — diagnóstico real del token (no crea nada). */
 canvaRouter.post("/probar", async (req, res) => {
   const tid = tenantIdDe(req);
   if (!tid) return res.status(401).json({ success: false, error: "No autenticado" });
   const meta = await leerMetadataCanva(tid);
   const canva = meta.canva;
-  if (!canva?.accessToken) return res.status(400).json({ success: false, error: "Canva no conectado: autoriza primero." });
+  if (!canva?.accessToken) return res.status(400).json({ success: false, error: "Canva no conectado: autoriza primero en /api/canva/auth." });
   try {
     const token = decryptSecret(canva.accessToken);
-    // prueba mínima: GET /rest/oauth/introspect o GET /rest/me — si falla, token inválido
-    const r = await fetch("https://api.canva.com/rest/oauth/introspect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ token }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    const j: any = await r.json().catch(() => ({}));
-    if (r.ok) return res.json({ success: true, introspect: j });
-    // fallback: probar /rest/designs con limit 1
-    const r2 = await fetch("https://api.canva.com/rest/designs?limit=1", {
+    const diag: any = { scopesSolicitados: ["design:content:read","design:content:write","asset:read","asset:write","brandtemplate:content:read","profile:read"], tokenScope: canva.scope || "(no guardado)" };
+    try {
+      const r = await fetch("https://api.canva.com/rest/oauth/introspect", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: `Bearer ${token}` },
+        body: new URLSearchParams({ token }).toString(),
+        signal: AbortSignal.timeout(15_000),
+      });
+      const j: any = await r.json().catch(() => ({}));
+      diag.introspect = { status: r.status, body: j };
+      if (r.ok && j.active !== false) return res.json({ success: true, diag, nota: "Token activo. Si luego ves 403 en /designs es por plan Free/Pro vs Enterprise." });
+    } catch {}
+    const r2 = await fetch("https://api.canva.com/rest/users/me/profile", {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(15_000),
     });
-    if (r2.ok) return res.json({ success: true, designs: await r2.json().catch(() => ({})) });
-    return res.status(400).json({ success: false, error: `Canva respondió ${r.status}: ${JSON.stringify(j).slice(0,300)}` });
+    const j2: any = await r2.json().catch(() => ({}));
+    diag.profile = { status: r2.status, body: j2 };
+    if (r2.ok) return res.json({ success: true, diag, nota: "profile:read OK. Tu token sí sirve." });
+    const r3 = await fetch("https://api.canva.com/rest/designs?limit=1", {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    const j3: any = await r3.json().catch(() => ({}));
+    diag.designs = { status: r3.status, body: j3 };
+    if (r2.status === 403 || r3.status === 403) {
+      return res.status(400).json({
+        success: false,
+        error: `Canva 403 Forbidden: ${JSON.stringify(j2?.error || j3?.error || j2 || j3).slice(0,500)}`,
+        diag,
+        comoArreglar: [
+          "1) En developers.canva.com → tu App → Scopes: verifica brandtemplate:content:read (SIN guion) + los 5 restantes y RE-AUTORIZA (desconectar y volver a conectar) después de cambiar scopes.",
+          "2) Si tu Canva es Free/Pro, /designs y autofill VIDEO dan 403 por diseño (solo Enterprise). Para imagen funciona. Usa FFmpeg local.",
+          "3) Si tu App está en Draft sin Review, algunos scopes dan 403. Ve a Distribution → Submit for review.",
+          "4) Prueba DELETE /api/canva/desconectar y GET /api/canva/auth de nuevo.",
+        ].join("\n"),
+      });
+    }
+    return res.status(400).json({ success: false, error: `Canva respondió ${r2.status}: ${JSON.stringify(j2).slice(0,500)}`, diag });
   } catch (e: any) {
     return res.status(400).json({ success: false, error: e?.message || String(e) });
   }
