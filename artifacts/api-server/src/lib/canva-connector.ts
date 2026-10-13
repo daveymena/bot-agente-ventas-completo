@@ -34,9 +34,9 @@ export async function estadoCanva(): Promise<CanvaEstado> {
   const sec = String(process.env.CANVA_CLIENT_SECRET || "").trim();
   const redirect = String(process.env.CANVA_REDIRECT_URI || "https://ventasproia.com/api/canva/callback").trim();
   let motivo = "";
-  if (!enabled) motivo = "Canva desactivado: CANVA_ENABLED!=true (modo gratuito FFmpeg activo, costo 0). Para activar: crea App en developers.canva.com y pon CANVA_CLIENT_ID/SECRET.";
-  else if (!cid || !sec) motivo = "Canva habilitado pero faltan CANVA_CLIENT_ID o CANVA_CLIENT_SECRET — no se inicia OAuth.";
-  else motivo = "Canva listo: credenciales presentes. OAuth PKCE disponible en GET /api/canva/auth → callback valida state anti-CSRF.";
+  if (!enabled) motivo = "Canva desactivado en este servidor: se usa el generador local de imágenes (sin costo).";
+  else if (!cid || !sec) motivo = "Falta configurar las credenciales de Canva en el servidor.";
+  else motivo = "Credenciales configuradas. Conecta tu cuenta para traer tus diseños y exportar imágenes.";
   // intenta confirmar que el doc existe
   let docs = "docs/CANVA_INTEGRATION.md";
   try {
@@ -50,7 +50,7 @@ export async function estadoCanva(): Promise<CanvaEstado> {
     redirectUri: redirect,
     scopes: SCOPES,
     endpoints: ENDPOINTS,
-    limitaciones: "Autofill video = Enterprise (Free/Pro solo imagen, 403). Diseño debe partir de template con placeholders. Export MP4 consume 1 diseño. Rate ~50/min. Review obligatoria.",
+    limitaciones: "Video automático: solo plan Enterprise · Las plantillas de marca requieren plan Pro o superior · Exportar consume 1 diseño · Para que otros negocios conecten su Canva, la integración debe aprobarla Canva.",
     env: { CANVA_ENABLED: String(process.env.CANVA_ENABLED || "false"), tieneClientId: !!cid, tieneSecret: !!sec, redirectUri: redirect },
   };
 }

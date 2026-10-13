@@ -302,7 +302,11 @@ function TarjetaCanva() {
     try {
       const r = await fetch("/api/canva/probar", { method: "POST", credentials: "include" });
       const j = await r.json().catch(()=>({}));
-      if (r.ok) alert("Canva conectado ✅ — token válido. Respuesta: " + JSON.stringify(j).slice(0,300));
+      if (r.ok) {
+        const nombre = j?.perfil?.display_name || j?.perfil?.name || "tu cuenta";
+        const caps = Array.isArray(j?.capacidades) ? j.capacidades.join(", ") : (j?.capacidades?.features ? JSON.stringify(j.capacidades.features) : "");
+        alert(`Canva conectado ✅ — ${nombre}.\nFunciones disponibles: ${caps || "ver detalle en consola"}`);
+      }
       else alert("Canva no conectado: " + (j.error || r.status));
     } catch(e:any){ alert("Error: " + (e?.message||e)); }
   };
@@ -319,8 +323,8 @@ function TarjetaCanva() {
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#00C4CC] text-white font-black text-sm ring-1 ring-border shadow-sm">Ca</span>
             <div className="min-w-0">
               <CardTitle className="text-lg">Canva Connect</CardTitle>
-              <CardDescription>Diseños con tu marca, relleno automático y export. OAuth PKCE con state anti-CSRF.</CardDescription>
-              <p className="mt-1 text-xs text-muted-foreground">Scopes: design:content:read/write, asset:read/write, brandtemplate:content:read</p>
+              <CardDescription>Usa tus diseños y plantillas de Canva para las fotos de tus productos y anuncios.</CardDescription>
+              <p className="mt-1 text-xs text-muted-foreground">Permisos: ver y crear diseños, subir archivos, leer plantillas de marca y perfil.</p>
             </div>
           </div>
           {cargando ? <Badge variant="outline">Cargando</Badge> : conectada ? <Badge className="gap-1 bg-emerald-600 hover:bg-emerald-600"><CheckCircle2 className="h-3 w-3" />Conectada</Badge> : deshabilitado ? <Badge variant="outline" className="gap-1"><CircleDashed className="h-3 w-3" />Deshabilitado</Badge> : <Badge variant="outline" className="gap-1"><CircleDashed className="h-3 w-3" />Sin conectar</Badge>}

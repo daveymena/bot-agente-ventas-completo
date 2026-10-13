@@ -164,6 +164,12 @@ canvaRouter.post("/probar", async (req, res) => {
   if (!canva?.accessToken) return res.status(400).json({ success: false, error: "Canva no conectado: autoriza primero." });
   try {
     const token = decryptSecret(canva.accessToken);
+    const authH = { Authorization: `Bearer ${token}` };
+    // perfil + capacidades (dice si la cuenta es Pro y qué funciones pagas puede usar)
+    const [perfil, caps] = await Promise.all([
+      fetch("https://api.canva.com/rest/v1/users/me", { headers: authH, signal: AbortSignal.timeout(15_000) }).then((r) => r.json().catch(() => ({}))).catch(() => ({})),
+      fetch("https://api.canva.com/rest/v1/users/me/capabilities", { headers: authH, signal: AbortSignal.timeout(15_000) }).then((r) => r.json().catch(() => ({}))).catch(() => ({})),
+    ]);
     // prueba mínima: GET /rest/oauth/introspect o GET /rest/me — si falla, token inválido
     const r = await fetch("https://api.canva.com/rest/v1/oauth/introspect", {
       method: "POST",
@@ -172,7 +178,7 @@ canvaRouter.post("/probar", async (req, res) => {
       signal: AbortSignal.timeout(15_000),
     });
     const j: any = await r.json().catch(() => ({}));
-    if (r.ok) return res.json({ success: true, introspect: j });
+    if (r.ok) return res.json({ success: true, perfil, capacidades: caps, introspect: j });
     // fallback: probar /rest/designs con limit 1
     const r2 = await fetch("https://api.canva.com/rest/v1/designs?limit=1", {
       headers: { Authorization: `Bearer ${token}` },
