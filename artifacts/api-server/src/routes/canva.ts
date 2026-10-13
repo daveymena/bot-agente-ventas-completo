@@ -170,22 +170,22 @@ canvaRouter.post("/probar", async (req, res) => {
       fetch("https://api.canva.com/rest/v1/users/me", { headers: authH, signal: AbortSignal.timeout(15_000) }).then((r) => r.json().catch(() => ({}))).catch(() => ({})),
       fetch("https://api.canva.com/rest/v1/users/me/capabilities", { headers: authH, signal: AbortSignal.timeout(15_000) }).then((r) => r.json().catch(() => ({}))).catch(() => ({})),
     ]);
-    // prueba mínima: GET /rest/oauth/introspect o GET /rest/me — si falla, token inválido
-    const r = await fetch("https://api.canva.com/rest/v1/oauth/introspect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ token }),
-      signal: AbortSignal.timeout(15_000),
-    });
-    const j: any = await r.json().catch(() => ({}));
-    if (r.ok) return res.json({ success: true, perfil, capacidades: caps, introspect: j });
-    // fallback: probar /rest/designs con limit 1
+    // prueba real: listar diseños (es lo que Atlas va a usar). introspect solo de apoyo.
     const r2 = await fetch("https://api.canva.com/rest/v1/designs?limit=1", {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(15_000),
     });
-    if (r2.ok) return res.json({ success: true, designs: await r2.json().catch(() => ({})) });
-    return res.status(400).json({ success: false, error: `Canva respondió ${r.status}: ${JSON.stringify(j).slice(0,300)}` });
+    const dj: any = await r2.json().catch(() => ({}));
+    // introspect exige formulario, no JSON
+    const r = await fetch("https://api.canva.com/rest/v1/oauth/introspect", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: `Bearer ${token}` },
+      body: new URLSearchParams({ token }).toString(),
+      signal: AbortSignal.timeout(15_000),
+    });
+    const j: any = await r.json().catch(() => ({}));
+    if (r2.ok) return res.json({ success: true, perfil, capacidades: caps, disenos: dj, introspect: j });
+    return res.status(400).json({ success: false, error: `Canva respondió designs=${r2.status} introspect=${r.status}: ${JSON.stringify(r2.ok ? j : dj).slice(0,300)}` });
   } catch (e: any) {
     return res.status(400).json({ success: false, error: e?.message || String(e) });
   }
