@@ -90,6 +90,7 @@ startAdGrowthAgent();
 import { iniciarProgramador } from "./lib/programador";
 import { registrarOrganico } from "./lib/agente-organico";
 import { iniciarCatalogoAutoSync } from "./lib/catalogo-auto-sync";
+import { registrarAgentesAutonomos, activarParaTodosLosTenants as activarAutonomosParaTodos } from "./lib/agentes-autonomos-diarios";
 import { registrarAgencia } from "./lib/agencia-ritmo";
 import { registrarGuardia } from "./lib/agente-horario";
 import { registrarAgendaDeAtlas } from "./lib/atlas-agenda";
@@ -115,6 +116,9 @@ registrarAgendaDeAtlas();
 iniciarProgramador();
 // Catálogo vivo + orgánico diario sin que el admin tenga que pedirlo (DIOS)
 iniciarCatalogoAutoSync();
+// Agentes autónomos DIOS: valor diario (enamoran sin vender) + borrador diario + diagnóstico — trabajan solos
+registrarAgentesAutonomos();
+activarAutonomosParaTodos().catch(() => undefined);
 
 // Reporte diario del equipo de marketing. Los 13 agentes existian pero no
 // corria ninguno solo: habia que ir a despertarlos entrando a la pagina. Un
