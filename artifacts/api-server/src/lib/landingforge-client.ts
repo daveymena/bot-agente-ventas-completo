@@ -9,6 +9,7 @@
  * Mantiene las firmas que usan whatsapp.ts y landing-pages-ai.ts
  * (getOrCreateLanding, generateMagicLanding, listLandings, MagicLandingResult).
  */
+import { createHmac } from "node:crypto";
 
 const BASE = (process.env.LANDINGFORGE_URL || "http://localhost:3000").replace(/\/+$/, "");
 const API_KEY = process.env.LANDINGFORGE_API_KEY || process.env.LANDING_API_KEY || "";
@@ -28,6 +29,23 @@ async function api<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
     throw new Error(`LandingForge ${opts.method || "GET"} ${path}: ${res.status} ${body.slice(0, 200)}`);
   }
   return (await res.json()) as T;
+}
+
+/**
+ * Enlace de entrada SSO a Landing Forge (dueño de la plataforma).
+ * Formato que verifica Forge (src/lib/auth.ts): sso.<exp>.<hex64> con
+ * HMAC-SHA256("sso.<exp>") y la LANDINGFORGE_API_KEY compartida, válido
+ * 2 minutos. Sin clave (Forge en modo abierto) devuelve solo la URL base.
+ * Se perdió en la reescritura del cliente (Arena 12-10) y rompía el build:
+ * lo usan routes/landing-forge-entrada.ts y __tests__/forge-entrada-sso.test.ts.
+ */
+export function enlaceDeEntradaForge(siguiente = "/"): string {
+  const base = (process.env.LANDINGFORGE_URL || "http://localhost:3000").replace(/\/+$/, "");
+  const clave = process.env.LANDINGFORGE_API_KEY || process.env.LANDING_API_KEY || "";
+  if (clave.length < 16) return `${base}/`;
+  const exp = Math.floor(Date.now() / 1000) + 120;
+  const firma = createHmac("sha256", clave).update(`sso.${exp}`).digest("hex");
+  return `${base}/api/auth/sso?next=${encodeURIComponent(siguiente)}&t=${encodeURIComponent(`sso.${exp}.${firma}`)}`;
 }
 
 /* ──────────────────────── tipos (compat) ──────────────────────── */
