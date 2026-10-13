@@ -90,6 +90,15 @@ services:
       # ========== ADMIN ==========
       ADMIN_PHONE: "${ADMIN_PHONE}"
 
+      # ========== ALMACENAMIENTO (volumen persistente) ==========
+      IMAGE_STORE_DIR: "/app/data/images"
+
+      # ========== CANVA CONNECT (opcional, costo 0 si deshabilitado) ==========
+      CANVA_ENABLED: "${CANVA_ENABLED:-false}"
+      CANVA_CLIENT_ID: "${CANVA_CLIENT_ID}"
+      CANVA_CLIENT_SECRET: "${CANVA_CLIENT_SECRET}"
+      CANVA_REDIRECT_URI: "${CANVA_REDIRECT_URI:-https://ventasproia.com/api/canva/callback}"
+
     healthCheck:
       path: /api/health
       interval: 30s

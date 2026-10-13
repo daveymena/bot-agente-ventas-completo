@@ -28,29 +28,22 @@ const NavegacionSeguraTienda = () => {
     const esTienda = location.pathname.startsWith('/tienda');
     if (!esTienda) return;
     // Si entramos directo (WhatsApp, QR, ?from=panel en pestaña nueva) history=1 → empujar dummy
+    // así el primer "atrás" no cierra la PWA, cae en popstate y podemos llevarlo al inicio
     try {
       if (window.history.length === 1) {
         window.history.pushState({ vp_seguro: true }, '', window.location.href);
       }
     } catch {}
     const onPopState = () => {
-      // Si el usuario dio atrás y quedó sin historial, llevarlo al inicio de SU tienda, no cerrar
       try {
         const m = window.location.pathname.match(/^\/tienda\/([^/]+)/);
         const base = m ? `/tienda/${m[1]}` : '/tienda';
-        // Si después del pop la ruta sigue siendo tienda pero sin estado, quedó en el dummy → ir al base
-        if (window.location.pathname.startsWith('/tienda')) {
-          // pequeña demora para dejar que el router procese el pop
-          setTimeout(() => {
-            if (window.location.pathname === base) {
-              // ya está en base, empujar de nuevo para que el siguiente atrás no cierre de golpe
-              try { window.history.pushState({ vp_seguro: true }, '', window.location.href); } catch {}
-            }
-          }, 50);
-        } else {
-          // si salió de /tienda por atrás (ej: a / ), volver a la tienda
+        // Si salió de /tienda por atrás (ej: producto → atrás con historial vacío iba a "/"), volver a la tienda
+        if (!window.location.pathname.startsWith('/tienda')) {
           navigate(base, { replace: true });
         }
+        // Si sigue dentro de /tienda, no forzamos nada: dejar que el router haga su trabajo.
+        // El dummy inicial ya evita el cierre en el primer atrás; el segundo atrás sí deja salir si el usuario insiste.
       } catch {}
     };
     window.addEventListener('popstate', onPopState);
