@@ -114,7 +114,8 @@ canvaRouter.get("/callback", async (req, res) => {
       client_secret: sec,
       redirect_uri: entry.redirectUri,
     });
-    const r = await fetch("https://api.canva.com/rest/oauth/token", {
+    // Base oficial Connect API: /rest/v1 (sin /v1/ Canva devuelve 404).
+    const r = await fetch("https://api.canva.com/rest/v1/oauth/token", {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: body.toString(),
@@ -164,7 +165,7 @@ canvaRouter.post("/probar", async (req, res) => {
   try {
     const token = decryptSecret(canva.accessToken);
     // prueba mínima: GET /rest/oauth/introspect o GET /rest/me — si falla, token inválido
-    const r = await fetch("https://api.canva.com/rest/oauth/introspect", {
+    const r = await fetch("https://api.canva.com/rest/v1/oauth/introspect", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ token }),
@@ -173,7 +174,7 @@ canvaRouter.post("/probar", async (req, res) => {
     const j: any = await r.json().catch(() => ({}));
     if (r.ok) return res.json({ success: true, introspect: j });
     // fallback: probar /rest/designs con limit 1
-    const r2 = await fetch("https://api.canva.com/rest/designs?limit=1", {
+    const r2 = await fetch("https://api.canva.com/rest/v1/designs?limit=1", {
       headers: { Authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(15_000),
     });

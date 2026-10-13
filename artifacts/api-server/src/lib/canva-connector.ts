@@ -20,7 +20,7 @@ export interface CanvaEstado {
 }
 
 const SCOPES = ["design:content:read","design:content:write","asset:read","asset:write","brandtemplate:content:read","profile:read"];
-const ENDPOINTS = ["POST /rest/oauth/token","POST /rest/designs","POST /rest/autofills","POST /rest/exports","GET /rest/exports/{id}","POST /rest/assets"];
+const ENDPOINTS = ["POST /rest/v1/oauth/token","GET /rest/v1/designs","POST /rest/v1/designs","POST /rest/v1/autofills","POST /rest/v1/exports","GET /rest/v1/exports/{id}","POST /rest/v1/assets"];
 
 export async function estadoCanva(): Promise<CanvaEstado> {
   const enabled = process.env.CANVA_ENABLED === "true";
