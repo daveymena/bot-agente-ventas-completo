@@ -850,28 +850,6 @@ export function normalizarCiudadParaDropi(ciudad: string): string {
 }
 
 /**
- * Ciudad y departamento COMO LOS NOMBRA DROPI.
- *
- * Venta real perdida (conversación 2, 06-10): el cliente confirmó en Bogotá y
- * el pedido rebotó "por el nombre del departamento". Mandábamos
- * state "BOGOTA D C" (de "Bogotá D.C.") y Dropi llama a Bogotá ciudad
- * "BOGOTA", departamento "CUNDINAMARCA" (verificado 07-10 contra su
- * cotizador con el token del negocio).
- */
-export function destinoParaDropi(ciudad: string, departamento: string): { city: string; state: string } {
-  let city = normalizarCiudadParaDropi(ciudad);
-  let state = normalizarCiudadParaDropi(departamento);
-  const esBogota = (x: string) => /^(BOGOTA( D ?C)?|SANTA ?FE DE BOGOTA( D ?C)?|DISTRITO CAPITAL( DE BOGOTA)?)$/.test(x);
-  if (esBogota(city) || (esBogota(state) && (!city || esBogota(city)))) {
-    return { city: "BOGOTA", state: "CUNDINAMARCA" };
-  }
-  if (esBogota(state)) state = "CUNDINAMARCA";
-  // "Valle" a secas → el nombre completo que usa Dropi
-  if (state === "VALLE") state = "VALLE DEL CAUCA";
-  return { city, state };
-}
-
-/**
  * El mismo payload que arma Dropify (OrdersModel.php `save`), porque es el
  * que Dropi acepta. `rate_type` "CON RECAUDO" = contraentrega.
  */
@@ -913,7 +891,8 @@ export async function crearPedidoDropi(token: string, producto: { dropiProductId
     name, surname,
     dir: `${pedido.direccion}${pedido.barrio ? ` ${pedido.barrio}` : ""}`,
     country: "CO",
-    ...destinoParaDropi(pedido.ciudad, pedido.departamento),
+    state: normalizarCiudadParaDropi(pedido.departamento),
+    city: normalizarCiudadParaDropi(pedido.ciudad),
     phone: pedido.telefono,
     client_email: pedido.email || `${pedido.telefono}@whatsapp.local`,
     payment_method_id: 1,
@@ -1112,7 +1091,7 @@ export interface TransportadorasCiudad {
   fuente: "cobertura" | "general";
   nota: string;
   /** Lo que Dropi SÍ dice de la ciudad (trajectory/bycity): si la cubre, el trayecto y si acepta contraentrega. */
-  ciudad?: { nombre: string; cubierta: boolean; trayecto: string | null; aceptaContraentrega: boolean | null } | null;
+  ciudad?: { nombre: string; cubierta: boolean; trayecto: string | null; aceptaContraentrega: boolean | null; ambigua?: boolean; departamentos?: string[] } | null;
 }
 
 /**
@@ -1163,38 +1142,6 @@ const NUM = (v: unknown): number | null => {
   const n = Number(String(v).replace(/[^\d.,-]/g, "").replace(/\.(?=\d{3}\b)/g, "").replace(",", "."));
   return Number.isFinite(n) ? n : null;
 };
-
-/**
- * Elige entre ciudades homónimas la del departamento pedido.
- *
- * 09-10-2026, caso Armenia: Dropi devuelve TODAS las ciudades y `coinciden`
- * puede traer varios municipios con el mismo nombre. Tomar el primero
- * hacía que un pueblo sin recaudo negara la contraentrega de la capital.
- * Se prefiere el que coincide con el departamento (por campo de texto o
- * por `department_id` vía el endpoint `department`); sin desempate, el
- * primero como antes. Nunca falla: si Dropi no ayuda, no se bloquea nada.
- */
-async function eligeCiudadPorDepartamento(token: string, coinciden: any[], departamento: string): Promise<any> {
-  if (!coinciden.length) return undefined;
-  if (coinciden.length === 1 || !departamento) return coinciden[0];
-  const norm = (s: unknown) => normalizarCiudadParaDropi(String(s || ""));
-  const porTexto = coinciden.find((c) =>
-    [c?.department, c?.departamento, c?.state, c?.region].some((v) => v && norm(v) === departamento),
-  );
-  if (porTexto) return porTexto;
-  try {
-    const r = await dropiIntegracion<any>(token, "department", undefined, "GET", 15000);
-    const lista = Array.isArray(r.data) ? r.data : [];
-    const enDepto = coinciden.find((c) => {
-      const id = Number(c?.department_id);
-      if (!Number.isFinite(id)) return false;
-      const nombre = lista.find((d: any) => Number(d?.id) === id)?.name || "";
-      return norm(nombre) === departamento;
-    });
-    if (enDepto) return enDepto;
-  } catch { /* sin desempate: primero como antes */ }
-  return coinciden[0];
-}
 
 /**
  * Qué transportadoras llegan a la ciudad, en el orden de Dropi y, si la
@@ -1260,11 +1207,45 @@ export async function transportadorasQueLlegan(
         },
       };
     }
-    // 09-10-2026, caso Armenia: Dropi devuelve TODAS las ciudades y puede
-    // haber homónimos (varios municipios con el mismo nombre). Antes se
-    // tomaba el primero: si ese era un pueblo sin recaudo, el vendedor
-    // sentenciaba "NO hay contraentrega" para la capital que sí la tiene.
-    const c = await eligeCiudadPorDepartamento(token, coinciden, departamento);
+    let departamentos: Array<{ id: number; nombre: string }> = [];
+    let ciudadElegida: any = null;
+    if (coinciden.length > 1 || !!departamento) {
+      try {
+        const d = await dropiIntegracion<any>(token, "department", undefined, "GET", 15000);
+        const filas = Array.isArray(d.data) ? d.data : listaDeObjetos(d.data);
+        departamentos = filas.map((x: any) => ({ id: Number(x.id ?? x.department_id), nombre: String(x.name ?? x.nombre ?? "") }));
+      } catch { /* si no hay catálogo de departamentos, nunca se adivina el recaudo */ }
+      const departamentoPorId = (id: number) => departamentos.find((x) => x.id === id)?.nombre || "";
+      const nombres = [...new Set(coinciden.map((x: any) => departamentoPorId(Number(x?.department_id))).filter(Boolean))];
+      if (!departamento) {
+        return {
+          ok: true,
+          data: {
+            transportadoras: base.map((t) => ({ id: t.id, nombre: t.nombre })),
+            fuente: "general",
+            ciudad: { nombre: ciudad, cubierta: true, trayecto: null, aceptaContraentrega: null, ambigua: true, departamentos: nombres },
+            nota: `Dropi tiene varios municipios llamados ${ciudad}${nombres.length ? ` (${nombres.join(", ")})` : ""}. Sin departamento no se puede confirmar cobertura ni contraentrega.`,
+          },
+        };
+      }
+      ciudadElegida = coinciden.find((x: any) =>
+        normalizarCiudadParaDropi(departamentoPorId(Number(x?.department_id))) === departamento,
+      );
+      if (!ciudadElegida) {
+        return {
+          ok: true,
+          data: {
+            transportadoras: base.map((t) => ({ id: t.id, nombre: t.nombre })),
+            fuente: "general",
+            ciudad: { nombre: ciudad, cubierta: true, trayecto: null, aceptaContraentrega: null, ambigua: true, departamentos: nombres },
+            nota: `Dropi no pudo emparejar ${ciudad} con ${departamento}${nombres.length ? `; los homónimos listados son de ${nombres.join(", ")}` : ""}. No se confirma cobertura ni contraentrega.`,
+          },
+        };
+      }
+    } else {
+      ciudadElegida = coinciden[0];
+    }
+    const c = ciudadElegida;
     const tarifas = String(c?.rate_type || "");
     const aceptaContraentrega = tarifas ? /CON RECAUDO/i.test(tarifas) : null;
     const trayecto = c?.trajectory_type ? String(c.trajectory_type) : null;
@@ -1275,10 +1256,10 @@ export async function transportadorasQueLlegan(
         fuente: "general",
         ciudad: { nombre: ciudad, cubierta: true, trayecto, aceptaContraentrega },
         nota:
-          `Dropi cubre ${ciudad}${trayecto ? ` (trayecto ${trayecto.toLowerCase()})` : ""}` +
+          `Dropi cubre ${ciudad}${departamento ? `, ${departamento}` : ""}${trayecto ? ` (trayecto ${trayecto.toLowerCase()})` : ""}` +
           (aceptaContraentrega === false ? ", pero SIN contraentrega" : aceptaContraentrega ? " y acepta contraentrega" : "") +
           `. Dropi no dice por API qué transportadora llega ni su precio: estas son las ${base.length} que maneja en general y al despachar se confirma la elegida.` +
-          (coinciden.length > 1 ? ` Hay ${coinciden.length} municipios llamados ${ciudad}: se prefirió el del departamento pedido.` : ""),
+          (coinciden.length > 1 ? ` Se eligió el municipio de ${departamento}.` : ""),
       },
     };
   }

@@ -157,6 +157,14 @@ describe("lo que se puede afirmar", () => {
     assert.match(texto, /transportadora/);
   });
 
+  test("ser ajustable no permite afirmar que sirve a menores si la ficha no lo dice", () => {
+    const guion = guionDelNegocio({
+      catalogo: [{ ...FISICOS[0]!, description: "Talla única, doble correa ajustable y neopreno ligero." }],
+      negocio: { nombre: "Tienda" },
+    });
+    assert.ok(guion.prohibiciones.some((p) => /niños, menores o a una edad específica/.test(p)));
+  });
+
   test("a un negocio digital se le prohíbe hablar de envíos", () => {
     const guion = guionDelNegocio({
       catalogo: DIGITALES,

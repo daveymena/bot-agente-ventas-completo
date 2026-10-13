@@ -403,6 +403,10 @@ export async function responder(params: {
    * dueño: se le manda la ficha completa de una, sin "¿te refieres a…?".
    */
   fichaDelAnuncio?: number | null;
+  /** Producto del anuncio que continúa en foco aunque ya no sea el primer turno. */
+  productoDeAnuncioId?: number | null;
+  /** El chat llegó desde Meta/Instagram aunque el SKU no haya podido resolverse. */
+  vieneDeAnuncio?: boolean;
   /** Pedidos de producto físico (ver adaptador.servicioDePedidos). */
   pedidos?: import("./herramientas").ServicioDePedidos;
   /** Contexto del tenant para A/B testing */
@@ -502,6 +506,8 @@ export async function responder(params: {
     catalogo,
     catalogoCompleto: params.catalogoCompleto,
     focoFijo,
+    productoDeAnuncioId: params.productoDeAnuncioId ?? params.fichaDelAnuncio ?? null,
+    vieneDeAnuncio: params.vieneDeAnuncio ?? false,
     partes: [],
     conocimiento: params.conocimiento || [],
     guion,
@@ -793,7 +799,9 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
   // Simulación del 25-09-2026: con el producto del anuncio ya en foco, el
   // modelo preguntaba "¿Te refieres al Corrector de Hombros y Clavícula?".
   // La ficha trae foto, precio, envío, pago y "¿Te lo enviamos?".
-  if (params.fichaDelAnuncio != null && !ctx.partes.some((p) => p.kind === "card")) {
+  if (params.fichaDelAnuncio != null
+    && estado.productoEnFoco === params.fichaDelAnuncio
+    && !ctx.partes.some((p) => p.kind === "card")) {
     try {
       await ejecutores.mostrar(ctx, { productoId: params.fichaDelAnuncio, seccion: "completa" });
       if (ctx.partes.some((p) => p.kind === "card")) textoFinal = /\?/.test(textoFinal) ? "" : textoFinal;

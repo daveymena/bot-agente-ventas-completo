@@ -250,6 +250,12 @@ export function getProviderConfigConClave(
       return { baseUrl: "https://api.deepseek.com/v1", apiKey, model: m("deepseek-chat") };
     case "openai":
       return { baseUrl: "https://api.openai.com/v1", apiKey, model: m("gpt-5.6-luna") };
+    case "excelnt":
+      return {
+        baseUrl: process.env.EXCELNT_BASE_URL || "https://excelnt.ai/v1",
+        apiKey,
+        model: m(process.env.EXCELNT_MODEL || "gpt-6-astra"),
+      };
     case "anthropic":
       return { baseUrl: "https://api.anthropic.com/v1", apiKey, model: m("claude-sonnet-5") };
     case "groq":
@@ -321,9 +327,21 @@ export function getProviderConfig(provider: string): AIProviderConfig | null {
         model: MODELOS_GO_ROTOS.has(pedido) ? "gpt-5.6-luna" : pedido,
       };
     }
+    // ── Excelnt (puente del dueño, 2026-10-06) ──────────────────────────
+    // Gateway compatible con OpenAI en https://excelnt.ai/v1. La key se crea
+    // SOLO desde la extensión de VS Code (el botón "Create key" del dashboard
+    // está deshabilitado a propósito) y aparece en /dashboard/api-keys.
+    // Enviar como Authorization: Bearer o exportar EXCELNT_API_KEY.
+    case "excelnt": {
+      if (!process.env.EXCELNT_API_KEY) return null;
+      return {
+        baseUrl: process.env.EXCELNT_BASE_URL || "https://excelnt.ai/v1",
+        apiKey: process.env.EXCELNT_API_KEY,
+        model: process.env.EXCELNT_MODEL || "gpt-6-astra",
+      };
+    }
     case "github_copilot_internal":
-      const rawCopilotToken = process.env.GITHUB_COPILOT_TOKEN || process.env.GITHUB_TOKEN;
-      if (!rawCopilotToken) return null;
+      const rawCopilotToken = process.env.GITHUB_COPILOT_TOKEN || process.env.GITHUB_TOKEN;      if (!rawCopilotToken) return null;
       return {
         baseUrl: "https://api.githubcopilot.com",
         apiKey: rawCopilotToken,

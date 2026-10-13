@@ -1,6 +1,8 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 import { db, conversations, messages, leads, settings as settingsTable } from "@workspace/db";
 import { logger } from "./logger";
+import { esConversacionOperativa } from "./conversation-status";
+import { condicionConversacionOperativa } from "./conversation-query";
 import { cancelarSeguimientosPendientes, scheduleIntelligentFollowUp, getFollowUpMetrics, getDueFollowUps } from "./followUpScheduler";
 
 // ─── AI client factory (injectable for testing) ──────────────────────────────
@@ -257,6 +259,7 @@ export class LeadScoringEngine {
       if (!conversation) {
         throw new Error(`Conversation ${conversationId} not found`);
       }
+      if (!esConversacionOperativa(conversation)) return this.defaultScore();
 
       // Fetch last 20 messages for context
       const recentMessages = await db
@@ -329,6 +332,7 @@ export class LeadScoringEngine {
         logger.warn({ conversationId }, "[LeadScoring] Conversation not found for score update");
         return;
       }
+      if (!esConversacionOperativa(conversation)) return;
 
       await db
         .update(conversations)
@@ -412,7 +416,10 @@ export class LeadScoringEngine {
           leadId: conversations.leadId
         })
         .from(conversations)
-        .where(eq(conversations.tenantId, tenantId));
+        .where(and(
+          eq(conversations.tenantId, tenantId),
+          condicionConversacionOperativa(),
+        ));
 
       const leadsWithScores = await Promise.all(
         allConversations.map(async (conv) => {

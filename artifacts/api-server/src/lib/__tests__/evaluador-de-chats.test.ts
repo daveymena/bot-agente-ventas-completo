@@ -4,7 +4,7 @@
  * evaluador no sirve para lo que existe.
  */
 import { describe, it, expect } from "vitest";
-import { evaluarChat, type TurnoEvaluado } from "../evaluador-de-chats";
+import { evaluarChat, esConversacionOperativa, ESTADO_CONVERSACION_EVALUACION, type TurnoEvaluado } from "../evaluador-de-chats";
 
 const CATALOGO = [
   { id: 123, name: "Curso de Piano Completo: De Cero a Nivel Avanzado", price: 60000, kind: "digital" },
@@ -16,6 +16,16 @@ const CATALOGO = [
 
 const t = (mensaje: string, texto: string, extra: Partial<TurnoEvaluado> = {}): TurnoEvaluado =>
   ({ mensaje, texto, tarjetas: [], agente: "Atlas", ...extra });
+
+describe("las pruebas no son conversaciones operativas", () => {
+  it("marca las evaluaciones nuevas y las históricas sin ocultar clientes reales", () => {
+    expect(ESTADO_CONVERSACION_EVALUACION).toBe("evaluation");
+    expect(esConversacionOperativa({ status: ESTADO_CONVERSACION_EVALUACION })).toBe(false);
+    expect(esConversacionOperativa({ status: "ai", contactName: "Evaluación", contactPhone: "573009254079" })).toBe(false);
+    expect(esConversacionOperativa({ status: "ai", contactName: "Diana", contactPhone: "573122269901" })).toBe(true);
+    expect(esConversacionOperativa({ status: "human", contactName: "Jesús", contactPhone: "573001435473" })).toBe(true);
+  });
+});
 
 describe("el chat del dueño (12-09, conversación 1) tal como salió", () => {
   const turnos: TurnoEvaluado[] = [

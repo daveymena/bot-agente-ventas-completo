@@ -19,8 +19,6 @@
  * igual. Que cambie el cerebro no puede cambiar el resto del cuerpo.
  */
 
-import { fotosDelProducto } from "../fotos-de-producto";
-import { plazoDeEntrega } from "../modelo-de-negocio";
 import { and, desc, eq } from "drizzle-orm";
 import {
   db,
@@ -81,16 +79,13 @@ export async function cargarCatalogoDelNegocio(tenantId: number): Promise<Produc
     // Todas las fotos reales (la principal primero): "más fotos" manda las
     // que faltan sin repetir. Salen de la metadata que deja la importación
     // (Dropi trae hasta 20); sin esto el vendedor solo conoce la principal.
-    //
-    // ⚠️ 09-10-2026: acá se armaba una lista PROPIA con `imageUrls` o
-    // `imagenes`, y se perdía la galería de WooCommerce/Dropify
-    // (`metadata.woocommerce.imageUrls`). Con el Corrector el vendedor creía
-    // tener una sola foto y le contestaba al cliente "ya te mandé todas las
-    // que tengo". Ahora sale de `fotosDelProducto`, la misma lista que usan la
-    // ficha, la landing y los anuncios.
     let fotos: string[] | null = null;
     try {
-      fotos = fotosDelProducto({ ...p, metadata: meta ?? p.metadata }, undefined, 20);
+      const crudas = meta?.imageUrls || meta?.imagenes || [];
+      const lista = [p.imageUrl, ...(Array.isArray(crudas) ? crudas : [])]
+        .map((u: any) => String(u || "").trim())
+        .filter(Boolean);
+      fotos = [...new Set(lista)];
       if (!fotos.length) fotos = null;
     } catch {
       fotos = p.imageUrl ? [String(p.imageUrl)] : null;
@@ -213,13 +208,7 @@ export async function cargarGuion(tenantId: number, catalogo: Producto[], produc
     loQueDebeSaber: ctx.loQueDebeSaber,
     modoCatalogo: ctx.modoCatalogo,
     condiciones: ctx.condiciones
-      ? {
-          pais: ctx.condiciones.pais ?? null,
-          // Envío de relleno = el negocio no lo configuró: no se le da al
-          // vendedor como hecho para afirmar (09-10-2026, ver envioConfirmado).
-          envio: ctx.condiciones.fuente === "respaldo" ? null : (ctx.condiciones.envio ?? null),
-          agenda: ctx.condiciones.agenda ?? null,
-        }
+      ? { pais: ctx.condiciones.pais ?? null, envio: ctx.condiciones.envio ?? null, agenda: ctx.condiciones.agenda ?? null }
       : null,
     negociaPrecio: ctx.negociaPrecio,
   };
@@ -284,6 +273,7 @@ export async function agenteQueAtiende(conversationId: number, tenantId: number,
 export async function productoDelAnuncioDeLaConversacion(
   conversationId: number,
   catalogo: Producto[],
+  respaldo?: { titulo?: string; cuerpo?: string; url?: string; anuncioId?: string } | null,
 ): Promise<Producto | null> {
   try {
     const filas = await db
@@ -293,7 +283,7 @@ export async function productoDelAnuncioDeLaConversacion(
       .orderBy(desc(messages.createdAt), desc(messages.id))
       .limit(40);
     const { anuncioDeOrigen, productoDelAnuncio } = await import("../agent");
-    const anuncio = anuncioDeOrigen(filas.reverse() as any);
+    const anuncio = anuncioDeOrigen(filas.reverse() as any) || (respaldo && (respaldo.titulo || respaldo.cuerpo || respaldo.url || respaldo.anuncioId) ? respaldo : null);
     if (!anuncio) return null;
     const duro = await productoDelAnuncio(anuncio, catalogo as any);
     if (duro) return catalogo.find((p) => p.id === duro.id) ?? null;
@@ -411,11 +401,23 @@ export async function cargarHistorial(conversationId: number, limite = 60): Prom
   return filas
     .filter((m: any) => m.role === "customer" || m.role === "agent")
     .slice(-Math.max(1, limite))
-    .map((m: any) => ({
-      role: m.role === "customer" ? ("customer" as const) : ("agent" as const),
-      content: conCita(m),
-      createdAt: m.createdAt,
-    }));
+    .map((m: any) => {
+      const metadata = typeof m.metadata === "string" ? (() => { try { return JSON.parse(m.metadata); } catch { return {}; } })() : (m.metadata || {});
+      return {
+        role: m.role === "customer" ? ("customer" as const) : ("agent" as const),
+        content: conCita(m),
+        createdAt: m.createdAt,
+        vieneDeAnuncio: m.role === "customer" && !!(metadata.adTitle || metadata.adBody || metadata.adUrl || metadata.adId || metadata.adOrigen),
+      };
+    });
+}
+
+function milisegundosFecha(raw: unknown): number {
+  if (raw instanceof Date) return raw.getTime();
+  const s = String(raw || "").trim();
+  if (!s) return NaN;
+  const d = new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : `${s.replace(" ", "T")}Z`);
+  return d.getTime();
 }
 
 /**
@@ -448,27 +450,6 @@ function conCita(m: any): string {
  * automáticos en vez de reventar.
  */
 /** Un teléfono real de WhatsApp son dígitos; "sim-…" solo lo crea la ruta de prueba. */
-/** El número del contacto, solo si es un teléfono (10 a 13 dígitos). Los
- *  LID de WhatsApp tienen 14 o más y no sirven para la transportadora. */
-export function telefonoReal(contacto: unknown): string | null {
-  const d = String(contacto ?? "").split("@")[0].replace(/\D/g, "");
-  return d.length >= 10 && d.length <= 13 ? d : null;
-}
-
-/**
- * ¿Se reintenta en Dropi un pedido frenado cuando el cliente pregunta por él?
- * Sí si Dropi lo rechazó por algo nuestro (formato, caída), no está
- * cancelado, no es simulación y tiene menos de 7 días.
- */
-export async function debeReintentarAlPreguntar(f: any, ahora = Date.now()): Promise<boolean> {
-  if (!f || f.dropi_order_id || f.estado === "cancelado") return false;
-  if (String(f.notas || "").includes("SIMULACIÓN") || String(f.telefono || "").startsWith("sim-")) return false;
-  const rechazado = f.estado === "rechazado_dropi" || f.dropi_estado === "error";
-  const reciente = ahora - new Date(f.created_at).getTime() < 7 * 24 * 3600 * 1000;
-  const { esReintentable } = await import("../reintento-pedidos");
-  return rechazado && reciente && esReintentable(f.dropi_error);
-}
-
 export function esConversacionDeSimulacion(telefono: unknown): boolean {
   return /^sim-/i.test(String(telefono || ""));
 }
@@ -577,24 +558,6 @@ export function servicioDePedidos(p: {
           return { hay: true, texto: `${base} (simulación: no se envió a Dropi; en un pedido real acá aparecen transportadora y guía).` };
         }
         if (!f.dropi_order_id) {
-          // ── Rechazado por un dato nuestro: se reintenta AHORA ──────────────
-          // Venta perdida (conv 2, Elkin, 06→08-10): Dropi rechazó por
-          // "BOGOTA D C" (ya corregido en destinoParaDropi), el cliente
-          // preguntó dos días después y el bot leyó el error y contestó "el
-          // equipo lo está gestionando" — nadie lo hacía; canceló. Que el
-          // cliente pregunte ES la señal de que el pedido sigue vivo.
-          if (await debeReintentarAlPreguntar(f)) {
-            const ds = await import("../dropshipping");
-            const r = await ds.despacharPedido(ds.aPedido(f)).catch((e: any) => ({ ok: false, error: String(e?.message || e) }) as any);
-            if (r.ok) {
-              const num = r.dropi?.dropiOrderId ? ` con el número ${r.dropi.dropiOrderId}` : "";
-              logger.info({ pedidoId: f.id, conversationId: p.conversationId }, "[MotorV2] pedido rechazado recuperado al preguntar el cliente");
-              const { avisarAlDueno } = await import("../avisos");
-              await avisarAlDueno(p.tenantId, `✅ *Pedido #${f.id} recuperado* — el cliente preguntó por él y entró a Dropi${num}.`).catch(() => null);
-              return { hay: true, texto: `Pedido #${f.id}: ${f.product_name} × ${f.quantity}, a ${f.ciudad || "?"}. Había quedado frenado por un error al registrarlo y LO ACABO DE REGISTRAR en Dropi${num}: ya está en proceso de despacho, plazo ${plazoDeEntrega(cond)}. Pídele disculpas por la demora y confírmale que ya salió a proceso.` };
-            }
-            return { hay: true, texto: `${base} Lo volví a intentar registrar en Dropi ahora mismo y lo volvió a rechazar (${String(r.error || "").slice(0, 120)}). El dueño ya recibió el aviso. NO le digas que "el equipo lo está gestionando" ni le prometas fecha: dile la verdad (no se pudo registrar todavía) y usa escalar_a_humano para que una persona le escriba hoy.` };
-          }
           return { hay: true, texto: `${base} Todavía no tiene número en Dropi${f.dropi_error ? ` (Dropi respondió: ${String(f.dropi_error).slice(0, 120)})` : ""}.` };
         }
         const { tokenDropiDelTenant, listarPedidosDropi } = await import("../dropi-directo");
@@ -605,46 +568,14 @@ export function servicioDePedidos(p: {
         if (!d) return { hay: true, texto: `${base} Número en Dropi: ${f.dropi_order_id} (no aparece entre los últimos 50 de Dropi).` };
         return {
           hay: true,
-          texto: `${base} En Dropi: ${d.estado}${d.transportadora ? `, transportadora ${d.transportadora}` : ""}${d.guia ? `, guía ${d.guia}` : ", todavía sin guía"}. Plazo del negocio: ${plazoDeEntrega(cond)}.`,
+          texto: `${base} En Dropi: ${d.estado}${d.transportadora ? `, transportadora ${d.transportadora}` : ""}${d.guia ? `, guía ${d.guia}` : ", todavía sin guía"}. Plazo del negocio: ${cond.envio.plazo}.`,
         };
       } catch (e: any) {
         return { hay: false, texto: `No se pudo consultar: ${e?.message || e}` };
       }
     },
 
-    async cancelar() {
-      // 08-10 (conv 2): "Cancela el pedido por fa" → el bot dijo "ya gestiono
-      // la cancelación" y el pedido siguió como rechazado, sin que nadie se
-      // enterara. Ahora se cancela de verdad o se dice qué falta.
-      try {
-        const { rows } = await pool.query(
-          `SELECT * FROM dropshipping_orders WHERE conversation_id = $1 AND estado <> 'borrador' ORDER BY id DESC LIMIT 1`,
-          [p.conversationId],
-        );
-        const f: any = rows[0];
-        if (!f) return { ok: false, texto: "Esta conversación no tiene ningún pedido hecho: no hay nada que cancelar." };
-        if (f.estado === "cancelado") return { ok: true, texto: `El pedido #${f.id} ya estaba cancelado.` };
-        const { avisarAlDueno } = await import("../avisos");
-        if (!f.dropi_order_id) {
-          await pool.query(
-            `UPDATE dropshipping_orders SET estado = 'cancelado', notas = COALESCE(notas, '') || ' | Cancelado por el cliente por WhatsApp', updated_at = now() WHERE id = $1`,
-            [f.id],
-          );
-          await avisarAlDueno(p.tenantId, `🚫 Pedido #${f.id} cancelado por el cliente (${f.nombre || "sin nombre"}, ${f.product_name}). No había llegado a Dropi: no hay nada que hacer allá.`).catch(() => null);
-          return { ok: true, texto: `Pedido #${f.id} CANCELADO en el sistema (no había llegado a Dropi, así que no se despacha nada). Confírmaselo y ofrécele ayuda si quiere hacerlo de nuevo más adelante.` };
-        }
-        await pool.query(
-          `UPDATE dropshipping_orders SET notas = COALESCE(notas, '') || ' | El cliente pidió CANCELAR por WhatsApp', updated_at = now() WHERE id = $1`,
-          [f.id],
-        );
-        await avisarAlDueno(p.tenantId, `🚫 *El cliente pidió CANCELAR el pedido #${f.id}* (${f.nombre || "sin nombre"}, ${f.product_name}). Ya está en Dropi con la orden #${f.dropi_order_id}: hay que cancelarla en Dropi a mano, antes de que salga.`).catch(() => null);
-        return { ok: true, texto: `El pedido #${f.id} ya está en Dropi (orden #${f.dropi_order_id}): la cancelación allá la hace una persona. El dueño YA recibió el aviso. Dile que la solicitud quedó registrada y que le confirman la cancelación; NO le digas que ya quedó cancelado.` };
-      } catch (e: any) {
-        return { ok: false, texto: `No se pudo cancelar: ${e?.message || e}. Usa escalar_a_humano.` };
-      }
-    },
-
-    async transportadoras(ciudad: string) {
+    async transportadoras(ciudad: string, departamento?: string) {
       try {
         const { tokenDropiDelTenant, transportadorasQueLlegan } = await import("../dropi-directo");
         const destino = String(ciudad || "").trim();
@@ -662,8 +593,9 @@ export function servicioDePedidos(p: {
           const pedido = await ds.pedidoEnCurso(p.conversationId);
           if (pedido?.productId) {
             const { cotizarProductoDelCatalogo } = await import("../dropi-cotizador");
+            const deptoPedido = String(pedido.departamento || departamento || "").trim() || null;
             const cot = await cotizarProductoDelCatalogo(p.tenantId, pedido.productId, {
-              ciudad: destino, departamento: pedido.departamento || null, cantidad: pedido.quantity,
+              ciudad: destino, departamento: deptoPedido, cantidad: pedido.quantity,
               precioUnitario: Number(pedido.unitPrice) || null, variationId: pedido.dropiVariationId ?? null,
               conRecaudo: !pedido.metodoPago || pedido.metodoPago === "contraentrega",
             });
@@ -680,11 +612,19 @@ export function servicioDePedidos(p: {
                   `\nOfrecé estas en ese orden, sin mencionar precios de envío. Si elige una, pasala en tomar_pedido(transportadora=…); si no elige, se usa la más económica.`,
               };
             }
+            if (!cot.ok && ["departamento_incompatible", "departamento_requerido", "sin_cobertura"].includes(String(cot.codigo))) {
+              return {
+                ok: false,
+                mensaje: `${cot.error || `Dropi no confirma ${destino}, ${deptoPedido || "ese departamento"}`}. No afirmes que hay o no hay contraentrega ni ofrezcas otra ciudad como si fuera la misma. Pídele al cliente que confirme municipio y departamento o escala a una persona.`,
+              };
+            }
           }
         } catch (e: any) {
           logger.warn({ err: e?.message, tenantId: p.tenantId }, "[MotorV2] no se pudo cotizar; se usa la cobertura general");
         }
-        const r = await transportadorasQueLlegan(token, { ciudad: destino });
+        const pedidoActual = await (await import("../dropshipping")).pedidoEnCurso(p.conversationId).catch(() => null);
+        const departamentoConsultado = String(departamento || pedidoActual?.departamento || "").trim();
+        const r = await transportadorasQueLlegan(token, { ciudad: destino, departamento: departamentoConsultado });
         const lista = r.ok ? r.data?.transportadoras || [] : [];
         if (!r.ok || !lista.length) {
           return { ok: false, mensaje: `Dropi no devolvió transportadoras para ${destino}. Dile que el envío lo coordina el equipo y no inventes empresas.` };
@@ -694,10 +634,14 @@ export function servicioDePedidos(p: {
         // ciudades): se le dice lo que sí es cierto de su ciudad (30-09-2026).
         if (r.data?.fuente !== "cobertura") {
           const c = r.data?.ciudad;
+          if (c?.ambigua) {
+            const deptos = c.departamentos?.length ? ` (${c.departamentos.join(", ")})` : "";
+            return { ok: false, mensaje: `Dropi devuelve más de una ciudad llamada ${destino}${deptos}. No puedo confirmar cobertura ni contraentrega sin el departamento correcto; pregúntaselo al cliente.` };
+          }
           if (c && !c.cubierta) {
             return { ok: false, mensaje: `Dropi no tiene a ${destino} en su cobertura. Pídele al cliente que confirme cómo se escribe su ciudad o municipio; no le ofrezcas transportadoras.` };
           }
-          const contra = c?.aceptaContraentrega === false ? " Ojo: Dropi no me confirma contraentrega para esa ciudad (lo verifico al despachar); si prefieres asegurar, el pago puede ser anticipado." : c?.aceptaContraentrega ? " Acepta pago contraentrega." : "";
+          const contra = c?.aceptaContraentrega === false ? " Ojo: a esa ciudad NO hay contraentrega; el pago sería anticipado." : c?.aceptaContraentrega ? " Acepta pago contraentrega." : "";
           return {
             ok: true,
             mensaje:
@@ -729,7 +673,7 @@ export function servicioDePedidos(p: {
             confirmacion:
               `Producto: ${pedido.productName} × ${pedido.quantity}. ` +
               `${pedido.metodoPago === "contraentrega" ? "Paga contraentrega al recibir" : "Pago ya acordado"}. ` +
-              `Llega a ${pedido.direccion}${pedido.barrio ? `, barrio ${pedido.barrio}` : ""} — ${pedido.ciudad}, ${pedido.departamento}, en ${plazoDeEntrega(cond)}.`,
+              `Llega a ${pedido.direccion}${pedido.barrio ? `, barrio ${pedido.barrio}` : ""} — ${pedido.ciudad}, ${pedido.departamento}, en ${cond.envio.plazo}.`,
           };
         }
         await ds.marcarEstado(pedido.id, "confirmado");
@@ -909,21 +853,54 @@ export async function responderComoVendedor(
   ]);
   // Quién atiende sale del último mensaje del cliente (el enrutador decide
   // si hay traspaso), y de ahí salen su voz y SUS productos.
-  const ultimoMensaje = [...historial].reverse().find((m) => m.role === "customer")?.content ?? "";
+  const clientes = historial.filter((m: any) => m.role === "customer");
+  const ultimoCliente = clientes[clientes.length - 1];
+  const ultimoMensaje = ultimoCliente?.content ?? "";
+  const referenciaAnuncioMs = milisegundosFecha(ultimoCliente?.createdAt ?? convo.lastMessageAt ?? convo.createdAt);
+  const anuncioEsReciente = (raw: unknown) => {
+    const t = milisegundosFecha(raw);
+    const delta = referenciaAnuncioMs - t;
+    return Number.isFinite(t) && Number.isFinite(referenciaAnuncioMs) && delta >= -5 * 60_000 && delta <= 24 * 60 * 60_000;
+  };
+  const adMensajeReciente = [...clientes].reverse().slice(0, 10).some((m: any) => m.vieneDeAnuncio === true && anuncioEsReciente(m.createdAt));
+  let anuncioDelLead: { titulo: string; cuerpo: string; url: string; anuncioId: string; origen?: string } | null = null;
+  let anuncioLeadReciente = false;
+  if ((convo as any).leadId) {
+    try {
+      const [lead] = await db.select({ source: leads.source, adContext: leads.adContext })
+        .from(leads).where(and(eq(leads.id, (convo as any).leadId), eq(leads.tenantId, tenantId))).limit(1);
+      const raw = lead?.adContext;
+      const ad = typeof raw === "string" ? (() => { try { return JSON.parse(raw); } catch { return {}; } })() : (raw || {});
+      const tieneAtribucion = !!(ad.adTitle || ad.adBody || ad.adUrl || ad.adId || lead?.source === "meta_ads");
+      anuncioLeadReciente = tieneAtribucion && anuncioEsReciente(ad.capturedAt || convo.createdAt);
+      if (anuncioLeadReciente) {
+        anuncioDelLead = {
+          titulo: String(ad.adTitle || ""), cuerpo: String(ad.adBody || ""), url: String(ad.adUrl || ""),
+          anuncioId: String(ad.adId || ""), origen: String(ad.origen || lead?.source || ""),
+        };
+      }
+    } catch (e: any) {
+      logger.warn({ err: e?.message, conversationId }, "[MotorV2] no se pudo recuperar el anuncio del lead");
+    }
+  }
+  const hayAnuncioReciente = anuncioLeadReciente || adMensajeReciente;
+  const focoAntesDeAnuncio = estado.productoEnFoco;
 
   // ¿Vino de un anuncio? Meta manda "¡Hola! Quiero más información" para
   // todos; el producto viaja en la metadata del primer mensaje. Conv 221
   // (24-09-2026): lead `meta_ads` y el bot preguntó "¿qué producto te
   // interesa?" -- el motor v2 nunca leía el anuncio. Solo fija el foco si
   // todavía no hay uno: lo que el cliente pida después manda sobre el anuncio.
-  let productoAnuncio: Producto | null = null;
-  if (estado.productoEnFoco == null) {
-    productoAnuncio = await productoDelAnuncioDeLaConversacion(conversationId, catalogoCompleto);
-    if (productoAnuncio) {
+  let productoAnuncioCandidato: Producto | null = hayAnuncioReciente
+    ? await productoDelAnuncioDeLaConversacion(conversationId, catalogoCompleto, anuncioDelLead)
+    : null;
+  const anuncioSigueEnFoco = hayAnuncioReciente && (focoAntesDeAnuncio == null || productoAnuncioCandidato?.id === focoAntesDeAnuncio);
+  const vieneDeAnuncio = anuncioSigueEnFoco;
+  const productoAnuncio = anuncioSigueEnFoco ? productoAnuncioCandidato : null;
+  if (focoAntesDeAnuncio == null && productoAnuncio) {
       estado.productoEnFoco = productoAnuncio.id;
       if (estado.etapa === "saludo" || estado.etapa === "explorando") estado.etapa = "producto_en_foco";
       logger.info({ conversationId, producto: productoAnuncio.name }, "[MotorV2] producto en foco tomado del anuncio");
-    }
   }
 
   // Con el producto del anuncio, el enrutador lo ve nombrado y elige al
@@ -962,10 +939,7 @@ export async function responderComoVendedor(
     tenantId,
     conversationId,
     leadId: (convo as any).leadId ?? null,
-    // Un LID ("198874299904173", el id interno de WhatsApp) NO es un
-    // teléfono: en la venta real del 06-10 salió en el resumen como celular y
-    // el cliente tuvo que corregirlo. Sin teléfono real, el motor lo pide.
-    telefono: telefonoReal((convo as any).contactPhone),
+    telefono: (convo as any).contactPhone ?? null,
     condiciones: negocio?.condiciones ?? CONDICIONES_DE_RESPALDO,
     simulacion: esConversacionDeSimulacion((convo as any).contactPhone),
   });
@@ -984,7 +958,9 @@ export async function responderComoVendedor(
     tenantId,
     agentId: agente?.id,
     conversationId,
-    fichaDelAnuncio: productoAnuncio?.id ?? null,
+    fichaDelAnuncio: focoAntesDeAnuncio == null ? productoAnuncio?.id ?? null : null,
+    productoDeAnuncioId: productoAnuncio?.id ?? null,
+    vieneDeAnuncio,
   });
 
   await repositorio.guardar(resultado.estado);
@@ -1170,34 +1146,6 @@ async function aplicarEfecto(
       );
     } catch {
       /* avisar no puede frenar la respuesta al cliente */
-    }
-    return;
-  }
-
-  // Pregunta que el vendedor no pudo responder: queda como conocimiento
-  // PENDIENTE (respuesta NULL) y le llega al dueño UNA vez por pregunta. Con
-  // la respuesta cargada (panel o Atlas), el vendedor la usa siempre.
-  if (efecto.tipo === "pregunta_al_dueno") {
-    try {
-      const { esPreguntaRepetida, disparadoresDe } = await import("./preguntas-al-dueno");
-      const existentes = await cargarConocimiento(ctx.tenantId);
-      if (esPreguntaRepetida(efecto.pregunta, existentes)) return;
-      await db.insert(productKnowledge).values({
-        tenantId: ctx.tenantId,
-        productId: efecto.productoId,
-        pregunta: efecto.pregunta,
-        disparadores: disparadoresDe(efecto.pregunta),
-        respuesta: null,
-      } as any);
-      const { avisarAlDueno } = await import("../avisos");
-      await avisarAlDueno(
-        ctx.tenantId,
-        `❓ *Pregunta sin respuesta* — ${ctx.convo?.contactName || "un cliente"} preguntó: "${efecto.pregunta}". ` +
-          `El vendedor le dijo que lo consultaba. Respondéle por WhatsApp y cargá la respuesta para la próxima: ` +
-          `decíle a Atlas "la respuesta a «${efecto.pregunta.slice(0, 80)}» es …".`,
-      );
-    } catch (e: any) {
-      logger.warn({ err: e?.message }, "[MotorV2] no se pudo registrar la pregunta para el dueño");
     }
     return;
   }

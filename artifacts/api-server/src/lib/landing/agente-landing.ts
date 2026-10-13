@@ -40,6 +40,9 @@ import { sanearHtmlDeLanding } from "./sanear-html";
  * cada respuesta se valida (tiene que traer <html) y si no, se pasa al
  * siguiente. Los verificados del registro van antes que los "sin probar".
  *
+ *   excelnt      → puente del dueño (2026-10-06): gateway https://excelnt.ai/v1
+ *                    con los créditos de su plan Builder; va primero porque es
+ *                    el proveedor pago destinado a este trabajo
  *   ollama     → Pro/local primero (2026-10-02, orden del dueño); sin clave se saltea solo
  *   deepseek   → la clave paga del negocio (o la global), de respaldo
  *   opencode   → gratuitos de Zen, directo (sin puente ni sesión)
@@ -47,7 +50,7 @@ import { sanearHtmlDeLanding } from "./sanear-html";
  *   ollama_local → el Ollama del EasyPanel (OLLAMA_LOCAL_URL)
  *   ollama_cloud → ollama.com (OLLAMA_CLOUD_API_KEY)
  */
-const PROVEEDORES = ["ollama_local", "ollama_cloud", "deepseek", "opencode", "groq", "openrouter"] as const;
+const PROVEEDORES = ["excelnt", "ollama_local", "ollama_cloud", "deepseek", "opencode", "groq", "openrouter"] as const;
 /**
  * Orden "gratuitos primero" para trabajos que no ameritan gastar DeepSeek
  * (curar fichas de producto, clasificar, resumir). DeepSeek queda al final

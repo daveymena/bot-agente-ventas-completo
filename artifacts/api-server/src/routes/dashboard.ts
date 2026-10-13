@@ -1,6 +1,6 @@
-import { safeISO } from "../lib/date-utils";
+import { safeISO, rangoHoyColombia } from "../lib/date-utils";
 import { Router, type IRouter } from "express";
-import { and, desc, eq, gte, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import {
   GetDashboardSummaryResponse,
   GetFunnelResponse,
@@ -15,6 +15,7 @@ import {
   messages,
 } from "@workspace/db";
 import { getWhatsAppForTenant } from "../lib/whatsapp-factory";
+import { condicionConversacionOperativa } from "../lib/conversation-query";
 
 const router: IRouter = Router();
 const STAGES = ["new", "contacted", "qualified", "proposal", "won", "lost"] as const;
@@ -27,8 +28,8 @@ function tenantIdOf(req: any): number | null {
 
 const USE_SQLITE = process.env.USE_SQLITE === "true";
 const DATE_FN = USE_SQLITE
-  ? sql<string>`strftime('%Y-%m-%d', ${messages.createdAt})`
-  : sql<string>`to_char(${messages.createdAt}, 'YYYY-MM-DD')`;
+  ? sql<string>`strftime('%Y-%m-%d', ${messages.createdAt}, '-5 hours')`
+  : sql<string>`to_char(${messages.createdAt} AT TIME ZONE 'America/Bogota', 'YYYY-MM-DD')`;
 
 // SQLite (sql.js) no puede enlazar objetos Date como parámetros y las fechas se
 // guardan como TEXT con formato "YYYY-MM-DD HH:MM:SS". En Postgres la columna es
@@ -43,7 +44,10 @@ router.get("/summary", async (req, res, next) => {
     if (!tenantId) return res.status(401).json({ message: "No autorizado" });
 
     const allLeads = await db.select().from(leads).where(eq(leads.tenantId, tenantId));
-    const allConvos = await db.select().from(conversations).where(eq(conversations.tenantId, tenantId));
+    const allConvos = await db.select().from(conversations).where(and(
+      eq(conversations.tenantId, tenantId),
+      condicionConversacionOperativa(),
+    ));
 
     const totalLeads = allLeads.length;
     const wonLeads = allLeads.filter((l) => l.stage === "won");
@@ -58,13 +62,16 @@ router.get("/summary", async (req, res, next) => {
 
     // messages no guarda tenantId: se acota por las conversaciones del tenant.
     const convoIds = allConvos.map((c) => c.id);
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
+    const { desde: startOfDay, hasta: endOfDay } = rangoHoyColombia();
     const todayMsgs = convoIds.length
       ? await db
           .select({ count: sql<number>`count(*)` })
           .from(messages)
-          .where(and(gte(messages.createdAt, toDbDate(startOfDay) as any), inArray(messages.conversationId, convoIds)))
+          .where(and(
+            gte(messages.createdAt, toDbDate(startOfDay) as any),
+            lt(messages.createdAt, toDbDate(endOfDay) as any),
+            inArray(messages.conversationId, convoIds),
+          ))
       : [{ count: 0 }];
 
     // Estado real de WhatsApp para ESTE tenant (antes se usaba un badge sin
@@ -199,16 +206,18 @@ router.get("/messages-timeline", async (req, res, next) => {
     const tenantId = tenantIdOf(req);
     if (!tenantId) return res.status(401).json({ message: "No autorizado" });
 
-    const tenantConvos = await db
+    const tenantConvos: Array<{ id: number }> = await db
       .select({ id: conversations.id })
       .from(conversations)
-      .where(eq(conversations.tenantId, tenantId));
+      .where(and(
+        eq(conversations.tenantId, tenantId),
+        condicionConversacionOperativa(),
+      )) as any;
     const convoIds = tenantConvos.map((c) => c.id);
 
     const days = 14;
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    start.setDate(start.getDate() - (days - 1));
+    const { desde: hoyColombia } = rangoHoyColombia();
+    const start = new Date(hoyColombia.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
     const rows = convoIds.length
       ? await db
           .select({

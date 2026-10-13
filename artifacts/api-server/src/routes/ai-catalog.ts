@@ -52,6 +52,9 @@ export const PROVEEDORES = [
   { id: "qwen", nombre: "Alibaba Qwen", gratis: false, envKey: "QWEN_API_KEY", alta: "https://dashscope.console.aliyun.com", nota: "Qwen · multilingüe y multimodal" },
   { id: "nebius", nombre: "Nebius", gratis: false, envKey: "NEBIUS_API_KEY", alta: "https://studio.nebius.com", nota: "Créditos de prueba al registrarse" },
   { id: "sambanova", nombre: "SambaNova", gratis: false, envKey: "SAMBANOVA_API_KEY", alta: "https://cloud.sambanova.ai/apis", nota: "Inferencia muy rápida" },
+  // Puente del dueño (2026-10-06): la key se crea en la extensión de VS Code,
+  // no en el dashboard (el botón "Create key" web está deshabilitado).
+  { id: "excelnt", nombre: "Excelnt", gratis: false, envKey: "EXCELNT_API_KEY", alta: "https://excelnt.ai/dashboard/api-keys", nota: "Gateway OpenAI-compatible · key desde la extensión de VS Code" },
 ];
 
 /** Claves guardadas por el admin desde la pantalla (dentro de businessConfig). */

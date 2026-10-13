@@ -156,6 +156,10 @@ export interface ContextoHerramientas {
    * tomar_pedido no pueden cambiarlo por un id que el cliente no nombró.
    */
   focoFijo?: number | null;
+  /** Producto que el backend resolvió del anuncio de Meta/Instagram. */
+  productoDeAnuncioId?: number | null;
+  /** Llegó desde anuncio pagado pero el producto no pudo resolverse con certeza. */
+  vieneDeAnuncio?: boolean;
   /** Las partes que se van acumulando para enviar al cliente. */
   partes: Parte[];
   /** Conocimiento cargado por el dueño para este negocio. */
@@ -225,7 +229,7 @@ export interface ServicioDePedidos {
    * que se le pase. Nombres reales del proveedor: el bot ofrece la lista y el
    * cliente elige; nunca se inventa una ni se muestra el flete.
    */
-  transportadoras?(ciudad: string): Promise<{ ok: boolean; mensaje: string }>;
+  transportadoras?(ciudad: string, departamento?: string): Promise<{ ok: boolean; mensaje: string }>;
 }
 
 export interface ResultadoHerramienta {
@@ -255,6 +259,20 @@ export function registrarVideoSiLaFichaLoLleva(estado: EstadoConversacion, p: Pr
 
 const nombreDe = (ctx: ContextoHerramientas, id: number) =>
   ctx.catalogo.find((p) => p.id === id)?.name ?? `producto #${id}`;
+
+/** Producto permitido en este turno: anuncio fijo, alternativa explícita o SKU inequívoco del mensaje. */
+function productoAutorizadoPorContexto(ctx: ContextoHerramientas, productId: number): boolean {
+  if (ctx.focoFijo != null) return productId === ctx.focoFijo;
+  if (!ctx.vieneDeAnuncio) return true;
+  const adId = Number(ctx.productoDeAnuncioId) || null;
+  if (adId != null && ctx.estado.productoEnFoco === adId) {
+    if (productId === adId) return true;
+    if (!nombraAlternativaAlProductoDelAnuncio(ctx.mensajeDelCliente, ctx.catalogo, adId)) return false;
+    return productoMencionadoEnElMensajeActual(ctx.mensajeDelCliente, ctx.catalogo)?.id === productId;
+  }
+  return mencionaProductoConcreto(ctx.mensajeDelCliente, ctx.catalogo)
+    && productoMencionadoEnElMensajeActual(ctx.mensajeDelCliente, ctx.catalogo)?.id === productId;
+}
 
 /**
  * Palabras que aparecen en casi cualquier pregunta del cliente. No deciden
@@ -375,7 +393,8 @@ export const definicionesDeHerramientas = [
     function: {
       name: "mostrar_opciones",
       description:
-        "OBLIGATORIA cuando lo que pide el cliente coincide con DOS o más productos (varios modelos del mismo tipo). " +
+        "Úsala cuando el cliente PIDE comparar o ver varios modelos, o cuando no hay un producto concreto en foco y lo que pide coincide con DOS o más. " +
+        "Si viene de un anuncio que resolvió un producto y solo repite la categoría, muestra primero SOLO el producto del anuncio; no expandas a todo el catálogo. " +
         "Busca primero con buscar_en_catalogo, después llámala con los ids. El SISTEMA pega debajo de tu texto la ficha de cada opción " +
         "con su FOTO, NOMBRE y PRECIO reales del catálogo. Por eso en tu texto NUNCA escribas nombres de productos ni precios: " +
         "solo una frase de intro (ej. 'Te muestro los modelos que tengo:') y la pregunta de cierre. Si listas a mano, los nombres salen " +
@@ -500,11 +519,12 @@ export const definicionesDeHerramientas = [
         "Úsala cuando el cliente pregunte qué empresa lleva el envío o quiera elegir una. Repetí SOLO lo que diga la " +
         "respuesta: si trae una lista, ofrecé las 2 o 3 primeras en ese orden; si dice que la asigna Dropi, decilo así. " +
         "El flete NUNCA se le muestra al cliente. Si el cliente elige una, pasa su nombre en tomar_pedido(transportadora=…). " +
-        "Si la ciudad no está en cobertura, pedí que confirme cómo se escribe; nunca inventes empresas.",
+        "Pasa también el departamento si el cliente lo dio. Si hay municipios homónimos o falta el departamento, el sistema no confirma contraentrega: pregunta el dato; nunca adivines.",
       parameters: {
         type: "object",
         properties: {
           ciudad: { type: "string", description: "Ciudad de entrega. Si no la pasás se usa la que ya dio el cliente." },
+          departamento: { type: "string", description: "Departamento/estado exacto si el cliente lo mencionó; obligatorio para ciudades homónimas." },
         },
         required: [],
       },
@@ -804,6 +824,26 @@ export function productosMencionadosEnElMensajeActual(
   return out;
 }
 
+/** True solo si el cliente escribió un rasgo que distingue otro SKU del anuncio. */
+export function nombraAlternativaAlProductoDelAnuncio(mensaje: string, catalogo: Producto[], anuncioId: number): boolean {
+  const foco = catalogo.find((p) => p.id === anuncioId);
+  if (!foco) return false;
+  const stop = new Set(["corrector", "postura", "producto", "modelo", "para", "con", "del", "una", "uno", "este", "esta", "quiero", "tiene"]);
+  const palabras = (s: string) => N(s).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 3 && !stop.has(w));
+  const delAnuncio = new Set(palabras(foco.name));
+  const delMensaje = new Set(palabras(mensaje));
+  return catalogo.some((p) => p.id !== anuncioId && palabras(p.name).some((w) => delMensaje.has(w) && !delAnuncio.has(w)));
+}
+
+export function mencionaProductoConcreto(mensaje: string, catalogo: Producto[]): boolean {
+  const p = productoMencionadoEnElMensajeActual(mensaje, catalogo);
+  if (!p) return false;
+  const stop = new Set(["corrector", "postura", "producto", "modelo", "para", "con", "del", "una", "uno", "este", "esta", "quiero", "tiene"]);
+  const words = N(p.nombre).split(/[^a-z0-9ñ]+/).filter((w) => w.length >= 3 && !stop.has(w));
+  const msg = new Set(N(mensaje).split(/[^a-z0-9ñ]+/).filter(Boolean));
+  return words.some((w) => msg.has(w));
+}
+
 /**
  * El producto que el mensaje actual nombró con fuerza, o null (no hay).
  *
@@ -886,6 +926,9 @@ export const ejecutores: Record<string, Ejecutor> = {
   async enfocar_producto(ctx, { productoId }) {
     const p = ctx.catalogo.find((x) => x.id === Number(productoId));
     if (!p) return { ok: false, mensaje: `No existe el producto #${productoId}. Busca en el catálogo primero.` };
+    if (!productoAutorizadoPorContexto(ctx, p.id)) {
+      return { ok: false, mensaje: "El cliente llegó desde un anuncio y no nombró este otro SKU de forma inequívoca. Mantén el producto del anuncio o pregúntale si quiere ver otros modelos; no cambies el foco por una coincidencia de categoría." };
+    }
 
     const anterior = ctx.estado.productoEnFoco;
     if (anterior === p.id) {
@@ -945,6 +988,9 @@ export const ejecutores: Record<string, Ejecutor> = {
     }
     const p = ctx.catalogo.find((x) => x.id === idNumerico);
     if (!p) return { ok: false, mensaje: `No existe el producto #${idNumerico}. Busca en el catálogo primero.` };
+    if (!productoAutorizadoPorContexto(ctx, p.id)) {
+      return { ok: false, mensaje: "La ficha que pediste no corresponde al producto identificado del anuncio ni a un SKU nombrado claramente por el cliente. No la envíes; conserva el foco o pregunta qué modelo vio." };
+    }
 
     let sec = String(seccion || "completa") as Seccion;
     // ── Físico sin precio dado: "info" es "completa" ───────────────────────
@@ -1121,7 +1167,32 @@ export const ejecutores: Record<string, Ejecutor> = {
     };
   },
 
-  mostrar_opciones(ctx, { productoIds }) {
+  async mostrar_opciones(ctx, { productoIds }) {
+    const anuncioId = Number(ctx.productoDeAnuncioId) || null;
+    const focoSigueAnuncio = anuncioId != null && ctx.estado.productoEnFoco === anuncioId;
+    const nombroOtroProducto = anuncioId != null && nombraAlternativaAlProductoDelAnuncio(ctx.mensajeDelCliente, ctx.catalogo, anuncioId);
+    const pidioAlternativas = /\b(otros? modelos?|m[aá]s modelos?|qu[eé] modelos?|cu[aá]les modelos?|otras? opciones?|qu[eé] opciones?|compar(ar|ame)|ver (?:los )?modelos|muestra(?:me)? (?:los )?modelos|varios modelos)\b/i.test(ctx.mensajeDelCliente);
+    // El anuncio ya identifica el modelo que pagamos por atraer. Si el cliente
+    // solo repite la categoría genérica ("corrector de postura"), no abras
+    // todo el catálogo: enseña ese modelo. Las alternativas solo salen si las
+    // pidió explícitamente o nombró otro producto de forma inequívoca.
+    if (focoSigueAnuncio && !pidioAlternativas && !nombroOtroProducto) {
+      const r = await ejecutores.mostrar(ctx, { productoId: anuncioId, seccion: "completa" });
+      return {
+        ...r,
+        mensaje: r.ok
+          ? `El cliente llegó por el anuncio de ${nombreDe(ctx, anuncioId)} y no pidió comparar modelos. Se mostró SOLO ese producto; contesta su pregunta sobre él y no abras otros modelos hasta que lo pida.`
+          : `${r.mensaje} El foco sigue siendo el producto del anuncio (${nombreDe(ctx, anuncioId)}); responde sobre él sin listar otros modelos.`,
+      };
+    }
+    const mencionoSkuConcreto = mencionaProductoConcreto(ctx.mensajeDelCliente, ctx.catalogo);
+    const mencionaCategoriaAmbigua = productosMencionadosEnElMensajeActual(ctx.mensajeDelCliente, ctx.catalogo).length > 1;
+    if (ctx.vieneDeAnuncio && anuncioId == null && mencionaCategoriaAmbigua && !mencionoSkuConcreto && !pidioAlternativas) {
+      return {
+        ok: false,
+        mensaje: "El chat viene de un anuncio, pero no pude identificar un producto exacto en los datos del anuncio. La categoría coincide con varios productos. NO mandes varias fichas ni adivines cuál vio: explica brevemente que hay varios modelos y pregunta si quiere que le muestres las opciones.",
+      };
+    }
     const pedidos = (Array.isArray(productoIds) ? productoIds : [])
       .map(Number)
       .filter((n) => Number.isFinite(n) && n > 0);
@@ -1359,6 +1430,9 @@ export const ejecutores: Record<string, Ejecutor> = {
     const id = ctx.focoFijo ?? (Number(args?.productoId) || ctx.estado.productoEnFoco);
     const p = id ? ctx.catalogo.find((x) => x.id === id) : null;
     if (!p) return { ok: false, mensaje: "No sé qué producto compra. Ubícalo con buscar_en_catalogo o enfocar_producto y volvé a llamar." };
+    if (!productoAutorizadoPorContexto(ctx, p.id)) {
+      return { ok: false, mensaje: "No tomo el pedido de un SKU distinto al producto del anuncio sin que el cliente lo haya nombrado claramente. Confirma cuál modelo quiere antes de pedir dirección." };
+    }
     if (String(p.kind || "digital") !== "physical") {
       return { ok: false, mensaje: `${p.name} no es un producto físico: no lleva envío ni pedido. Sigue con mostrar(seccion="pago").` };
     }
@@ -1684,7 +1758,7 @@ export const ejecutores: Record<string, Ejecutor> = {
     return { ok: true, mensaje: `${p.name}: ${p.stock} unidad(es) en inventario. Puedes ofrecerlo.` };
   },
 
-  async consultar_transportadoras(ctx, { ciudad }) {
+  async consultar_transportadoras(ctx, { ciudad, departamento }) {
     if (!ctx.pedidos?.transportadoras) {
       return { ok: false, mensaje: "Este negocio no tiene pedidos automáticos, así que no puedo listar transportadoras reales. No inventes ninguna empresa: dile que el envío lo coordina el equipo y, si el cliente insiste, usa escalar_a_humano." };
     }
@@ -1692,7 +1766,8 @@ export const ejecutores: Record<string, Ejecutor> = {
     if (!destino) {
       return { ok: false, mensaje: "Falta la ciudad de entrega: sin ciudad no sé qué transportadoras llegan. Pídesela al cliente en UNA pregunta corta y volvé a llamar." };
     }
-    const r = await ctx.pedidos.transportadoras(destino);
+    const depto = String(departamento ?? (ctx.estado.datos as any)?.departamento ?? "").trim() || undefined;
+    const r = await ctx.pedidos.transportadoras(destino, depto);
     if (!r.ok) return r;
     return {
       ok: true,

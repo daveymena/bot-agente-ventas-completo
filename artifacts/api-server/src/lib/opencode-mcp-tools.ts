@@ -390,6 +390,11 @@ const TOOL_SCHEMAS: Record<string, object> = {
     properties: { limit: { type: "number" } },
     additionalProperties: false,
   },
+  revisar_conversaciones_hoy: {
+    type: "object",
+    properties: { limite: { type: "number", description: "Máximo 30 chats, por defecto 20" } },
+    additionalProperties: false,
+  },
   predict_customer: {
     type: "object",
     properties: { phone: { type: "string", description: "Número o parte del número del cliente" } },
@@ -1416,7 +1421,7 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // Dónde se caen los clientes: sin esto Atlas proponía más anuncios con
     // 0 ventas cerradas (25-09-2026).
     patron: /embudo|d[oó]nde se (caen|pierden|quedan)|por qu[eé] no (vend|compr|cierr)|no (vendo|compran|cierra)|ventas|clientes/i,
-    herramientas: ["embudo_de_ventas", "marketing_attribution", "list_recent_conversations", "metodo_de_venta"],
+    herramientas: ["embudo_de_ventas", "marketing_attribution", "list_recent_conversations", "revisar_conversaciones_hoy", "metodo_de_venta"],
   },
   {
     // ── Anuncios: ANALIZAR ───────────────────────────────────────────────
@@ -1441,8 +1446,8 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     herramientas: ["metodo_de_venta"],
   },
   {
-    patron: /whatsapp|wasap|conversaci|chat|mensaje|cliente|lead/i,
-    herramientas: ["whatsapp_status", "list_recent_conversations", "predict_customer"],
+    patron: /whatsapp|wasap|conversaci|chat|mensaje|cliente|lead|hoy/i,
+    herramientas: ["whatsapp_status", "list_recent_conversations", "revisar_conversaciones_hoy", "predict_customer"],
   },
   {
     // Entrenar / corregir / probar al vendedor: la prueba real va con el agente.
@@ -1509,7 +1514,7 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
 // mientras uno que sí matcheaba bajó de 69s a 10,6s. El núcleo cubre de sobra
 // las preguntas generales del negocio; si de verdad hiciera falta algo
 // específico, el admin lo va a nombrar y ahí sí matchea su grupo.
-const GENERAL_EXTRA = ["whatsapp_status", "payment_status", "fb_status", "list_recent_conversations"];
+const GENERAL_EXTRA = ["whatsapp_status", "payment_status", "fb_status", "list_recent_conversations", "revisar_conversaciones_hoy"];
 
 /**
  * Charla pura: un saludo, un "dale", un "gracias".
@@ -1771,7 +1776,7 @@ export function buildMcpToolRegistry(pedido?: string): McpToolDef[] {
  */
 const FAMILIAS_DE_CONSULTA: Array<{ tema: string; herramientas: string[] }> = [
   { tema: "Catalogo y tienda", herramientas: ["list_products", "list_categories", "get_store", "search_product_images", "optimize_price", "optimize_copy"] },
-  { tema: "Ventas y clientes", herramientas: ["embudo_de_ventas", "dashboard_summary", "list_recent_conversations", "list_pending_transfers", "list_duplicate_contacts", "predict_customer", "analyze_channel_performance"] },
+  { tema: "Ventas y clientes", herramientas: ["embudo_de_ventas", "dashboard_summary", "list_recent_conversations", "revisar_conversaciones_hoy", "list_pending_transfers", "list_duplicate_contacts", "predict_customer", "analyze_channel_performance"] },
   { tema: "WhatsApp y agente", herramientas: ["whatsapp_status", "get_agent", "configurar_mi_agente", "get_settings", "agente_inspectar", "agente_configurar", "agente_perfil_negocio", "agente_conocimiento", "agente_mensaje", "agente_probar_chat", "agente_disenar", "agente_probar_borrador", "vendedor_diagnosticar", "vendedor_motor_ver", "vendedor_probar"] },
   { tema: "Facebook Ads", herramientas: ["objetivos_de_campana", "fb_permisos_formularios", "fb_status", "fb_ad_accounts", "fb_list_campaigns", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics", "fb_why_not_delivering", "fb_page_can_post", "fb_page_preview", "fb_suggest_audience", "fb_pixel_status", "fb_ad_library", "fb_agent_logs", "que_hago_con_la_campana", "ad_brief"] },
   { tema: "Marketing y contenido", herramientas: ["marketing_diagnostico", "marketing_aprendizajes", "marketing_attribution", "plan_de_contenido", "plan_de_lanzamiento", "generate_image", "web_scrape_images"] },

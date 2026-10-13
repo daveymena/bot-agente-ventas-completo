@@ -58,7 +58,7 @@ export interface PromesaVigilada {
 }
 
 /**
- * Las cinco familias que aparecieron en chats reales y que el negocio tendría
+ * Las familias que aparecieron en chats reales y que el negocio tendría
  * que cumplir. No es una lista de palabras prohibidas: es una lista de cosas
  * que hay que TENER CARGADAS para poder prometer.
  */
@@ -93,6 +93,14 @@ export const PROMESAS_VIGILADAS: PromesaVigilada[] = [
     dice: /\bactualizaci[oó]n(?:es)?\b/i,
     respalda: /actualiza/i,
   },
+  {
+    // Edad/compatibilidad: “le sirve muy bien a los niños” no se deduce de
+    // “talla única” ni de “se ajusta a la mayoría”. La ficha debe autorizar
+    // expresamente esa población. Caso real: Corrector Zxf para una niña de 9.
+    nombre: "aptitud_por_edad",
+    dice: /\b(?:sirve|le sirve|funciona|es apt[oa]|es adecuad[oa]|queda|se adapta|est[aá] pensad[oa]|ideal|recomendad[oa])\b[^.!?]{0,70}\b(?:niñ[oa]s?|menores?|adolescentes?|beb[eé]s?|hij[oa]s?)\b/i,
+    respalda: /(?:)/,
+  },
 ];
 
 /**
@@ -100,7 +108,7 @@ export const PROMESAS_VIGILADAS: PromesaVigilada[] = [
  * queremos y borrarla dejaría al cliente sin respuesta.
  */
 const DICE_LA_VERDAD =
-  /te (?:lo )?confirm|lo confirmo|confirmarte|con el equipo|te escribo|te aviso|te averiguo|no (?:tengo|tenemos|manejamos|hay|ofrecemos|incluye|incluimos)|sin garant|no viene con/i;
+  /te (?:lo )?confirm|lo confirmo|confirmarte|con el equipo|te escribo|te aviso|te averiguo|no (?:tengo|tenemos|manejamos|hay|ofrecemos|incluye|incluimos)|sin garant|no viene con|no (?:es|est[aá]|se considera) (?:apt[oa]|adecuad[oa]|recomendad[oa]|indicad[oa])|no (?:s[eé])[^.!?]{0,55}\b(?:niñ|menor|edad|adolesc|beb[eé])\b/i;
 
 export interface RespaldoDelNegocio {
   producto?: (Pick<Producto, "name" | "description"> & Partial<Pick<Producto, "caracteristicas" | "preguntas">>) | null;
@@ -147,7 +155,25 @@ function prometeSinRespaldo(frase: string, respaldo: string): PromesaVigilada | 
   if (/\?\s*$/.test(frase)) return null;
   if (DICE_LA_VERDAD.test(frase)) return null;
   for (const promesa of PROMESAS_VIGILADAS) {
-    if (promesa.dice.test(frase) && !promesa.respalda.test(respaldo)) return promesa;
+    if (!promesa.dice.test(frase)) continue;
+    if (promesa.nombre === "aptitud_por_edad") {
+      const fraseN = frase.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const respaldoN = respaldo.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+      const hablaDeTodas = /\b(todas las edades|cualquier edad|sin limite de edad)\b/.test(respaldoN);
+      const gruposMencionados = [
+        { nombre: "ninez", patron: /\b(nin[oa]s?|menores?|infantes?|bebes?|hij[oa]s?)\b/ },
+        { nombre: "adolescencia", patron: /\b(adolescentes?|jovenes?)\b/ },
+      ].filter((g) => g.patron.test(fraseN));
+      const grupoAutorizado = hablaDeTodas || gruposMencionados.some((g) => g.patron.test(respaldoN));
+      const hayRestriccionEdad = /\b(no (?:es )?apt[oa]|no recomendad[oa]|contraindicad[oa]|evitar)\b[^.!?]{0,60}\b(nin[oa]s?|menores?|adolescentes?|bebes?)\b/.test(respaldoN);
+      const edadSalida = Number(fraseN.match(/\b(\d{1,2})\s*a[nn]os\b/)?.[1] || 0);
+      const rango = respaldoN.match(/\b(?:desde|a partir de|minimo)\s+(\d{1,2})\s*a[nn]os\b/);
+      const rangoPar = respaldoN.match(/\b(?:entre|de)\s+(\d{1,2})\s*(?:a|y)\s*(\d{1,2})\s*a[nn]os\b/);
+      const edadAutorizada = !edadSalida || hablaDeTodas || (!!rango && edadSalida >= Number(rango[1])) || (!!rangoPar && edadSalida >= Number(rangoPar[1]) && edadSalida <= Number(rangoPar[2]));
+      if (!grupoAutorizado || hayRestriccionEdad || !edadAutorizada) return promesa;
+      continue;
+    }
+    if (!promesa.respalda.test(respaldo)) return promesa;
   }
   return null;
 }

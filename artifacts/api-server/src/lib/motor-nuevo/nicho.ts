@@ -354,6 +354,9 @@ export function hechosYProhibiciones(
   const hechos: string[] = [];
   const sinConfirmar: string[] = [];
   const prohibiciones: string[] = [...(negocio.noPuede || [])];
+  prohibiciones.push(
+    "No afirmes que un producto le sirve a niños, menores o a una edad específica por ser talla única o ajustable. Solo dilo si la ficha o el conocimiento del dueño confirma esa edad; si falta, di que ese dato no está especificado.",
+  );
 
   // Cómo se despacha lo físico. Son los mismos datos que la ficha le imprime
   // al cliente (whatsapp.ts, "🚚 Envío y pago"): si el vendedor no los tiene,

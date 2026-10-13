@@ -1,6 +1,8 @@
 import { eq, and, lte, asc, inArray } from "drizzle-orm";
 import { db, conversations, messages, activityEvents, followUps, type FollowUp, type InsertFollowUp } from "@workspace/db";
 import { logger } from "./logger";
+import { esConversacionOperativa } from "./conversation-status";
+import { condicionConversacionOperativa } from "./conversation-query";
 import { leadScoringEngine, type LeadStage } from "./leadScoring";
 import { getWhatsAppForTenant } from "./whatsapp-factory";
 import { toDbDate } from "./date-utils";
@@ -101,6 +103,7 @@ export class FollowUpScheduler {
     try {
       const [conversation] = await db.select().from(conversations).where(eq(conversations.id, conversationId)).limit(1);
       if (!conversation) return null;
+      if (!esConversacionOperativa(conversation)) return null;
 
       // Un solo seguimiento pendiente por conversación, pero VIVO.
       //
@@ -213,9 +216,24 @@ export class FollowUpScheduler {
       // esta query fallaba en cada corrida (silenciosamente, atrapada por el
       // catch de abajo) y ningún follow-up se enviaba jamás.
       const now = toDbDate(new Date());
-      const dueFollowUps = await db.select().from(followUps)
+      const candidatos: FollowUp[] = await db.select().from(followUps)
         .where(and(eq(followUps.completed, false), lte(followUps.scheduledFor, now as any)))
-        .orderBy(asc(followUps.scheduledFor));
+        .orderBy(asc(followUps.scheduledFor)) as any;
+
+      const idsCandidatos: number[] = [...new Set(candidatos.map((f: FollowUp) => f.conversationId))];
+      const operativas: Array<{ id: number }> = idsCandidatos.length
+        ? await db.select({ id: conversations.id }).from(conversations).where(and(
+            inArray(conversations.id, idsCandidatos),
+            condicionConversacionOperativa(),
+          )) as any
+        : [];
+      const idsOperativos = new Set(operativas.map((c) => c.id));
+      const pruebasConFollowUp = candidatos.filter((f: FollowUp) => !idsOperativos.has(f.conversationId));
+      if (pruebasConFollowUp.length) {
+        await db.update(followUps).set({ completed: true })
+          .where(inArray(followUps.id, pruebasConFollowUp.map((f) => f.id)));
+      }
+      const dueFollowUps: FollowUp[] = candidatos.filter((f: FollowUp) => idsOperativos.has(f.conversationId));
 
       if (dueFollowUps.length === 0) return;
 
@@ -462,7 +480,7 @@ export class FollowUpScheduler {
     successRate: number;
     responseRate: number;
   }> {
-    const all = await db.select().from(followUps);
+    const all: FollowUp[] = await db.select().from(followUps) as any;
     const totalScheduled = all.length;
     const completed = all.filter(f => f.completed).length;
     const overdue = all.filter(f => !f.completed && f.scheduledFor < new Date()).length;
@@ -484,20 +502,28 @@ export class FollowUpScheduler {
     // que convertirlo igual que el resto del código hace con dbNow()/toDbDate().
     const now = toDbDate(new Date());
     if (tenantId === undefined) {
-      return db.select().from(followUps)
-        .where(and(eq(followUps.completed, false), lte(followUps.scheduledFor, now as any)))
-        .orderBy(asc(followUps.scheduledFor));
+      const rows: Array<{ followUp: FollowUp }> = await db.select({ followUp: followUps })
+        .from(followUps)
+        .innerJoin(conversations, eq(followUps.conversationId, conversations.id))
+        .where(and(
+          eq(followUps.completed, false),
+          lte(followUps.scheduledFor, now as any),
+          condicionConversacionOperativa(),
+        ))
+        .orderBy(asc(followUps.scheduledFor)) as any;
+      return rows.map((r: { followUp: FollowUp }) => r.followUp);
     }
-    const rows = await db.select({ followUp: followUps })
+    const rows: Array<{ followUp: FollowUp }> = await db.select({ followUp: followUps })
       .from(followUps)
       .innerJoin(conversations, eq(followUps.conversationId, conversations.id))
       .where(and(
         eq(followUps.completed, false),
-        lte(followUps.scheduledFor, now as any),
-        eq(conversations.tenantId, tenantId),
-      ))
-      .orderBy(asc(followUps.scheduledFor));
-    return rows.map(r => r.followUp);
+          lte(followUps.scheduledFor, now as any),
+          eq(conversations.tenantId, tenantId),
+        condicionConversacionOperativa(),
+        ))
+      .orderBy(asc(followUps.scheduledFor)) as any;
+    return rows.map((r: { followUp: FollowUp }) => r.followUp);
   }
 
   private calculateFollowUpDate(stage: string, score: number): Date {

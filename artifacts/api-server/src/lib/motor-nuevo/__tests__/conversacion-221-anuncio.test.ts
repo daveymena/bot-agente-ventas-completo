@@ -81,6 +81,14 @@ describe("el anuncio de origen fija el producto", () => {
     expect(await productoDelAnuncioDeLaConversacion(id, todo)).toBeNull();
   });
 
+  test("usa el contexto del lead cuando el mensaje histórico no conserva metadata", async () => {
+    const id = await conversacionConAnuncio({});
+    const p = await productoDelAnuncioDeLaConversacion(id, todo, {
+      titulo: "Corrector Postural con Placa Rígida", cuerpo: "Endereza tu espalda", url: "", anuncioId: "ad-203",
+    });
+    expect(p?.id).toBe(203);
+  });
+
   test("un titular ambiguo no elige a ciegas", async () => {
     const id = await conversacionConAnuncio({ adTitle: "Corrector", adBody: "", adUrl: "", adId: "" });
     expect(await productoDelAnuncioDeLaConversacion(id, todo)).toBeNull();

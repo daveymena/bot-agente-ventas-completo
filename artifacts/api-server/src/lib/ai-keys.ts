@@ -51,6 +51,9 @@ export const ENV_POR_PROVEEDOR: Record<string, string> = {
   qwen: "QWEN_API_KEY",
   nebius: "NEBIUS_API_KEY",
   sambanova: "SAMBANOVA_API_KEY",
+  // Puente Excelnt del dueño (2026-10-06): gateway https://excelnt.ai/v1, la
+  // key se crea en la extensión de VS Code y aparece en su dashboard.
+  excelnt: "EXCELNT_API_KEY",
 };
 
 /** Variable del MODELO de cada proveedor (para que la elección también aplique). */
@@ -84,6 +87,7 @@ export const ENV_MODELO_POR_PROVEEDOR: Record<string, string> = {
   qwen: "QWEN_MODEL",
   nebius: "NEBIUS_MODEL",
   sambanova: "SAMBANOVA_MODEL",
+  excelnt: "EXCELNT_MODEL",
 };
 
 /**

@@ -20,6 +20,7 @@
 
 import { and, asc, desc, eq, gte } from "drizzle-orm";
 import { db, conversations, messages, products } from "@workspace/db";
+import { condicionConversacionOperativa } from "./conversation-query";
 import { evaluarChat, type Hallazgo, type ProductoParaEvaluar, type TurnoEvaluado } from "./evaluador-de-chats";
 
 /** Qué significa cada regla y con qué se arregla. En palabras del negocio. */
@@ -203,7 +204,11 @@ export async function diagnosticarVendedor(
   const conversacionesRecientes = await db
     .select({ id: conversations.id })
     .from(conversations)
-    .where(and(eq(conversations.tenantId, tenantId), gte(conversations.lastMessageAt, desde)))
+    .where(and(
+      eq(conversations.tenantId, tenantId),
+      gte(conversations.lastMessageAt, desde),
+      condicionConversacionOperativa(),
+    ))
     .orderBy(desc(conversations.lastMessageAt))
     .limit(limite);
 
