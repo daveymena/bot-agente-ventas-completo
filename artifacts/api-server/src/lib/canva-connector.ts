@@ -7,6 +7,12 @@
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { db, tenants } from "@workspace/db";
+import { eq } from "drizzle-orm";
+import { encryptSecret, decryptSecret } from "./credentials-vault";
+import { logger } from "./logger";
+
+const CANVA_API = "https://api.canva.com/rest/v1";
 
 export interface CanvaEstado {
   enabled: boolean;
@@ -52,4 +58,148 @@ export async function estadoCanva(): Promise<CanvaEstado> {
 export async function hayCanvaSeguro(): Promise<boolean> {
   const e = await estadoCanva();
   return e.enabled;
+}
+
+/* ── Token por tenant (con refresh automático) ── */
+
+async function leerMetaCanva(tenantId: number): Promise<any> {
+  const [row] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+  const meta = (row as any)?.metadata;
+  if (!meta) return {};
+  if (typeof meta === "string") { try { return JSON.parse(meta); } catch { return {}; } }
+  return meta;
+}
+
+/** Access token válido del tenant: refresca solo si venció (tokens duran 4h). */
+export async function tokenCanvaDelTenant(tenantId: number): Promise<{ token: string } | { error: string }> {
+  const meta = await leerMetaCanva(tenantId);
+  const canva = meta?.canva;
+  if (!canva?.accessToken) return { error: "Canva no conectado: autoriza en /integraciones primero." };
+  const aunValido = !canva.expiraEn || Number(canva.expiraEn) > Date.now() + 60_000;
+  if (aunValido) {
+    try { return { token: decryptSecret(String(canva.accessToken)) }; }
+    catch { return { error: "No se pudo desencriptar el token (CREDENTIALS_ENCRYPTION_KEY cambió)." }; }
+  }
+  // vencido: refresh
+  if (!canva.refreshToken) return { error: "Token vencido y sin refresh_token: reconecta en /integraciones." };
+  try {
+    const cid = String(process.env.CANVA_CLIENT_ID || "").trim();
+    const sec = String(process.env.CANVA_CLIENT_SECRET || "").trim();
+    const body = new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: decryptSecret(String(canva.refreshToken)),
+      client_id: cid,
+      client_secret: sec,
+    });
+    const r = await fetch(`${CANVA_API}/oauth/token`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok || !j.access_token) {
+      logger.warn({ tenantId, status: r.status }, "[Canva] refresh falló");
+      return { error: "Refresh rechazado: reconecta en /integraciones." };
+    }
+    meta.canva = {
+      ...canva,
+      accessToken: encryptSecret(String(j.access_token)),
+      refreshToken: j.refresh_token ? encryptSecret(String(j.refresh_token)) : canva.refreshToken,
+      expiraEn: j.expires_in ? Date.now() + Number(j.expires_in) * 1000 : null,
+      actualizadoEn: new Date().toISOString(),
+    };
+    await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tenantId));
+    return { token: String(j.access_token) };
+  } catch (e: any) {
+    return { error: `Refresh falló: ${e?.message || e}` };
+  }
+}
+
+/* ── Diseños: listar + exportar (para maquetas vía Atlas) ── */
+
+export interface DisenoCanva {
+  id: string;
+  titulo: string;
+  thumbnail?: string | null;
+  editUrl?: string | null;
+  viewUrl?: string | null;
+  paginas?: number;
+  actualizadoEn?: string | null;
+}
+
+/** Lista diseños del usuario conectado (paginado simple). */
+export async function listarDisenosCanva(
+  tenantId: number,
+  opts: { query?: string; limit?: number } = {},
+): Promise<{ disenos: DisenoCanva[]; siguiente?: string | null } | { error: string }> {
+  const t = await tokenCanvaDelTenant(tenantId);
+  if ("error" in t) return t;
+  try {
+    const params = new URLSearchParams();
+    if (opts.query?.trim()) params.set("query", opts.query.trim());
+    params.set("limit", String(Math.max(1, Math.min(100, opts.limit || 20))));
+    const r = await fetch(`${CANVA_API}/designs?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${t.token}` },
+      signal: AbortSignal.timeout(20_000),
+    });
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok) return { error: `Canva listó ${r.status}: ${JSON.stringify(j).slice(0, 200)}` };
+    const items = Array.isArray(j.items) ? j.items : [];
+    return {
+      disenos: items.map((d: any) => ({
+        id: String(d.id),
+        titulo: String(d.title || "Sin título"),
+        thumbnail: d.thumbnail?.url || null,
+        editUrl: d.urls?.edit_url || null,
+        viewUrl: d.urls?.view_url || null,
+        paginas: Number(d.page_count || 1),
+        actualizadoEn: d.update_time ? new Date(Number(d.update_time) * 1000).toISOString() : null,
+      })),
+      siguiente: j.continuation || null,
+    };
+  } catch (e: any) {
+    return { error: `Listar diseños falló: ${e?.message || e}` };
+  }
+}
+
+/**
+ * Exporta un diseño a imagen/PDF (para maquetas de producto).
+ * Canva exporta en segundo plano: crea el trabajo y espera hasta ~50s.
+ */
+export async function exportarDisenoCanva(
+  tenantId: number,
+  designId: string,
+  formato: "png" | "jpg" | "pdf" = "png",
+): Promise<{ urls: string[]; formato: string } | { error: string }> {
+  const t = await tokenCanvaDelTenant(tenantId);
+  if ("error" in t) return t;
+  try {
+    const r = await fetch(`${CANVA_API}/exports`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${t.token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ design_id: designId, format: { type: formato } }),
+      signal: AbortSignal.timeout(20_000),
+    });
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok || !j.id) return { error: `Exportar falló (${r.status}): ${JSON.stringify(j).slice(0, 200)}` };
+    const jobId = String(j.id);
+    // espera con backoff hasta 50s
+    for (let i = 0; i < 10; i++) {
+      await new Promise((res) => setTimeout(res, 2000 + i * 1000));
+      const s = await fetch(`${CANVA_API}/exports/${jobId}`, {
+        headers: { Authorization: `Bearer ${(t as { token: string }).token}` },
+        signal: AbortSignal.timeout(15_000),
+      });
+      const sj: any = await s.json().catch(() => ({}));
+      if (sj.status === "success") {
+        const urls = Array.isArray(sj.urls) ? sj.urls : [];
+        return { urls, formato };
+      }
+      if (sj.status === "failed") return { error: `Exportación falló: ${JSON.stringify(sj.error || {}).slice(0, 200)}` };
+    }
+    return { error: "Exportación tardó más de ~50s: reintenta." };
+  } catch (e: any) {
+    return { error: `Exportar diseño falló: ${e?.message || e}` };
+  }
 }

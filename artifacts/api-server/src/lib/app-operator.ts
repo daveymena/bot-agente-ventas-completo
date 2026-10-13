@@ -10319,6 +10319,27 @@ ${r.texto}`, data: r.grupos };
       return def.run(a,c);
     },
   },
+  {
+    name: "canva_disenos",
+    description: "Trae diseños de Canva del negocio (para maquetas/tarjetas de producto). Acciones: listar (con query opcional) o exportar un diseño a png/jpg/pdf. Usa el token OAuth del tenant con refresh automático; si no está conectado, dice cómo conectar en /integraciones.",
+    args: '{ "accion": "listar"|"exportar", "query"?: string, "limit"?: number, "designId"?: string, "formato"?: "png"|"jpg"|"pdf" }',
+    run: async (args, ctx) => {
+      try {
+        const { listarDisenosCanva, exportarDisenoCanva } = await import("./canva-connector");
+        const accion = String(args.accion || "listar");
+        if (accion === "exportar") {
+          if (!args.designId) return { ok: false, summary: "Falta designId (primero lista con accion=listar)." };
+          const r = await exportarDisenoCanva(ctx.tenantId, String(args.designId), (args.formato as any) || "png");
+          if ("error" in r) return { ok: false, summary: r.error };
+          return { ok: true, summary: `Diseño exportado a ${r.formato}: ${r.urls.length} archivo(s).`, data: r };
+        }
+        const r = await listarDisenosCanva(ctx.tenantId, { query: args.query ? String(args.query) : undefined, limit: Number(args.limit) || 20 });
+        if ("error" in r) return { ok: false, summary: r.error };
+        const lineas = r.disenos.map((d, i) => `${i + 1}. ${d.titulo} (id ${d.id}${d.paginas && d.paginas > 1 ? `, ${d.paginas} págs` : ""})`).join("\n");
+        return { ok: true, summary: r.disenos.length ? `Diseños en Canva:\n${lineas}` : "No hay diseños en esta cuenta de Canva.", data: r };
+      } catch (e:any) { return { ok:false, summary: `canva_disenos falló: ${e?.message||e}` }; }
+    },
+  },
   // ── DIOS — Agencia Dios (ResearchDeep → ImagenDios → VideoDios → Landing) — solo lectura/preview, no toca Meta ──
   {
     name: "dios_orquestar",
@@ -10786,6 +10807,8 @@ export const READ_ONLY_TOOLS = new Set([
   "codigo_leer", "codigo_buscar", "codigo_listar", "tests_correr", "git_estado",
   // Canva Connect (solo lectura: estado/docs, no gasta ni publica). Atlas debe poder responder qué es Canva sin inventar.
   "canva_estado", "canva_status", "atlas_canva", "atlas_canva_estado",
+  // canva_disenos: listar es lectura; exportar solo genera un archivo (no gasta, no publica). Para maquetas de producto.
+  "canva_disenos",
   // DIOS — Orquestador Dios + ImagenDios + VideoDios: solo leen/generan previews, no tocan Meta ni gastan.
   // atlas_* alias para que grep audit `atlas_video` / `atlas_dios` lo encuentre.
   "dios_orquestar", "atlas_dios_orquestar",
