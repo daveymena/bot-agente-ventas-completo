@@ -76,6 +76,7 @@ Set `ADMIN_EMAIL` and `ADMIN_PASSWORD` in `.env` before the first run to control
 artifacts/
   api-server/       → Express backend (src/lib/motor-nuevo/ = vendedor v2)
   ventas-pro/       → Admin dashboard (React + Vite + Tailwind + shadcn/ui)
+  stock/            → VentasPro Stock: banco de recursos tipo Adobe Stock (Express + SQLite FTS5 + React). Independiente del panel; ver artifacts/stock/README.md
 lib/
   db/               → Drizzle ORM, dual SQLite/PG schema
   api-zod/           → Zod validation schemas

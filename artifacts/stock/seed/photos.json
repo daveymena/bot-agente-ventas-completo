@@ -1,0 +1,82 @@
+[
+  {
+    "file": "paisaje-montanas-amanecer.jpg",
+    "title": "Amanecer dorado sobre un valle de montañas con niebla y río serpenteante",
+    "description": "Paisaje natural al amanecer: luz cálida sobre montañas verdes, niebla baja y un río que cruza el valle. Ideal para turismo, bienestar y campañas de naturaleza.",
+    "category": "paisajes",
+    "keywords": ["paisaje", "montañas", "amanecer", "niebla", "río", "valle", "naturaleza", "verde", "luz dorada", "viaje", "turismo", "aventura", "tranquilidad", "panorámica", "cielo", "colombia", "andes", "landscape", "mountains", "sunrise", "fog", "river", "valley", "nature", "golden hour", "travel", "scenic", "wallpaper", "fondo"],
+    "featured": true, "free": false, "people": 0
+  },
+  {
+    "file": "equipo-oficina-reunion.jpg",
+    "title": "Equipo de trabajo diverso colaborando frente a un portátil en una oficina luminosa",
+    "description": "Cuatro profesionales conversan alrededor de un computador portátil en una oficina moderna con luz natural. Trabajo en equipo, startups y cultura empresarial.",
+    "category": "negocios",
+    "keywords": ["negocios", "equipo", "oficina", "reunión", "trabajo en equipo", "colaboración", "startup", "portátil", "profesionales", "diversidad", "empresa", "emprendimiento", "planificación", "estrategia", "corporativo", "business", "team", "office", "meeting", "teamwork", "collaboration", "laptop", "diverse", "coworkers", "startup", "people", "personas"],
+    "featured": true, "free": false, "people": 4, "modelRelease": true
+  },
+  {
+    "file": "cafe-colombiano-taza.jpg",
+    "title": "Taza de café colombiano con arte latte sobre mesa de madera rústica y granos tostados",
+    "description": "Vista cenital de una taza de café con arte latte, granos de café tostados y una planta pequeña sobre madera. Perfecta para cafeterías, menús y marcas de café.",
+    "category": "bebidas",
+    "keywords": ["café", "taza", "latte", "granos de café", "cafetería", "desayuno", "bebida", "madera", "rústico", "cenital", "flat lay", "colombia", "café colombiano", "aroma", "barista", "coffee", "cup", "latte art", "coffee beans", "cafe", "breakfast", "drink", "wooden table", "top view", "colombian coffee", "menu", "comida", "food"],
+    "featured": true, "free": true, "people": 0
+  },
+  {
+    "file": "tecnologia-smartphone-escritorio.jpg",
+    "title": "Flat lay minimalista de smartphone, audífonos inalámbricos y libreta sobre escritorio pastel",
+    "description": "Composición limpia con teléfono celular de pantalla apagada, audífonos y cuaderno sobre un escritorio en tonos pastel, con espacio para texto.",
+    "category": "tecnologia",
+    "keywords": ["tecnología", "smartphone", "celular", "audífonos", "libreta", "escritorio", "minimalista", "flat lay", "espacio para texto", "pastel", "gadgets", "oficina en casa", "productividad", "maqueta", "mockup", "technology", "phone", "earbuds", "notebook", "desk", "minimal", "copy space", "top view", "workspace", "gadget", "clean", "fondo", "background"],
+    "featured": false, "free": true, "people": 0
+  },
+  {
+    "file": "perro-golden-parque.jpg",
+    "title": "Perro golden retriever feliz corriendo entre hojas de otoño en un parque soleado",
+    "description": "Un golden retriever corre con la boca abierta por un parque lleno de hojas secas bajo la luz del sol. Mascotas, veterinarias y productos para animales.",
+    "category": "animales",
+    "keywords": ["perro", "golden retriever", "mascota", "parque", "otoño", "hojas", "correr", "feliz", "animal", "cachorro", "veterinaria", "alegría", "sol", "aire libre", "juego", "dog", "pet", "park", "autumn", "leaves", "running", "happy", "animal", "puppy", "outdoor", "playful", "sunny", "golden"],
+    "featured": true, "free": false, "people": 0
+  },
+  {
+    "file": "ciudad-noche-skyline.jpg",
+    "title": "Skyline de ciudad moderna a la hora azul con rascacielos reflejados en el río",
+    "description": "Panorámica nocturna de una ciudad con edificios iluminados reflejados sobre el agua. Larga exposición, aspecto cinematográfico. Finanzas, inmobiliaria y viajes.",
+    "category": "arquitectura",
+    "keywords": ["ciudad", "skyline", "noche", "rascacielos", "río", "reflejo", "hora azul", "arquitectura", "urbano", "edificios", "larga exposición", "luces", "metrópolis", "paisaje urbano", "inmobiliaria", "finanzas", "city", "skyline", "night", "skyscrapers", "reflection", "blue hour", "architecture", "urban", "buildings", "cityscape", "lights", "downtown", "panorámica"],
+    "featured": true, "free": false, "people": 0
+  },
+  {
+    "file": "comida-ensalada-saludable.jpg",
+    "title": "Bowl saludable con aguacate, quinua, tomates cherry y hojas verdes sobre mármol blanco",
+    "description": "Plato colorido de comida saludable: aguacate en láminas, quinua, tomates cherry y vegetales frescos sobre una mesa de mármol. Nutrición, dietas y restaurantes.",
+    "category": "comida",
+    "keywords": ["comida", "ensalada", "saludable", "bowl", "aguacate", "quinua", "tomate cherry", "vegetales", "vegano", "nutrición", "dieta", "fresco", "mármol", "restaurante", "almuerzo", "verde", "food", "salad", "healthy", "bowl", "avocado", "quinoa", "cherry tomatoes", "vegetables", "vegan", "nutrition", "diet", "fresh", "lunch"],
+    "featured": false, "free": false, "people": 0
+  },
+  {
+    "file": "mujer-corriendo-playa.jpg",
+    "title": "Mujer joven trotando por una playa tropical al atardecer",
+    "description": "Una mujer corre por la orilla del mar con el sol bajo en el horizonte y tonos cálidos. Estilo de vida saludable, deporte, bienestar y vacaciones.",
+    "category": "deportes",
+    "keywords": ["mujer", "correr", "trotar", "playa", "atardecer", "deporte", "fitness", "ejercicio", "estilo de vida", "saludable", "bienestar", "vacaciones", "tropical", "mar", "arena", "libertad", "woman", "running", "jogging", "beach", "sunset", "sport", "fitness", "exercise", "lifestyle", "healthy", "wellness", "tropical", "sea", "freedom", "personas", "people"],
+    "featured": true, "free": false, "people": 1, "modelRelease": true
+  },
+  {
+    "file": "fondo-abstracto-fluido.jpg",
+    "title": "Fondo abstracto de degradado fluido en rosa, morado y azul con textura sedosa",
+    "description": "Ondas suaves de color que fluyen entre rosa, violeta y azul. Fondo abstracto de alta resolución para presentaciones, portadas, webs y redes sociales.",
+    "category": "fondos",
+    "keywords": ["fondo", "abstracto", "degradado", "fluido", "ondas", "rosa", "morado", "azul", "textura", "seda", "moderno", "suave", "papel tapiz", "presentación", "portada", "diseño", "background", "abstract", "gradient", "fluid", "waves", "pink", "purple", "blue", "texture", "silk", "modern", "wallpaper", "cover", "design", "liquid"],
+    "featured": true, "free": true, "people": 0
+  },
+  {
+    "file": "interior-minimalista-sala.jpg",
+    "title": "Sala de estar escandinava minimalista con muebles de madera clara, plantas y luz natural",
+    "description": "Interior luminoso de estilo nórdico: sofá, mesa de madera clara, plantas y un gran ventanal. Decoración, inmobiliaria, muebles y hogar.",
+    "category": "arquitectura",
+    "keywords": ["interior", "sala", "escandinavo", "minimalista", "muebles", "madera", "plantas", "luz natural", "ventana", "hogar", "decoración", "diseño de interiores", "inmobiliaria", "nórdico", "sofá", "acogedor", "interior", "living room", "scandinavian", "minimal", "furniture", "wood", "plants", "natural light", "window", "home", "decor", "interior design", "real estate", "cozy"],
+    "featured": false, "free": false, "people": 0
+  }
+]

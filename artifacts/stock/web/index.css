@@ -1,0 +1,69 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+
+@theme {
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --color-brand-50: #eef2ff;
+  --color-brand-100: #e0e7ff;
+  --color-brand-200: #c7d2fe;
+  --color-brand-300: #a5b4fc;
+  --color-brand-400: #818cf8;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #4f46e5;
+  --color-brand-700: #4338ca;
+  --color-brand-800: #3730a3;
+  --color-brand-900: #312e81;
+  --color-ink: #0f172a;
+  --color-ink-soft: #334155;
+  --color-mute: #64748b;
+  --color-line: #e2e8f0;
+  --color-paper: #f8fafc;
+  --shadow-card: 0 1px 2px rgb(15 23 42 / 0.06), 0 8px 24px -12px rgb(15 23 42 / 0.18);
+  --shadow-pop: 0 12px 40px -12px rgb(15 23 42 / 0.35);
+  --radius-xl2: 1.25rem;
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  body { @apply bg-white text-ink antialiased font-sans; font-feature-settings: "cv11", "ss01"; }
+  * { @apply border-line; }
+  ::selection { background: #c7d2fe; }
+  button, [role="button"] { cursor: pointer; }
+  input, textarea, select { @apply outline-none; }
+  :focus-visible { @apply outline-2 outline-offset-2 outline-brand-500; }
+  img { @apply select-none; }
+  .scrollbar-none { scrollbar-width: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+}
+
+@layer components {
+  .container-x { @apply mx-auto w-full max-w-[1600px] px-4 sm:px-6 lg:px-8; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed select-none whitespace-nowrap; }
+  .btn-primary { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed select-none whitespace-nowrap bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800; }
+  .btn-dark { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed select-none whitespace-nowrap bg-ink text-white hover:bg-slate-800; }
+  .btn-secondary { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed select-none whitespace-nowrap bg-white text-ink border border-slate-300 hover:bg-slate-50; }
+  .btn-ghost { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed select-none whitespace-nowrap bg-transparent text-ink-soft hover:bg-slate-100; }
+  .btn-danger { @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed select-none whitespace-nowrap bg-red-600 text-white hover:bg-red-700; }
+  .btn-sm { @apply px-3 py-1.5 text-xs rounded-md; }
+  .btn-lg { @apply px-6 py-3 text-base rounded-xl; }
+  .input { @apply w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-ink placeholder:text-slate-400 focus:border-brand-500 focus:ring-4 focus:ring-brand-100 transition; }
+  .label { @apply block text-xs font-semibold uppercase tracking-wide text-mute mb-1.5; }
+  .card { @apply rounded-2xl border border-line bg-white shadow-card; }
+  .chip { @apply inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-sm text-ink-soft hover:border-slate-400 hover:text-ink transition-colors; }
+  .chip-active { @apply border-ink bg-ink text-white hover:bg-ink hover:text-white; }
+  .badge { @apply inline-flex items-center rounded-md px-1.5 py-0.5 text-[11px] font-bold uppercase tracking-wide; }
+  .tab { @apply relative px-3 py-3 text-sm font-medium text-slate-300 hover:text-white transition-colors whitespace-nowrap; }
+  .tab-active { @apply text-white after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full after:bg-white; }
+  .tab-light { @apply relative px-3 py-3 text-sm font-medium text-mute hover:text-ink transition-colors whitespace-nowrap; }
+  .tab-light-active { @apply text-ink after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full after:bg-ink; }
+  .skeleton { @apply animate-pulse bg-slate-200/80 rounded-lg; }
+  .prose-sm p { @apply text-sm text-ink-soft leading-relaxed; }
+  .shimmer { background: linear-gradient(100deg, #f1f5f9 30%, #e2e8f0 50%, #f1f5f9 70%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
+}
+
+@keyframes shimmer { to { background-position: -200% 0; } }
+@keyframes fade-up { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.fade-up { animation: fade-up .25s ease-out both; }
+
+/* Toasts */
+.toast-enter { animation: fade-up .2s ease-out both; }

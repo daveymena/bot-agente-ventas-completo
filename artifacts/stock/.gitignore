@@ -1,0 +1,6 @@
+# Datos de ejecución (base SQLite, originales privados, derivados públicos, temporales)
+data/
+# Compilados
+dist/
+# Entorno local
+.env

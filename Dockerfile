@@ -26,6 +26,7 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml package.json .npmrc .pnpmrc* ./
 # Copiar package.json de todos los paquetes para optimizar cache de pnpm install
 COPY artifacts/api-server/package.json ./artifacts/api-server/
 COPY artifacts/ventas-pro/package.json ./artifacts/ventas-pro/
+COPY artifacts/stock/package.json ./artifacts/stock/
 COPY lib/api-zod/package.json ./lib/api-zod/
 COPY lib/api-spec/package.json ./lib/api-spec/
 COPY lib/api-client-react/package.json ./lib/api-client-react/
