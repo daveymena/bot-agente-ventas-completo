@@ -83,6 +83,7 @@ describe("pedido frenado: se reintenta cuando el cliente pregunta", () => {
     expect(await debeReintentarAlPreguntar(elkin, dosDiasDespues)).toBe(true);
   });
   test("el departamento que Dropi rechazó ahora sale bien", async () => {
+    // El módulo vive en `src/lib/`, no en `src/`: `../../` apuntaba fuera.
     const { destinoParaDropi } = await import("../../dropi-directo");
     expect(destinoParaDropi("Bogotá", "Bogotá D.C.")).toEqual({ city: "BOGOTA", state: "CUNDINAMARCA" });
   });

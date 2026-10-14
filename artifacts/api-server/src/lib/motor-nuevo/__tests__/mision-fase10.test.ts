@@ -144,13 +144,21 @@ describe("REFERENCIAS (7-12)", () => {
 
 describe("CAMBIOS (13-17)", () => {
   test("13 producto→producto invalida oferta anterior", async () => {
+    // Desde la revalidación de foco (motor.ts:602-634) el motor cambia el foco
+    // SOLO cuando el mensaje actual nombra otro producto con ganador claro. El
+    // modelo ya no necesita llamar a enfocar_producto para eso: lo que importa
+    // —y lo que este caso fija— es que la oferta anterior quede invalidada.
     const e = { ...estadoInicial(1), productoEnFoco: 1 };
     (e as any).ultimaOferta = { tipo: "precio", productoId: 1, resumen: "precio piano", at: new Date().toISOString() };
     const r = await turno(clienteFalso([
-      { toolCalls: [{ id: "a", name: "enfocar_producto", arguments: '{"productoId":2}' }] },
+      { toolCalls: [{ id: "a", name: "mostrar", arguments: '{"productoId":2,"seccion":"precio"}' }] },
       { content: "Cambiamos a diseño 👍" },
     ]), "mejor diseño", e);
-    expect(r.estado.ultimaOferta).toBeNull();
+    expect(r.estado.productoEnFoco).toBe(2);
+    expect(r.estado.productoAnterior).toBe(1);
+    // Lo que importa: la oferta del producto ANTERIOR ya no está vigente. Si el
+    // turno ofreció algo, es del producto nuevo; nunca la del piano.
+    expect(r.estado.ultimaOferta?.productoId ?? 2).toBe(2);
   });
   test("14 producto→pago exige precio primero (herramienta frena, modelo recupera)", async () => {
     const r = await turno(clienteFalso([
@@ -158,7 +166,11 @@ describe("CAMBIOS (13-17)", () => {
       { toolCalls: [{ id: "b", name: "mostrar", arguments: '{"productoId":1,"seccion":"precio"}' }, { id: "c", name: "mostrar", arguments: '{"productoId":1,"seccion":"pago"}' }] },
       { content: "Va precio y pago 👇" },
     ]), "cómo pago el piano?");
-    expect(r.traza[0].resultado).toMatch(/cuánto cuesta/i);
+    // La herramienta de pago se niega sin precio previo; el mensaje que devuelve
+    // al modelo es el que exige el precio antes de cerrar.
+    const negativa = r.traza.find((t: any) => /pago/i.test(String(t.args?.seccion ?? "")) && /no se envió/i.test(String(t.resultado ?? "")));
+    expect(negativa, "la herramienta de pago debía frenar sin precio previo").toBeTruthy();
+    expect(String(negativa!.resultado)).toMatch(/cuánto cuesta/i);
     expect(tarjetas(r).length).toBe(2);
   });
   test("15 pago→producto vuelve sin perder pago previo", async () => {

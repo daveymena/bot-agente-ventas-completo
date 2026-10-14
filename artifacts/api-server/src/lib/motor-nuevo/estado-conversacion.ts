@@ -587,6 +587,34 @@ function parsearEstado(valor: unknown, conversationId: number): EstadoConversaci
   return normalizarEstado(valor, conversationId);
 }
 
+/**
+ * El pago lo confirma una PERSONA, y esa confirmación vive en
+ * `conversations.paymentStatus` (la escribe `confirm_transfer_payment` en
+ * `app-operator.ts`). El motor v2 guarda su propia bandera
+ * `estado.pagoConfirmadoPorHumano`, y hasta ahora **nadie la escribía**: el
+ * dueño confirmaba la transferencia en el panel, el cliente seguía leyendo
+ * "está en verificación" para siempre, y la venta ya cerrada se rompía en la
+ * postventa.
+ *
+ * La bandera se resuelve en el borde donde el estado entra, que es el único
+ * lugar que ve las dos verdades a la vez. Es aditivo: si la columna no existe
+ * (migración pendiente) o viene `null`, no cambia nada.
+ *
+ * Dirección única a propósito: la base puede ENCENDER la bandera, nunca
+ * apagarla. Si una persona confirmó el pago, un estado viejo del motor no
+ * puede deshacer esa decisión.
+ */
+export function conPagoConfirmadoPorLaBase(
+  estado: EstadoConversacion,
+  fila: { paymentStatus?: unknown; paidAt?: unknown } | null | undefined,
+): EstadoConversacion {
+  const marca = String((fila?.paymentStatus as string) ?? "").trim().toLowerCase();
+  // Los dos valores que usa el panel para "una persona lo verificó".
+  const confirmado = marca === "confirmed" || marca === "approved";
+  if (!confirmado || estado.pagoConfirmadoPorHumano) return estado;
+  return { ...estado, pagoConfirmadoPorHumano: true };
+}
+
 /** Implementación con Drizzle. Aislada acá para que el motor no sepa de la base. */
 export function crearRepositorioDrizzle(deps: {
   db: any;
@@ -599,11 +627,16 @@ export function crearRepositorioDrizzle(deps: {
     async cargar(conversationId) {
       try {
         const [fila] = await db
-          .select({ estado: conversations.estadoAgente })
+          .select({
+            estado: conversations.estadoAgente,
+            paymentStatus: conversations.paymentStatus,
+            paidAt: conversations.paidAt,
+          })
           .from(conversations)
           .where(eq(conversations.id, conversationId))
           .limit(1);
-        return parsearEstado(fila?.estado, conversationId);
+        const estado = parsearEstado(fila?.estado, conversationId);
+        return conPagoConfirmadoPorLaBase(estado, fila);
       } catch (err: any) {
         // Una columna que todavía no existe (migración pendiente) no puede
         // dejar mudo al vendedor: se arranca del estado inicial y se sigue.

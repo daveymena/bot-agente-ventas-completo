@@ -458,6 +458,30 @@ export function esConversacionDeSimulacion(telefono: unknown): boolean {
   return /^sim-/i.test(String(telefono || ""));
 }
 
+/**
+ * ¿Se reintenta en Dropi un pedido frenado cuando el cliente pregunta por él?
+ * Sí si Dropi lo rechazó por algo nuestro (formato, caída), no está
+ * cancelado, no es simulación y tiene menos de 7 días.
+ *
+ * Venta perdida (conv 2, Elkin, 06→08-10): Dropi rechazó por "BOGOTA D C"
+ * (ya corregido en destinoParaDropi), el cliente preguntó dos días después y
+ * el bot leyó el error y contestó "el equipo lo está gestionando" — nadie lo
+ * hacía; canceló. Que el cliente pregunte ES la señal de que el pedido sigue
+ * vivo.
+ *
+ * Lo agregó `e0053be` y `f553534` ("wip … previos a sync con Arena") lo borró
+ * sin querer. Restaurado el 2026-10-14: el test de regresión seguía en el
+ * repo, así que la pérdida se detectó sola.
+ */
+export async function debeReintentarAlPreguntar(f: any, ahora = Date.now()): Promise<boolean> {
+  if (!f || f.dropi_order_id || f.estado === "cancelado") return false;
+  if (String(f.notas || "").includes("SIMULACIÓN") || String(f.telefono || "").startsWith("sim-")) return false;
+  const rechazado = f.estado === "rechazado_dropi" || f.dropi_estado === "error";
+  const reciente = ahora - new Date(f.created_at).getTime() < 7 * 24 * 3600 * 1000;
+  const { esReintentable } = await import("../reintento-pedidos");
+  return rechazado && reciente && esReintentable(f.dropi_error);
+}
+
 export function servicioDePedidos(p: {
   tenantId: number;
   conversationId: number;
