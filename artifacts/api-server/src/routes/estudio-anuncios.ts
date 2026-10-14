@@ -26,7 +26,7 @@
  *   POST   /api/estudio-anuncios/:productId/archivo    sube una imagen propia (logo, foto) → URL
  *   DELETE /api/estudio-anuncios/:productId            borra el estudio del producto
  */
-import { Router, raw } from "express";
+import { Router, raw, type NextFunction, type Response } from "express";
 import path from "node:path";
 import { eq } from "drizzle-orm";
 import { db, products } from "@workspace/db";
@@ -42,6 +42,16 @@ import { colaDelEstudio } from "../lib/estudio-anuncios/cola";
 import { absoluta, borrarEstudio, borrarImagen, contenidoPara, editarTextosDePieza, estadoCompleto, generarPieza, guardarArchivo, guardarDiseno, guardarEscenas, leerEstudio, pedirPaquete, pedirVideo, vistaPreviaDePlantilla } from "../lib/estudio-anuncios/estudio";
 
 const router = Router();
+
+/**
+ * `res.sendFile` exige ruta absoluta y, por defecto, rechaza (404) cualquier
+ * segmento que empiece por punto: las fuentes de @fontsource viven bajo
+ * `node_modules/.pnpm/…` y IMAGE_STORE_DIR puede ser relativo. Se resuelve y
+ * se permiten los dotfiles; la ruta la elige el servidor, nunca el cliente.
+ */
+function enviarArchivo(res: Response, ruta: string, next: NextFunction): void {
+  res.sendFile(path.resolve(ruta), { dotfiles: "allow" }, (err) => { if (err && !res.headersSent) next(err); });
+}
 const tenantDe = (req: any): number | null => Number(req.tenant?.id) || null;
 const idDe = (v: string): number | null => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : null; };
 const cuerpoImagen = raw({ type: ["image/*", "application/octet-stream"], limit: "25mb" });
@@ -138,7 +148,7 @@ router.get("/plantillas/:id/vista-previa.jpg", async (req, res, next) => {
     if (!r) return res.status(404).end();
     res.setHeader("Content-Type", "image/jpeg");
     res.setHeader("Cache-Control", producto ? "private, max-age=600" : "private, max-age=86400");
-    return res.sendFile(r.ruta);
+    return enviarArchivo(res, r.ruta, next);
   } catch (e) { return next(e); }
 });
 
@@ -208,7 +218,7 @@ router.get("/fuentes.css", (_req, res) => {
   return res.end(cssDeFuentes("/api/estudio-anuncios/fuentes"));
 });
 
-router.get("/fuentes/:id/:archivo", (req, res) => {
+router.get("/fuentes/:id/:archivo", (req, res, next) => {
   const m = /^(400|700|900)\.(woff|ttf)$/.exec(String(req.params.archivo || ""));
   if (!m) return res.status(404).end();
   const a = archivoDeFuente(String(req.params.id || ""), Number(m[1]) as Peso);
@@ -216,7 +226,7 @@ router.get("/fuentes/:id/:archivo", (req, res) => {
   res.setHeader("Content-Type", a.formato === "woff" ? "font/woff" : "font/ttf");
   res.setHeader("Cache-Control", "public, max-age=2592000, immutable");
   res.setHeader("Access-Control-Allow-Origin", "*");
-  return res.sendFile(a.ruta);
+  return enviarArchivo(res, a.ruta, next);
 });
 
 router.get("/productos", async (req, res, next) => {

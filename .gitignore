@@ -71,3 +71,8 @@ copilot-worktrees/
 # Es material privado del negocio, no codigo. Fuera del repo.
 entrenamiento-meta/
 .cache/
+
+# Estudio de anuncios: piezas, videos y caché de vistas previas se generan en
+# tiempo de ejecución bajo IMAGE_STORE_DIR; se regeneran solos, no van al repo.
+artifacts/api-server/data/images/anuncios/
+artifacts/api-server/data/images/plantillas-cache/
