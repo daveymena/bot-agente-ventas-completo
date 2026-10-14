@@ -5676,6 +5676,107 @@ ${explicarObjetivos()}` };
     },
   },
   {
+    name: "landing_tema",
+    description:
+      "Cambia el TEMA de una landing de forma exacta (sin pasar por el modelo): color de acento de botones y precios, tipografía de títulos y de texto, y redondeo de esquinas. " +
+      "Se ve igual en la vista previa y en la URL publicada. Fuentes: inter, poppins, montserrat, space-grotesk, nunito, dm-sans, anton, bebas, archivo-black, playfair, dm-serif, cormorant, merriweather. " +
+      "Mandá solo lo que cambia; `quitar: true` vuelve al diseño del modelo. No aplica a copias HTML de otros sitios. ⚠️ Va por propose_action.",
+    args: '{ "id": number (req), "acento"?: "#RRGGBB", "titulos"?: string, "texto"?: string, "radio"?: number (0-40), "quitar"?: boolean }',
+    run: async (args, ctx) => {
+      const id = num(args?.id ?? args?.landingId);
+      if (!id) return { ok: false, summary: "Falta 'id' de la landing." };
+      const { db, landingPages } = await import("@workspace/db");
+      const { and, eq } = await import("drizzle-orm");
+      const [row] = await db.select().from(landingPages).where(and(eq(landingPages.id, id), eq(landingPages.tenantId, ctx.tenantId))).limit(1);
+      if (!row) return { ok: false, summary: `No encontré la landing [${id}].` };
+      const { normalizarRetoque, admiteRetoque } = await import("./estudio/retoque");
+      if (!admiteRetoque(row as any)) return { ok: false, summary: `La landing [${id}] es una copia de otro sitio o tiene HTML propio: el tema no se le aplica. Para cambiarle colores usá landing_editar.` };
+      const design: any = { ...((row.design as any) || {}) };
+      const retoque = args?.quitar ? null : normalizarRetoque({ ...(design.retoque || {}), ...(args || {}) });
+      if (!args?.quitar && !retoque) return { ok: false, summary: "Nada válido para aplicar: el color va como #RRGGBB y las fuentes con su id (ej. 'playfair')." };
+      design.retoque = retoque;
+      await db.update(landingPages).set({ design, updatedAt: new Date() } as any).where(eq(landingPages.id, id));
+      return { ok: true, summary: retoque ? `Tema de la landing [${id}] actualizado: ${JSON.stringify(retoque)}. Ya se ve así en la vista previa y en la publicada.` : `Tema de la landing [${id}] quitado: vuelve al diseño del modelo.`, data: { id, retoque } };
+    },
+  },
+  {
+    name: "creativo_maquetas",
+    description: "Lista las maquetas de creativos para anuncios (Facebook/Instagram) y los formatos de Meta disponibles. LECTURA, no cambia nada.",
+    args: "{}",
+    run: async () => {
+      const { MAQUETAS } = await import("./estudio/maquetas-creativo");
+      const { FORMATOS } = await import("./estudio/escena");
+      return {
+        ok: true,
+        summary: `Maquetas: ${MAQUETAS.map((m) => `${m.id} (${m.nombre}: ${m.descripcion} Ideal ${m.ideal})`).join("; ")}. Formatos: ${Object.entries(FORMATOS).map(([k, v]) => `${k} = ${v.uso}`).join("; ")}.`,
+        data: { maquetas: MAQUETAS.map(({ id, nombre, descripcion, ideal }) => ({ id, nombre, descripcion, ideal })), formatos: FORMATOS },
+      };
+    },
+  },
+  {
+    name: "creativo_listar",
+    description: "Lista los creativos de anuncio guardados del negocio (los del estudio /creativos y los que hizo Atlas), con su PNG si ya se exportó. LECTURA, no cambia nada.",
+    args: '{ "productId"?: number }',
+    run: async (args, ctx) => {
+      const { listarCreativos } = await import("./creativos/almacen");
+      const pid = num(args?.productId);
+      const lista = (await listarCreativos(ctx.tenantId)).filter((c) => !pid || c.productId === pid).slice(0, 30);
+      if (!lista.length) return { ok: true, summary: "No hay creativos guardados todavía. Se crean con creativo_crear o en la pantalla Creativos.", data: [] };
+      const base = (process.env.APP_URL || "").replace(/\/+$/, "");
+      return {
+        ok: true,
+        summary: lista.map((c) => `[${c.id}] ${c.nombre} (${c.escena.formato}${c.maqueta ? `, ${c.maqueta}` : ""})${c.png ? ` PNG: ${base}${c.png}` : " sin exportar"}`).join("\n"),
+        data: lista.map((c) => ({ id: c.id, nombre: c.nombre, productId: c.productId, maqueta: c.maqueta, formato: c.escena.formato, png: c.png })),
+      };
+    },
+  },
+  {
+    name: "creativo_crear",
+    description:
+      "Crea creativos (imágenes) para anuncios de Facebook/Instagram de un producto: maqueta profesional + foto real + precio y sellos REALES del negocio + gancho. " +
+      "Sin 'gancho', la IA escribe ganchos desde ángulos distintos (sin inventar descuentos ni cifras). 'cantidad' 1-6 arma variantes (maqueta y gancho distintos) para probar. " +
+      "Exporta el PNG listo para subir al anuncio y queda guardado en la pantalla Creativos para retocarlo a mano. Formatos: 4:5 (feed), 1:1, 9:16 (stories/reels), 1.91:1. " +
+      "Maquetas: ver creativo_maquetas. ⚠️ Va por propose_action.",
+    args: '{ "productId": number (req), "formato"?: "4:5"|"1:1"|"9:16"|"1.91:1", "maqueta"?: string, "cantidad"?: number, "gancho"?: string, "apoyo"?: string, "cta"?: string, "acento"?: "#RRGGBB", "pedido"?: string (indicación para la IA, ej. "para mamás") }',
+    run: async (args, ctx) => {
+      const productId = num(args?.productId ?? args?.producto ?? args?.id);
+      if (!productId) return { ok: false, summary: "Falta 'productId' (mirá list_products)." };
+      const { crearCreativos } = await import("./creativos/atlas");
+      const r = await crearCreativos(ctx.tenantId, {
+        productId, formato: args?.formato, maqueta: args?.maqueta, cantidad: num(args?.cantidad) || 1,
+        gancho: args?.gancho, apoyo: args?.apoyo, cta: args?.cta, acento: args?.acento, pedido: args?.pedido,
+      });
+      if (!r.ok) return { ok: false, summary: r.error };
+      const base = (process.env.APP_URL || "").replace(/\/+$/, "");
+      const sinPng = r.creativos.filter((c) => !c.png).length;
+      return {
+        ok: true,
+        summary:
+          `${r.creativos.length} creativo(s) listos (${r.creativos[0]?.formato}; ganchos: ${r.motor === "ia" ? "IA" : r.motor === "respaldo" ? "de la ficha, la IA no respondió" : "los pedidos"}):\n` +
+          r.creativos.map((c) => `• [${c.id}] ${c.maqueta} — "${c.gancho}"${c.png ? ` → ${base}${c.png}` : " (sin PNG)"}${c.avisos.length ? ` ⚠ ${c.avisos.join(" / ")}` : ""}`).join("\n") +
+          (sinPng ? `\n${sinPng} sin PNG: el servidor no pudo abrir Chromium; quedan guardados para exportar desde la pantalla Creativos.` : "") +
+          `\nSe retocan a mano en /creativos o con creativo_editar.`,
+        data: r.creativos,
+      };
+    },
+  },
+  {
+    name: "creativo_editar",
+    description:
+      "Cambia un creativo guardado: gancho, apoyo, texto del botón, color de marca, formato (4:5, 1:1, 9:16, 1.91:1) o maqueta. Se vuelve a diagramar solo y se exporta el PNG nuevo. " +
+      "Mirá los ids con creativo_listar. ⚠️ Va por propose_action.",
+    args: '{ "id": string (req), "gancho"?: string, "apoyo"?: string, "cta"?: string, "acento"?: "#RRGGBB", "formato"?: string, "maqueta"?: string }',
+    run: async (args, ctx) => {
+      const id = String(args?.id || args?.creativoId || "").trim();
+      if (!id) return { ok: false, summary: "Falta 'id' del creativo (creativo_listar)." };
+      const { editarCreativo } = await import("./creativos/atlas");
+      const r = await editarCreativo(ctx.tenantId, id, { gancho: args?.gancho, apoyo: args?.apoyo, cta: args?.cta, acento: args?.acento, formato: args?.formato, maqueta: args?.maqueta });
+      if (!r.ok) return { ok: false, summary: r.error };
+      const base = (process.env.APP_URL || "").replace(/\/+$/, "");
+      return { ok: true, summary: `Creativo [${id}] actualizado (${r.creativo.escena.formato}).${r.creativo.png ? ` PNG: ${base}${r.creativo.png}` : " Sin PNG (exportalo desde Creativos)."}${r.avisos.length ? ` ⚠ ${r.avisos.join(" / ")}` : ""}`, data: { id, png: r.creativo.png } };
+    },
+  },
+  {
     name: "landing_clonar",
     description:
       "Clona una landing. Sin 'productId' (o con el mismo producto) hace una COPIA exacta en borrador. Con otro 'productId' clona el ESTILO: " +
@@ -10739,6 +10840,8 @@ export const READ_ONLY_TOOLS = new Set([
   "metodo_de_venta",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
   "dropi_status", "dropi_margen", "dropi_pedidos", "dropi_buscar", "competencia_a_dropi", "video_anuncio_estado", "fabricante_ver", "dropi_search_products", "woocommerce_estado", "integraciones_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
+  // Creativos: mirar maquetas y listar los guardados no cambia nada.
+  "creativo_maquetas", "creativo_listar",
   "dropi_verificar_producto", "dropi_con_ordenes", "dropi_importar_lote_estado", "dropi_cotizar_envio",
   // Radar de ganadores + calculadora de rentabilidad + espía de tiendas +
   // estimación previa: las cuatro son lectura pura (cruzan datos y calculan,

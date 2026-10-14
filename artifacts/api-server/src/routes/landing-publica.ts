@@ -55,15 +55,6 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
     if (!encontrada) return res.status(404).send("<!doctype html><meta charset=utf-8><title>No encontrada</title><p style=\"font-family:system-ui;padding:40px\">Esta página no existe o todavía no está publicada.</p>");
     const { row, producto } = encontrada;
     const tenantId = row.tenantId;
-    // El precio anterior REAL del producto (metadata.precioAntes, leído con el
-    // lector del repo porque el JSONB puede llegar como texto en SQLite).
-    let precioAntes: number | null = null;
-    if (producto) {
-      try {
-        const { metadataDelProducto } = await import("../lib/activos-fabricante");
-        precioAntes = Number((await metadataDelProducto(tenantId, producto.id))?.precioAntes ?? 0) || null;
-      } catch { precioAntes = null; }
-    }
     // Medición: píxel de Meta + visitas/pedidos propios (ver lib/landing/monitor.ts).
     const { snippetDeMedicion, conMedicion } = await import("../lib/landing/monitor");
     let pixelId: string | null = null;
@@ -78,17 +69,9 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
     // design en CADA visita, antes del html guardado (que es solo snapshot) y
     // de la copia clonada. La variante (cod/premium/bold/dark) vive en
     // design.style; el píxel lo pone solo `medir` para no contarlo dos veces.
-    if ((row.design as any)?.renderer === "estilo") {
-      const { renderizarLandingEstilo } = await import("../lib/landing/renderer-estilo");
-      const modeloEstilo = producto ? modeloDelProducto(producto as any) : "digital";
-      const html = await renderizarLandingEstilo({
-        tenantId,
-        row: row as any,
-        producto,
-        precioAntes,
-        host: getAppUrl(),
-        pago: producto && modeloEstilo !== "fisico" ? await enlacesDePago(tenantId, producto) : {},
-      });
+    const porSecciones = await import("../lib/landing/html-por-secciones");
+    if (porSecciones.esEstilo(row as any)) {
+      const html = await porSecciones.htmlEstilo(row as any, producto);
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       res.setHeader("Cache-Control", "public, max-age=60");
       return res.send(medir(html));
@@ -115,48 +98,9 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
       return res.send(medir(conIconosSeguros(copia)));
     }
 
-    const { renderizarLanding } = await import("../lib/landing/renderer-v3");
-    const { negocioParaRender } = await import("../lib/landing/negocio-para-render");
-    const negocio = await negocioParaRender(tenantId, producto);
-    const modelo = producto ? modeloDelProducto(producto as any) : "digital";
-    const ctx = await getBusinessContext(tenantId).catch(() => null);
-    const c = ctx?.condiciones ?? CONDICIONES_DE_RESPALDO;
-
-    const cierre = modelo === "fisico"
-      ? { tipo: "contraentrega" as const, accion: `/api/landing-publica/${encodeURIComponent(row.slug)}/pedido`, pais: c.pais, pago: c.envio.pago }
-      : modelo === "digital"
-        ? { tipo: "pago" as const, accion: `/api/landing-publica/${encodeURIComponent(row.slug)}/cupon`, ...(producto ? await enlacesDePago(tenantId, producto) : {}) }
-        : { tipo: "whatsapp" as const };
-
-    const html = renderizarLanding({
-      nombre: row.name,
-      secciones: (row.sections as any[]) || [],
-      familia: (row.design as any)?.familia ?? null,
-      // La composición guardada (design.modelo + semilla): sin esto toda
-      // landing publicada se renderizaba "clasica" y el modelo de página
-      // elegido ni existía para quien la mira.
-      modelo: (row.design as any)?.modelo ?? null,
-      semilla: (row.design as any)?.semilla ?? null,
-      producto: producto && {
-        name: producto.name,
-        description: producto.description,
-        imageUrl: producto.imageUrl,
-        images: await fotosUnicasDelProducto(producto, { guardar: guardadorDeMetadata(producto.id) }),
-        price: producto.price,
-        currency: producto.currency,
-        // El precio ANTERIOR real del producto: es lo único que permite el
-        // precio tachado y el "Ahorras" (sin esto no se inventa ninguno).
-        precioAntes: precioAntes,
-        paymentLink: producto.paymentLink,
-        whatsapp: negocio.whatsapp,
-        opciones: Array.isArray((producto as any).opciones) ? (producto as any).opciones : null,
-      },
-      negocio,
-      cierre,
-      modo: (row.design as any)?.modo ?? null,
-      ofertas: (row.design as any)?.ofertas ?? null,
-      sellos: sellosDelNegocio(c),
-    });
+    // Misma función que la vista previa del editor (lib/landing/html-por-secciones):
+    // composición guardada (modelo + semilla), precio anterior real y tema del dueño.
+    const html = await porSecciones.htmlV3(row as any, producto);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     res.setHeader("Cache-Control", "public, max-age=60");
     return res.send(medir(html));

@@ -70,10 +70,19 @@ router.patch("/:id", async (req: TenantRequest, res, next) => {
         .map((s: any) => ({ ...s, title: s.title ? String(s.title).trim() : s.title, body: s.body ? String(s.body).trim() : s.body }))
         .filter((s: any) => {
           // No guardar secciones vacías/incompletas sin título ni body (salvo hero/cta que tienen criterios propios).
+          // ⚠️ Una galería es SOLO fotos: con el filtro de antes (título o
+          // texto) el editor de bloques la borraba en silencio al guardar.
           if (!s) return false;
           if (["hero", "cta"].includes(s.type)) return true;
-          return !!(String(s.title || "").trim() || String(s.body || "").trim());
+          if (String(s.image || "").trim() || (Array.isArray(s.images) && s.images.length)) return true;
+          return !!(String(s.title || "").trim() || String(s.body || "").trim() || String(s.subtitle || "").trim());
         });
+    }
+    // El tema (color, letras, redondeo) se valida al guardar: un color mal
+    // escrito no puede llegar al CSS de la página publicada.
+    if (patch.design && typeof patch.design === "object" && "retoque" in (patch.design as any)) {
+      const { normalizarRetoque } = await import("../lib/estudio/retoque");
+      (patch.design as any).retoque = normalizarRetoque((patch.design as any).retoque);
     }
     if (Object.prototype.hasOwnProperty.call(patch, "productId")) {
       if (!(await productBelongsToTenant(patch.productId, tenantId))) return res.status(400).json({ error: "El producto no pertenece al tenant actual o no es válido" });
@@ -119,70 +128,40 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
     if (/^https?:\/\//.test(urlForge)) return res.redirect(302, urlForge);
     if (row.publishedUrl && !/\/l\//.test(String(row.publishedUrl))) return res.redirect(302, row.publishedUrl);
 
-    // Vía ESTILO (lib/landing/renderer-estilo.ts): el HTML sale de secciones +
-    // design en el acto; el html guardado es solo snapshot y la variante
-    // (cod/premium/bold/dark) está en design.style.
-    if ((row.design as any)?.renderer === "estilo") {
-      let productoEstilo: any = null;
-      if (row.productId) {
-        const [p] = await db.select().from(products).where(and(eq(products.id, row.productId), eq(products.tenantId, tenantId))).limit(1);
-        productoEstilo = p || null;
-      }
-      const { renderizarLandingEstilo } = await import("../lib/landing/renderer-estilo");
-      const html = await renderizarLandingEstilo({ tenantId, row: row as any, producto: productoEstilo });
+    // Vía ESTILO: el HTML sale de secciones + design en el acto (el html
+    // guardado es solo snapshot). La MISMA función que usa /l/<slug> (lib/landing/html-por-secciones):
+    // antes la preview llamaba al renderer con menos datos que la pública y
+    // el dueño editaba una página distinta a la que veía el cliente.
+    const porSecciones = await import("../lib/landing/html-por-secciones");
+    if (porSecciones.esEstilo(row as any)) {
+      const html = await porSecciones.htmlEstilo(row as any, await porSecciones.productoDeLanding(row as any));
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       return res.send(html);
     }
 
+    const producto: any = await porSecciones.productoDeLanding(row as any);
+
+    // Con los MISMOS saneos que /l/<slug>: antes la preview no pasaba el
+    // formulario con opciones ni los iconos seguros y se veía distinta.
     if (row.html) {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
       // La misma foto bajo varias URLs (local, WordPress, CloudFront) no sale dos veces.
       const { htmlConFotosUnicas, guardadorDeMetadata } = await import("../lib/fotos-de-producto");
-      const [prod] = row.productId ? await db.select().from(products).where(eq(products.id, Number(row.productId))).limit(1) : [null];
-      const { conFormularioQueResponde } = await import("../lib/landing/sanear-html");
-      return res.send(conFormularioQueResponde(prod ? await htmlConFotosUnicas(row.html, prod, { guardar: guardadorDeMetadata(prod.id) }) : row.html));
-    }
-
-    let producto: any = null;
-    if (row.productId) {
-      const [p] = await db.select().from(products).where(and(eq(products.id, row.productId), eq(products.tenantId, tenantId))).limit(1);
-      producto = p || null;
+      const { conFormularioQueResponde, sinRotulosInternos, conIconosSeguros } = await import("../lib/landing/sanear-html");
+      const { formularioConOpciones } = await import("../lib/landing/renderer");
+      const base = producto ? await htmlConFotosUnicas(row.html, producto, { guardar: guardadorDeMetadata(producto.id) }) : row.html;
+      return res.send(conFormularioQueResponde(formularioConOpciones(sinRotulosInternos(conIconosSeguros(base)).html, producto as any)));
     }
 
     const { htmlDeCopia } = await import("../lib/landing/clonar-html");
     const copia = htmlDeCopia(row);
     if (copia) {
       res.setHeader("Content-Type", "text/html; charset=utf-8");
-      return res.send(copia);
+      const { conIconosSeguros } = await import("../lib/landing/sanear-html");
+      return res.send(conIconosSeguros(copia));
     }
 
-    const { renderizarLanding } = await import("../lib/landing/renderer-v3");
-    const { negocioParaRender } = await import("../lib/landing/negocio-para-render");
-    const negocio = await negocioParaRender(tenantId, producto);
-    const modelo = producto ? (await import("../lib/modelo-de-negocio")).modeloDelProducto(producto as any) : "digital";
-    const ctx = await import("../lib/business-context").then((m) => m.getBusinessContext(tenantId)).catch(() => null);
-    const c = ctx?.condiciones ?? (await import("../lib/modelo-de-negocio")).CONDICIONES_DE_RESPALDO;
-    const cierre = modelo === "fisico"
-      ? { tipo: "contraentrega" as const, accion: `/api/landing-publica/${encodeURIComponent(row.slug)}/pedido`, pais: c.pais, pago: c.envio.pago }
-      : modelo === "digital"
-        ? { tipo: "pago" as const, accion: `/api/landing-publica/${encodeURIComponent(row.slug)}/cupon`, mercadopago: producto ? (await enlacesDePagoLocal(tenantId, producto)).mercadopago : undefined, paypal: producto ? (await enlacesDePagoLocal(tenantId, producto)).paypal : undefined }
-        : { tipo: "whatsapp" as const };
-    const html = renderizarLanding({
-      nombre: row.name,
-      secciones: (row.sections as any[]) || [],
-      familia: (row.design as any)?.familia ?? (req.query.familia as string) ?? null,
-      producto: producto && {
-        name: producto.name, description: producto.description, imageUrl: producto.imageUrl, images: await fotosUnicasDelProducto(producto, { guardar: guardadorDeMetadata(producto.id) }),
-        price: producto.price, currency: producto.currency, paymentLink: producto.paymentLink,
-        whatsapp: negocio.whatsapp,
-        opciones: Array.isArray(producto.opciones) ? producto.opciones : null,
-      },
-      negocio,
-      cierre,
-      modo: (row.design as any)?.modo ?? null,
-      ofertas: (row.design as any)?.ofertas ?? null,
-      sellos: (await import("../lib/modelo-de-negocio")).sellosDelNegocio(c),
-    });
+    const html = await porSecciones.htmlV3(row as any, producto, (req.query.familia as string) || null);
     res.setHeader("Content-Type", "text/html; charset=utf-8");
     return res.send(html);
   } catch (e) { return next(e); }

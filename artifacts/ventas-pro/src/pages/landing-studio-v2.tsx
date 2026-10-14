@@ -5,10 +5,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
-import { Sparkles, Send, User, Loader2, Monitor, Smartphone, Download, RefreshCw, LayoutTemplate, Wand2, Copy, Trash2, ExternalLink, EyeOff, MoreHorizontal, Truck } from "lucide-react";
+import { Sparkles, Send, User, Loader2, Monitor, Smartphone, Tablet, Download, RefreshCw, LayoutTemplate, Wand2, Copy, Trash2, ExternalLink, EyeOff, MoreHorizontal, Undo2, Redo2, Save, Image as ImageIcon } from "lucide-react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import ReactMarkdown from "react-markdown";
-import { BloquesEditor } from "@/components/landing/bloques-editor";
+import { BloquesEditor, type Seccion } from "@/components/landing/bloques-editor";
+import { TemaPanel } from "@/components/landing/tema-panel";
+import { conectarEdicion, etiquetar, marcarSeleccion, type CampoEditable } from "@/components/landing/puente-edicion";
+import { aplicarRetoque, normalizarRetoque, type Retoque } from "@estudio/retoque";
+import { Link } from "wouter";
 import { LogoMarca } from "@/components/logo-marca";
 
 type Product = { id: number; name: string; description?: string; price?: string; currency?: string };
@@ -130,7 +134,7 @@ export default function LandingStudioV2() {
   // "": Automática (el servidor sugiere por el producto). Con plantilla
   // elegida, Generar usa SÍ O SÍ ese diseño (estilo COD o familia v3).
   const [plantilla, setPlantilla] = useState<Plantilla>("");
-  const [previewMode, setPreviewMode] = useState<"desktop" | "mobile">("desktop");
+  const [previewMode, setPreviewMode] = useState<"desktop" | "tablet" | "mobile">("desktop");
   /**
    * Qué panel se ve cuando la pantalla es chica.
    *
@@ -149,12 +153,15 @@ export default function LandingStudioV2() {
    */
   const [panelMovil, setPanelMovil] = useState<"chat" | "preview">("chat");
   // Chat (pedirle cambios al modelo) o Bloques (tocar la landing con las manos).
-  const [modoPanel, setModoPanel] = useState<"chat" | "bloques">("chat");
+  const [modoPanel, setModoPanel] = useState<"chat" | "bloques" | "tema">("chat");
   const [msgs, setMsgs] = useState<Msg[]>([{ role: "assistant", content: SALUDO }]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [previewHtml, setPreviewHtml] = useState<string | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
+  // Sube en cada carga: el mismo HTML dos veces también tiene que volver a
+  // escribirse en el iframe (p. ej. tras guardar sin cambios visibles).
+  const [versionPreview, setVersionPreview] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -224,13 +231,18 @@ export default function LandingStudioV2() {
     const doc = iframe.contentDocument;
     if (!doc) return;
     if (previewHtml) {
+      // Recargar no te manda arriba de todo: se vuelve a donde estabas.
+      const y = iframe.contentWindow?.scrollY || 0;
       doc.open(); doc.write(previewHtml); doc.close();
+      const volver = () => { try { iframe.contentWindow?.scrollTo(0, y); } catch { /* sin acceso */ } };
+      setTimeout(volver, 30); setTimeout(volver, 350);
+      setDocVersion((v) => v + 1);
     } else {
       doc.open();
       doc.write(`<!doctype html><html><body style="display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:system-ui,sans-serif;color:#64748b;background:#0f172a;margin:0;flex-direction:column;gap:16px;text-align:center;padding:40px"><svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="1.2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg><p style="font-size:16px;max-width:300px">Selecciona un producto y presiona <strong style="color:#a5b4fc">Generar</strong></p></body></html>`);
       doc.close();
     }
-  }, [previewHtml]);
+  }, [previewHtml, versionPreview]);
 
   const cargarPreview = useCallback(async (id: number, fam?: string) => {
     setPreviewBusy(true);
@@ -238,14 +250,225 @@ export default function LandingStudioV2() {
       const r = await fetch(`/api/landing-pages/${id}/render?familia=${soloFamilia(fam) || soloFamilia(plantilla)}`, { credentials: "include" });
       if (!r.ok) throw new Error("Error al renderizar");
       setPreviewHtml(await r.text());
+      setVersionPreview((v) => v + 1);
     } catch { toast.error("No se pudo cargar la preview"); }
     finally { setPreviewBusy(false); }
   }, [plantilla]);
 
-  const enviar = useCallback(async () => {
-    const text = input.trim();
+  // ── Secciones con historial (deshacer / rehacer) ─────────────────────────
+  // Viven acá y no en el panel de bloques porque la vista previa también las
+  // edita (doble clic sobre un título). Una sola fuente, dos manos.
+  const [secciones, setSecciones] = useState<Seccion[]>([]);
+  const [seccionesGuardadas, setSeccionesGuardadas] = useState("[]");
+  const [cargandoSecciones, setCargandoSecciones] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [iaOcupada, setIaOcupada] = useState(false);
+  const [seleccion, setSeleccion] = useState<string | null>(null);
+  const pasado = useRef<Seccion[][]>([]);
+  const futuro = useRef<Seccion[][]>([]);
+  const [, setTicHistorial] = useState(0);
+  const seccionesRef = useRef<Seccion[]>([]);
+  seccionesRef.current = secciones;
+  const hayCambios = JSON.stringify(secciones) !== seccionesGuardadas;
+
+  // Tema (design.retoque) y diseño completo de la landing abierta.
+  const [disenoActual, setDisenoActual] = useState<any>({});
+  const [retoque, setRetoque] = useState<Retoque>({});
+  const [retoqueGuardado, setRetoqueGuardado] = useState("{}");
+  const hayCambiosTema = JSON.stringify(normalizarRetoque(retoque) || {}) !== retoqueGuardado;
+  const [fotosProducto, setFotosProducto] = useState<string[]>([]);
+  const [colorProducto, setColorProducto] = useState<string | null>(null);
+  const [docVersion, setDocVersion] = useState(0);
+
+  const cambiarSecciones = useCallback((nuevas: Seccion[]) => {
+    pasado.current.push(seccionesRef.current);
+    if (pasado.current.length > 100) pasado.current.shift();
+    futuro.current = [];
+    setSecciones(nuevas);
+    setTicHistorial((t) => t + 1);
+  }, []);
+  const deshacer = useCallback(() => {
+    const prev = pasado.current.pop();
+    if (!prev) return;
+    futuro.current.push(seccionesRef.current);
+    setSecciones(prev);
+    setTicHistorial((t) => t + 1);
+  }, []);
+  const rehacer = useCallback(() => {
+    const sig = futuro.current.pop();
+    if (!sig) return;
+    pasado.current.push(seccionesRef.current);
+    setSecciones(sig);
+    setTicHistorial((t) => t + 1);
+  }, []);
+
+  /** Trae secciones + diseño de la base. `conservarHistorial`: tras un cambio de la IA, se puede deshacer. */
+  const cargarSecciones = useCallback(async (id: number, conservarHistorial = false) => {
+    setCargandoSecciones(!conservarHistorial);
+    try {
+      const l = await apiFetch<any>(`/api/landing-pages/${id}`);
+      const lista: Seccion[] = Array.isArray(l?.sections) ? l.sections.filter(Boolean).map((s: any, i: number) => ({ ...s, id: String(s.id || `${s.type || "sec"}-${i}`) })) : [];
+      if (conservarHistorial) { pasado.current.push(seccionesRef.current); futuro.current = []; }
+      else { pasado.current = []; futuro.current = []; }
+      setSecciones(lista);
+      setSeccionesGuardadas(JSON.stringify(lista));
+      const d = (l?.design && typeof l.design === "object") ? l.design : {};
+      setDisenoActual(d);
+      const r = normalizarRetoque(d.retoque) || {};
+      setRetoque(r);
+      setRetoqueGuardado(JSON.stringify(r));
+      setLandings((ls) => ls.map((x) => (x.id === id ? { ...x, design: d, sections: lista, source: l?.source ?? (x as any).source } : x)));
+      setTicHistorial((t) => t + 1);
+    } catch { toast.error("No se pudieron cargar los bloques"); }
+    finally { setCargandoSecciones(false); }
+  }, []);
+
+  useEffect(() => {
+    if (landingId) void cargarSecciones(landingId);
+    else { setSecciones([]); setSeccionesGuardadas("[]"); setRetoque({}); setRetoqueGuardado("{}"); setDisenoActual({}); }
+    setSeleccion(null);
+  }, [landingId, cargarSecciones]);
+
+  // Fotos reales y color del producto: para elegir foto por bloque y sugerir colores.
+  useEffect(() => {
+    if (typeof productId !== "number") { setFotosProducto([]); setColorProducto(null); return; }
+    apiFetch<any>(`/api/creativos/producto/${productId}`)
+      .then((d) => { setFotosProducto(d?.datos?.fotos || []); setColorProducto(d?.datos?.acento || null); })
+      .catch(() => { setFotosProducto([]); setColorProducto(null); });
+  }, [productId]);
+
+  const guardarSecciones = useCallback(async (): Promise<boolean> => {
+    if (!landingId) return false;
+    setGuardando(true);
+    try {
+      const actual = seccionesRef.current;
+      const r = await apiFetch<any>(`/api/landing-pages/${landingId}`, { method: "PATCH", body: JSON.stringify({ sections: actual }) });
+      const guardadas: Seccion[] = Array.isArray(r?.sections) ? r.sections : actual;
+      // El servidor descarta bloques vacíos (sin título, texto ni foto): se avisa.
+      const descartados = actual.length - guardadas.length;
+      setSecciones(guardadas);
+      setSeccionesGuardadas(JSON.stringify(guardadas));
+      if (descartados > 0) toast.info(`${descartados} bloque(s) vacío(s) no se guardaron: escribiles algo o pedíselos a la IA.`);
+      else toast.success("Cambios guardados");
+      await cargarPreview(landingId);
+      return true;
+    } catch (e: any) { toast.error(`No se pudo guardar: ${e.message}`); return false; }
+    finally { setGuardando(false); }
+  }, [landingId, cargarPreview]);
+
+  const guardarTema = useCallback(async () => {
+    if (!landingId) return;
+    setGuardando(true);
+    try {
+      const design = { ...disenoActual, retoque: normalizarRetoque(retoque) };
+      await apiFetch(`/api/landing-pages/${landingId}`, { method: "PATCH", body: JSON.stringify({ design }) });
+      setDisenoActual(design);
+      setRetoqueGuardado(JSON.stringify(design.retoque || {}));
+      setLandings((ls) => ls.map((x) => (x.id === landingId ? { ...x, design } : x)));
+      toast.success("Tema guardado: ya se ve así en la página publicada.");
+      await cargarPreview(landingId);
+    } catch (e: any) { toast.error(`No se pudo guardar el tema: ${e.message}`); }
+    finally { setGuardando(false); }
+  }, [landingId, disenoActual, retoque, cargarPreview]);
+
+  /** La IA cambia un bloque (o la página). Antes guarda lo pendiente para no pisarlo. */
+  const pedirIA = useCallback(async (instruccion: string, sectionId: string | null) => {
+    if (!landingId) return;
+    if (hayCambios && !(await guardarSecciones())) return;
+    setIaOcupada(true);
+    try {
+      const r = await apiFetch<any>(`/api/landing-pages/${landingId}/command`, { method: "POST", body: JSON.stringify({ instruction: instruccion, selectedSectionId: sectionId }) });
+      toast.success(r?.message || "Listo");
+      await cargarSecciones(landingId, true);
+      await cargarPreview(landingId);
+    } catch (e: any) { toast.error(e?.message || "La IA no pudo aplicar el cambio"); }
+    finally { setIaOcupada(false); }
+  }, [landingId, hayCambios, guardarSecciones, cargarSecciones, cargarPreview]);
+
+  const subirImagen = useCallback(async (archivo: File): Promise<string | null> => {
+    if (archivo.size > 8 * 1024 * 1024) { toast.error("La imagen pesa más de 8 MB"); return null; }
+    const dataUrl = await new Promise<string>((ok, mal) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result)); fr.onerror = mal; fr.readAsDataURL(archivo); });
+    try { const r = await apiFetch<any>("/api/creativos/subir-imagen", { method: "POST", body: JSON.stringify({ dataUrl, nombre: archivo.name }) }); return r.url; }
+    catch (e: any) { toast.error(e?.message || "No se pudo subir"); return null; }
+  }, []);
+
+  // ── Puente con la vista previa ───────────────────────────────────────────
+  const manejadores = useRef({
+    onSeleccionar: (_id: string) => {},
+    onEditar: (_id: string, _c: CampoEditable, _v: string) => {},
+  });
+  manejadores.current.onSeleccionar = (id: string) => { setSeleccion(id); setModoPanel("bloques"); };
+  manejadores.current.onEditar = (id: string, campo: CampoEditable, valor: string) => {
+    cambiarSecciones(seccionesRef.current.map((s) => (s.id === id ? { ...s, [campo]: valor } : s)));
+  };
+  // Se conecta una vez por documento cargado.
+  useEffect(() => {
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc || !previewHtml || !landingId) return;
+    return conectarEdicion(doc, seccionesRef.current, {
+      onSeleccionar: (id) => manejadores.current.onSeleccionar(id),
+      onEditar: (id, c, v) => manejadores.current.onEditar(id, c, v),
+    });
+  }, [docVersion, landingId, previewHtml]);
+  // Lo que se escribe en el panel se ve ya en la vista previa (títulos y botones).
+  useEffect(() => {
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc?.body) return;
+    const porId = new Map(secciones.map((s) => [s.id, s]));
+    doc.querySelectorAll<HTMLElement>("[data-vp-sec][data-vp-campo]").forEach((el) => {
+      const s = porId.get(el.dataset.vpSec || "");
+      const v = s ? String((s as any)[el.dataset.vpCampo || ""] ?? "") : "";
+      if (s && v && !el.hasAttribute("contenteditable") && el.textContent !== v) el.textContent = v;
+    });
+    etiquetar(doc, secciones);
+    marcarSeleccion(doc, seleccion);
+  }, [secciones, docVersion]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { marcarSeleccion(iframeRef.current?.contentDocument, seleccion, true); }, [seleccion]);
+  // El tema se ve al instante, con la MISMA función que usa el servidor.
+  useEffect(() => {
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc?.head || !landingId || !previewHtml) return;
+    const viejo = doc.getElementById("vp-retoque");
+    const linkViejo = viejo?.previousElementSibling;
+    if (linkViejo && linkViejo.matches('link[href*="fonts.googleapis"]')) linkViejo.remove();
+    viejo?.remove();
+    const tmp = doc.createElement("div");
+    tmp.innerHTML = aplicarRetoque("<head></head>", retoque).replace(/<\/?head>/g, "");
+    Array.from(tmp.children).forEach((n) => doc.head.appendChild(n));
+  }, [retoque, docVersion, landingId, previewHtml]);
+
+  // Atajos: Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y, Ctrl+S.
+  useEffect(() => {
+    const alTecla = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const enCampo = /^(INPUT|TEXTAREA|SELECT)$/.test((e.target as HTMLElement)?.tagName || "");
+      const k = e.key.toLowerCase();
+      if (k === "s") { e.preventDefault(); if (hayCambios) void guardarSecciones(); else if (hayCambiosTema) void guardarTema(); return; }
+      if (enCampo) return;
+      if (k === "z" && !e.shiftKey) { e.preventDefault(); deshacer(); }
+      else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); rehacer(); }
+    };
+    window.addEventListener("keydown", alTecla);
+    return () => window.removeEventListener("keydown", alTecla);
+  }, [hayCambios, hayCambiosTema, guardarSecciones, guardarTema, deshacer, rehacer]);
+
+  // Cambios sin guardar: el navegador avisa antes de cerrar la pestaña.
+  useEffect(() => {
+    if (!hayCambios && !hayCambiosTema) return;
+    const avisar = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", avisar);
+    return () => window.removeEventListener("beforeunload", avisar);
+  }, [hayCambios, hayCambiosTema]);
+
+  const enviar = useCallback(async (textoDirecto?: string, opciones?: { nueva?: boolean }) => {
+    // ⚠️ El botón "Generar" hacía setInput(...) y llamaba a enviar() 100 ms
+    // después: enviar era la versión de ANTES del setInput, leía el input
+    // vacío y salía sin hacer nada (o mandaba lo que hubiera escrito). Ahora
+    // el texto se pasa directo.
+    const text = (textoDirecto ?? input).trim();
     if (!text || busy) return;
-    setInput("");
+    if (textoDirecto === undefined) setInput("");
+
     setMsgs(m => [...m, { role: "user", content: text }]);
 
     const pid = typeof productId === "number" ? productId : null;
@@ -256,7 +479,7 @@ export default function LandingStudioV2() {
     }
 
     setBusy(true);
-    const esNueva = /genera|crea|construye|haz una landing|nueva landing/i.test(text);
+    const esNueva = opciones?.nueva ?? /^(genera|crea|construye|haz una landing|nueva landing)/i.test(text);
     setMsgs(m => [...m, { role: "assistant", content: esNueva ? "El agente de landings está generando la página con los datos reales del producto... 30-90 segundos." : "El agente está aplicando el cambio (recuerda lo que ya pediste antes)...", loading: true }]);
 
     try {
@@ -281,6 +504,7 @@ export default function LandingStudioV2() {
         if (exists) return prev.map(l => l.id === data.landingId ? { ...l, html: data.html } as any : l);
         return [{ id: data.landingId, name: `Landing #${data.landingId}`, productId: pid, status: "draft" } as any, ...prev];
       });
+      void cargarSecciones(data.landingId);
       setMsgs(m => [
         ...m.filter(x => !(x as any).loading),
         { role: "assistant", content: (esNueva
@@ -297,7 +521,7 @@ export default function LandingStudioV2() {
       setBusy(false);
       inputRef.current?.focus();
     }
-  }, [input, busy, productId, landingId, plantilla]);
+  }, [input, busy, productId, landingId, plantilla, cargarSecciones]);
 
   const exportar = useCallback(async () => {
     if (!previewHtml) { toast.info("Primero genera una landing."); return; }
@@ -399,6 +623,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
     try {
       const r = await apiFetch<any>(`/api/landing-pages/${landingId}/adaptar`, { method: "POST", body: JSON.stringify({ productId }) });
       await cargarPreview(landingId);
+      void cargarSecciones(landingId);
       setLandings(ls => ls.map(l => l.id === landingId ? { ...l, productId: Number(productId), source: { ...((l as any).source || {}), adaptada: true } } as any : l));
       setMsgs(m => [...m.filter(x => !(x as any).loading), { role: "assistant", content:
         `**Adaptada a tu producto:** ${r.reemplazos} textos reescritos, ${r.imagenes} imágenes reemplazadas, botones apuntando a tu WhatsApp.` +
@@ -406,7 +631,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
     } catch (e: any) {
       setMsgs(m => [...m.filter(x => !(x as any).loading), { role: "assistant", content: `No pude adaptarla: ${e.message}` }]);
     } finally { setAdaptando(false); }
-  }, [landingId, productId, cargarPreview]);
+  }, [landingId, productId, cargarPreview, cargarSecciones]);
 
   // Eliminar: irreversible, con confirmación.
   const eliminar = useCallback(async () => {
@@ -431,8 +656,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
   const cambiarPlantilla = useCallback(async (p: Plantilla) => {
     setPlantilla(p);
     if (!p || !landingId) return;
-    const l = landings.find(x => x.id === landingId);
-    const previo = { ...((l?.design as any) || {}) };
+    const previo = { ...(disenoActual || {}) };
     const esEstilo = p === "estilo" || p.startsWith("estilo:");
     const design = esEstilo
       ? { ...previo, familia: null, renderer: "estilo", style: p === "estilo" ? null : p.slice(7) }
@@ -440,13 +664,15 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
     try {
       await apiFetch(`/api/landing-pages/${landingId}`, { method: "PATCH", body: JSON.stringify({ design }) });
       setLandings(ls => ls.map(x => x.id === landingId ? { ...x, design } : x));
+      setDisenoActual(design);
       await cargarPreview(landingId, esEstilo ? "" : p);
     } catch (e: any) { toast.error(`No se pudo cambiar el estilo: ${e.message}`); }
-  }, [landingId, landings, cargarPreview]);
+  }, [landingId, disenoActual, cargarPreview]);
 
   const cargarLanding = useCallback(async (id: number) => {
     const l = landings.find(x => x.id === id);
     if (!l) return;
+    if ((hayCambios || hayCambiosTema) && !window.confirm("Tenés cambios sin guardar en esta landing. ¿Salir sin guardarlos?")) return;
     setLandingId(id);
     if (l.productId) setProductId(l.productId);
     const p = plantillaDeDesign(l.design);
@@ -454,7 +680,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
     setUrlPublica((l as any).status === "published" ? ((l as any).publishedUrl || null) : null);
     await cargarPreview(id, soloFamilia(p));
     setMsgs(m => [...m, { role: "assistant", content: `Landing **"${l.name}"** cargada${(l as any).status === "published" ? ` — publicada en ${(l as any).publishedUrl}` : " (borrador)"}. ¿Qué querés modificar?` }]);
-  }, [landings, cargarPreview]);
+  }, [landings, cargarPreview, hayCambios, hayCambiosTema]);
 
   return (
     <Layout chatCompleto>
@@ -480,10 +706,9 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
               <option value="">Nueva landing...</option>
               {landings.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
-            <Button size="sm" disabled={busy || !productId} onClick={async () => {
+            <Button size="sm" disabled={busy || !productId} onClick={() => {
                 if (!productId) return;
-                setInput("Genera una landing page para este producto");
-                setTimeout(() => enviar(), 100);
+                void enviar("Genera una landing page para este producto", { nueva: true });
               }}
               className="bg-violet-600 hover:bg-violet-700 text-white h-8 px-3 text-xs shrink-0">
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Wand2 className="h-3.5 w-3.5 mr-1" />}
@@ -494,10 +719,17 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                 title="Actualizar la vista previa" aria-label="Actualizar la vista previa">
                 <RefreshCw className={`h-3.5 w-3.5 ${previewBusy ? "animate-spin" : ""}`} />
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => setPreviewMode(m => m === "desktop" ? "mobile" : "desktop")} className="h-8 w-8 p-0"
-                title={previewMode === "desktop" ? "Ver como se ve en un celular" : "Ver como se ve en pantalla grande"}
-                aria-label={previewMode === "desktop" ? "Ver como se ve en un celular" : "Ver como se ve en pantalla grande"}>
-                {previewMode === "desktop" ? <Smartphone className="h-3.5 w-3.5" /> : <Monitor className="h-3.5 w-3.5" />}
+              <div className="hidden sm:flex items-center rounded-md border p-0.5">
+                {([["desktop", Monitor, "Pantalla grande"], ["tablet", Tablet, "Tablet"], ["mobile", Smartphone, "Celular"]] as const).map(([m, Icono, nombre]) => (
+                  <button key={m} onClick={() => setPreviewMode(m)} aria-pressed={previewMode === m} title={`Ver en ${nombre.toLowerCase()}`} aria-label={`Ver en ${nombre.toLowerCase()}`}
+                    className={`h-7 w-7 grid place-items-center rounded ${previewMode === m ? "bg-muted" : "text-muted-foreground"}`}>
+                    <Icono className="h-3.5 w-3.5" />
+                  </button>
+                ))}
+              </div>
+              <Button size="sm" variant="ghost" onClick={() => setPreviewMode(m => m === "mobile" ? "desktop" : "mobile")} className="h-8 w-8 p-0 sm:hidden"
+                title="Cambiar vista" aria-label="Cambiar vista">
+                {previewMode === "mobile" ? <Monitor className="h-3.5 w-3.5" /> : <Smartphone className="h-3.5 w-3.5" />}
               </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -511,6 +743,11 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setUrlAbierto(true)}>
                     <ExternalLink className="h-3.5 w-3.5 mr-2" />Copiar una landing de internet
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href={typeof productId === "number" ? `/creativos?producto=${productId}` : "/creativos"}>
+                      <ImageIcon className="h-3.5 w-3.5 mr-2" />Crear creativos para el anuncio
+                    </Link>
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={exportar} disabled={!landingId}>
                     <Download className="h-3.5 w-3.5 mr-2" />Descargar HTML
@@ -660,7 +897,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
               </select>
             </div>
             <div className="flex shrink-0 border-b bg-muted/20 p-1 gap-1">
-              {([["chat", "💬 Chat"], ["bloques", "🧱 Bloques"]] as const).map(([valor, etiqueta]) => (
+              {([["chat", "💬 Chat"], ["bloques", "🧱 Bloques"], ["tema", "🎨 Tema"]] as const).map(([valor, etiqueta]) => (
                 <button key={valor} onClick={() => setModoPanel(valor)} aria-pressed={modoPanel === valor}
                   className={`flex-1 h-7 rounded-md text-[11px] font-semibold transition-colors ${modoPanel === valor ? "bg-background shadow-sm" : "text-muted-foreground"}`}>
                   {etiqueta}
@@ -689,7 +926,30 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                 </div>
               );
             })() ?? (modoPanel === "bloques" ? (
-              <BloquesEditor landingId={landingId} onGuardado={() => { if (landingId) cargarPreview(landingId); }} />
+              <BloquesEditor
+                landingId={landingId}
+                secciones={secciones}
+                onCambiar={cambiarSecciones}
+                seleccion={seleccion}
+                onSeleccionar={setSeleccion}
+                fotos={fotosProducto}
+                ocupado={iaOcupada || busy}
+                cargando={cargandoSecciones}
+                onIA={pedirIA}
+                onSubirImagen={subirImagen}
+              />
+            ) : modoPanel === "tema" ? (
+              landingId ? (
+                <TemaPanel
+                  retoque={retoque}
+                  onCambiar={setRetoque}
+                  onGuardar={guardarTema}
+                  guardando={guardando}
+                  hayCambios={hayCambiosTema}
+                  admite={!esCopiaHtml(landingActual) && !(landingActual as any)?.html}
+                  sugeridos={colorProducto ? [colorProducto] : []}
+                />
+              ) : <div className="p-4 text-xs text-muted-foreground">Generá o elegí una landing para cambiarle el tema.</div>
             ) : (<>
             <ScrollArea className="flex-1 px-3 py-3">
               <div className="space-y-3">
@@ -730,7 +990,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                   onKeyDown={e => e.key === "Enter" && !e.shiftKey && (e.preventDefault(), enviar())}
                   placeholder="Pide un cambio o genera..."
                   className="h-8 text-xs" disabled={busy} />
-                <Button size="sm" onClick={enviar} disabled={busy || !input.trim()}
+                <Button size="sm" onClick={() => enviar()} disabled={busy || !input.trim()}
                   className="h-8 w-8 p-0 bg-violet-600 hover:bg-violet-700 text-white shrink-0">
                   {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
                 </Button>
@@ -752,16 +1012,30 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
               <div className="flex-1 bg-slate-800 rounded px-2 py-0.5 text-[10px] text-slate-400 truncate">
                 {landingId ? `/api/landing-pages/${landingId}/render` : "preview - genera una landing para comenzar"}
               </div>
+              {landingId && (
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button onClick={deshacer} disabled={!pasado.current.length} title="Deshacer (Ctrl+Z)" aria-label="Deshacer" className="h-7 w-7 grid place-items-center rounded text-slate-300 hover:bg-slate-800 disabled:opacity-30"><Undo2 className="h-3.5 w-3.5" /></button>
+                  <button onClick={rehacer} disabled={!futuro.current.length} title="Rehacer (Ctrl+Shift+Z)" aria-label="Rehacer" className="h-7 w-7 grid place-items-center rounded text-slate-300 hover:bg-slate-800 disabled:opacity-30"><Redo2 className="h-3.5 w-3.5" /></button>
+                  {hayCambios ? (
+                    <button onClick={() => void guardarSecciones()} disabled={guardando} title="Guardar (Ctrl+S)"
+                      className="h-7 px-2 inline-flex items-center gap-1 rounded bg-amber-500 text-slate-950 text-[11px] font-semibold hover:bg-amber-400 disabled:opacity-60">
+                      {guardando ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />} Guardar y ver
+                    </button>
+                  ) : (
+                    <span className="text-[10px] text-slate-500 px-1">{iaOcupada ? "La IA está trabajando…" : "Todo guardado"}</span>
+                  )}
+                </div>
+              )}
               <Badge variant="outline" className="text-[10px] border-slate-700 text-slate-400 hidden sm:flex">
                 {plantilla.startsWith("estilo") ? (plantilla === "estilo" ? "Modelo COD (IA elige)" : `Modelo: ${plantilla.slice(7)}`) : (FAMILIAS.find(f => f.value === plantilla)?.label) || "Automático"}
               </Badge>
             </div>
-            <div className={`flex-1 min-h-0 overflow-auto flex ${previewMode === "mobile" ? "items-start justify-center py-8" : ""}`}>
+            <div className={`flex-1 min-h-0 overflow-auto flex ${previewMode !== "desktop" ? "items-start justify-center py-8" : ""}`}>
               {/* El marco de teléfono medía 390px EXACTOS -- justo el ancho de
                   un teléfono real, así que dentro de uno se salía de la
                   pantalla junto con sus 8px de borde. `w-full max-w-[390px]`
                   lo deja igual en escritorio y lo hace caber en el celular. */}
-              <div className={`relative transition-all ${previewMode === "mobile" ? "w-full max-w-[390px] rounded-[40px] overflow-hidden border-8 border-slate-700 shadow-2xl" : "w-full h-full"}`}>
+              <div className={`relative transition-all ${previewMode === "mobile" ? "w-full max-w-[390px] rounded-[40px] overflow-hidden border-8 border-slate-700 shadow-2xl" : previewMode === "tablet" ? "w-full max-w-[820px] rounded-[28px] overflow-hidden border-[10px] border-slate-700 shadow-2xl" : "w-full h-full"}`}>
                 {previewBusy && (
                   <div className="absolute inset-0 flex items-center justify-center bg-slate-950/70 z-10">
                     <Loader2 className="h-8 w-8 animate-spin text-violet-400" />
@@ -776,7 +1050,9 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                   className={`w-full block border-0 ${
                     previewMode === "mobile"
                       ? "h-[70vh] max-h-[844px] lg:h-[844px] lg:max-h-none"
-                      : "h-full min-h-[420px]"
+                      : previewMode === "tablet"
+                        ? "h-[75vh] max-h-[1100px]"
+                        : "h-full min-h-[420px]"
                   }`}
                   sandbox="allow-same-origin allow-scripts" />
               </div>

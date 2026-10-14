@@ -27,7 +27,8 @@ import {
   Plug,
   ChevronDown,
   BriefcaseBusiness,
-  ReceiptText,
+  PencilRuler,
+  ImagePlus,
 } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent, useSidebar } from "./ui/sidebar";
 import { Badge as UiBadge } from "@/components/ui/badge";
@@ -92,6 +93,10 @@ export function AppSidebar() {
         { label: "Facebook", href: "/facebook", icon: iconoMarca("facebook") },
         { label: "Marketing", href: "/marketing", icon: Megaphone },
         { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate, external: "/api/landing-forge/entrar" },
+        // El editor de landings de ESTE repo (bloques, tema, edición directa)
+        // no tenía entrada: "Landing Studio" abre Landing Forge en otra pestaña.
+        { label: "Editor de landings", href: "/landing-studio", icon: PencilRuler },
+        { label: "Creativos", href: "/creativos", icon: ImagePlus },
         ...(sessionTenant?.slug ? [{ label: "Ver Tienda", href: `/tienda/${sessionTenant.slug}?from=panel`, icon: Eye, external: true }] : []),
       ],
     },

@@ -31,6 +31,10 @@ export default defineConfig({
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
       "@assets": path.resolve(import.meta.dirname, "..", "..", "attached_assets"),
+      // El núcleo de diseño (tema de landing, escena de creativo, maquetas,
+      // fuentes) es UNO para servidor y pantalla: módulos puros que viven en
+      // api-server. Si cada lado tuviera su copia, la vista previa mentiría.
+      "@estudio": path.resolve(import.meta.dirname, "..", "api-server", "src", "lib", "estudio"),
     },
     dedupe: ["react", "react-dom"],
   },
