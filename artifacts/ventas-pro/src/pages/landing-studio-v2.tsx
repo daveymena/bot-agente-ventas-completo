@@ -126,10 +126,36 @@ async function apiFetch<T>(url: string, opts?: RequestInit): Promise<T> {
   return r.status === 204 ? (undefined as T) : r.json();
 }
 
-export default function LandingStudioV2() {
+/** Lo que el editor le cuenta a la suite (y la suite a Atlas y a la galería). */
+export interface ContextoLanding {
+  productId: number | null;
+  productoNombre: string | null;
+  landing: { id: number; nombre: string; publicada: boolean } | null;
+  secciones: unknown[];
+  retoque: unknown;
+  plantilla: string;
+}
+
+export interface PropsLandingStudio {
+  /** La ruta de wouter le pasa `params` cuando se usa como página suelta. */
+  params?: unknown;
+  /** Dentro de la suite /estudio: sin el marco de la app. */
+  incrustado?: boolean;
+  /** Producto elegido en la suite (compartido con creativos y diseños). */
+  producto?: number | "";
+  onProducto?: (id: number | "") => void;
+  onContexto?: (c: ContextoLanding) => void;
+  /** Un diseño elegido en la galería: se aplica o se crea la landing. */
+  pedidoDiseno?: { plantilla: string; n: number } | null;
+}
+
+export default function LandingStudioV2(props: PropsLandingStudio = {}) {
   const [products, setProducts] = useState<Product[]>([]);
   const [landings, setLandings] = useState<Landing[]>([]);
-  const [productId, setProductId] = useState<number | "">("");
+  const [productId, setProductIdLocal] = useState<number | "">(props.producto ?? "");
+  const setProductId = (v: number | "") => { setProductIdLocal(v); props.onProducto?.(v); };
+  // El producto de la suite manda: si cambia allá, cambia acá.
+  useEffect(() => { if (props.producto !== undefined && props.producto !== productId) setProductIdLocal(props.producto); }, [props.producto]); // eslint-disable-line react-hooks/exhaustive-deps
   const [landingId, setLandingId] = useState<number | null>(null);
   // "": Automática (el servidor sugiere por el producto). Con plantilla
   // elegida, Generar usa SÍ O SÍ ese diseño (estilo COD o familia v3).
@@ -437,6 +463,38 @@ export default function LandingStudioV2() {
     Array.from(tmp.children).forEach((n) => doc.head.appendChild(n));
   }, [retoque, docVersion, landingId, previewHtml]);
 
+  // ── Suite: contar qué está abierto, recargar cuando Atlas cambió algo ────
+  useEffect(() => {
+    const l = landings.find((x) => x.id === landingId);
+    props.onContexto?.({
+      productId: typeof productId === "number" ? productId : null,
+      productoNombre: products.find((p) => p.id === productId)?.name || null,
+      landing: l ? { id: l.id, nombre: l.name, publicada: (l as any).status === "published" } : null,
+      secciones,
+      retoque: normalizarRetoque(retoque),
+      plantilla,
+    });
+  }, [productId, landingId, landings, products, seccionesGuardadas, retoqueGuardado, plantilla]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const refrescar = () => {
+      apiFetch<Landing[]>("/api/landing-pages").then(setLandings).catch(() => {});
+      if (landingId) { void cargarSecciones(landingId, true); void cargarPreview(landingId); }
+    };
+    window.addEventListener("estudio:refrescar", refrescar);
+    return () => window.removeEventListener("estudio:refrescar", refrescar);
+  }, [landingId, cargarSecciones, cargarPreview]);
+
+  const ultimoPedido = useRef(0);
+  useEffect(() => {
+    const p = props.pedidoDiseno;
+    if (!p || p.n === ultimoPedido.current) return;
+    ultimoPedido.current = p.n;
+    if (landingId) { void cambiarPlantilla(p.plantilla as Plantilla); toast.success("Diseño aplicado: tus textos quedan igual."); }
+    else if (typeof productId === "number") { setPlantilla(p.plantilla as Plantilla); void enviar("Genera una landing page para este producto", { nueva: true }); }
+    else toast.info("Elegí un producto para crear la landing.");
+  }, [props.pedidoDiseno]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Atajos: Ctrl+Z, Ctrl+Shift+Z / Ctrl+Y, Ctrl+S.
   useEffect(() => {
     const alTecla = (e: KeyboardEvent) => {
@@ -683,12 +741,12 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
   }, [landings, cargarPreview, hayCambios, hayCambiosTema]);
 
   return (
-    <Layout chatCompleto>
+    <Marco incrustado={!!props.incrustado}>
       <div className="flex flex-col flex-1 min-h-0">
         <div className="shrink-0 border-b bg-background">
           {/* Fila principal: logo + producto + landing + generar + iconos de acción */}
           <div className="flex items-center gap-2 px-3 pt-2">
-            <div className="flex items-center gap-2 shrink-0">
+            <div className={`items-center gap-2 shrink-0 ${props.incrustado ? "hidden" : "flex"}`}>
               <div className="p-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
                 <LayoutTemplate className="h-4 w-4 text-violet-500" />
               </div>
@@ -855,7 +913,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
         {/* El selector de panel, SOLO en pantalla chica (lg:hidden). En
             escritorio los dos se ven a la vez y este control estorbaría. */}
         <div className="flex lg:hidden shrink-0 border-b bg-muted/30 p-1 gap-1">
-          {([["chat", "💬 Chat"], ["preview", "👁️ Vista previa"]] as const).map(([valor, etiqueta]) => (
+          {([["chat", props.incrustado ? "🛠️ Editar" : "💬 Chat"], ["preview", "👁️ Vista previa"]] as const).map(([valor, etiqueta]) => (
             <button
               key={valor}
               onClick={() => setPanelMovil(valor)}
@@ -897,7 +955,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
               </select>
             </div>
             <div className="flex shrink-0 border-b bg-muted/20 p-1 gap-1">
-              {([["chat", "💬 Chat"], ["bloques", "🧱 Bloques"], ["tema", "🎨 Tema"]] as const).map(([valor, etiqueta]) => (
+              {([["chat", props.incrustado ? "✨ Generar" : "💬 Chat"], ["bloques", "🧱 Bloques"], ["tema", "🎨 Tema"]] as const).map(([valor, etiqueta]) => (
                 <button key={valor} onClick={() => setModoPanel(valor)} aria-pressed={modoPanel === valor}
                   className={`flex-1 h-7 rounded-md text-[11px] font-semibold transition-colors ${modoPanel === valor ? "bg-background shadow-sm" : "text-muted-foreground"}`}>
                   {etiqueta}
@@ -1060,6 +1118,11 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
           </div>
         </div>
       </div>
-    </Layout>
+    </Marco>
   );
+}
+
+/** Con la app alrededor, o sola dentro de la suite del Estudio. */
+function Marco({ incrustado, children }: { incrustado: boolean; children: React.ReactNode }) {
+  return incrustado ? <div className="flex flex-col flex-1 min-h-0 h-full">{children}</div> : <Layout chatCompleto>{children}</Layout>;
 }

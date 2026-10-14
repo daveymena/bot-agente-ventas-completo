@@ -119,7 +119,8 @@ describe("maquetas de creativo", () => {
         expect(e.formato, `${m.id} ${f}`).toBe(f);
         const html = capasAHtml(e);
         expect(html, `${m.id} ${f}`).toContain("ejemplo.com/a.jpg");
-        expect(html, `${m.id} ${f}`).toContain("Adiós al dolor de espalda");
+        // Algunas maquetas parten el gancho en capas (última palabra en color): van todas las palabras.
+        for (const palabra of "Adiós al dolor de espalda".split(" ")) expect(html, `${m.id} ${f}`).toContain(palabra);
       }
     }
   });

@@ -463,6 +463,163 @@ export const MAQUETAS: Maqueta[] = [
       return escena(f, d.acento, [forma({ x: 0, y: 0, w: 100, h: 100, relleno: d.acento, nombre: "Fondo" }), ...capas]);
     },
   },
+  {
+    id: "cinta-oferta",
+    nombre: "Cinta diagonal",
+    descripcion: "Foto a sangre cruzada por una cinta de color con el gancho. Detiene el scroll.",
+    ideal: "4:5",
+    armar: (d, f) => {
+      const c = ctx(f);
+      if (c.h) return escena(f, "#111827", horizontalBasico(c, d, { fondo: "#111827", tinta: "#ffffff", fuente: "anton", mayus: true, boton: {} }));
+      const alto = pxY(c, 250);
+      const yCinta = c.arriba + 10;
+      const base = { texto: d.gancho, x: 4, w: 92, fuente: "anton", mayus: true, color: d.sobreAcento, alinear: "center" as const, vertical: "center" as const, interlineado: 1, nombre: "Gancho" };
+      const tam = ajustar(c, base, 9.5, 5, alto * 0.9);
+      const abajo = apilarHasta(c, [
+        pzFila(
+          d.precio ? pzTexto(c, { texto: d.precio, x: 6, w: 40, tam: 6.4, fuente: "anton", sombra: true, nombre: "Precio", vertical: "center" }) : null,
+          pzBoton(c, d, d.precio ? 46 : 20, d.precio ? 48 : 60, true),
+        ),
+      ], c.abajo);
+      return escena(f, "#111827", [
+        img({ src: foto(d), x: 0, y: 0, w: 100, h: 100, nombre: "Foto de fondo" }),
+        deg({ x: 0, y: 55, w: 100, h: 45, hasta: "rgba(0,0,0,.65)" }),
+        forma({ x: -10, y: yCinta, w: 120, h: alto, relleno: d.acento, rot: -6, sombra: true, nombre: "Cinta" }),
+        t({ ...base, tam, y: yCinta, h: alto, rot: -6 }),
+        ...abajo.capas,
+      ]);
+    },
+  },
+  {
+    id: "ficha-tecnica",
+    nombre: "Ficha con tarjetas",
+    descripcion: "El producto y sus 3 beneficios reales en tarjetas con ícono. Ordenada y confiable.",
+    ideal: "4:5",
+    armar: (d, f) => {
+      const c = ctx(f);
+      const bens = (d.beneficios || []).slice(0, 3);
+      if (c.h || !bens.length) return MAQUETAS.find((m) => m.id === "beneficios")!.armar(d, f);
+      const iconos = ["✓", "★", "♥"];
+      const g = { texto: d.gancho, x: 7, w: 86, alinear: "center" as const, color: "#0f172a", peso: 900, nombre: "Gancho" };
+      const gancho = pzTexto(c, { ...g, tam: ajustar(c, g, 7.2, 4.6, 13) });
+      const altoTarjeta = pxY(c, 120);
+      const tarjetas: Pieza = {
+        alto: altoTarjeta * bens.length + pxY(c, 14) * (bens.length - 1),
+        poner: (y) => bens.flatMap((b, i) => {
+          const yy = y + i * (altoTarjeta + pxY(c, 14));
+          return [
+            forma({ x: 7, y: yy, w: 86, h: altoTarjeta, relleno: "#ffffff", radio: 26, sombra: true, nombre: `Tarjeta ${i + 1}` }),
+            forma({ x: 10, y: yy + altoTarjeta * 0.2, w: 8.5, h: altoTarjeta * 0.6, relleno: d.acento, radio: 18, nombre: `Ícono ${i + 1}` }),
+            t({ texto: iconos[i]!, x: 10, y: yy + altoTarjeta * 0.2, w: 8.5, h: altoTarjeta * 0.6, alinear: "center", vertical: "center", tam: 4.2, color: d.sobreAcento, nombre: `Símbolo ${i + 1}` }),
+            t({ texto: b, x: 22, y: yy, w: 68, h: altoTarjeta, vertical: "center", tam: ajustar(c, { texto: b, x: 22, w: 68, peso: 700 }, 3.8, 2.8, altoTarjeta * 0.9), peso: 700, color: "#0f172a", nombre: `Beneficio ${i + 1}` }),
+          ];
+        }),
+      };
+      const capas = sandwich(c, [gancho], [tarjetas, botonCentrado(c, d)], (y0, y1) => [
+        forma({ x: 20, y: y0, w: 60, h: y1 - y0, relleno: d.acento, forma: "circulo", opacidad: 0.12, nombre: "Halo" }),
+        img({ src: foto(d), x: 12, y: y0, w: 76, h: y1 - y0, ajuste: "contain", sombra: true }),
+      ], 24);
+      return escena(f, "#eef2f7", [forma({ x: 0, y: 0, w: 100, h: 100, relleno: "#eef2f7", nombre: "Fondo" }), ...capas]);
+    },
+  },
+  {
+    id: "polaroid",
+    nombre: "Polaroid",
+    descripcion: "La foto como polaroid inclinada, con nota escrita a mano. Cercana y auténtica.",
+    ideal: "4:5",
+    armar: (d, f) => {
+      const c = ctx(f);
+      if (c.h) return escena(f, "#f3ede4", horizontalBasico(c, d, { fondo: "#f3ede4", tinta: "#2b2118", fuente: "playfair", boton: { oscuro: "#2b2118" } }));
+      const g = { texto: d.gancho, x: 8, w: 84, alinear: "center" as const, color: "#2b2118", fuente: "playfair", peso: 700, nombre: "Gancho" };
+      const capas = sandwich(c, [pzTexto(c, { ...g, tam: ajustar(c, g, 7.6, 4.8, 15) })], [pzBoton(c, d, 25, 50, false, "#2b2118")], (y0, y1) => {
+        const alto = y1 - y0;
+        const ancho = Math.min(74, (alto * c.alto) / c.ancho * 0.84);
+        const x = (100 - ancho) / 2;
+        const pie = alto * 0.18;
+        return [
+          forma({ x, y: y0, w: ancho, h: alto, relleno: "#ffffff", rot: -3, sombra: true, nombre: "Marco polaroid" }),
+          img({ src: foto(d), x: x + ancho * 0.06, y: y0 + alto * 0.05, w: ancho * 0.88, h: alto - pie - alto * 0.05, rot: -3 }),
+          t({ texto: d.apoyo || d.nombre, x: x + 4, y: y1 - pie, w: ancho - 8, h: pie, rot: -3, alinear: "center", vertical: "center", fuente: "caveat", tam: ajustar(c, { texto: d.apoyo || d.nombre, x, w: ancho - 8, fuente: "caveat", peso: 700 }, 5.6, 3.4, pie), peso: 700, color: "#2b2118", nombre: "Nota a mano" }),
+        ];
+      }, 30);
+      return escena(f, "#f3ede4", [forma({ x: 0, y: 0, w: 100, h: 100, relleno: "#f3ede4", nombre: "Fondo" }), ...capas]);
+    },
+  },
+  {
+    id: "catalogo",
+    nombre: "Catálogo",
+    descripcion: "Cuatro fotos reales en grilla con el gancho y el precio. Para productos con variantes.",
+    ideal: "1:1",
+    armar: (d, f) => {
+      const c = ctx(f);
+      const fotos = [0, 1, 2, 3].map((i) => foto(d, i));
+      if (c.h) {
+        return escena(f, "#ffffff", [
+          ...fotos.map((src, i) => img({ src, x: 50 + (i % 2) * 25, y: Math.floor(i / 2) * 50, w: 25, h: 50, nombre: `Foto ${i + 1}` })),
+          ...horizontalBasico(c, d, { fondo: "#ffffff", tinta: "#111827" }).filter((x) => x.tipo !== "imagen").map((x) => (x.nombre === "Fondo" ? { ...x, w: 50 } : x)),
+        ]);
+      }
+      const g = { texto: d.gancho, x: 6, w: 88, alinear: "center" as const, color: d.sobreAcento, peso: 900, nombre: "Gancho" };
+      const capas = sandwich(c,
+        [pzTexto(c, { ...g, tam: ajustar(c, g, 7, 4.4, 13) })],
+        [pzFila(d.precio ? pzTexto(c, { texto: d.precio, x: 6, w: 38, tam: 6, peso: 900, color: d.sobreAcento, vertical: "center", nombre: "Precio" }) : null, pzBoton(c, d, d.precio ? 46 : 20, d.precio ? 48 : 60, true))],
+        (y0, y1) => {
+          const gap = 1.4, ancho = (88 - gap) / 2, alto = (y1 - y0 - gap) / 2;
+          return fotos.map((src, i) => img({ src, x: 6 + (i % 2) * (ancho + gap), y: y0 + Math.floor(i / 2) * (alto + gap), w: ancho, h: alto, radio: 22, nombre: `Foto ${i + 1}` }));
+        }, 22);
+      return escena(f, d.acento, [forma({ x: 0, y: 0, w: 100, h: 100, relleno: d.acento, nombre: "Fondo" }), ...capas]);
+    },
+  },
+  {
+    id: "titular-gigante",
+    nombre: "Titular gigante",
+    descripcion: "Póster tipográfico: el gancho enorme, la última palabra en color y el producto abajo.",
+    ideal: "4:5",
+    armar: (d, f) => {
+      const c = ctx(f);
+      if (c.h) return escena(f, "#0b0b0f", horizontalBasico(c, d, { fondo: "#0b0b0f", tinta: "#ffffff", fuente: "anton", mayus: true }));
+      const palabras = d.gancho.trim().split(/\s+/);
+      const resto = palabras.length > 2 ? palabras.slice(0, -1).join(" ") : d.gancho;
+      const final = palabras.length > 2 ? palabras[palabras.length - 1]! : "";
+      const b1 = { texto: resto, x: 6, w: 88, fuente: "anton", mayus: true, color: "#ffffff", interlineado: 0.98, nombre: "Gancho" };
+      const tam = ajustar(c, b1, 17, 8, f === "9:16" ? 24 : 30);
+      const piezas = [pzTexto(c, { ...b1, tam })];
+      if (final) piezas.push(pzTexto(c, { texto: final, x: 6, w: 88, fuente: "anton", mayus: true, color: d.acento, tam, interlineado: 0.98, nombre: "Palabra en color" }));
+      const capas = sandwich(c, piezas, [botonCentrado(c, d)], (y0, y1) => [
+        forma({ x: 15, y: y0 + (y1 - y0) * 0.1, w: 70, h: (y1 - y0) * 0.9, relleno: d.acento, forma: "circulo", opacidad: 0.22, nombre: "Brillo" }),
+        img({ src: foto(d), x: 10, y: y0, w: 80, h: y1 - y0, ajuste: "contain", sombra: true }),
+      ], 8);
+      return escena(f, "#0b0b0f", [forma({ x: 0, y: 0, w: 100, h: 100, relleno: "#0b0b0f", nombre: "Fondo" }), ...capas]);
+    },
+  },
+  {
+    id: "barra-confianza",
+    nombre: "Barra de confianza",
+    descripcion: "Foto a sangre y abajo una barra blanca con los sellos reales del negocio.",
+    ideal: "4:5",
+    armar: (d, f) => {
+      const c = ctx(f);
+      const sellos = (d.sellos || []).slice(0, 3);
+      if (c.h || !sellos.length) return MAQUETAS.find((m) => m.id === "impacto")!.armar(d, f);
+      const altoBarra = pxY(c, 150);
+      const yBarra = c.abajo - altoBarra;
+      const g = { texto: d.gancho, x: 6, w: 88, fuente: "montserrat", peso: 900, color: "#ffffff", sombra: true, nombre: "Gancho" };
+      const arriba = apilar(c, [pzTexto(c, { ...g, tam: ajustar(c, g, 8.6, 5, 20) }), d.apoyo ? pzTexto(c, { texto: d.apoyo, x: 6, w: 88, tam: 3.6, peso: 600, color: "#ffffff", sombra: true, nombre: "Apoyo" }) : null], c.arriba + 1, 16);
+      const boton = apilarHasta(c, [botonCentrado(c, d)], yBarra - pxY(c, 28));
+      const anchoSello = 88 / sellos.length;
+      return escena(f, "#000000", [
+        img({ src: foto(d), x: 0, y: 0, w: 100, h: 100 }),
+        deg({ x: 0, y: 0, w: 100, h: arriba.fin + 10, desde: "rgba(0,0,0,.62)", hasta: "rgba(0,0,0,0)", nombre: "Sombra arriba" }),
+        ...arriba.capas,
+        ...boton.capas,
+        forma({ x: 4, y: yBarra, w: 92, h: altoBarra, relleno: "#ffffff", radio: 28, sombra: true, nombre: "Barra" }),
+        ...sellos.flatMap((s, i) => [
+          t({ texto: `✓ ${s}`, x: 6 + i * anchoSello, y: yBarra, w: anchoSello, h: altoBarra, alinear: "center", vertical: "center", tam: ajustar(c, { texto: `✓ ${s}`, x: 0, w: anchoSello - 2, peso: 800 }, 3.2, 2.2, altoBarra * 0.85), peso: 800, color: "#0f172a", nombre: `Sello ${i + 1}` }),
+          ...(i > 0 ? [forma({ x: 6 + i * anchoSello - 0.15, y: yBarra + altoBarra * 0.25, w: 0.3, h: altoBarra * 0.5, relleno: "#e2e8f0", nombre: "Divisor" })] : []),
+        ]),
+      ]);
+    },
+  },
 ];
 
 /** La estrella con el precio, cuadrada sobre cualquier formato. */

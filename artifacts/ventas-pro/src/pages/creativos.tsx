@@ -73,12 +73,23 @@ function Miniatura({ escena, ancho = 150, onClick, activo, titulo }: { escena: E
   );
 }
 
-export default function CreativosPage() {
+export interface PropsCreativos {
+  params?: unknown;
+  incrustado?: boolean;
+  producto?: number | "";
+  onProducto?: (id: number | "") => void;
+  onContexto?: (c: { productId: number | null; productoNombre: string | null; creativo: { id: string | null; nombre: string } | null }) => void;
+}
+
+export default function CreativosPage(props: PropsCreativos = {}) {
   const [productos, setProductos] = useState<Producto[]>([]);
-  const [productId, setProductId] = useState<number | "">(() => {
+  const [productId, setProductIdLocal] = useState<number | "">(() => {
+    if (props.producto !== undefined && props.producto !== "") return props.producto;
     const q = new URLSearchParams(window.location.search).get("producto");
     return q && Number(q) > 0 ? Number(q) : "";
   });
+  const setProductId = (v: number | "") => { setProductIdLocal(v); props.onProducto?.(v); };
+  useEffect(() => { if (props.producto !== undefined && props.producto !== productId) setProductIdLocal(props.producto); }, [props.producto]); // eslint-disable-line react-hooks/exhaustive-deps
   const [datos, setDatos] = useState<DatosCreativo | null>(null);
   const [cargandoDatos, setCargandoDatos] = useState(false);
   const [formato, setFormato] = useState<Formato>("4:5");
@@ -334,6 +345,23 @@ export default function CreativosPage() {
     setDatos({ ...datos, acento: nuevo, sobreAcento: tintaSobre(nuevo) });
   };
 
+  // ── Suite: contexto para Atlas y recarga cuando Atlas creó o cambió algo ──
+  useEffect(() => {
+    props.onContexto?.({ productId: typeof productId === "number" ? productId : null, productoNombre: productos.find((p) => p.id === productId)?.name || null, creativo: escena ? { id: creativoId, nombre } : null });
+  }, [productId, productos, creativoId, nombre, !!escena]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const refrescar = async () => {
+      // Atlas guarda sus creativos en la misma carpeta: se abre la lista para
+      // que se vean, y el abierto se recarga si Atlas lo editó (y no hay cambios locales).
+      if (creativoId && !hayCambios) {
+        try { const c = await api<Guardado>(`/api/creativos/${creativoId}`); abrirEscena(normalizarEscena(c.escena), { maqueta: c.maqueta, id: c.id, nombre: c.nombre, guardado: true }); setPng(c.png); } catch { /* sigue */ }
+      }
+      setMisCreativos(null);
+    };
+    window.addEventListener("estudio:refrescar", refrescar);
+    return () => window.removeEventListener("estudio:refrescar", refrescar);
+  });
+
   const galeria = useMemo(() => (datos ? MAQUETAS.map((m) => ({ m, escena: normalizarEscena(m.armar(datos, formato)) })) : []), [datos, formato]);
 
   const nuevaCapa = {
@@ -467,7 +495,7 @@ export default function CreativosPage() {
   ) : <p className="p-3 text-xs text-muted-foreground">Acá vas a ver las propiedades de lo que elijas en el lienzo.</p>;
 
   return (
-    <Layout chatCompleto>
+    <MarcoCreativos incrustado={!!props.incrustado}>
       <div className="flex flex-col flex-1 min-h-0 bg-background">
         {/* Barra superior */}
         <div className="shrink-0 border-b px-3 py-2 flex flex-wrap items-center gap-2">
@@ -502,7 +530,7 @@ export default function CreativosPage() {
 
         <div className="flex flex-1 min-h-0 flex-col lg:flex-row">
           {/* Izquierda (escritorio) */}
-          <aside className="hidden lg:flex flex-col w-[300px] border-r min-h-0">
+          <aside className={`hidden lg:flex flex-col border-r min-h-0 ${props.incrustado ? "w-[260px] 2xl:w-[300px]" : "w-[300px]"}`}>
             <div className="flex border-b p-1 gap-1 shrink-0">
               {tabs.filter((t) => !t.soloMovil).map((t) => (
                 <button key={t.id} onClick={() => setPanel(t.id)} aria-pressed={panel === t.id} className={`flex-1 h-8 rounded-md text-xs font-semibold inline-flex items-center justify-center gap-1 ${panel === t.id ? "bg-muted" : "text-muted-foreground"}`}>
@@ -547,14 +575,14 @@ export default function CreativosPage() {
               <div className="m-auto max-w-sm text-center space-y-3 py-10">
                 <div className="mx-auto h-14 w-14 rounded-2xl bg-violet-500/10 grid place-items-center"><Sparkles className="h-7 w-7 text-violet-500" /></div>
                 <p className="text-lg font-bold">Creativos para tus anuncios</p>
-                <p className="text-sm text-muted-foreground">Elegí un producto y en segundos tenés 10 diseños armados con su foto, precio y condiciones reales, en el formato que pide Meta. Después los tocás como en un editor de diseño.</p>
+                <p className="text-sm text-muted-foreground">Elegí un producto y en segundos tenés {MAQUETAS.length} diseños armados con su foto, precio y condiciones reales, en el formato que pide Meta. Después los tocás como en un editor de diseño.</p>
                 {datos && <Button className="bg-violet-600 hover:bg-violet-700 text-white" onClick={() => usarMaqueta(MAQUETAS.find((m) => m.ideal === formato)?.id || MAQUETAS[0].id)}><Plus className="h-4 w-4 mr-1" /> Empezar con la recomendada</Button>}
               </div>
             )}
           </main>
 
           {/* Derecha (escritorio) */}
-          <aside className="hidden lg:block w-[300px] border-l overflow-y-auto">{panelPropiedades}</aside>
+          <aside className={`hidden lg:block border-l overflow-y-auto ${props.incrustado ? "w-[260px] 2xl:w-[300px]" : "w-[300px]"}`}>{panelPropiedades}</aside>
 
           {/* Móvil: un panel debajo del lienzo, con pestañas */}
           <div className="lg:hidden border-t flex flex-col min-h-0 max-h-[45vh]">
@@ -626,6 +654,10 @@ export default function CreativosPage() {
           </div>
         </div>
       )}
-    </Layout>
+    </MarcoCreativos>
   );
+}
+
+function MarcoCreativos({ incrustado, children }: { incrustado: boolean; children: React.ReactNode }) {
+  return incrustado ? <div className="flex flex-col flex-1 min-h-0 h-full">{children}</div> : <Layout chatCompleto>{children}</Layout>;
 }

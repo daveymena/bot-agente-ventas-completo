@@ -124,6 +124,6 @@ export async function ganchosConIA(tenantId: number, d: DatosDelProducto, cantid
 export function inventaCifras(texto: string, d: Pick<DatosDelProducto, "datos">): boolean {
   if (/%|\bx\s?\d|\d\s?x\b|off\b/i.test(texto)) return true;
   const permitidos = `${d.datos.precio || ""} ${(d.datos.beneficios || []).join(" ")} ${(d.datos.sellos || []).join(" ")} ${d.datos.nombre}`;
-  const nums = texto.match(/\d[\d.,]*/g) || [];
+  const nums: string[] = texto.match(/\d[\d.,]*/g) ?? [];
   return nums.some((num) => !permitidos.includes(num.replace(/[.,]$/, "")));
 }
