@@ -281,11 +281,20 @@ async function fotosAptasParaEscena(tenantId: number, locales: string[]): Promis
 const TRANSICIONES = ["smoothleft", "circleopen", "slideup", "fadeblack", "smoothright", "zoomin"];
 
 async function capturarEscenas(items: Array<{ e: EscenaDeVideo; i: number; foto: string | null; detalle?: boolean }>, total: number, ctx: { color: string; marca: string; precio: string; cta: string; modelo: string; destino: "web" | "whatsapp" }, dir: string): Promise<string[]> {
-  const puppeteer: any = (await import("puppeteer")).default;
-  const navegador = await puppeteer.launch({
-    headless: true, executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--lang=es-CO"], timeout: 30_000, protocolTimeout: 90_000,
-  });
+  let navegador: any;
+  try {
+    const puppeteer: any = (await import("puppeteer")).default;
+    navegador = await puppeteer.launch({
+      headless: true, executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--lang=es-CO"], timeout: 30_000, protocolTimeout: 90_000,
+    });
+  } catch (e: any) {
+    // Sin Chromium el vídeo igual sale: las escenas se pintan con el motor
+    // del Estudio de anuncios (sharp + Inter), sin navegador.
+    logger.warn({ err: e?.message }, "[VideoAnuncio] sin Chromium: fotogramas con el Estudio (sharp)");
+    const { fotogramasSinNavegador } = await import("./estudio-anuncios/fotogramas");
+    return fotogramasSinNavegador(items, total, ctx, dir, rolDeEscena);
+  }
   try {
     const pagina = await navegador.newPage();
     await pagina.setViewport({ width: ANCHO, height: ALTO, deviceScaleFactor: 1 });

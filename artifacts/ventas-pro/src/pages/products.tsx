@@ -18,7 +18,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/componen
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { Plus, MoreVertical, Edit, Trash2, Save, Package, Tag, Filter, Check, X, Image as ImageIcon, Sparkles, Search } from "lucide-react";
+import { Plus, MoreVertical, Edit, Trash2, Save, Package, Tag, Filter, Check, X, Image as ImageIcon, Sparkles, Search, Clapperboard } from "lucide-react";
 import { toast } from "sonner";
 import { format, parseISO } from "date-fns";
 import { es } from "date-fns/locale";
@@ -387,7 +387,10 @@ export default function Products() {
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon" className="h-8 w-8 bg-background/80 backdrop-blur-sm shadow-sm border border-border hover:bg-background"><MoreVertical className="h-4 w-4"/></Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
+                        <DropdownMenuContent align="end" className="w-48">
+                          <DropdownMenuItem onClick={() => { window.location.href = `/estudio-anuncios?producto=${product.id}`; }}>
+                            <Clapperboard className="h-4 w-4 mr-2 text-primary"/> Crear anuncios
+                          </DropdownMenuItem>
                           <DropdownMenuItem className="text-destructive focus:text-destructive focus:bg-destructive/10" onClick={() => handleDelete(product.id)}>
                             <Trash2 className="h-4 w-4 mr-2"/> Eliminar
                           </DropdownMenuItem>

@@ -1,6 +1,6 @@
 import { IconoDelMenu } from "@/components/icono-del-menu";
 import { useLocation } from "wouter";
-import { LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store, Activity, Crown, Megaphone, HelpCircle, BadgeCheck, LayoutTemplate, LogOut , Truck, MessageSquareText, GraduationCap, Plug, ReceiptText } from "lucide-react";
+import { Clapperboard, LayoutDashboard, MessageSquare, Users, Package, MoreHorizontal, Bot, Phone, Settings, ShoppingCart, Palette, Facebook, Wand2, Store, Activity, Crown, Megaphone, HelpCircle, BadgeCheck, LayoutTemplate, LogOut , Truck, MessageSquareText, GraduationCap, Plug, ReceiptText } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "@/App";
 import { iconoMarca } from "@/components/logo-marca";
@@ -16,6 +16,7 @@ const baseMoreItems = [
   { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate, external: "/api/landing-forge/entrar" },
   { label: "Atlas VentasPro", href: "/code-agent", icon: Wand2, highlight: true },
   { label: "Marketing", href: "/marketing", icon: Megaphone },
+  { label: "Estudio de anuncios", href: "/estudio-anuncios", icon: Clapperboard },
   { label: "Facebook", href: "/facebook", icon: iconoMarca("facebook") },
   { label: "Agentes IA", href: "/agents", icon: Bot },
   { label: "Probar vendedor", href: "/probar-vendedor", icon: MessageSquareText },

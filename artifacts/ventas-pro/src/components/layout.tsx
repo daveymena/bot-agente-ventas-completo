@@ -26,8 +26,7 @@ import {
   MessageSquareText,
   ReceiptText,
   GraduationCap,
-  Plug,
-} from "lucide-react";
+  Plug, Clapperboard } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent } from "./ui/sidebar";
 import { Badge as UiBadge } from "@/components/ui/badge";
 import { useGetWhatsAppStatus, getGetWhatsAppStatusQueryKey } from "@workspace/api-client-react";
@@ -73,6 +72,7 @@ export function AppSidebar() {
     { label: "Personalización", href: "/branding", icon: Palette },
     { label: "Facebook", href: "/facebook", icon: iconoMarca("facebook") },
     { label: "Marketing", href: "/marketing", icon: Megaphone },
+    { label: "Estudio de anuncios", href: "/estudio-anuncios", icon: Clapperboard },
     { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate, external: "/api/landing-forge/entrar" },
     { label: "Configuración", href: "/settings", icon: Settings },
     { label: "Diagnóstico", href: "/diagnostico", icon: Activity },

@@ -60,6 +60,17 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      // Piezas del Estudio de anuncios (/uploads/anuncios/…) y vídeos.
+      "/uploads": {
+        target: process.env.VITE_API_URL || "http://localhost:3002",
+        changeOrigin: true,
+        secure: false,
+      },
+      "/videos": {
+        target: process.env.VITE_API_URL || "http://localhost:3002",
+        changeOrigin: true,
+        secure: false,
+      },
       "/api": {
         target: process.env.VITE_API_URL || "http://localhost:3002",
         changeOrigin: true,

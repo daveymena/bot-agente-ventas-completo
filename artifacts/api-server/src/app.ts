@@ -15,6 +15,7 @@ import { catalogoMetaRouter } from "./routes/catalogo-meta";
 import healthRouter from "./health";
 import woocommerceRouter from "./routes/woocommerce";
 import dropiRouter from "./routes/dropi";
+import estudioAnunciosRouter from "./routes/estudio-anuncios";
 import telegramRouter from "./routes/telegram";
 import subscriptionWebhooksRouter from "./routes/subscription-webhooks";
 import activationRouter from "./routes/activation";
@@ -980,6 +981,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 app.use("/api/woocommerce", woocommerceRouter);
 app.use("/api/dropi", dropiRouter);
+// Estudio de anuncios: imágenes + vídeo desde las fotos reales del producto (lib/estudio-anuncios/).
+app.use("/api/estudio-anuncios", estudioAnunciosRouter);
 app.use("/api/telegram", telegramRouter);
 app.use("/api/webhooks/subscription", subscriptionWebhooksRouter);
 app.use("/api/activation", activationRouter);
