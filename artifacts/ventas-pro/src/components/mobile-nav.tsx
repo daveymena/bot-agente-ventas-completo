@@ -13,9 +13,9 @@ const mainNavItems = [
 ];
 
 const baseMoreItems = [
-  { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate, external: "/api/landing-forge/entrar" },
-  { label: "Editor de landings", href: "/landing-studio", icon: PencilRuler },
-  { label: "Creativos", href: "/creativos", icon: ImagePlus },
+  { label: "Studio", href: "/estudio", icon: PencilRuler },
+  { label: "Creativos", href: "/estudio?espacio=creativos", icon: ImagePlus },
+  { label: "Landing Forge", href: "/landing-studio", icon: LayoutTemplate, external: "/api/landing-forge/entrar" },
   { label: "Atlas VentasPro", href: "/code-agent", icon: Wand2, highlight: true },
   { label: "Marketing", href: "/marketing", icon: Megaphone },
   { label: "Facebook", href: "/facebook", icon: iconoMarca("facebook") },

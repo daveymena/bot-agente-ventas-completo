@@ -230,14 +230,20 @@ router.post("/preview", async (req: TenantRequest, res, next) => {
         preview: true,
         pago: producto && modelo !== "fisico" ? await enlacesDePagoLocal(tenantId, producto) : {},
       });
+      // El tema (si viene) se ve también en la galería de diseños.
+      const { aplicarRetoque } = await import("../lib/estudio/retoque");
       res.setHeader("Content-Type", "text/html; charset=utf-8");
-      return res.send(html);
+      return res.send(aplicarRetoque(html, disenoBody.retoque));
     }
 
-    const html = renderizarLanding({
+    const htmlV3 = renderizarLanding({
       nombre: String(req.body?.name || "Vista previa"),
       secciones: Array.isArray(req.body?.sections) ? req.body.sections : [],
       familia: req.body?.familia ?? req.body?.design?.familia ?? null,
+      // La composición (modelo + semilla) también: sin esto la galería
+      // mostraba todas las páginas con el orden "clásico".
+      modelo: disenoBody.modelo ?? null,
+      semilla: disenoBody.semilla ?? null,
       producto: producto && {
         name: producto.name, description: producto.description, imageUrl: producto.imageUrl, images: await fotosUnicasDelProducto(producto, { guardar: guardadorDeMetadata(producto.id) }),
         price: producto.price, currency: producto.currency, paymentLink: producto.paymentLink,
@@ -249,9 +255,10 @@ router.post("/preview", async (req: TenantRequest, res, next) => {
       modo: (req.body?.design as any)?.modo ?? null,
       ofertas: (req.body?.design as any)?.ofertas ?? null,
       sellos: (await import("../lib/modelo-de-negocio")).sellosDelNegocio(c),
-    });
+    } as any);
+    const { aplicarRetoque } = await import("../lib/estudio/retoque");
     res.setHeader("Content-Type", "text/html; charset=utf-8");
-    return res.send(html);
+    return res.send(aplicarRetoque(htmlV3, disenoBody.retoque));
   } catch (e) { return next(e); }
 });
 
