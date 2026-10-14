@@ -60,6 +60,7 @@ import { buscarContextoRelevante } from "./buscar-contexto";
 import { bloqueDeLaFichaEnFoco, puntosDeLaFicha } from "./lo-que-dice-la-ficha";
 import { sinCondicionesSinRespaldo, condicionesSinRespaldo } from "./condiciones-sin-respaldo";
 import { describirObjecion } from "./objeciones";
+import { medirFormato, pedidoDeReescritura } from "./formato-whatsapp";
 import {
   clasificarObjecion,
   registrarObjecion,
@@ -1160,6 +1161,51 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
     .replace(/<｜｜DSML[\s\S]*/g, "")
     .replace(/<\|\|DSML[\s\S]*/g, "")
     .trim();
+
+  // ── Red de seguridad: el FORMATO de WhatsApp ─────────────────────────────
+  //
+  // Era la única regla del motor sin ninguna comprobación: el prompt pide "2 a 4
+  // frases, un emoji suelto, sin listas ni títulos" y nada lo miraba. El v1 sí
+  // lo medía (`emojis-con-medida.ts`) y el v2 se quedó sin ese reemplazo.
+  //
+  // Mismo patrón que las cifras: se pide UNA reescritura y, si insiste, sale lo
+  // que escribió. El formato es menos grave que dejar al cliente sin respuesta,
+  // así que acá no se recorta el texto por atrás.
+  //
+  // No aplica cuando hay tarjetas: la ficha que pega el servidor tiene su propio
+  // formato (un emoji por línea) y el texto que la acompaña es una línea.
+  if (textoFinal && !hayTarjetas()) {
+    const medida = medirFormato(textoFinal);
+    if (medida.problemas.length) {
+      console.log(
+        `📐 [MOTOR] Formato fuera de medida (${medida.problemas.map((p) => p.tipo).join(", ")}): ` +
+          `frases=${medida.metricas.frases} lineas=${medida.metricas.lineas} emojis=${medida.metricas.emojis}`,
+      );
+      try {
+        const reintento = await llm.crear({
+          messages: [
+            ...messages,
+            { role: "assistant", content: textoFinal },
+            { role: "system", content: pedidoDeReescritura(medida) },
+          ],
+          temperature: 0.6,
+          effort: "high",
+        });
+        contar(reintento.uso);
+        const nuevo = (reintento.content || "")
+          .replace(/<｜｜DSML[\s\S]*/g, "")
+          .replace(/<\|\|DSML[\s\S]*/g, "")
+          .trim();
+        // Se acepta solo si de verdad mejoró: si el reintento viene igual de
+        // largo o peor, se queda el original (no se castiga dos veces).
+        if (nuevo && medirFormato(nuevo).problemas.length < medida.problemas.length) {
+          textoFinal = nuevo;
+        }
+      } catch {
+        /* si el reintento falla, sale el texto original */
+      }
+    }
+  }
 
   // ── Notas internas del modelo ────────────────────────────────────────────
   // Prueba en producción (25-09-2026): al cliente le llegó "(El mensaje
