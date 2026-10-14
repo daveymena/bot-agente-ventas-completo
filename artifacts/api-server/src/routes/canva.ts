@@ -9,7 +9,9 @@ import { encryptSecret, decryptSecret } from "../lib/credentials-vault";
 export const canvaRouter = Router();
 
 function tenantIdDe(req: any): number | null {
-  const raw = req.signedCookies?.tenant_id || req.cookies?.tenant_id;
+  // Solo cookie FIRMADA: el fallback a req.cookies (no firmado) permitía fijar
+  // el tenant con un valor controlado por el cliente.
+  const raw = req.signedCookies?.tenant_id;
   const id = Number(raw);
   if (Number.isFinite(id) && id > 0) return id;
   const tid = Number((req as any).tenant?.id);
@@ -131,7 +133,7 @@ canvaRouter.get("/callback", async (req, res) => {
     meta.canva = {
       accessToken: encryptSecret(String(j.access_token)),
       refreshToken: j.refresh_token ? encryptSecret(String(j.refresh_token)) : null,
-      expiraEn: j.expires_in ? Date.now() + Number(j.expires_in) * 1000 : null,
+      expiraEn: Date.now() + (Number(j.expires_in) || 14_400) * 1000,
       tokenType: j.token_type || "Bearer",
       scope: j.scope || "",
       actualizadoEn: new Date().toISOString(),
@@ -177,15 +179,30 @@ canvaRouter.post("/probar", async (req, res) => {
       signal: AbortSignal.timeout(15_000),
     });
     const dj: any = await r2.json().catch(() => ({}));
-    // introspect exige formulario, no JSON
+    // introspect exige autenticación de CLIENTE (Basic client_id:client_secret),
+    // no el Bearer del usuario. Con Bearer Canva responde 400/401 siempre.
+    const cid = String(process.env.CANVA_CLIENT_ID || "").trim();
+    const sec = String(process.env.CANVA_CLIENT_SECRET || "").trim();
+    const basic = Buffer.from(`${cid}:${sec}`).toString("base64");
     const r = await fetch("https://api.canva.com/rest/v1/oauth/introspect", {
       method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: `Basic ${basic}` },
       body: new URLSearchParams({ token }).toString(),
       signal: AbortSignal.timeout(15_000),
     });
     const j: any = await r.json().catch(() => ({}));
-    if (r2.ok) return res.json({ success: true, perfil, capacidades: caps, disenos: dj, introspect: j });
+    if (r2.ok) {
+      // No devolver al navegador el payload crudo de /designs (incluye urls de
+      // edición/visualización de la cuenta) ni la introspección completa.
+      return res.json({
+        success: true,
+        perfil: { display_name: perfil?.profile?.display_name ?? perfil?.display_name ?? null },
+        capacidades: caps?.capabilities ?? null,
+        disenosVisibles: Array.isArray(dj?.items) ? dj.items.length : 0,
+        tokenActivo: j?.active ?? null,
+        scopesConcedidos: Array.isArray(j?.scopes) ? j.scopes : null,
+      });
+    }
     return res.status(400).json({ success: false, error: `Canva respondió designs=${r2.status} introspect=${r.status}: ${JSON.stringify(r2.ok ? j : dj).slice(0,300)}` });
   } catch (e: any) {
     return res.status(400).json({ success: false, error: e?.message || String(e) });

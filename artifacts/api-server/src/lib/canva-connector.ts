@@ -77,8 +77,11 @@ export async function tokenCanvaDelTenant(tenantId: number): Promise<{ token: st
   if (!canva?.accessToken) return { error: "Canva no conectado: autoriza en /integraciones primero." };
   const aunValido = !canva.expiraEn || Number(canva.expiraEn) > Date.now() + 60_000;
   if (aunValido) {
-    try { return { token: decryptSecret(String(canva.accessToken)) }; }
-    catch { return { error: "No se pudo desencriptar el token (CREDENTIALS_ENCRYPTION_KEY cambió)." }; }
+    // decryptSecret NO lanza: devuelve "" cuando la clave cambió o el dato está
+    // corrupto. Hay que comprobar el resultado o se manda "Bearer " vacío.
+    const token = decryptSecret(String(canva.accessToken));
+    if (!token) return { error: "No se pudo desencriptar el token (CREDENTIALS_ENCRYPTION_KEY cambió o el dato está corrupto). Reconecta en /integraciones." };
+    return { token };
   }
   // vencido: refresh
   if (!canva.refreshToken) return { error: "Token vencido y sin refresh_token: reconecta en /integraciones." };
@@ -106,7 +109,7 @@ export async function tokenCanvaDelTenant(tenantId: number): Promise<{ token: st
       ...canva,
       accessToken: encryptSecret(String(j.access_token)),
       refreshToken: j.refresh_token ? encryptSecret(String(j.refresh_token)) : canva.refreshToken,
-      expiraEn: j.expires_in ? Date.now() + Number(j.expires_in) * 1000 : null,
+      expiraEn: Date.now() + (Number(j.expires_in) || 14_400) * 1000,
       actualizadoEn: new Date().toISOString(),
     };
     await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tenantId));
@@ -182,23 +185,52 @@ export async function exportarDisenoCanva(
       signal: AbortSignal.timeout(20_000),
     });
     const j: any = await r.json().catch(() => ({}));
-    if (!r.ok || !j.id) return { error: `Exportar falló (${r.status}): ${JSON.stringify(j).slice(0, 200)}` };
-    const jobId = String(j.id);
-    // espera con backoff hasta 50s
-    for (let i = 0; i < 10; i++) {
-      await new Promise((res) => setTimeout(res, 2000 + i * 1000));
-      const s = await fetch(`${CANVA_API}/exports/${jobId}`, {
-        headers: { Authorization: `Bearer ${(t as { token: string }).token}` },
-        signal: AbortSignal.timeout(15_000),
-      });
-      const sj: any = await s.json().catch(() => ({}));
-      if (sj.status === "success") {
-        const urls = Array.isArray(sj.urls) ? sj.urls : [];
-        return { urls, formato };
-      }
-      if (sj.status === "failed") return { error: `Exportación falló: ${JSON.stringify(sj.error || {}).slice(0, 200)}` };
+    // Canva envuelve TODOS los trabajos asíncronos en { job: {...} }; leer j.id
+    // aquí hacía que la función fallara siempre aunque el job sí se creara.
+    if (!r.ok || !j.job?.id) {
+      return { error: `Exportar falló (${r.status}): ${JSON.stringify(j).slice(0, 200)}` };
     }
-    return { error: "Exportación tardó más de ~50s: reintenta." };
+    const jobId = String(j.job.id);
+    // Espera real ~48s (2s fijos entre sondeos). Un solo 429/5xx transitorio no
+    // debe abortar: se cuenta como intento y se sigue sondeando.
+    const ESPERA_MS = 2000;
+    const MAX_INTENTOS = 24;
+    for (let i = 0; i < MAX_INTENTOS; i++) {
+      await new Promise((res) => setTimeout(res, ESPERA_MS));
+      let s: Response;
+      try {
+        s = await fetch(`${CANVA_API}/exports/${jobId}`, {
+          headers: { Authorization: `Bearer ${(t as { token: string }).token}` },
+          signal: AbortSignal.timeout(15_000),
+        });
+      } catch {
+        continue; // red/timeout: reintenta en el siguiente ciclo
+      }
+      const sj: any = await s.json().catch(() => ({}));
+      if (s.status === 429 || s.status >= 500) continue; // transitorio: reintenta
+      const job = sj?.job;
+      if (job?.status === "success") {
+        const urls = Array.isArray(job.urls) ? job.urls : [];
+        if (!urls.length) return { error: "Canva no devolvió ninguna URL de exportación." };
+        // Canva devuelve URLs de descarga; validar dominio evita un redirect
+        // abierto / SSRF si la respuesta viniera manipulada.
+        const seguras = urls.filter((u: unknown) => {
+          try {
+            const parsed = new URL(String(u));
+            return parsed.protocol === "https:" &&
+              (parsed.hostname === "canva.com" || parsed.hostname.endsWith(".canva.com"));
+          } catch { return false; }
+        });
+        if (seguras.length !== urls.length) {
+          return { error: "Canva devolvió una URL de descarga con un dominio no permitido." };
+        }
+        return { urls: seguras, formato };
+      }
+      if (job?.status === "failed") {
+        return { error: `Exportación falló: ${JSON.stringify(job.error || {}).slice(0, 200)}` };
+      }
+    }
+    return { error: `Exportación tardó más de ~${Math.round((ESPERA_MS * MAX_INTENTOS) / 1000)}s: reintenta.` };
   } catch (e: any) {
     return { error: `Exportar diseño falló: ${e?.message || e}` };
   }

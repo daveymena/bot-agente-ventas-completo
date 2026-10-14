@@ -65,14 +65,14 @@ describe("el pago confirmado por una persona llega al estado del motor", () => {
 describe("lo que el vendedor LEE según el pago", () => {
   test("cliente que dice que pagó y nadie verificó: no entrega, avisa que verifican", () => {
     const estado = { ...estadoInicial(7), comprobanteRecibido: true, pagoConfirmadoPorHumano: false };
-    const texto = describirEstado(estado);
+    const texto = describirEstado(estado, () => "Producto");
     expect(texto).toMatch(/NINGUNA persona lo verificó/i);
     expect(texto).not.toMatch(/Puedes entregar el acceso/);
   });
 
   test("pago confirmado por el equipo: puede entregar", () => {
     const estado = { ...estadoInicial(7), comprobanteRecibido: true, pagoConfirmadoPorHumano: true };
-    const texto = describirEstado(estado);
+    const texto = describirEstado(estado, () => "Producto");
     expect(texto).toMatch(/Puedes entregar el acceso/);
     // Ya no debe decir que falta verificación.
     expect(texto).not.toMatch(/NINGUNA persona lo verificó/i);
@@ -81,7 +81,7 @@ describe("lo que el vendedor LEE según el pago", () => {
   test("el camino completo: panel confirma → el vendedor ya puede entregar", () => {
     // 1. El cliente manda el comprobante y el motor lo registra.
     const trasComprobante = { ...estadoInicial(7), comprobanteRecibido: true };
-    expect(describirEstado(trasComprobante)).toMatch(/NINGUNA persona lo verificó/i);
+    expect(describirEstado(trasComprobante, () => "Producto")).toMatch(/NINGUNA persona lo verificó/i);
 
     // 2. El dueño confirma en el panel (conversations.paymentStatus = "confirmed").
     const cargadoDeLaBase = conPagoConfirmadoPorLaBase(trasComprobante, {
@@ -89,6 +89,6 @@ describe("lo que el vendedor LEE según el pago", () => {
     });
 
     // 3. El siguiente turno ya entrega. ESTE es el eslabón que faltaba.
-    expect(describirEstado(cargadoDeLaBase)).toMatch(/Puedes entregar el acceso/);
+    expect(describirEstado(cargadoDeLaBase, () => "Producto")).toMatch(/Puedes entregar el acceso/);
   });
 });
