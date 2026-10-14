@@ -482,6 +482,41 @@ export class FacebookService {
   }
 
   /**
+   * ¿La conexión con Meta FUNCIONA? Distinto de `isConfigured()`.
+   *
+   * `isConfigured()` solo mira que exista un token. Un token VENCIDO lo pasa y
+   * después todas las llamadas fallan, cada una en su propio `catch`: el panel
+   * no se queja, el dueño no se entera, y los frenos de gasto quedan apagados
+   * en silencio.
+   *
+   * Pasó en producción y se verificó el 2026-10-14: el token devolvía
+   * `code 190, subcode 467` ("the user logged out") y el sistema lo sabía —lo
+   * escribía en el log de `CatalogoAutoSync` en cada corrida— pero nunca se lo
+   * dijo a nadie. Con la cuenta a ciegas: sin métricas, sin publicación, sin
+   * atribución y sin vigilancia de gasto.
+   *
+   * Hace la llamada más barata posible (`/me`) para poder correr seguido.
+   */
+  async verificarConexion(): Promise<{ ok: boolean; motivo: string }> {
+    if (!this.isConfigured()) {
+      return { ok: false, motivo: "No hay token de Facebook configurado." };
+    }
+    try {
+      const res = await this.fbGet("me", { fields: "id,name" }, this.config.userAccessToken as string);
+      if (res?.id) return { ok: true, motivo: "" };
+      return { ok: false, motivo: "Meta respondió sin identificador de cuenta." };
+    } catch (err: any) {
+      // `diagnosticoDeErrorDeMeta` ya traduce los códigos reales (190 token
+      // vencido, 200 permisos, 2635 cuenta restringida) a algo accionable.
+      const d = diagnosticoDeErrorDeMeta(err);
+      const motivo = d?.motivo
+        ? d.motivo + (d.hayQueReconectar ? " Reconectá la cuenta desde el panel." : "")
+        : err?.message || String(err);
+      return { ok: false, motivo: String(motivo).slice(0, 400) };
+    }
+  }
+
+  /**
    * Las cuentas publicitarias a las que llega este token, con cual esta en uso.
    *
    * ── Por que hacia falta ───────────────────────────────────────────────
@@ -692,7 +727,7 @@ export class FacebookService {
     if (!this.isConfigured()) return { ok: false, message: "Token no configurado" };
     try {
       const res = await fetch(`${FB_GRAPH_URL}/me?access_token=${this.config.accessToken}`, { signal: AbortSignal.timeout(10000) });
-      const d = await res.json();
+      const d: any = await res.json();
       return d.id
         ? { ok: true, message: `Conectado como ${d.name || d.id}` }
         : { ok: false, message: d.error?.message || "Token inválido" };
@@ -2501,22 +2536,35 @@ Responde SOLO con este JSON exacto:
   }
 
   /** Ajusta el presupuesto diario de un conjunto de anuncios por un
-   * porcentaje (ej. 0.2 = +20%, -0.2 = -20%). Graph API espera el
-   * presupuesto en centavos. */
+   * porcentaje (ej. 0.2 = +20%, -0.2 = -20%). */
   async adjustAdSetBudget(adSetId: string, percentChange: number): Promise<{ ok: boolean; newBudget?: number }> {
     try {
       const current = await this.getAdSetBudgetStatus(adSetId);
       if (!current || !current.dailyBudget) return { ok: false };
-      // Acá NO se convierte: current.dailyBudget ya viene de Meta en la moneda
-      // de la cuenta, así que el porcentaje se aplica y se devuelve en esa
-      // misma moneda. Lo que sí importa es el PISO: estaba fijo en 1000, que
-      // en una cuenta en pesos son 1.000 COP (razonable) pero en una cuenta
-      // en dólares serían US$1.000 POR DÍA -- un piso capaz de multiplicar el
-      // gasto por mil al "bajar" un presupuesto.
+      // `current.dailyBudget` ya viene en la moneda de la cuenta (lo convierte
+      // `deMetaAMonedaDeCuenta`). El porcentaje se aplica ahí y el RESULTADO
+      // vuelve a unidades mínimas con el helper, que conoce el offset de cada
+      // moneda. Ver presupuestoDiarioParaMeta().
+      //
+      // ⚠️ BUG DE PLATA REAL, corregido el 2026-10-14: acá se hacía
+      // `Math.round(newBudget * 100)` a mano. En una cuenta en COP -- offset 1,
+      // sin centavos -- eso manda cien veces el monto. Es el MISMO ×100 que ya
+      // se había corregido en el camino de creación de conjuntos (ver el
+      // comentario de la línea 641, incidente del 2026-08-12): ese arreglo no
+      // cubrió este camino, que es el que usa el agente cuando el dueño aprueba
+      // "subir presupuesto" por WhatsApp. Un "$5.000 → +20%" habría quedado en
+      // $600.000/día.
       const moneda = (await this.getAccountCurrency()) || "COP";
       const piso = moneda === "COP" ? 1000 : 1;
       const newBudget = Math.max(piso, Math.round(current.dailyBudget * (1 + percentChange)));
-      await this.fbPost(adSetId, { daily_budget: Math.round(newBudget * 100) }, "ajustar presupuesto", this.config.userAccessToken);
+
+      const enUnidadesDeMeta = await this.presupuestoDiarioParaMeta(newBudget);
+      if (!enUnidadesDeMeta.ok) {
+        logger.warn({ adSetId, newBudget, motivo: enUnidadesDeMeta.message }, "[Facebook] Presupuesto rechazado por el guardián de montos");
+        return { ok: false };
+      }
+
+      await this.fbPost(adSetId, { daily_budget: enUnidadesDeMeta.valor }, "ajustar presupuesto", this.config.userAccessToken);
       return { ok: true, newBudget };
     } catch (err: any) {
       logger.warn({ err, adSetId }, "[Facebook] Error ajustando presupuesto");
