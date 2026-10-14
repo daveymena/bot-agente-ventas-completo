@@ -34,6 +34,8 @@ export function EditorVideo({ productId, escenas: iniciales, fotos, onCerrar, on
   const [voz, setVoz] = useState("es-CO-SalomeNeural");
   const [conVoz, setConVoz] = useState(true);
   const [conMusica, setConMusica] = useState(true);
+  // Con animaciones por capa el servidor pinta cada escena (fondo + capas que entran); sin ellas, el navegador exporta el fotograma tal cual se ve.
+  const [conAnimaciones, setConAnimaciones] = useState(true);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const pendientes = useRef(new Set<string>());
 
@@ -92,8 +94,9 @@ export function EditorVideo({ productId, escenas: iniciales, fotos, onCerrar, on
   const generar = async () => {
     if (!(await guardarGuion(true))) return;
     const fotogramas: Record<number, string> = {};
+    const hayAnim = conAnimaciones && escenas.some((e) => e.diseno.capas.some((k) => k.anim?.entrada));
     try {
-      for (let i = 0; i < escenas.length; i++) {
+      for (let i = 0; i < escenas.length && !hayAnim; i++) {
         setOcupado(`Exportando escena ${i + 1} de ${escenas.length}…`);
         const url = await exportarDiseno(escenas[i]!.diseno, { formato: "png", escala: 1 });
         const r = await apiEstudio<{ fotograma: string }>(`/${productId}/fotograma`, { method: "POST", body: dataUrlABlob(url), headers: { "Content-Type": "image/png" } });
@@ -105,7 +108,7 @@ export function EditorVideo({ productId, escenas: iniciales, fotos, onCerrar, on
     }
     setOcupado("Enviando al servidor…");
     try {
-      await apiEstudio(`/${productId}/video`, { method: "POST", body: JSON.stringify({ fotogramas, voz, conVoz, conMusica }) });
+      await apiEstudio(`/${productId}/video`, { method: "POST", body: JSON.stringify({ fotogramas, voz, conVoz, conMusica, conAnimaciones }) });
       toast.success("Vídeo en cola: se arma en 1–3 minutos");
       onVideoPedido();
       onCerrar();
@@ -208,6 +211,11 @@ export function EditorVideo({ productId, escenas: iniciales, fotos, onCerrar, on
                   </Select>
                 )}
                 <div className="flex items-center justify-between py-1"><Label className="text-slate-300">Música de fondo (si hay pistas en data/musica)</Label><Switch checked={conMusica} onCheckedChange={setConMusica} /></div>
+              </div>
+              <div className="rounded-xl border border-white/10 p-3">
+                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Movimiento</h4>
+                <div className="flex items-center justify-between py-1"><Label className="text-slate-300">Animar la entrada de cada capa</Label><Switch checked={conAnimaciones} onCheckedChange={setConAnimaciones} /></div>
+                <p className="text-xs text-slate-500">{conAnimaciones ? `Títulos, precio, botón y adornos entran uno a uno (${esc.diseno.capas.filter((k) => k.anim?.entrada).length} capas animadas en esta escena). Se edita por capa en «Editar diseño» → Animación.` : "Cada escena entra completa con el movimiento de cámara."}</p>
               </div>
             </div>
           </div>

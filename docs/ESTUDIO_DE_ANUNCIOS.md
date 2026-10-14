@@ -2,7 +2,8 @@
 
 Una petición por producto → paquete completo de creativos hechos con las
 **fotos reales** del producto: 12 imágenes (4 plantillas × 1:1, 4:5 y 9:16)
-y un vídeo vertical de 15–30 s. Todo editable desde el panel
+y un vídeo vertical de 15–30 s, a partir de un catálogo de 31.000+
+plantillas (maqueta × estilo × tema) y las propias del negocio. Todo editable desde el panel
 (`/estudio-anuncios`) con un editor de lienzo (Fabric.js) y un editor de vídeo
 por escenas. Disponibilidad alta: sale aunque falten Chromium, la IA, Pexels o
 la voz; solo necesita `sharp` (imágenes) y `ffmpeg` (vídeo).
@@ -11,7 +12,14 @@ la voz; solo necesita `sharp` (imágenes) y `ffmpeg` (vídeo).
 
 | Pieza | Ruta |
 |---|---|
-| Esquema de diseño, plantillas, escenas | `artifacts/api-server/src/lib/estudio-anuncios/diseno.ts` |
+| Esquema de diseño (capas, formatos, animación, patrones, validación) | `artifacts/api-server/src/lib/estudio-anuncios/esquema.ts` (`diseno.ts` lo reexporta todo) |
+| Maquetas (11) y paquete por defecto | `…/estudio-anuncios/maquetas.ts` |
+| Estilos (26 a mano + 100 paletas), temas (23 temporadas/nichos) | `…/estudio-anuncios/estilos.ts`, `temas.ts` |
+| Catálogo combinatorio, búsqueda, plantillas propias, importación de Fabric | `…/estudio-anuncios/plantillas.ts` |
+| Tipografías (20 familias OFL vía `@fontsource`, trazadas con opentype) | `…/estudio-anuncios/tipografia.ts` |
+| Elementos abiertos (emoji, iconos, logos, formas) | `…/estudio-anuncios/elementos.ts` |
+| Guiones de vídeo (5) y escenas con entradas animadas | `…/estudio-anuncios/escenas.ts` |
+| Herramientas de Atlas | `…/estudio-anuncios/atlas.ts` (se enchufan en `app-operator.ts`) |
 | Contenido del anuncio (qué se dice) | `…/estudio-anuncios/contenido.ts` |
 | Render servidor (sharp + Inter en contornos) | `…/estudio-anuncios/render.ts`, `tipografia.ts`, `assets/fonts/` |
 | Vídeo por escenas (ffmpeg + edge-tts) | `…/estudio-anuncios/video.ts` |
@@ -20,7 +28,7 @@ la voz; solo necesita `sharp` (imágenes) y `ffmpeg` (vídeo).
 | Fotogramas sin Chromium para el motor viejo | `…/estudio-anuncios/fotogramas.ts` (lo usa `video-anuncio.ts` si puppeteer no arranca) |
 | API | `artifacts/api-server/src/routes/estudio-anuncios.ts` → `/api/estudio-anuncios` |
 | Panel | `artifacts/ventas-pro/src/pages/estudio-anuncios.tsx`, `components/estudio/editor-imagen.tsx`, `editor-video.tsx`, `lib/estudio/` |
-| Pruebas | `artifacts/api-server/src/lib/__tests__/estudio-anuncios.test.ts` |
+| Pruebas | `artifacts/api-server/src/lib/__tests__/estudio-anuncios.test.ts`, `estudio-plantillas.test.ts` |
 
 ## El Diseño (JSON)
 
@@ -90,14 +98,96 @@ Reutilizar en Meta: el panel marca imágenes y llama al endpoint que ya
 existía `POST /api/facebook/strategist/draft/:productId` con `images: [...]`
 (crea el borrador en pausa, no gasta).
 
+## Plantillas (etapa 2)
+
+No existe un repositorio abierto con "miles de plantillas de Canva" (su
+catálogo es propietario y las licencias de los editores abiertos que lo
+imitan —Polotno, Remotion, tldraw— no son libres para uso comercial). Lo que
+sí existe y se usa aquí son **bloques abiertos** combinados en un catálogo
+propio:
+
+* **Id de plantilla** = `maqueta.estilo.tema`, p. ej. `oferta.pop.navidad`.
+  11 maquetas × 126 estilos × 23 temas = **31.878 plantillas** por formato
+  (`totalDePlantillas()`); también vale la maqueta sola (`oferta`) o
+  `maqueta.estilo`. `buscarPlantillas({q, categoria, tema, estilo, pagina})`
+  busca por palabras en español.
+* **Maquetas**: destacado, oferta, beneficios, minimal, pregunta, lista,
+  collage, etiqueta (sello de precio), marco, precio, banda.
+* **Estilos**: paleta (fondo, texto, acento, botón…), par tipográfico
+  titular/cuerpo, fondo (foto/sólido/degradado/patrón), radios, mayúsculas.
+  26 hechos a mano (`marca`, `limpio`, `nocturno`, `pop`, `elegante`,
+  `calido`…) + 100 de `nice-color-palettes` (MIT).
+* **Temas**: navidad, amor, madre, padre, halloween, blackfriday, anonuevo,
+  escolar, vacaciones, diasinvia, deportes, fitness, mascotas, belleza,
+  tecnologia, comida, hogar, bebes, fiesta, naturaleza, lujo, envios (+
+  `ninguno`). Cada uno trae cinta ("Navidad") y adornos (emojis) que se
+  colocan **esquivando** textos, botones y chips (`decoracionesDeTema` con
+  `esquivar`); si no caben, se omiten.
+* **Tipografías** (20, todas OFL): Inter, Montserrat, Poppins, Nunito,
+  Raleway, Roboto, Bebas Neue, Anton, Oswald, Archivo Black, Bangers,
+  Righteous, Fredoka, Playfair Display, Abril Fatface, Lobster, Pacifico,
+  Dancing Script, Caveat, Permanent Marker. El servidor las traza como
+  contornos (sin fuentes del sistema) y las sirve al editor en
+  `GET /api/estudio-anuncios/fuentes.css`, así lo que se ve es lo que sale.
+* **Elementos** (`buscarElementos`, `GET /elementos?q=`): Fluent Emoji Flat
+  (MIT, 3.174), Tabler Icons (MIT, 6.286, coloreables), Simple Icons (CC0,
+  3.739 logos: WhatsApp, Instagram, Visa, Mercado Pago…) y formas propias.
+  Capa `icono` (`coleccion:nombre` o `svg:<markup>` saneado).
+* **Fondos**: color, degradado o patrón (13 baldosas SVG propias:
+  `GET /patrones/:id.svg`).
+* **Plantillas propias**: desde el editor («Plantilla») se guarda el Diseño
+  con roles (Gancho, Precio, Texto del botón, Beneficio, Marca, Foto del
+  producto); `aplicarDisenoAContenido` lo rellena con otro producto.
+  `POST /plantillas/importar` acepta JSON de Fabric (`desdeFabricJSON`
+  reconoce roles por heurística). Ids `personal:<id>`, un JSON por tenant.
+* **Vídeo**: 5 guiones (clasico, rapido, beneficios, fotos, pregunta), 21
+  transiciones xfade, movimiento de cámara y **entradas por capa**
+  (`anim: {entrada, retraso, duracion}`: aparecer, deslizar ×4, zoom,
+  rebote) que ffmpeg anima con overlays por grupo (`agruparCapas`,
+  `filtroDeEntrada`). Si el editor manda fotogramas propios, se usa el
+  fotograma completo.
+* Regla de la casa: las plantillas no traen frases; todo texto sale de la
+  ficha, de las condiciones del negocio o de lo que diga el dueño. La muestra
+  del catálogo usa "Tu producto / Tu sello".
+
+### API de plantillas
+
+`GET /plantillas` (resumen: maquetas, estilos, temas, guiones, propias),
+`GET /plantillas/buscar?q=&tema=&estilo=&categoria=&pagina=&formato=&producto=`,
+`GET /plantillas/:id/vista-previa.jpg?formato=&producto=` (con las fotos del
+producto si se pasa), `GET /plantillas/:id`, `GET|POST /plantillas/personales`,
+`DELETE /plantillas/personales/:id`, `POST /plantillas/importar`,
+`POST /:productId/pieza {plantilla, formato, estilo?, tema?, gancho?}` (una
+pieza al instante), `PUT /:productId/pieza/:id/textos {Gancho?, Precio?…}`,
+`GET /elementos`, `GET /elementos/svg?ref=&color=`, `GET /fuentes`,
+`GET /fuentes.css`, `GET /patrones/:id.svg`. `/generar` y `/video` aceptan
+`estilo`, `tema`, `guion`; `/video` además `conAnimaciones`.
+
+### Atlas
+
+`HERRAMIENTAS_ESTUDIO` (`atlas.ts`): `estudio_plantillas` (lee: busca en el
+catálogo y lista estilos/temas/guiones/propias), `estudio_generar` (paquete
+con plantillas/estilo/tema/guion, avisa al terminar), `estudio_pieza` (una
+imagen al instante, devuelve enlace e id), `estudio_editar_texto` (cambia
+textos por rol y repinta), `estudio_video` (rearma con otro guion/tema),
+`estudio_estado`. Entran por las familias "video" y "plantilla|estudio|
+navidad|…"; las dos de lectura están en `READ_ONLY_TOOLS`.
+
 ## Editor del panel
 
 * **Editor de imagen** (`editor-imagen.tsx`): Fabric a tamaño real escalado a
-  la pantalla; mover/escalar/rotar; texto (contenido, tamaño, grosor, color,
-  alineación, resaltado), fotos (completa/rellenar, esquinas, sombra, cambiar
-  por otra foto, subir propia), cajas y círculos, fondo (color, foto
-  difuminada, oscurecer), orden de capas, duplicar, borrar, deshacer/rehacer
-  (Ctrl+Z/Y), atajos. Guarda el Diseño + el JPG exportado.
+  la pantalla; mover/escalar/rotar; texto (contenido, tamaño, grosor,
+  tipografía, color, alineación, resaltado, contorno), fotos
+  (completa/rellenar, esquinas, sombra, cambiar por otra foto, subir propia),
+  cajas y círculos, **elementos** (buscador de emojis/iconos/logos/formas,
+  color), fondo (color, degradado, patrón, foto difuminada, oscurecer),
+  **animación de entrada por capa** (solo cuenta en el vídeo), orden de capas,
+  duplicar, borrar, deshacer/rehacer (Ctrl+Z/Y), atajos, «Plantilla» (guardar
+  como propia). Guarda el Diseño + el JPG exportado.
+* **Pestaña Plantillas** (página): buscador del catálogo con vista previa ya
+  hecha con el producto, filtros por tema/categoría/formato, «Usar» crea la
+  pieza al instante; «Mis plantillas» con borrar. Arriba, selector de estilo,
+  tema y guion que aplica a «Generar».
 * **Editor de vídeo** (`editor-video.tsx`): tira de escenas con miniaturas,
   duración, locución, transición, movimiento, reordenar/duplicar/eliminar,
   "Editar diseño de la escena" (abre el editor de imagen en 9:16), voz
@@ -107,11 +197,14 @@ existía `POST /api/facebook/strategist/draft/:productId` con `images: [...]`
 
 ## Etapas
 
-* **Etapa 1 (esta)**: generador completo + editor de imagen + editor de vídeo
-  por escenas. Tipografía única (Inter 400/700/900).
-* **Etapa 2**: línea de tiempo libre (recortar/solapar clips, subtítulos
-  sincronizados con la voz), más elementos (flechas, iconos, degradados en
-  texto), más tipografías, plantillas por nicho.
+* **Etapa 1**: generador completo + editor de imagen + editor de vídeo por
+  escenas.
+* **Etapa 2 (esta)**: catálogo de plantillas (maqueta × estilo × tema),
+  20 tipografías, elementos abiertos, fondos con degradado/patrón, temas por
+  temporada/nicho con adornos, entradas animadas por capa, 21 transiciones,
+  5 guiones, plantillas propias e importación de Fabric, herramientas de
+  Atlas. Pendiente de esta etapa: línea de tiempo libre y subtítulos
+  sincronizados con la voz.
 * **Etapa 3**: biblioteca de música/stickers, kits de marca, variantes A/B
   automáticas, programación al calendario orgánico.
 
@@ -119,7 +212,8 @@ existía `POST /api/facebook/strategist/draft/:productId` con `images: [...]`
 
 * Requiere `ffmpeg` en el servidor para el vídeo (el Dockerfile lo instala);
   las imágenes no dependen de él. `GET /api/estudio-anuncios/salud` lo dice.
-* Fuentes: `artifacts/api-server/assets/fonts/Inter-*.ttf` (licencia OFL).
-  `FUENTES_DIR` para moverlas.
+* Fuentes: Inter en `artifacts/api-server/assets/fonts/Inter-*.ttf`
+  (`FUENTES_DIR` para moverlas); las otras 19 vienen de `@fontsource/*`
+  (dependencias del api-server). Las que falten se pintan con Inter.
 * Música opcional: pistas en `data/musica/*.mp3` (`MUSICA_DIR`).
-* Pruebas: `cd artifacts/api-server && node_modules/.bin/vitest run src/lib/__tests__/estudio-anuncios.test.ts`.
+* Pruebas: `cd artifacts/api-server && node_modules/.bin/vitest run src/lib/__tests__/estudio-anuncios.test.ts src/lib/__tests__/estudio-plantillas.test.ts`.

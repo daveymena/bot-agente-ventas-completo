@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import sharp from "sharp";
-import { paqueteDeDisenos, escenasAutomaticas, disenoDePlantilla, validarDiseno, FORMATOS, PLANTILLAS_LISTA, FORMATOS_LISTA, type Contenido, type CapaTexto } from "../estudio-anuncios/diseno";
+import { paqueteDeDisenos, escenasAutomaticas, disenoDePlantilla, validarDiseno, FORMATOS, PAQUETE_POR_DEFECTO, FORMATOS_LISTA, type Contenido, type CapaTexto } from "../estudio-anuncios/diseno";
 import { contenidoDelProducto, ctaDeBoton, precioCorto } from "../estudio-anuncios/contenido";
 import { renderizarDiseno } from "../estudio-anuncios/render";
 import { Cola } from "../estudio-anuncios/cola";
@@ -70,7 +70,9 @@ describe("diseños del paquete", () => {
   const piezas = paqueteDeDisenos(c);
 
   it("plantillas × formatos, con las medidas de Meta", () => {
-    expect(piezas).toHaveLength(PLANTILLAS_LISTA.length * FORMATOS_LISTA.length);
+    // El paquete por defecto sigue siendo el de siempre: 4 maquetas × 3 formatos = 12 piezas.
+    expect(piezas).toHaveLength(PAQUETE_POR_DEFECTO.length * FORMATOS_LISTA.length);
+    expect(piezas).toHaveLength(12);
     for (const p of piezas) {
       expect(p.diseno.ancho).toBe(FORMATOS[p.formato].ancho);
       expect(p.diseno.alto).toBe(FORMATOS[p.formato].alto);
@@ -110,8 +112,11 @@ describe("diseños del paquete", () => {
   it("valida lo que llega del editor", () => {
     expect(validarDiseno(null)).toBe(false);
     expect(validarDiseno({ formato: "raro", capas: [] })).toBe(false);
-    expect(validarDiseno({ formato: "cuadrado", capas: [{ tipo: "texto", x: "a", y: 0, w: 1, h: 1 }] })).toBe(false);
-    expect(validarDiseno({ formato: "cuadrado", capas: [{ tipo: "texto", x: 0, y: 0, w: 1, h: 1 }] })).toBe(true);
+    expect(validarDiseno({ formato: "cuadrado", capas: [{ tipo: "texto", x: "a", y: 0, w: 1, h: 1, texto: "Hola" }] })).toBe(false);
+    // Un texto sin `texto` o un icono sin referencia tampoco pasan.
+    expect(validarDiseno({ formato: "cuadrado", capas: [{ tipo: "texto", x: 0, y: 0, w: 1, h: 1 }] })).toBe(false);
+    expect(validarDiseno({ formato: "cuadrado", capas: [{ tipo: "icono", x: 0, y: 0, w: 1, h: 1 }] })).toBe(false);
+    expect(validarDiseno({ formato: "cuadrado", capas: [{ tipo: "texto", x: 0, y: 0, w: 1, h: 1, texto: "Hola" }, { tipo: "icono", x: 0, y: 0, w: 1, h: 1, icono: "emoji:fire" }] })).toBe(true);
   });
 });
 

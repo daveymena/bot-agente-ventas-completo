@@ -6,8 +6,8 @@
  * `capa` original en `obj.capa`, y al exportar se vuelve a leer posición,
  * tamaño y propiedades editadas.
  */
-import { Canvas, StaticCanvas, FabricImage, Textbox, Rect, Ellipse, Gradient, Shadow, filters, classRegistry, type FabricObject } from "fabric";
-import { proxyDeImagen, nuevoId, type Capa, type CapaFondo, type CapaImagen, type CapaTexto, type Diseno } from "./diseno";
+import { Canvas, StaticCanvas, FabricImage, Textbox, Rect, Ellipse, Gradient, Shadow, filters, classRegistry, loadSVGFromString, util, type FabricObject } from "fabric";
+import { proxyDeImagen, nuevoId, familiaCss, idDeFuente, esDegradado, esPatron, type Capa, type CapaFondo, type CapaIcono, type CapaImagen, type CapaTexto, type Diseno } from "./diseno";
 
 export type Lienzo = Canvas | StaticCanvas;
 type ObjetoConCapa = FabricObject & { capa?: Capa; esFondo?: boolean };
@@ -51,35 +51,93 @@ export class TextoAnuncio extends Textbox {
 }
 classRegistry.setClass(TextoAnuncio);
 
-let fuentesListas: Promise<void> | null = null;
-/** Fabric mide el texto con la fuente que haya en ese momento: se espera a Inter antes de dibujar. */
-export function esperarFuentes(): Promise<void> {
-  if (!fuentesListas) {
-    fuentesListas = (async () => {
-      try {
-        if (typeof document === "undefined" || !document.fonts) return;
-        await Promise.all([400, 700, 900].map((p) => document.fonts.load(`${p} 40px Inter`)));
-        await document.fonts.ready;
-      } catch { /* sin Font Loading API: se dibuja con lo que haya */ }
-    })();
-  }
-  return fuentesListas;
+let hojaDeFuentes = false;
+/** Las fuentes del Estudio las sirve el servidor (las mismas con las que pinta): una sola hoja @font-face. */
+export function cargarHojaDeFuentes(): void {
+  if (hojaDeFuentes || typeof document === "undefined") return;
+  hojaDeFuentes = true;
+  const l = document.createElement("link");
+  l.rel = "stylesheet";
+  l.href = "/api/estudio-anuncios/fuentes.css";
+  document.head.appendChild(l);
 }
+
+const fuentesCargadas = new Map<string, Promise<void>>();
+/** Fabric mide el texto con la fuente que haya en ese momento: se esperan las familias del diseño antes de dibujar. */
+export function esperarFuentes(familias: Array<string | undefined> = []): Promise<void> {
+  cargarHojaDeFuentes();
+  const ids = Array.from(new Set(["inter", ...familias.filter(Boolean) as string[]]));
+  return Promise.all(ids.map((id) => {
+    let p = fuentesCargadas.get(id);
+    if (!p) {
+      p = (async () => {
+        try {
+          if (typeof document === "undefined" || !document.fonts) return;
+          const fam = familiaCss(id).split(",")[0]!;
+          await Promise.all([400, 700, 900].map((peso) => document.fonts.load(`${peso} 40px ${fam}`)));
+          await document.fonts.ready;
+        } catch { /* sin Font Loading API: se dibuja con lo que haya */ }
+      })();
+      fuentesCargadas.set(id, p);
+    }
+    return p;
+  })).then(() => undefined);
+}
+
+export const fuentesDelDiseno = (d: Diseno) => d.capas.filter((k): k is CapaTexto => k.tipo === "texto").map((k) => k.fuente);
 
 const PESO_FABRIC: Record<number, string> = { 400: "normal", 700: "bold", 900: "900" };
 const ALINEAR: Record<CapaTexto["alinear"], string> = { izq: "left", centro: "center", der: "right" };
 const ALINEAR_INV: Record<string, CapaTexto["alinear"]> = { left: "izq", center: "centro", right: "der", justify: "izq" };
 
-function fondoDeCanvas(c: Lienzo, f: CapaFondo | undefined, W: number, H: number): void {
+async function fondoDeCanvas(c: Lienzo, f: CapaFondo | undefined, W: number, H: number): Promise<void> {
+  c.backgroundImage = undefined;
   if (!f) { c.backgroundColor = "#ffffff"; return; }
   if (typeof f.relleno === "string") { c.backgroundColor = f.relleno; return; }
-  const ang = ((f.relleno.angulo ?? 180) % 360) * Math.PI / 180;
-  const x2 = 0.5 + Math.sin(ang) * 0.5, y2 = 0.5 - Math.cos(ang) * 0.5, x1 = 1 - x2, y1 = 1 - y2;
-  c.backgroundColor = new Gradient({
-    type: "linear", gradientUnits: "pixels",
-    coords: { x1: x1 * W, y1: y1 * H, x2: x2 * W, y2: y2 * H },
-    colorStops: [{ offset: 0, color: f.relleno.degradado[0] }, { offset: 1, color: f.relleno.degradado[1] }],
-  }) as any;
+  if (esDegradado(f.relleno)) {
+    const ang = ((f.relleno.angulo ?? 180) % 360) * Math.PI / 180;
+    const x2 = 0.5 + Math.sin(ang) * 0.5, y2 = 0.5 - Math.cos(ang) * 0.5, x1 = 1 - x2, y1 = 1 - y2;
+    c.backgroundColor = new Gradient({
+      type: "linear", gradientUnits: "pixels",
+      coords: { x1: x1 * W, y1: y1 * H, x2: x2 * W, y2: y2 * H },
+      colorStops: [{ offset: 0, color: f.relleno.degradado[0] }, { offset: 1, color: f.relleno.degradado[1] }],
+    }) as any;
+    return;
+  }
+  if (esPatron(f.relleno)) {
+    c.backgroundColor = f.relleno.fondo;
+    const q = new URLSearchParams({ color: f.relleno.color, fondo: f.relleno.fondo, escala: String(f.relleno.escala ?? 1), w: String(W), h: String(H) });
+    try {
+      const img = await FabricImage.fromURL(`/api/estudio-anuncios/patrones/${encodeURIComponent(f.relleno.patron)}.svg?${q}`, { crossOrigin: "anonymous" });
+      img.set({ left: 0, top: 0, scaleX: W / (img.width || W), scaleY: H / (img.height || H), selectable: false, evented: false });
+      c.backgroundImage = img;
+    } catch { /* sin patrón: queda el color de fondo */ }
+  }
+}
+
+/** Icono/emoji/logo/forma como grupo vectorial (nítido a cualquier tamaño). */
+async function cargarIcono(capa: CapaIcono): Promise<ObjetoConCapa | null> {
+  try {
+    let markup: string;
+    if (capa.icono.startsWith("svg:")) markup = capa.icono.slice(4);
+    else {
+      const q = new URLSearchParams({ ref: capa.icono });
+      if (capa.color) q.set("color", capa.color);
+      const r = await fetch(`/api/estudio-anuncios/elementos/svg?${q}`, { credentials: "include" });
+      if (!r.ok) return null;
+      markup = await r.text();
+    }
+    const { objects, options } = await loadSVGFromString(markup);
+    const validos = objects.filter((o): o is FabricObject => !!o);
+    if (!validos.length) return null;
+    const g = util.groupSVGElements(validos, options) as ObjetoConCapa;
+    const gw = g.width || 1, gh = g.height || 1;
+    const s = Math.min(capa.w / gw, capa.h / gh);
+    g.set({ left: capa.x + (capa.w - gw * s) / 2, top: capa.y + (capa.h - gh * s) / 2, scaleX: s, scaleY: s, opacity: capa.opacidad ?? 1, angle: capa.rot ?? 0, originX: "left", originY: "top" });
+    return g;
+  } catch {
+    return null;
+  }
 }
 
 async function cargarFoto(src: string): Promise<FabricImage | null> {
@@ -117,9 +175,11 @@ export function aplicarEstiloImagen(img: FabricImage, capa: Pick<CapaImagen, "ra
 function crearTexto(capa: CapaTexto): TextoAnuncio {
   return new TextoAnuncio(capa.texto, {
     left: capa.x, top: capa.y, width: Math.max(20, capa.w),
-    fontFamily: "Inter, system-ui, sans-serif", fontSize: capa.tam, fontWeight: PESO_FABRIC[capa.peso] || "bold",
+    fontFamily: familiaCss(capa.fuente), fontSize: capa.tam, fontWeight: PESO_FABRIC[capa.peso] || "bold",
     fill: capa.color, textAlign: ALINEAR[capa.alinear] || "left", lineHeight: capa.interlineado ?? 1,
     resaltado: capa.resaltado || null, opacity: capa.opacidad ?? 1, angle: capa.rot ?? 0,
+    // Contorno (texto sobre foto): el servidor lo pinta con el doble de grosor por fuera; aquí se centra en el borde.
+    stroke: capa.contorno?.color, strokeWidth: capa.contorno ? capa.contorno.grosor * 2 : 0, paintFirst: "stroke", strokeLineJoin: "round",
     splitByGrapheme: false, editable: true, lockScalingFlip: true,
   });
 }
@@ -139,6 +199,9 @@ export async function objetoDeCapa(capa: Capa): Promise<ObjetoConCapa | null> {
     obj = new Ellipse({ left: capa.x, top: capa.y, rx: capa.w / 2, ry: capa.h / 2, fill: capa.relleno, opacity: capa.opacidad ?? 1 }) as ObjetoConCapa;
   } else if (capa.tipo === "texto") {
     obj = crearTexto(capa) as ObjetoConCapa;
+  } else if (capa.tipo === "icono") {
+    obj = await cargarIcono(capa);
+    if (!obj) return null;
   }
   if (!obj) return null;
   obj.capa = capa;
@@ -149,11 +212,11 @@ export async function objetoDeCapa(capa: Capa): Promise<ObjetoConCapa | null> {
 
 /** Vacía el lienzo y carga el diseño completo (fondo + capas). */
 export async function cargarDisenoEnCanvas(c: Lienzo, d: Diseno): Promise<void> {
-  await esperarFuentes();
+  await esperarFuentes(fuentesDelDiseno(d));
   c.clear();
   const W = d.ancho, H = d.alto;
   const fondo = d.capas.find((k): k is CapaFondo => k.tipo === "fondo");
-  fondoDeCanvas(c, fondo, W, H);
+  await fondoDeCanvas(c, fondo, W, H);
   if (fondo?.imagen) {
     const img = await cargarFoto(fondo.imagen);
     if (img) {
@@ -191,7 +254,7 @@ export function canvasADiseno(c: Lienzo, base: Diseno): Diseno {
     if (capa.tipo === "texto") {
       const t = o as unknown as TextoAnuncio;
       const esc = t.scaleY || 1;
-      capas.push({ ...capa, ...comun, texto: t.text, w: r2((t.width || capa.w) * (t.scaleX || 1)), h: r2((t.height || capa.h) * esc), tam: r2(t.fontSize * esc), peso: pesoDe(t.fontWeight), color: String(t.fill || capa.color), alinear: ALINEAR_INV[t.textAlign] || "izq", interlineado: t.lineHeight, resaltado: t.resaltado || null });
+      capas.push({ ...capa, ...comun, texto: t.text, w: r2((t.width || capa.w) * (t.scaleX || 1)), h: r2((t.height || capa.h) * esc), tam: r2(t.fontSize * esc), peso: pesoDe(t.fontWeight), fuente: idDeFuente(t.fontFamily), color: String(t.fill || capa.color), alinear: ALINEAR_INV[t.textAlign] || "izq", interlineado: t.lineHeight, resaltado: t.resaltado || null, contorno: t.stroke && t.strokeWidth ? { color: String(t.stroke), grosor: Math.max(1, Math.round((t.strokeWidth * esc) / 2)) } : null });
     } else if (capa.tipo === "imagen") {
       const img = o as unknown as FabricImage;
       capas.push({ ...capa, ...comun, w: r2(img.getScaledWidth()), h: r2(img.getScaledHeight()) });
@@ -201,6 +264,8 @@ export function canvasADiseno(c: Lienzo, base: Diseno): Diseno {
     } else if (capa.tipo === "circulo") {
       const el = o as unknown as Ellipse;
       capas.push({ ...capa, ...comun, w: r2(el.getScaledWidth()), h: r2(el.getScaledHeight()), relleno: String(el.fill || capa.relleno) });
+    } else if (capa.tipo === "icono") {
+      capas.push({ ...capa, ...comun, w: r2(o.getScaledWidth()), h: r2(o.getScaledHeight()) });
     }
   }
   return { ...base, capas };

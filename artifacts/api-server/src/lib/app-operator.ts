@@ -28,6 +28,7 @@ import { recordControlPlaneAudit } from "./control-plane-audit";
 import { codeOperator } from "./code-operator";
 import { SUPER_ADMIN_EMAIL } from "../middleware/requireSuperAdmin";
 import { respaldoEnvFacebook } from "./tenant-facebook-credentials";
+import { HERRAMIENTAS_ESTUDIO } from "./estudio-anuncios/atlas";
 
 export interface OperatorContext {
   tenantId: number;
@@ -6148,6 +6149,9 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
       return { ok: true, summary: `🎬 Video del producto ${id}: ${v.url} (${v.duracion}s, ${v.escenas} escenas${v.conBroll ? ", con clips reales" : ""}, guion por ${v.guion.autor || "IA"}, ${new Date(v.en).toLocaleString("es-CO")})`, data: v };
     },
   },
+  // Estudio de anuncios (lib/estudio-anuncios): plantillas tipo Canva, paquete
+  // de imágenes + vídeo con las fotos reales, pieza suelta y edición por rol.
+  ...HERRAMIENTAS_ESTUDIO,
   {
     name: "fabricante_buscar",
     description: "Busca en AliExpress el MISMO producto (ordenado por ventas) y trae en segundo plano las fotos y el video del FABRICANTE: cada foto y el video se comprueban con visión contra la foto del proveedor (se descarta otro modelo o lo que tenga logo/marca de agua de otra tienda), y del video corta 3-4 clips de 3 s (los 'GIF' de beneficio de la landing). Tarda 2-6 min y avisa por WhatsApp/Telegram. NO toma anuncios ni videos de otros vendedores. Nada se usa en la landing hasta fabricante_aprobar. Requiere confirmación.",
@@ -10378,7 +10382,7 @@ export const READ_ONLY_TOOLS = new Set([
   // El método de venta: reglas y cuentas puras, no toca Meta ni la base.
   "metodo_de_venta",
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
-  "dropi_status", "dropi_margen", "dropi_pedidos", "dropi_buscar", "competencia_a_dropi", "video_anuncio_estado", "fabricante_ver", "dropi_search_products", "woocommerce_estado", "integraciones_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
+  "dropi_status", "dropi_margen", "dropi_pedidos", "dropi_buscar", "competencia_a_dropi", "video_anuncio_estado", "estudio_plantillas", "estudio_estado", "fabricante_ver", "dropi_search_products", "woocommerce_estado", "integraciones_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
   "dropi_verificar_producto", "dropi_con_ordenes", "dropi_importar_lote_estado", "dropi_cotizar_envio",
   // Radar de ganadores + calculadora de rentabilidad + espía de tiendas +
   // estimación previa: las cuatro son lectura pura (cruzan datos y calculan,
@@ -10631,7 +10635,11 @@ const FAMILIAS: Array<{ cuando: RegExp; prefijos: string[] }> = [
   // flete" teniendo dropi_margen disponible.
   { cuando: /dropi|dropship|proveedor|flete|env[ií]o|margen|gan(o|a|ancia|amos)|cuesta|costo|me sale|recaudo|contraentrega|transportadora|gu[ií]a/i,
     prefijos: ["dropi", "dropify", "pedido", "lanzar_producto", "lanzamiento", "product"] },
-  { cuando: /video|reel|tiktok|clip|guion|gui[oó]n|locuci[oó]n/i, prefijos: ["video_anuncio", "product", "lanzamiento", "fb_"] },
+  { cuando: /video|reel|tiktok|clip|guion|gui[oó]n|locuci[oó]n/i, prefijos: ["video_anuncio", "estudio_", "product", "lanzamiento", "fb_"] },
+  // Estudio de anuncios: plantillas tipo Canva (temas, estilos), piezas e
+  // imágenes/vídeo con las fotos reales del producto.
+  { cuando: /plantilla|estudio|pieza|creativo|dise[ñn]o|navidad|navide|amor y amistad|san valent|d[ií]a de la madre|d[ií]a del padre|halloween|black ?friday|a[ñn]o nuevo|temporada|historia|story|post\b|formato|flyer|banner|arte\b|artes\b/i,
+    prefijos: ["estudio_", "product"] },
   // ── Métricas y plata: la pregunta más común no tenía familia ───────────
   //
   // "cómo van las ventas hoy" no caía en ninguna de las de arriba, así que
@@ -11031,6 +11039,14 @@ DROPSHIPPING CON DROPI (vender productos de proveedores sin tener stock):
   si Dropi lo rechaza por "Access denied" es un producto de WooCommerce sin token → dropify_reparar_tokens.
 - 🎬 video_anuncio_crear genera el VIDEO del anuncio (vertical, voz, precio, CTA) con el motor propio; el
   enlace llega por WhatsApp/Telegram. video_anuncio_estado lo consulta. No digas que "no podés hacer videos".
+- 🎨 ESTUDIO DE ANUNCIOS (plantillas tipo Canva con las fotos REALES del producto): estudio_plantillas busca entre
+  31.000+ plantillas (maqueta.estilo.tema: p. ej. "oferta.pop.navidad"; temas de Navidad, Amor y Amistad, Día de la
+  Madre, Halloween, Black Friday, mascotas, fitness, belleza…) y las propias del dueño; estudio_generar arma el
+  paquete (imágenes 1:1, 4:5, 9:16 + vídeo con guion a elegir); estudio_pieza pinta UNA imagen al instante y da el
+  enlace; estudio_editar_texto cambia un texto por rol (Gancho, Precio, Texto del botón); estudio_video rearma el
+  vídeo con otro guion/tema; estudio_estado consulta. Si el dueño pide "un arte/post/historia/flyer de X" o algo
+  "de Navidad", usá el Estudio. Los textos salen de la ficha y de lo que el dueño diga: NUNCA inventes descuentos,
+  cifras ni promesas. Todo se puede retocar en el panel: /estudio-anuncios.
 - 🏭 fabricante_buscar trae de AliExpress fotos y video del FABRICANTE del mismo producto (comprobados con visión; nunca anuncios ni videos de otros vendedores) y corta clips de 3 s para la landing; fabricante_ver los muestra y fabricante_aprobar los activa SOLO con el OK del dueño. 🎞️ gif_crear hace un GIF o mp4 corto del video del producto o de sus fotos.
 - ⚠️ Los productos de Dropi son FÍSICOS: se envían a una dirección, no llevan enlace de Drive
   como los cursos digitales. No mezcles los dos flujos.
@@ -11377,6 +11393,14 @@ DROPSHIPPING CON DROPI (vender productos de proveedores sin tener stock):
 - ✅ dropi_verificar_disponibilidad desactiva lo que el proveedor archivó o dejó sin stock.
 - 🎬 video_anuncio_crear genera el VIDEO del anuncio (vertical, voz, precio, CTA) con el motor propio; el
   enlace llega por WhatsApp/Telegram. video_anuncio_estado lo consulta. No digas que "no podés hacer videos".
+- 🎨 ESTUDIO DE ANUNCIOS (plantillas tipo Canva con las fotos REALES del producto): estudio_plantillas busca entre
+  31.000+ plantillas (maqueta.estilo.tema: p. ej. "oferta.pop.navidad"; temas de Navidad, Amor y Amistad, Día de la
+  Madre, Halloween, Black Friday, mascotas, fitness, belleza…) y las propias del dueño; estudio_generar arma el
+  paquete (imágenes 1:1, 4:5, 9:16 + vídeo con guion a elegir); estudio_pieza pinta UNA imagen al instante y da el
+  enlace; estudio_editar_texto cambia un texto por rol (Gancho, Precio, Texto del botón); estudio_video rearma el
+  vídeo con otro guion/tema; estudio_estado consulta. Si el dueño pide "un arte/post/historia/flyer de X" o algo
+  "de Navidad", usá el Estudio. Los textos salen de la ficha y de lo que el dueño diga: NUNCA inventes descuentos,
+  cifras ni promesas. Todo se puede retocar en el panel: /estudio-anuncios.
 - 🏭 fabricante_buscar trae de AliExpress fotos y video del FABRICANTE del mismo producto (comprobados con visión; nunca anuncios ni videos de otros vendedores) y corta clips de 3 s para la landing; fabricante_ver los muestra y fabricante_aprobar los activa SOLO con el OK del dueño. 🎞️ gif_crear hace un GIF o mp4 corto del video del producto o de sus fotos.
 - ⚠️ Los productos de Dropi son FÍSICOS: se envían a una dirección, no llevan enlace de Drive
   como los cursos digitales. No mezcles los dos flujos.

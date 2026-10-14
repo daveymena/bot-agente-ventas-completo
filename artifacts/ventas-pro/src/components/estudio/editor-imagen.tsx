@@ -14,9 +14,10 @@ import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { ArrowDown, ArrowUp, Copy, ImagePlus, Loader2, Redo2, Save, Square, Circle as CircleIcon, Trash2, Type, Undo2, Upload, X, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
-import { AMARILLO, apiEstudio, nuevoId, type Capa, type CapaFondo, type CapaImagen, type CapaTexto, type Diseno } from "@/lib/estudio/diseno";
-import { TextoAnuncio, aplicarEstiloImagen, canvasADiseno, cargarDisenoEnCanvas, hornearEscala, objetoDeCapa } from "@/lib/estudio/fabric-diseno";
+import { ArrowDown, ArrowUp, BookmarkPlus, Copy, ImagePlus, Loader2, Redo2, Save, Search, Smile, Square, Circle as CircleIcon, Trash2, Type, Undo2, Upload, X, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { AMARILLO, ANIMACIONES, FUENTES, PATRONES, apiEstudio, esDegradado, esPatron, familiaCss, nuevoId, type Animacion, type Capa, type CapaFondo, type CapaIcono, type CapaImagen, type CapaTexto, type Diseno, type Elemento, type Entrada } from "@/lib/estudio/diseno";
+import { TextoAnuncio, aplicarEstiloImagen, canvasADiseno, cargarDisenoEnCanvas, cargarHojaDeFuentes, esperarFuentes, hornearEscala, objetoDeCapa } from "@/lib/estudio/fabric-diseno";
 
 type Obj = FabricObject & { capa?: Capa; esFondo?: boolean };
 
@@ -44,7 +45,9 @@ export function EditorImagen({ titulo, diseno, fotos, productId, guardando, onGu
   const [cargando, setCargando] = useState(true);
   const [zoom, setZoom] = useState(0.3);
   const [subiendo, setSubiendo] = useState(false);
+  const [panel, setPanel] = useState<"props" | "elementos">("props");
   const refrescar = useCallback(() => setTick((t) => t + 1), []);
+  useEffect(() => { cargarHojaDeFuentes(); }, []);
 
   const ajustarZoom = useCallback(() => {
     const c = canvasRef.current, cont = contRef.current;
@@ -153,6 +156,52 @@ export function EditorImagen({ titulo, diseno, fotos, productId, guardando, onGu
   const agregarRect = () => agregar({ id: nuevoId("r"), tipo: "rect", x: Math.round(d.ancho * 0.2), y: Math.round(d.alto * 0.4), w: Math.round(d.ancho * 0.6), h: Math.round(d.ancho * 0.12), relleno: "#4F46E5", radio: 24, nombre: "Rectángulo" });
   const agregarCirculo = () => agregar({ id: nuevoId("c"), tipo: "circulo", x: Math.round(d.ancho * 0.6), y: Math.round(d.alto * 0.5), w: 260, h: 260, relleno: AMARILLO, nombre: "Círculo" });
   const agregarFoto = (src: string) => agregar({ id: nuevoId("i"), tipo: "imagen", src, ajuste: "contener", x: Math.round(d.ancho * 0.1), y: Math.round(d.alto * 0.25), w: Math.round(d.ancho * 0.8), h: Math.round(d.ancho * 0.8), radio: 28, sombra: true, nombre: "Foto" });
+  const agregarElemento = (el: Elemento) => {
+    const tam = Math.round(d.ancho * 0.18);
+    return agregar({ id: nuevoId("k"), tipo: "icono", icono: el.ref, color: el.coloreable ? "#111827" : null, x: Math.round(d.ancho / 2 - tam / 2), y: Math.round(d.alto * 0.42), w: tam, h: tam, nombre: el.nombre });
+  };
+
+  const guardarComoPlantilla = async () => {
+    const dd = instantanea();
+    if (!dd) return;
+    const nombre = prompt("Nombre de la plantilla (se podrá aplicar a cualquier producto):", titulo);
+    if (nombre == null) return;
+    try {
+      await apiEstudio("/plantillas/personales", { method: "POST", body: JSON.stringify({ nombre, diseno: dd }) });
+      toast.success("Plantilla guardada: la verás en la pestaña Plantillas → Mis plantillas, y Atlas también la puede usar");
+    } catch (e: any) { toast.error(`No se pudo guardar la plantilla: ${e?.message || e}`); }
+  };
+
+  /** Cambia la animación de la capa seleccionada (solo cuenta en el vídeo). */
+  const setAnim = (cambios: Partial<Animacion> | null) => {
+    const c = canvasRef.current;
+    const o = c?.getActiveObject() as Obj | undefined;
+    if (!c || !o?.capa) return;
+    o.capa = { ...o.capa, anim: cambios === null ? null : { entrada: "aparecer", retraso: 0.3, duracion: 0.5, ...(o.capa.anim || {}), ...cambios } } as Capa;
+    refrescar();
+    guardarHistorial();
+  };
+
+  const setIcono = async (cambios: Partial<CapaIcono>) => {
+    const c = canvasRef.current;
+    const o = c?.getActiveObject() as Obj | undefined;
+    if (!c || !o || o.capa?.tipo !== "icono") return;
+    const caja = { x: o.left || 0, y: o.top || 0, w: o.getScaledWidth(), h: o.getScaledHeight() };
+    const idx = c.getObjects().indexOf(o);
+    const rem = await objetoDeCapa({ ...(o.capa as CapaIcono), ...cambios, ...caja });
+    if (!rem) { toast.error("No se pudo recargar el elemento"); return; }
+    c.remove(o);
+    c.insertAt(idx, rem);
+    c.setActiveObject(rem);
+    c.requestRenderAll();
+    refrescar();
+    guardarHistorial();
+  };
+
+  const setFuente = async (id: string) => {
+    await esperarFuentes([id]);
+    setProp({ fontFamily: familiaCss(id) });
+  };
 
   const subirFoto = async (f: File | undefined) => {
     if (!f) return;
@@ -266,6 +315,7 @@ export function EditorImagen({ titulo, diseno, fotos, productId, guardando, onGu
         <div className="min-w-0 flex-1 truncate text-sm font-semibold">{titulo} <span className="ml-2 text-xs font-normal text-slate-400">{d.ancho}×{d.alto} · {Math.round(zoom * 100)}%</span></div>
         <Button size="sm" variant="ghost" className="text-slate-200 hover:bg-white/10" onClick={deshacer} title="Deshacer (Ctrl+Z)"><Undo2 className="h-4 w-4" /></Button>
         <Button size="sm" variant="ghost" className="text-slate-200 hover:bg-white/10" onClick={rehacer} title="Rehacer (Ctrl+Y)"><Redo2 className="h-4 w-4" /></Button>
+        <Button size="sm" variant="ghost" className="hidden text-slate-200 hover:bg-white/10 sm:inline-flex" onClick={guardarComoPlantilla} title="Guardar este diseño como plantilla propia"><BookmarkPlus className="mr-1 h-4 w-4" />Plantilla</Button>
         <Button size="sm" className="bg-indigo-600 hover:bg-indigo-500" onClick={guardar} disabled={guardando || cargando}>{guardando ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Save className="mr-1 h-4 w-4" />}Guardar</Button>
       </div>
 
@@ -276,6 +326,7 @@ export function EditorImagen({ titulo, diseno, fotos, productId, guardando, onGu
           <Herr icono={<Square className="h-5 w-5" />} texto="Caja" onClick={agregarRect} />
           <Herr icono={<CircleIcon className="h-5 w-5" />} texto="Círculo" onClick={agregarCirculo} />
           <Herr icono={<ImagePlus className="h-5 w-5" />} texto="Foto" onClick={() => fotos[0] ? agregarFoto(fotos[0]) : toast.message("Este producto no tiene fotos; sube una con el botón de subir")} />
+          <Herr icono={<Smile className="h-5 w-5" />} texto="Elementos" onClick={() => { setPanel("elementos"); canvasRef.current?.discardActiveObject(); canvasRef.current?.requestRenderAll(); setSel(null); }} />
           <label className="flex cursor-pointer flex-col items-center gap-0.5 rounded-lg px-2 py-1.5 text-[10px] text-slate-300 hover:bg-white/10">
             {subiendo ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}Subir
             <input type="file" accept="image/*" className="hidden" onChange={(e) => subirFoto(e.target.files?.[0])} />
@@ -290,13 +341,48 @@ export function EditorImagen({ titulo, diseno, fotos, productId, guardando, onGu
 
         {/* Propiedades */}
         <div className="max-h-[42vh] shrink-0 overflow-y-auto border-t border-white/10 bg-slate-900 p-3 text-sm md:max-h-none md:w-80 md:border-l md:border-t-0">
-          {!capa && (
+          {!capa && panel === "elementos" && (
+            <PanelElementos onElegir={(el) => void agregarElemento(el)} onCerrar={() => setPanel("props")} />
+          )}
+          {!capa && panel !== "elementos" && (
             <div className="space-y-4">
               <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Fondo</h3>
               <div>
-                <Label className="text-slate-300">Color</Label>
-                <Paleta valor={typeof fondoActual?.relleno === "string" ? fondoActual.relleno : "#111111"} onChange={(v) => setFondo({ relleno: v })} />
+                <Label className="text-slate-300">Tipo de fondo</Label>
+                <div className="mt-1 flex rounded-md border border-white/10">
+                  {([["color", "Color"], ["degradado", "Degradado"], ["patron", "Patrón"]] as const).map(([v, n]) => {
+                    const actual = !fondoActual || typeof fondoActual.relleno === "string" ? "color" : esDegradado(fondoActual.relleno) ? "degradado" : "patron";
+                    const base = typeof fondoActual?.relleno === "string" ? fondoActual.relleno : esDegradado(fondoActual?.relleno || "") ? (fondoActual!.relleno as any).degradado[0] : esPatron(fondoActual?.relleno || "") ? (fondoActual!.relleno as any).fondo : "#111827";
+                    return <button key={v} className={`flex-1 py-1 text-xs ${actual === v ? "bg-indigo-600 text-white" : "text-slate-300"}`} onClick={() => setFondo({ relleno: v === "color" ? base : v === "degradado" ? { degradado: [base, "#4F46E5"], angulo: 160 } : { patron: "puntos", color: "#ffffff55", fondo: base, escala: 1 } })}>{n}</button>;
+                  })}
+                </div>
               </div>
+              {(!fondoActual || typeof fondoActual.relleno === "string") && (
+                <div>
+                  <Label className="text-slate-300">Color</Label>
+                  <Paleta valor={typeof fondoActual?.relleno === "string" ? fondoActual.relleno : "#111111"} onChange={(v) => setFondo({ relleno: v })} />
+                </div>
+              )}
+              {fondoActual && esDegradado(fondoActual.relleno) && (
+                <>
+                  <div><Label className="text-slate-300">Color inicial</Label><Paleta valor={fondoActual.relleno.degradado[0]} onChange={(v) => setFondo({ relleno: { ...(fondoActual.relleno as any), degradado: [v, (fondoActual.relleno as any).degradado[1]] } })} /></div>
+                  <div><Label className="text-slate-300">Color final</Label><Paleta valor={fondoActual.relleno.degradado[1]} onChange={(v) => setFondo({ relleno: { ...(fondoActual.relleno as any), degradado: [(fondoActual.relleno as any).degradado[0], v] } })} /></div>
+                  <div><Label className="text-slate-300">Ángulo ({fondoActual.relleno.angulo ?? 180}°)</Label><Slider className="mt-2" min={0} max={360} step={10} value={[fondoActual.relleno.angulo ?? 180]} onValueCommit={(v) => setFondo({ relleno: { ...(fondoActual.relleno as any), angulo: v[0] } })} /></div>
+                </>
+              )}
+              {fondoActual && esPatron(fondoActual.relleno) && (
+                <>
+                  <div>
+                    <Label className="text-slate-300">Patrón</Label>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {Object.entries(PATRONES).map(([id, n]) => <button key={id} className={`rounded border px-2 py-0.5 text-[11px] ${(fondoActual.relleno as any).patron === id ? "border-indigo-400 bg-indigo-600/30 text-white" : "border-white/10 text-slate-300"}`} onClick={() => setFondo({ relleno: { ...(fondoActual.relleno as any), patron: id } })}>{n}</button>)}
+                    </div>
+                  </div>
+                  <div><Label className="text-slate-300">Color del fondo</Label><Paleta valor={fondoActual.relleno.fondo} onChange={(v) => setFondo({ relleno: { ...(fondoActual.relleno as any), fondo: v } })} /></div>
+                  <div><Label className="text-slate-300">Color del dibujo</Label><Paleta valor={fondoActual.relleno.color.slice(0, 7)} onChange={(v) => setFondo({ relleno: { ...(fondoActual.relleno as any), color: `${v}55` } })} /></div>
+                  <div><Label className="text-slate-300">Escala ({fondoActual.relleno.escala ?? 1}×)</Label><Slider className="mt-2" min={5} max={30} step={1} value={[Math.round((fondoActual.relleno.escala ?? 1) * 10)]} onValueCommit={(v) => setFondo({ relleno: { ...(fondoActual.relleno as any), escala: v[0]! / 10 } })} /></div>
+                </>
+              )}
               <div>
                 <Label className="text-slate-300">Foto difuminada de fondo</Label>
                 <div className="mt-1 flex flex-wrap gap-2">
@@ -363,8 +449,24 @@ export function EditorImagen({ titulo, diseno, fotos, productId, guardando, onGu
                     </div>
                   </div>
                   <div>
+                    <Label className="text-slate-300">Tipografía</Label>
+                    <Select value={(capa as CapaTexto).fuente || FUENTES.find((f) => familiaCss(f.id) === t.fontFamily)?.id || "inter"} onValueChange={(v) => void setFuente(v)}>
+                      <SelectTrigger className="mt-1 border-white/10 bg-slate-800"><SelectValue /></SelectTrigger>
+                      <SelectContent className="max-h-72">
+                        {FUENTES.map((f) => <SelectItem key={f.id} value={f.id}><span style={{ fontFamily: familiaCss(f.id) }}>{f.nombre}</span> <span className="ml-1 text-[10px] text-muted-foreground">{f.categoria}</span></SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
                     <Label className="text-slate-300">Color del texto</Label>
                     <Paleta valor={String(t.fill || "#111827")} onChange={(v) => setProp({ fill: v })} />
+                  </div>
+                  <div>
+                    <div className="flex items-center justify-between">
+                      <Label className="text-slate-300">Contorno (texto sobre foto)</Label>
+                      <Switch checked={!!(t.strokeWidth && t.stroke)} onCheckedChange={(on) => setProp(on ? { stroke: "#111827", strokeWidth: Math.max(2, Math.round(t.fontSize / 12)), paintFirst: "stroke", strokeLineJoin: "round" } : { stroke: undefined, strokeWidth: 0 })} />
+                    </div>
+                    {!!(t.strokeWidth && t.stroke) && <Paleta valor={String(t.stroke)} onChange={(v) => setProp({ stroke: v })} />}
                   </div>
                   <div>
                     <div className="flex items-center justify-between">
@@ -424,6 +526,32 @@ export function EditorImagen({ titulo, diseno, fotos, productId, guardando, onGu
                 </>
               )}
 
+              {capa.tipo === "icono" && (
+                <div>
+                  <Label className="text-slate-300">Color del elemento</Label>
+                  {(capa as CapaIcono).color || /^(iconos|formas|marcas):/.test((capa as CapaIcono).icono) ? (
+                    <Paleta valor={(capa as CapaIcono).color || "#111827"} onChange={(v) => void setIcono({ color: v })} />
+                  ) : <p className="mt-1 text-xs text-slate-500">Los emojis traen su propio color. Cambia el tamaño desde las esquinas.</p>}
+                </div>
+              )}
+
+              <div className="rounded-xl border border-white/10 p-3">
+                <div className="flex items-center justify-between">
+                  <Label className="text-slate-300">Animación de entrada <span className="text-[10px] text-slate-500">(solo vídeo)</span></Label>
+                  <Switch checked={!!capa.anim?.entrada} onCheckedChange={(on) => setAnim(on ? { entrada: "aparecer" } : null)} />
+                </div>
+                {capa.anim?.entrada && (
+                  <div className="mt-2 space-y-2">
+                    <Select value={capa.anim.entrada} onValueChange={(v) => setAnim({ entrada: v as Entrada })}>
+                      <SelectTrigger className="border-white/10 bg-slate-800"><SelectValue /></SelectTrigger>
+                      <SelectContent>{Object.entries(ANIMACIONES).map(([k, n]) => <SelectItem key={k} value={k}>{n}</SelectItem>)}</SelectContent>
+                    </Select>
+                    <div><Label className="text-xs text-slate-400">Empieza a los {(capa.anim.retraso ?? 0.3).toFixed(1)} s</Label><Slider className="mt-1" min={0} max={30} step={1} value={[Math.round((capa.anim.retraso ?? 0.3) * 10)]} onValueCommit={(v) => setAnim({ retraso: v[0]! / 10 })} /></div>
+                    <div><Label className="text-xs text-slate-400">Dura {(capa.anim.duracion ?? 0.5).toFixed(1)} s</Label><Slider className="mt-1" min={2} max={15} step={1} value={[Math.round((capa.anim.duracion ?? 0.5) * 10)]} onValueCommit={(v) => setAnim({ duracion: v[0]! / 10 })} /></div>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <Label className="text-slate-300">Opacidad ({Math.round((sel?.opacity ?? 1) * 100)}%)</Label>
                 <Slider className="mt-2" min={10} max={100} step={5} value={[Math.round((sel?.opacity ?? 1) * 100)]} onValueChange={(v) => setProp({ opacity: v[0]! / 100 }, false)} onValueCommit={() => guardarHistorial()} />
@@ -432,6 +560,46 @@ export function EditorImagen({ titulo, diseno, fotos, productId, guardando, onGu
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function PanelElementos({ onElegir, onCerrar }: { onElegir: (e: Elemento) => void; onCerrar: () => void }) {
+  const [q, setQ] = useState("");
+  const [coleccion, setColeccion] = useState<"" | Elemento["coleccion"]>("");
+  const [items, setItems] = useState<Elemento[]>([]);
+  const [buscando, setBuscando] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      setBuscando(true);
+      try {
+        const r = await apiEstudio<{ items: Elemento[] }>(`/elementos?q=${encodeURIComponent(q || "estrella corazon regalo oferta")}${coleccion ? `&coleccion=${coleccion}` : ""}&limite=60`);
+        setItems(r.items);
+      } catch { setItems([]); }
+      setBuscando(false);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [q, coleccion]);
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-400">Elementos</h3>
+        <Button size="icon" variant="ghost" className="h-7 w-7 text-slate-300 hover:bg-white/10" onClick={onCerrar}><X className="h-4 w-4" /></Button>
+      </div>
+      <div className="relative"><Search className="absolute left-2 top-2 h-4 w-4 text-slate-500" /><Input className="h-8 border-white/10 bg-slate-800 pl-7 text-xs text-slate-100" placeholder="corazón, regalo, flecha, whatsapp…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+      <div className="flex flex-wrap gap-1 text-[11px]">
+        {([["", "Todo"], ["emoji", "Emojis"], ["iconos", "Iconos"], ["formas", "Formas"], ["marcas", "Logos"]] as const).map(([v, n]) => <button key={v} className={`rounded border px-2 py-0.5 ${coleccion === v ? "border-indigo-400 bg-indigo-600/30 text-white" : "border-white/10 text-slate-300"}`} onClick={() => setColeccion(v)}>{n}</button>)}
+      </div>
+      {buscando && <p className="text-xs text-slate-500"><Loader2 className="mr-1 inline h-3 w-3 animate-spin" />Buscando…</p>}
+      <div className="grid grid-cols-5 gap-1.5">
+        {items.map((e) => (
+          <button key={e.ref} title={e.nombre} className="flex aspect-square items-center justify-center rounded-md border border-white/10 bg-white/90 p-1.5 hover:border-indigo-400" onClick={() => onElegir(e)}>
+            <img src={e.svg} alt={e.nombre} className="h-full w-full object-contain" loading="lazy" />
+          </button>
+        ))}
+      </div>
+      {!buscando && !items.length && <p className="text-xs text-slate-500">Nada con ese nombre. Prueba en español o en inglés (p. ej. "gift").</p>}
+      <p className="text-[10px] text-slate-500">Fluent Emoji (MIT), Tabler Icons (MIT), Simple Icons (CC0) y formas propias. Todo libre para uso comercial.</p>
     </div>
   );
 }

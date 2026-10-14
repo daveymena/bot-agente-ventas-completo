@@ -16,7 +16,8 @@ import { logger } from "../logger";
 import { getImageStoreDir } from "../image-store";
 import { colaDelEstudio, type Trabajo } from "./cola";
 import { contenidoDelProducto, ganchosConIA, type ProductoParaEstudio } from "./contenido";
-import { escenasAutomaticas, paqueteDeDisenos, validarDiseno, FORMATOS, PLANTILLAS_LISTA, FORMATOS_LISTA, type Contenido, type Diseno, type Escena, type Formato, type Plantilla } from "./diseno";
+import { escenasAutomaticas, disenoDePlantilla, validarDiseno, FORMATOS, FORMATOS_LISTA, PAQUETE_POR_DEFECTO, GUIONES_LISTA, estiloPorId, temaPorId, type Contenido, type Diseno, type Escena, type Formato, type Plantilla } from "./diseno";
+import { aplicarDisenoAContenido, contenidoDeMuestra, disenoDeCatalogo, leerPersonal, resolverIdDePlantilla, type PlantillaResuelta } from "./plantillas";
 import { cargadorConCache, renderizarDiseno } from "./render";
 import { armarVideoDesdeEscenas, hayFfmpegDisponible, type EscenaParaVideo } from "./video";
 
@@ -48,7 +49,7 @@ export interface VideoDelEstudio {
 
 export interface EstadoEstudio {
   version: 1;
-  paquete?: { estado: "pendiente" | "en_curso" | "listo" | "fallo"; en?: string; error?: string; conIA?: boolean };
+  paquete?: { estado: "pendiente" | "en_curso" | "listo" | "fallo"; en?: string; error?: string; conIA?: boolean; estilo?: string; tema?: string; guion?: string };
   contenido?: Contenido;
   imagenes: ImagenGenerada[];
   /** Diseños editables por id de pieza. */
@@ -60,12 +61,56 @@ export interface EstadoEstudio {
 }
 
 export interface OpcionesPaquete {
-  plantillas?: Plantilla[];
+  /** Ids de maqueta ("oferta") o de plantilla del catálogo ("oferta.pop.navidad") o propias ("personal:p-abc"). */
+  plantillas?: string[];
   formatos?: Formato[];
+  /** Estilo y tema por defecto para las plantillas que no lo traigan en el id. */
+  estilo?: string | null;
+  tema?: string | null;
+  /** Guion del vídeo (escenas.ts GUIONES). */
+  guion?: string | null;
   conIA?: boolean;
   conVideo?: boolean;
   ganchos?: string[];
   destino?: "whatsapp" | "web";
+}
+
+/** Una plantilla pedida, ya resuelta: del catálogo o propia del negocio. */
+export type PlantillaPedida = { tipo: "catalogo"; id: string; r: PlantillaResuelta } | { tipo: "personal"; id: string; diseno: Diseno };
+
+/** Convierte la lista que llega del panel/Atlas en plantillas concretas (las que no existen se ignoran). */
+export async function resolverPlantillas(tenantId: number, ids: string[] | undefined, opts: { estilo?: string | null; tema?: string | null } = {}): Promise<PlantillaPedida[]> {
+  const lista = (ids || []).map((x) => String(x || "").trim()).filter(Boolean);
+  const out: PlantillaPedida[] = [];
+  for (const id of lista.length ? lista : PAQUETE_POR_DEFECTO) {
+    if (id.startsWith("personal:")) {
+      const p = await leerPersonal(tenantId, id.slice("personal:".length));
+      if (p) out.push({ tipo: "personal", id, diseno: p.diseno });
+      continue;
+    }
+    const r = resolverIdDePlantilla(id);
+    if (!r) continue;
+    const partes = id.split(".");
+    // Lo que no venga en el id toma el estilo/tema por defecto del pedido.
+    const estilo = partes[1] ? r.estilo : (opts.estilo ? estiloPorId(opts.estilo).id : r.estilo);
+    const tema = partes[2] ? r.tema : (opts.tema ? temaPorId(opts.tema).id : r.tema);
+    out.push({ tipo: "catalogo", id: `${r.maqueta}.${estilo}.${tema}`, r: { maqueta: r.maqueta, estilo, tema } });
+  }
+  if (!out.length) for (const m of PAQUETE_POR_DEFECTO) out.push({ tipo: "catalogo", id: m, r: { maqueta: m, estilo: opts.estilo ? estiloPorId(opts.estilo).id : "marca", tema: opts.tema ? temaPorId(opts.tema).id : "ninguno" } });
+  return out.slice(0, 12);
+}
+
+/** Diseño de una plantilla pedida para un formato, rotando gancho y foto con `i`. */
+export function disenoDePedida(p: PlantillaPedida, formato: Formato, c: Contenido, i: number): Diseno {
+  if (p.tipo === "personal") return aplicarDisenoAContenido(p.diseno, c, formato, { gancho: i, foto: i });
+  return disenoDePlantilla(p.r.maqueta as Plantilla, formato, c, { estilo: p.r.estilo, tema: p.r.tema, gancho: i, foto: i });
+}
+
+/** Id de archivo de una pieza: maqueta-formato (como siempre) o con sufijo cuando la plantilla trae estilo/tema o es propia. */
+export function idDePieza(p: PlantillaPedida, formato: Formato): string {
+  if (p.tipo === "personal") return `${p.id.replace(/^personal:/, "pp-")}-${formato}`.toLowerCase();
+  const sufijo = p.r.estilo !== "marca" || p.r.tema !== "ninguno" ? `-${p.r.estilo}${p.r.tema !== "ninguno" ? `-${p.r.tema}` : ""}` : "";
+  return `${p.r.maqueta}${sufijo}-${formato}`.replace(/[^a-z0-9-]/gi, "").slice(0, 60);
 }
 
 const appUrl = () => (process.env.APP_URL || "https://ventasproia.com").replace(/\/+$/, "");
@@ -155,35 +200,43 @@ async function trabajoPaquete(tenantId: number, productId: number, opts: Opcione
   avance({ progreso: 3, detalle: "Leyendo producto, marca y fotos" });
   const c = await contenidoPara(tenantId, p, { ganchos: opts.ganchos, destino: opts.destino, conIA: opts.conIA });
   if (!c.fotos.length) logger.warn({ tenantId, productId }, "[Estudio] el producto no tiene fotos: las piezas salen sin foto");
-  const plantillas = (opts.plantillas || []).filter((x) => PLANTILLAS_LISTA.includes(x));
-  const formatos = (opts.formatos || []).filter((x) => FORMATOS_LISTA.includes(x));
-  const piezas = paqueteDeDisenos(c, { plantillas: plantillas.length ? plantillas : undefined, formatos: formatos.length ? formatos : undefined });
+  const pedidas = await resolverPlantillas(tenantId, opts.plantillas, { estilo: opts.estilo, tema: opts.tema });
+  const formatosPedidos = (opts.formatos || []).filter((x) => FORMATOS_LISTA.includes(x));
+  const formatos = formatosPedidos.length ? formatosPedidos : FORMATOS_LISTA;
+  const piezas: Array<{ pedida: PlantillaPedida; formato: Formato; id: string; diseno: Diseno }> = [];
+  pedidas.forEach((pedida, i) => {
+    for (const formato of formatos) {
+      try { piezas.push({ pedida, formato, id: idDePieza(pedida, formato), diseno: disenoDePedida(pedida, formato, c, i) }); }
+      catch (e: any) { logger.warn({ tenantId, productId, plantilla: pedida.id, err: e?.message }, "[Estudio] plantilla no aplicable"); }
+    }
+  });
   const cargar = cargadorConCache();
   const imagenes: ImagenGenerada[] = [];
   const disenos: Record<string, Diseno> = {};
   for (let i = 0; i < piezas.length; i++) {
     const pz = piezas[i]!;
-    const id = `${pz.plantilla}-${pz.formato}`;
-    avance({ progreso: 5 + Math.round((i / piezas.length) * 85), detalle: `Pintando ${pz.plantilla} ${FORMATOS[pz.formato].etiqueta} (${i + 1}/${piezas.length})` });
+    avance({ progreso: 5 + Math.round((i / piezas.length) * 85), detalle: `Pintando ${pz.pedida.id} ${FORMATOS[pz.formato].etiqueta} (${i + 1}/${piezas.length})` });
     try {
-      const r = await renderizarPieza(productId, id, pz.diseno, cargar);
-      imagenes.push({ id, plantilla: pz.plantilla, formato: pz.formato, ancho: r.ancho, alto: r.alto, url: r.url, en: new Date().toISOString() });
-      disenos[id] = pz.diseno;
+      const r = await renderizarPieza(productId, pz.id, pz.diseno, cargar);
+      imagenes.push({ id: pz.id, plantilla: pz.pedida.id, formato: pz.formato, ancho: r.ancho, alto: r.alto, url: r.url, en: new Date().toISOString() });
+      disenos[pz.id] = pz.diseno;
     } catch (e: any) {
-      logger.warn({ tenantId, productId, id, err: e?.message }, "[Estudio] pieza no pintada");
+      logger.warn({ tenantId, productId, id: pz.id, err: e?.message }, "[Estudio] pieza no pintada");
     }
   }
   if (!imagenes.length) throw new Error("No se pudo pintar ninguna pieza (¿fotos inaccesibles?).");
   avance({ progreso: 92, detalle: "Armando escenas del vídeo" });
-  const escenas = escenasAutomaticas(c);
+  const estiloVideo = opts.estilo || (pedidas[0]?.tipo === "catalogo" ? pedidas[0].r.estilo : null);
+  const temaVideo = opts.tema || (pedidas[0]?.tipo === "catalogo" ? pedidas[0].r.tema : null);
+  const escenas = escenasAutomaticas(c, { guion: opts.guion, estilo: estiloVideo, tema: temaVideo });
   const estado = await guardarEstudio(productId, (e) => {
     e.contenido = c;
     // Se conservan diseños editados a mano de otras piezas; las regeneradas se reemplazan.
     e.disenos = { ...e.disenos, ...disenos };
     const previas = e.imagenes.filter((img) => !disenos[img.id]);
     e.imagenes = [...imagenes, ...previas];
-    if (!e.escenas?.length || !e.escenas.some((s) => (s as any).editada)) e.escenas = escenas;
-    e.paquete = { estado: "listo", en: new Date().toISOString(), conIA: !!opts.conIA };
+    if (!e.escenas?.length || !e.escenas.some((s) => (s as any).editada) || opts.guion) e.escenas = escenas;
+    e.paquete = { estado: "listo", en: new Date().toISOString(), conIA: !!opts.conIA, estilo: estiloVideo || undefined, tema: temaVideo || undefined, guion: opts.guion || undefined };
   });
   logger.info({ tenantId, productId, piezas: imagenes.length }, "[Estudio] paquete listo");
   return estado;
@@ -219,6 +272,12 @@ export interface OpcionesVideoEstudio {
   voz?: string | null;
   conVoz?: boolean;
   conMusica?: boolean;
+  /** false = sin animación por capas (fotograma completo con Ken Burns). */
+  conAnimaciones?: boolean;
+  /** Si se indica, se rearman las escenas con este guion/estilo/tema (ignora las guardadas). */
+  guion?: string | null;
+  estilo?: string | null;
+  tema?: string | null;
 }
 
 export async function pedirVideo(tenantId: number, productId: number, opts: OpcionesVideoEstudio = {}): Promise<Trabajo<VideoDelEstudio>> {
@@ -226,9 +285,11 @@ export async function pedirVideo(tenantId: number, productId: number, opts: Opci
   if (!leido) throw new Error(`No existe el producto ${productId}.`);
   if (!(await hayFfmpegDisponible())) throw new Error("El servidor no tiene ffmpeg: no se pueden armar vídeos.");
   let escenas = opts.escenas?.length ? opts.escenas : leido.estudio.escenas || [];
-  if (!escenas.length) {
+  const rearmar = !!(opts.guion || opts.estilo || opts.tema) && !opts.escenas?.length;
+  if (!escenas.length || rearmar) {
+    if (opts.guion && !GUIONES_LISTA.includes(String(opts.guion))) throw new Error(`Guion desconocido: ${opts.guion}. Opciones: ${GUIONES_LISTA.join(", ")}.`);
     const c = leido.estudio.contenido || await contenidoPara(tenantId, leido.producto);
-    escenas = escenasAutomaticas(c);
+    escenas = escenasAutomaticas(c, { guion: opts.guion || leido.estudio.paquete?.guion, estilo: opts.estilo || leido.estudio.paquete?.estilo, tema: opts.tema || leido.estudio.paquete?.tema });
   }
   if (!escenas.every((e) => e && validarDiseno(e.diseno))) throw new Error("Hay escenas con un diseño inválido.");
   if (escenas.length > 12) throw new Error("Máximo 12 escenas por vídeo.");
@@ -239,7 +300,7 @@ export async function pedirVideo(tenantId: number, productId: number, opts: Opci
     const carpeta = carpetaDe(productId);
     const nombre = `video-${Date.now()}.mp4`;
     const paraVideo: EscenaParaVideo[] = escenas.map((e, i) => ({ ...e, fotograma: opts.fotogramas?.[i] && existsSync(opts.fotogramas[i]!) ? opts.fotogramas[i]! : null }));
-    const v = await armarVideoDesdeEscenas(paraVideo, { carpeta, nombre, voz: opts.voz, conVoz: opts.conVoz, conMusica: opts.conMusica, avance: (progreso, detalle) => avance({ progreso, detalle }) });
+    const v = await armarVideoDesdeEscenas(paraVideo, { carpeta, nombre, voz: opts.voz, conVoz: opts.conVoz, conMusica: opts.conMusica, conAnimaciones: opts.conAnimaciones, avance: (progreso, detalle) => avance({ progreso, detalle }) });
     // Se borran vídeos anteriores del producto para no llenar el disco.
     try {
       const { readdir } = await import("node:fs/promises");
@@ -298,6 +359,99 @@ export async function guardarEscenas(tenantId: number, productId: number, escena
   const limpias: Escena[] = escenas.map((e, i) => ({ ...e, id: String(e.id || `e${i}`).slice(0, 40), duracion: Math.max(1.2, Math.min(20, Number(e.duracion) || 3)), locucion: String(e.locucion || "").slice(0, 400), editada: true } as Escena));
   await guardarEstudio(productId, (e) => { e.escenas = limpias; });
   return limpias;
+}
+
+// ─── Plantillas: pieza suelta, vista previa, aplicar ─────────────────────────
+
+/**
+ * Pinta UNA pieza de una plantilla (del catálogo o propia) para un producto y
+ * la añade al estudio sin tocar las demás. Es lo que usa Atlas cuando le
+ * piden "hazme una de Navidad para el producto X".
+ */
+export async function generarPieza(tenantId: number, productId: number, opts: { plantilla: string; formato?: Formato; estilo?: string | null; tema?: string | null; gancho?: string | null; conIA?: boolean }): Promise<ImagenGenerada & { diseno: Diseno }> {
+  const leido = await leerEstudio(tenantId, productId);
+  if (!leido) throw new Error(`No existe el producto ${productId}.`);
+  const formato: Formato = opts.formato && FORMATOS_LISTA.includes(opts.formato) ? opts.formato : "vertical";
+  const [pedida] = await resolverPlantillas(tenantId, [opts.plantilla], { estilo: opts.estilo, tema: opts.tema });
+  if (!pedida || (opts.plantilla && !opts.plantilla.startsWith("personal:") && !resolverIdDePlantilla(opts.plantilla))) throw new Error(`Plantilla desconocida: ${opts.plantilla}.`);
+  const c = leido.estudio.contenido || await contenidoPara(tenantId, leido.producto, { conIA: opts.conIA });
+  const contenido: Contenido = opts.gancho?.trim() ? { ...c, ganchos: [opts.gancho.trim().slice(0, 80), ...c.ganchos] } : c;
+  const diseno = disenoDePedida(pedida, formato, contenido, 0);
+  const id = idDePieza(pedida, formato);
+  const r = await renderizarPieza(productId, id, diseno);
+  const img: ImagenGenerada = { id, plantilla: pedida.id, formato, ancho: r.ancho, alto: r.alto, url: r.url, en: new Date().toISOString() };
+  await guardarEstudio(productId, (e) => {
+    if (!e.contenido) e.contenido = c;
+    e.disenos[id] = diseno;
+    const i = e.imagenes.findIndex((x) => x.id === id);
+    if (i >= 0) e.imagenes[i] = img; else e.imagenes.unshift(img);
+  });
+  return { ...img, diseno };
+}
+
+/** Cambia textos de una pieza ya generada por rol de capa (Gancho, Precio, Texto del botón…) y la vuelve a pintar. */
+export async function editarTextosDePieza(tenantId: number, productId: number, id: string, cambios: Record<string, string>): Promise<ImagenGenerada> {
+  const leido = await leerEstudio(tenantId, productId);
+  if (!leido) throw new Error(`No existe el producto ${productId}.`);
+  const d = leido.estudio.disenos[id];
+  if (!d) throw new Error(`No existe la pieza ${id}.`);
+  const { reajustarTexto } = await import("./plantillas");
+  const norm = (s: string) => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  const mapa = new Map(Object.entries(cambios || {}).map(([k, v]) => [norm(k), String(v ?? "").slice(0, 300)]));
+  let tocadas = 0;
+  const capas = d.capas.map((k) => {
+    if (k.tipo !== "texto") return k;
+    const nuevo = mapa.get(norm(k.nombre || "")) ?? mapa.get(norm(k.id));
+    if (nuevo == null || !nuevo.trim()) return k;
+    tocadas++;
+    return reajustarTexto(k, nuevo);
+  });
+  if (!tocadas) throw new Error(`Ninguna capa coincide. Capas de texto: ${d.capas.filter((k) => k.tipo === "texto").map((k) => k.nombre || k.id).join(", ")}.`);
+  return guardarDiseno(tenantId, productId, id, { ...d, capas });
+}
+
+const carpetaCache = () => path.join(getImageStoreDir(), "plantillas-cache");
+
+/**
+ * Miniatura JPG de una plantilla del catálogo (contenido de muestra, sin
+ * fotos) o pintada con un producto concreto. Se cachea en disco por
+ * (plantilla, formato, producto) porque el catálogo tiene decenas de miles.
+ */
+export async function vistaPreviaDePlantilla(tenantId: number, id: string, opts: { formato?: Formato; productId?: number | null; ancho?: number } = {}): Promise<{ ruta: string; url: string } | null> {
+  const formato: Formato = opts.formato && FORMATOS_LISTA.includes(opts.formato) ? opts.formato : "vertical";
+  const ancho = Math.max(120, Math.min(720, Number(opts.ancho) || 360));
+  let diseno: Diseno | null = null;
+  let clave: string;
+  if (id.startsWith("personal:")) {
+    const p = await leerPersonal(tenantId, id.slice("personal:".length));
+    if (!p) return null;
+    clave = `t${tenantId}-${p.id}-${formato}-${ancho}-${Date.parse(p.creadoEn) || 0}`;
+    diseno = p.formato === formato ? p.diseno : aplicarDisenoAContenido(p.diseno, contenidoDeMuestra(), formato);
+    if (opts.productId) {
+      const leido = await leerEstudio(tenantId, opts.productId);
+      if (leido) { const c = leido.estudio.contenido || await contenidoPara(tenantId, leido.producto); diseno = aplicarDisenoAContenido(p.diseno, c, formato); clave += `-p${opts.productId}`; }
+    }
+  } else {
+    const r = resolverIdDePlantilla(id);
+    if (!r) return null;
+    const idPleno = `${r.maqueta}.${r.estilo}.${r.tema}`;
+    clave = `${idPleno}-${formato}-${ancho}`;
+    let c = contenidoDeMuestra();
+    if (opts.productId) {
+      const leido = await leerEstudio(tenantId, opts.productId);
+      if (leido) { c = leido.estudio.contenido || await contenidoPara(tenantId, leido.producto); clave = `t${tenantId}-p${opts.productId}-${clave}-${(c.fotos[0] || "").length}`; }
+    }
+    diseno = disenoDeCatalogo(idPleno, formato, c);
+  }
+  if (!diseno) return null;
+  const archivo = `${clave.replace(/[^a-z0-9.-]/gi, "_")}.jpg`;
+  const ruta = path.join(carpetaCache(), archivo);
+  if (!existsSync(ruta)) {
+    await mkdir(carpetaCache(), { recursive: true });
+    const jpg = await renderizarDiseno(diseno, { salida: "jpg", calidad: 82, escala: ancho / diseno.ancho });
+    await writeFile(ruta, jpg);
+  }
+  return { ruta, url: `/uploads/plantillas-cache/${archivo}` };
 }
 
 export async function borrarImagen(tenantId: number, productId: number, id: string): Promise<void> {

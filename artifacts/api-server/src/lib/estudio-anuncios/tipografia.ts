@@ -4,33 +4,96 @@
  * Los servidores (y el sandbox) no traen fuentes: `fc-list` vacío. Si el texto
  * de un anuncio se dibujara con `<text>` en SVG, sharp/librsvg lo pintaría con
  * cuadraditos o nada. Acá cada letra se convierte en su contorno (path) con
- * opentype.js a partir de los TTF de Inter que viajan en el repo
- * (assets/fonts, licencia OFL), así el resultado es idéntico en cualquier
- * máquina: eso es parte de la "alta disponibilidad" del Estudio.
+ * opentype.js, así el resultado es idéntico en cualquier máquina: eso es parte
+ * de la "alta disponibilidad" del Estudio.
+ *
+ * Familias: Inter viaja en el repo (assets/fonts, OFL) y es la de siempre; las
+ * demás son Google Fonts (OFL) que llegan por npm en los paquetes @fontsource
+ * (archivos WOFF del subconjunto latino, que cubre el español con tildes y ñ).
+ * El panel carga las mismas familias por CSS, así lo que se ve en el editor es
+ * lo que pinta el servidor.
  *
  * Se arma el trazado glifo a glifo (sin el motor de sustituciones GSUB de
  * opentype.js, que no soporta algunas tablas de Inter) con interletraje por
  * pares. Los caracteres que la fuente no tiene (emojis, ✔) se omiten: los
- * iconos se dibujan aparte como formas SVG.
+ * iconos se dibujan aparte como elementos SVG (elementos.ts).
  */
 import fs from "node:fs";
 import path from "node:path";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import opentype from "opentype.js";
 
 export type Peso = 400 | 700 | 900;
 
-const ARCHIVOS: Record<Peso, string> = { 400: "Inter-Regular.ttf", 700: "Inter-Bold.ttf", 900: "Inter-Black.ttf" };
+export type CategoriaFuente = "sans" | "display" | "serif" | "script" | "manuscrita";
+
+export interface FamiliaFuente {
+  id: string;
+  /** Nombre para mostrar y `font-family` en el panel. */
+  nombre: string;
+  /** Paquete @fontsource (null = Inter, que viaja en assets/fonts). */
+  paquete: string | null;
+  /** Prefijo de los archivos dentro de `files/` del paquete. */
+  archivo: string;
+  pesos: Peso[];
+  categoria: CategoriaFuente;
+  /** Para qué sirve (ayuda al catálogo y a Atlas a elegir). */
+  uso: string;
+  /** Las condensadas en mayúsculas rinden más alto por px: factor de ancho aproximado respecto a Inter. */
+  mayusculas?: boolean;
+}
+
+/** Catálogo de familias. Todas OFL (libres para uso comercial). */
+export const FUENTES: FamiliaFuente[] = [
+  { id: "inter", nombre: "Inter", paquete: null, archivo: "Inter", pesos: [400, 700, 900], categoria: "sans", uso: "Neutra y legible: la de siempre." },
+  { id: "montserrat", nombre: "Montserrat", paquete: "@fontsource/montserrat", archivo: "montserrat", pesos: [400, 700, 900], categoria: "sans", uso: "Moderna, muy usada en anuncios de moda y belleza." },
+  { id: "poppins", nombre: "Poppins", paquete: "@fontsource/poppins", archivo: "poppins", pesos: [400, 700, 900], categoria: "sans", uso: "Geométrica y amable: tecnología, apps, servicios." },
+  { id: "nunito", nombre: "Nunito", paquete: "@fontsource/nunito", archivo: "nunito", pesos: [400, 700, 900], categoria: "sans", uso: "Redondeada y cercana: hogar, bebés, mascotas." },
+  { id: "raleway", nombre: "Raleway", paquete: "@fontsource/raleway", archivo: "raleway", pesos: [400, 700, 900], categoria: "sans", uso: "Elegante y fina: decoración, joyería." },
+  { id: "roboto", nombre: "Roboto", paquete: "@fontsource/roboto", archivo: "roboto", pesos: [400, 700, 900], categoria: "sans", uso: "Técnica y clara: electrónica, herramientas." },
+  { id: "bebas", nombre: "Bebas Neue", paquete: "@fontsource/bebas-neue", archivo: "bebas-neue", pesos: [400], categoria: "display", uso: "Condensada en mayúsculas: ofertas, deporte, impacto.", mayusculas: true },
+  { id: "anton", nombre: "Anton", paquete: "@fontsource/anton", archivo: "anton", pesos: [400], categoria: "display", uso: "Pesada y condensada: titulares que gritan.", mayusculas: true },
+  { id: "oswald", nombre: "Oswald", paquete: "@fontsource/oswald", archivo: "oswald", pesos: [400, 700], categoria: "display", uso: "Condensada versátil: precios, promociones." },
+  { id: "archivo", nombre: "Archivo Black", paquete: "@fontsource/archivo-black", archivo: "archivo-black", pesos: [400], categoria: "display", uso: "Negrita ancha: ofertas y Black Friday." },
+  { id: "bangers", nombre: "Bangers", paquete: "@fontsource/bangers", archivo: "bangers", pesos: [400], categoria: "display", uso: "Cómic y energía: juguetes, snacks, fiestas.", mayusculas: true },
+  { id: "righteous", nombre: "Righteous", paquete: "@fontsource/righteous", archivo: "righteous", pesos: [400], categoria: "display", uso: "Retro y redonda: gaming, bebidas, música." },
+  { id: "fredoka", nombre: "Fredoka", paquete: "@fontsource/fredoka", archivo: "fredoka", pesos: [400, 700], categoria: "display", uso: "Gordita y divertida: niños, comida, mascotas." },
+  { id: "playfair", nombre: "Playfair Display", paquete: "@fontsource/playfair-display", archivo: "playfair-display", pesos: [400, 700, 900], categoria: "serif", uso: "Serif elegante: joyería, cosmética premium, restaurantes." },
+  { id: "abril", nombre: "Abril Fatface", paquete: "@fontsource/abril-fatface", archivo: "abril-fatface", pesos: [400], categoria: "serif", uso: "Serif de revista: moda y editoriales." },
+  { id: "lobster", nombre: "Lobster", paquete: "@fontsource/lobster", archivo: "lobster", pesos: [400], categoria: "script", uso: "Caligráfica con cuerpo: comida, cafés, artesanías." },
+  { id: "pacifico", nombre: "Pacifico", paquete: "@fontsource/pacifico", archivo: "pacifico", pesos: [400], categoria: "script", uso: "Casual de playa: verano, bebidas, viajes." },
+  { id: "dancing", nombre: "Dancing Script", paquete: "@fontsource/dancing-script", archivo: "dancing-script", pesos: [700], categoria: "script", uso: "Romántica: amor y amistad, bodas, día de la madre." },
+  { id: "caveat", nombre: "Caveat", paquete: "@fontsource/caveat", archivo: "caveat", pesos: [700], categoria: "manuscrita", uso: "A mano alzada: notas, 'hecho a mano', orgánico." },
+  { id: "marker", nombre: "Permanent Marker", paquete: "@fontsource/permanent-marker", archivo: "permanent-marker", pesos: [400], categoria: "manuscrita", uso: "Marcador: urbano, descuentos, tachones." },
+];
+
+const POR_ID = new Map(FUENTES.map((f) => [f.id, f]));
+
+export const FUENTE_POR_DEFECTO = "inter";
+
+export function familiaDe(id?: string | null): FamiliaFuente {
+  return (id && POR_ID.get(String(id).toLowerCase())) || POR_ID.get(FUENTE_POR_DEFECTO)!;
+}
+
+/** El peso que la familia realmente tiene más cercano al pedido (Bebas solo trae 400). */
+export function pesoDisponible(familia: string | undefined | null, peso: Peso): Peso {
+  const f = familiaDe(familia);
+  if (f.pesos.includes(peso)) return peso;
+  return f.pesos.reduce((mejor, p) => (Math.abs(p - peso) < Math.abs(mejor - peso) ? p : mejor), f.pesos[0]!);
+}
+
+const ARCHIVOS_INTER: Record<Peso, string> = { 400: "Inter-Regular.ttf", 700: "Inter-Bold.ttf", 900: "Inter-Black.ttf" };
 
 type Fuente = ReturnType<typeof opentype.parse>;
-const cache = new Map<Peso, Fuente>();
+const cache = new Map<string, Fuente>();
 let dirResuelto: string | null | undefined;
 
 function aqui(): string {
   try { return path.dirname(fileURLToPath(import.meta.url)); } catch { return process.cwd(); }
 }
 
-/** Carpeta con los TTF: src/lib/estudio-anuncios → assets/fonts, o dist → assets/fonts, o desde la raíz del monorepo. */
+/** Carpeta con los TTF de Inter: src/lib/estudio-anuncios → assets/fonts, o dist → assets/fonts, o desde la raíz del monorepo. */
 export function dirDeFuentes(): string | null {
   if (dirResuelto !== undefined) return dirResuelto;
   const base = aqui();
@@ -43,23 +106,82 @@ export function dirDeFuentes(): string | null {
     path.resolve(process.cwd(), "assets/fonts"),
     "/app/artifacts/api-server/assets/fonts",
   ].filter(Boolean) as string[];
-  dirResuelto = candidatos.find((d) => fs.existsSync(path.join(d, ARCHIVOS[700]))) || null;
+  dirResuelto = candidatos.find((d) => fs.existsSync(path.join(d, ARCHIVOS_INTER[700]))) || null;
   return dirResuelto;
 }
 
-function fuente(peso: Peso): Fuente {
-  const hit = cache.get(peso);
+let requireLocal: NodeRequire | null = null;
+function resolver(ruta: string): string | null {
+  try {
+    if (!requireLocal) requireLocal = createRequire(import.meta.url);
+    return requireLocal.resolve(ruta);
+  } catch {
+    try { return createRequire(path.join(process.cwd(), "artifacts/api-server/package.json")).resolve(ruta); } catch { return null; }
+  }
+}
+
+/** Ruta del archivo de una familia/peso (para servirla al editor del panel); null si no está instalada. */
+export function archivoDeFuente(familia: string, peso: Peso): { ruta: string; formato: "woff" | "ttf" } | null {
+  const f = POR_ID.get(familia);
+  if (!f) return null;
+  const ruta = archivoDe(f, pesoDisponible(f.id, peso));
+  if (!ruta || !fs.existsSync(ruta)) return null;
+  return { ruta, formato: ruta.endsWith(".woff") ? "woff" : "ttf" };
+}
+
+/** Hoja @font-face con las familias instaladas, apuntando a `base/<id>/<peso>`. El panel la carga una vez. */
+export function cssDeFuentes(base: string): string {
+  const reglas: string[] = [];
+  for (const f of FUENTES) for (const peso of f.pesos) {
+    const a = archivoDeFuente(f.id, peso);
+    if (!a) continue;
+    reglas.push(`@font-face{font-family:"${f.nombre}";font-style:normal;font-weight:${peso};font-display:swap;src:url("${base}/${f.id}/${peso}.${a.formato}") format("${a.formato === "woff" ? "woff" : "truetype"}")}`);
+  }
+  return reglas.join("\n");
+}
+
+function archivoDe(f: FamiliaFuente, peso: Peso): string | null {
+  if (!f.paquete) {
+    const dir = dirDeFuentes();
+    return dir ? path.join(dir, ARCHIVOS_INTER[peso]) : null;
+  }
+  return resolver(`${f.paquete}/files/${f.archivo}-latin-${peso}-normal.woff`);
+}
+
+function parsear(ruta: string): Fuente {
+  const buf = fs.readFileSync(ruta);
+  return opentype.parse(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
+}
+
+/**
+ * Fuente cargada para (familia, peso). Si la familia no está instalada o el
+ * archivo falta, cae a Inter: el anuncio sale igual, con otra letra.
+ */
+function fuente(peso: Peso, familia?: string | null): Fuente {
+  const f = familiaDe(familia);
+  const p = pesoDisponible(f.id, peso);
+  const clave = `${f.id}:${p}`;
+  const hit = cache.get(clave);
   if (hit) return hit;
-  const dir = dirDeFuentes();
-  if (!dir) throw new Error("No se encontraron las fuentes del Estudio de anuncios (assets/fonts/Inter-*.ttf).");
-  const buf = fs.readFileSync(path.join(dir, ARCHIVOS[peso]));
-  const f = opentype.parse(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength));
-  cache.set(peso, f);
-  return f;
+  const ruta = archivoDe(f, p);
+  if (ruta && fs.existsSync(ruta)) {
+    try {
+      const parsed = parsear(ruta);
+      cache.set(clave, parsed);
+      return parsed;
+    } catch { /* archivo corrupto o formato raro: se usa Inter */ }
+  }
+  if (f.id !== FUENTE_POR_DEFECTO) return fuente(peso, FUENTE_POR_DEFECTO);
+  throw new Error("No se encontraron las fuentes del Estudio de anuncios (assets/fonts/Inter-*.ttf).");
 }
 
 export function fuentesDisponibles(): boolean {
   try { fuente(700); return true; } catch { return false; }
+}
+
+/** Qué familias están realmente instaladas en este servidor (las que falten se pintan con Inter). */
+export function familiasInstaladas(): string[] {
+  return FUENTES.filter((f) => { const r = archivoDe(f, f.pesos[0]!); return !!r && fs.existsSync(r); }).map((f) => f.id);
 }
 
 /** Quita lo que la fuente no puede dibujar (emojis, símbolos) y normaliza espacios. */
@@ -71,8 +193,8 @@ export function limpiarTexto(texto: string): string {
 }
 
 /** Ancho en px de `texto` a `size` px con el `peso` dado. */
-export function medir(texto: string, size: number, peso: Peso = 700): number {
-  const f = fuente(peso);
+export function medir(texto: string, size: number, peso: Peso = 700, familia?: string | null): number {
+  const f = fuente(peso, familia);
   const escala = size / f.unitsPerEm;
   let x = 0; let prev: any = null;
   for (const ch of texto) {
@@ -87,20 +209,38 @@ export function medir(texto: string, size: number, peso: Peso = 700): number {
 
 export interface Trazo { d: string; width: number }
 
+const num = (v: number) => { const r = Math.round(v * 100) / 100; return (Object.is(r, -0) ? 0 : r).toString(); };
+
+/**
+ * Serializa los comandos de un trazado de opentype.js. No se usa
+ * `toPathData()` porque en opentype.js 2.0 escribe "NaN" para ciertos
+ * valores (p. ej. x = 216.00000000000003) y librsvg corta el texto ahí.
+ */
+function datosDeTrazado(p: { commands: Array<{ type: string; x?: number; y?: number; x1?: number; y1?: number; x2?: number; y2?: number }> }): string {
+  let d = "";
+  for (const c of p.commands) {
+    if (c.type === "M" || c.type === "L") d += `${c.type}${num(c.x!)} ${num(c.y!)}`;
+    else if (c.type === "Q") d += `Q${num(c.x1!)} ${num(c.y1!)} ${num(c.x!)} ${num(c.y!)}`;
+    else if (c.type === "C") d += `C${num(c.x1!)} ${num(c.y1!)} ${num(c.x2!)} ${num(c.y2!)} ${num(c.x!)} ${num(c.y!)}`;
+    else if (c.type === "Z") d += "Z";
+  }
+  return d;
+}
+
 /**
  * Trazado SVG de una línea. `y` es la línea base. `anchor` alinea como en SVG.
  */
-export function trazar(texto: string, x: number, y: number, size: number, peso: Peso = 700, anchor: "start" | "middle" | "end" = "start"): Trazo {
-  const f = fuente(peso);
+export function trazar(texto: string, x: number, y: number, size: number, peso: Peso = 700, anchor: "start" | "middle" | "end" = "start", familia?: string | null): Trazo {
+  const f = fuente(peso, familia);
   const escala = size / f.unitsPerEm;
-  const ancho = medir(texto, size, peso);
+  const ancho = medir(texto, size, peso, familia);
   let cx = anchor === "middle" ? x - ancho / 2 : anchor === "end" ? x - ancho : x;
   let d = ""; let prev: any = null;
   for (const ch of texto) {
     const g: any = f.charToGlyph(ch);
     if (!g || (g.index === 0 && ch !== " ")) continue;
     if (prev) cx += f.getKerningValue(prev, g) * escala;
-    if (ch !== " ") d += g.getPath(cx, y, size).toPathData(2);
+    if (ch !== " ") d += datosDeTrazado(g.getPath(cx, y, size));
     cx += (g.advanceWidth || 0) * escala;
     prev = g;
   }
@@ -108,11 +248,11 @@ export function trazar(texto: string, x: number, y: number, size: number, peso: 
 }
 
 /** Parte un texto en líneas que quepan en `maxWidth`; corta con "…" si supera `maxLines`. */
-export function envolver(texto: string, size: number, peso: Peso, maxWidth: number, maxLines = 3): string[] {
+export function envolver(texto: string, size: number, peso: Peso, maxWidth: number, maxLines = 3, familia?: string | null): string[] {
   const palabras = limpiarTexto(texto).split(" ").filter(Boolean);
   const lineas: string[] = [];
   let actual = "";
-  const cabe = (s: string) => medir(s, size, peso) <= maxWidth;
+  const cabe = (s: string) => medir(s, size, peso, familia) <= maxWidth;
   for (const p of palabras) {
     const intento = actual ? `${actual} ${p}` : p;
     if (cabe(intento)) { actual = intento; continue; }
@@ -159,30 +299,35 @@ export interface OpcionesParrafo {
   size: number;
   min?: number;
   peso?: Peso;
+  /** Id de familia (FUENTES); por defecto Inter. */
+  familia?: string | null;
   maxLines?: number;
   lineHeight?: number;
   anchor?: "start" | "middle" | "end";
   fill?: string;
   /** Resaltado tipo subtítulo de anuncio detrás de cada línea. */
   resaltado?: { fill: string; padX?: number; padY?: number; radio?: number };
+  /** Contorno alrededor de las letras (texto sobre foto). */
+  contorno?: { color: string; grosor: number };
   opacity?: number;
 }
 
 /** Bloque de texto multilínea que se ajusta solo. */
 export function parrafo(o: OpcionesParrafo): Parrafo {
   const peso = o.peso ?? 700;
+  const familia = o.familia || FUENTE_POR_DEFECTO;
   const maxLines = o.maxLines ?? 3;
   const min = o.min ?? Math.max(18, Math.round(o.size * 0.55));
   const lh = o.lineHeight ?? 1.12;
   const anchor = o.anchor ?? "start";
   let size = o.size;
-  let lineas = envolver(o.texto, size, peso, o.maxWidth, 99);
+  let lineas = envolver(o.texto, size, peso, o.maxWidth, 99, familia);
   while (lineas.length > maxLines && size > min) {
     size = Math.max(min, Math.round(size * 0.92));
-    lineas = envolver(o.texto, size, peso, o.maxWidth, 99);
+    lineas = envolver(o.texto, size, peso, o.maxWidth, 99, familia);
   }
-  if (lineas.length > maxLines) lineas = envolver(o.texto, size, peso, o.maxWidth, maxLines);
-  const f = fuente(peso);
+  if (lineas.length > maxLines) lineas = envolver(o.texto, size, peso, o.maxWidth, maxLines, familia);
+  const f = fuente(peso, familia);
   const ascender = (f.ascender / f.unitsPerEm) * size;
   const alto = size * lh;
   const partes: string[] = [];
@@ -191,7 +336,7 @@ export function parrafo(o: OpcionesParrafo): Parrafo {
   let maxW = 0;
   lineas.forEach((l, i) => {
     const baseY = o.y + i * alto + ascender + (alto - size) / 2;
-    const t = trazar(l, o.x, baseY, size, peso, anchor);
+    const t = trazar(l, o.x, baseY, size, peso, anchor, familia);
     maxW = Math.max(maxW, t.width);
     const x0 = anchor === "middle" ? o.x - t.width / 2 : anchor === "end" ? o.x - t.width : o.x;
     cajas.push([x0, o.y + i * alto, t.width, alto]);
@@ -201,6 +346,9 @@ export function parrafo(o: OpcionesParrafo): Parrafo {
     }
     if (t.d) partes.push(`<path d="${t.d}"/>`);
   });
-  const svg = `<g${o.opacity != null ? ` opacity="${o.opacity}"` : ""}>${fondos.join("")}<g fill="${o.fill ?? "#fff"}">${partes.join("")}</g></g>`;
+  const contorno = o.contorno && o.contorno.grosor > 0
+    ? `<g fill="none" stroke="${o.contorno.color}" stroke-width="${o.contorno.grosor * 2}" stroke-linejoin="round">${partes.join("")}</g>`
+    : "";
+  const svg = `<g${o.opacity != null ? ` opacity="${o.opacity}"` : ""}>${fondos.join("")}${contorno}<g fill="${o.fill ?? "#fff"}">${partes.join("")}</g></g>`;
   return { svg, height: lineas.length * alto, size, lineas, width: maxW, cajas };
 }
