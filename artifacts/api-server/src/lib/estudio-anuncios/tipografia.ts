@@ -267,6 +267,18 @@ export function envolver(texto: string, size: number, peso: Peso, maxWidth: numb
     actual = trozo;
   }
   if (actual) lineas.push(actual);
+  // Sin viudas: una última línea de una sola palabra corta ("1 L" → "L") se reparte con la anterior.
+  if (lineas.length >= 2) {
+    const ultima = lineas[lineas.length - 1]!, previa = lineas[lineas.length - 2]!;
+    if (!ultima.includes(" ") && ultima.length <= 3) {
+      const palabrasPrevia = previa.split(" ");
+      if (palabrasPrevia.length >= 3) {
+        const movida = palabrasPrevia.pop()!;
+        const nuevaPrevia = palabrasPrevia.join(" "), nuevaUltima = `${movida} ${ultima}`;
+        if (cabe(nuevaUltima)) { lineas[lineas.length - 2] = nuevaPrevia; lineas[lineas.length - 1] = nuevaUltima; }
+      }
+    }
+  }
   if (lineas.length <= maxLines) return lineas;
   const corte = lineas.slice(0, maxLines);
   let ultima = corte[maxLines - 1]!;

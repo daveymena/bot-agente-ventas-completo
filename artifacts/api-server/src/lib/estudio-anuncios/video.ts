@@ -15,7 +15,9 @@ import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises"
 import os from "node:os";
 import path from "node:path";
 import { renderizarDiseno, renderizarCapas, cargadorConCache, type Cargador } from "./render";
-import { TRANSICIONES, type Capa, type Escena, type Transicion } from "./esquema";
+import { svgDeElemento } from "./elementos";
+import { getImageStoreDir } from "../image-store";
+import { TRANSICIONES, type Ambiente, type Capa, type Escena, type Movimiento, type MovimientoCamara, type Transicion } from "./esquema";
 
 export const ANCHO_VIDEO = 1080, ALTO_VIDEO = 1920, FPS = 30;
 const CRUCE = 0.4;
@@ -92,33 +94,64 @@ export function transicionDe(t: Transicion | undefined): Transicion { return t &
 function cruceDe(_t: Transicion | undefined): number { return CRUCE; }
 
 /** Movimiento de cámara del fondo/fotograma: devuelve el filtro que deja `[etiqueta]` en WxH a FPS (rgba si hay capas encima). */
-function filtroMovimiento(mov: Escena["movimiento"], frames: number, i: number, etiqueta: string, formato: "yuv420p" | "rgba"): string {
+export function filtroMovimiento(mov: MovimientoCamara | undefined, frames: number, i: number, etiqueta: string, formato: "yuv420p" | "rgba"): string {
   const base = `[0:v]scale=${ANCHO_VIDEO * 2}:${ALTO_VIDEO * 2}`;
   const salida = `s=${ANCHO_VIDEO}x${ALTO_VIDEO}:fps=${FPS},format=${formato}[${etiqueta}]`;
   const centro = `x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'`;
   switch (mov || (i % 2 === 0 ? "acercar" : "alejar")) {
     case "fijo": return `[0:v]scale=${ANCHO_VIDEO}:${ALTO_VIDEO},fps=${FPS},format=${formato}[${etiqueta}]`;
     case "alejar": return `${base},zoompan=z='if(eq(on,1),1.12,max(zoom-0.0012,1.0))':d=${frames}:${centro}:${salida}`;
+    case "balanceo": return `${base},zoompan=z=1.1:x='(iw-iw/zoom)/2*(1+0.7*sin(2*PI*on/${FPS * 6}))':y='ih/2-(ih/zoom/2)':d=${frames}:${salida}`;
+    case "respirar": return `${base},zoompan=z='1.07+0.035*sin(2*PI*on/${FPS * 3})':d=${frames}:${centro}:${salida}`;
+    case "giro3d": {
+      // Balanceo 3D sutil: las esquinas se mueven en contrafase (como una tarjeta que gira unos grados).
+      // Se pinta con un 6 % de sobrante y se recorta después para que el giro nunca deje ver el borde.
+      const k = `sin(2*PI*in/${FPS * 5})`;
+      const SW = Math.round(ANCHO_VIDEO * 1.06 / 2) * 2, SH = Math.round(ALTO_VIDEO * 1.06 / 2) * 2;
+      return `[0:v]scale=${SW}:${SH},fps=${FPS},perspective=x0='18*${k}':y0='9*${k}':x1='W-18*${k}':y1='-9*${k}':x2='-18*${k}':y2='H+9*${k}':x3='W+18*${k}':y3='H-9*${k}':eval=frame:sense=source,crop=${ANCHO_VIDEO}:${ALTO_VIDEO},format=${formato}[${etiqueta}]`;
+    }
     case "acercar":
     default: return `${base},zoompan=z='min(zoom+0.0012,1.12)':d=${frames}:${centro}:${salida}`;
   }
 }
 
+/** Fondo tomado de un clip de vídeo (foto animada con IA): se ajusta a 9:16 y se repite si es más corto. */
+function filtroClip(etiqueta: string, formato: "yuv420p" | "rgba"): string {
+  return `[0:v]scale=${ANCHO_VIDEO}:${ALTO_VIDEO}:force_original_aspect_ratio=increase,crop=${ANCHO_VIDEO}:${ALTO_VIDEO},fps=${FPS},setpts=PTS-STARTPTS,format=${formato}[${etiqueta}]`;
+}
+
+/** Ruta local de un archivo servido bajo /uploads (o URL absoluta del propio servidor). null si no es nuestro. */
+export function rutaLocalDeUpload(src: string | null | undefined): string | null {
+  const s = String(src || "").trim();
+  if (!s) return null;
+  let ruta = s;
+  try { if (/^https?:\/\//i.test(s)) ruta = new URL(s).pathname; } catch { return null; }
+  const m = /^\/uploads\/(.+)$/.exec(ruta);
+  if (!m) return path.isAbsolute(s) && existsSync(s) ? s : null;
+  const base = path.resolve(getImageStoreDir());
+  const local = path.resolve(base, m[1]!.split("?")[0]!);
+  return local.startsWith(base) && existsSync(local) ? local : null;
+}
+
 // ─── Animación por capas ─────────────────────────────────────────────────────
 
-interface GrupoAnimado { capas: Capa[]; entrada: string | null; retraso: number; duracion: number; salida: "desvanecer" | null }
+export interface GrupoAnimado { capas: Capa[]; entrada: string | null; retraso: number; duracion: number; salida: "desvanecer" | null; movimiento?: Movimiento | null; intensidad?: 1 | 2 | 3 }
 
-const claveAnim = (c: Capa) => c.anim?.entrada ? `${c.anim.entrada}|${c.anim.retraso ?? 0}|${c.anim.duracion ?? 0.5}|${c.anim.salida ?? ""}` : "";
+const tieneAnim = (c: Capa) => !!(c.anim?.entrada || c.anim?.movimiento);
+const claveAnim = (c: Capa) => tieneAnim(c) ? `${c.anim?.entrada || ""}|${c.anim?.retraso ?? 0}|${c.anim?.duracion ?? 0.5}|${c.anim?.salida ?? ""}|${c.anim?.movimiento || ""}|${c.anim?.intensidad ?? 2}` : "";
+const intensidadDe = (c: Capa): 1 | 2 | 3 => (c.anim?.intensidad === 1 || c.anim?.intensidad === 3 ? c.anim.intensidad : 2);
 
 /**
  * Separa las capas en: base (fondo + capas sin animación que van debajo de la
  * primera animada: se mueven con la cámara) y grupos consecutivos con la
- * misma animación (una píldora y su texto entran juntos).
+ * misma animación (una píldora y su texto entran juntos). Con `todoArriba`
+ * (fondo de clip) ninguna capa va en la base: las estáticas forman grupos
+ * quietos.
  */
-export function agruparCapas(capas: Capa[]): { base: Capa[]; grupos: GrupoAnimado[] } {
+export function agruparCapas(capas: Capa[], opts: { todoArriba?: boolean } = {}): { base: Capa[]; grupos: GrupoAnimado[] } {
   const base: Capa[] = [];
   const grupos: GrupoAnimado[] = [];
-  let vistaAnimada = false;
+  let vistaAnimada = !!opts.todoArriba;
   for (const c of capas) {
     if (c.tipo === "fondo") { base.push(c); continue; }
     const k = claveAnim(c);
@@ -126,7 +159,7 @@ export function agruparCapas(capas: Capa[]): { base: Capa[]; grupos: GrupoAnimad
     vistaAnimada = true;
     const ultimo = grupos[grupos.length - 1];
     if (ultimo && claveAnim(ultimo.capas[0]!) === k) { ultimo.capas.push(c); continue; }
-    grupos.push({ capas: [c], entrada: c.anim?.entrada || null, retraso: Math.max(0, Number(c.anim?.retraso) || 0), duracion: Math.min(1.5, Math.max(0.2, Number(c.anim?.duracion) || 0.5)), salida: c.anim?.salida || null });
+    grupos.push({ capas: [c], entrada: c.anim?.entrada || null, retraso: Math.max(0, Number(c.anim?.retraso) || 0), duracion: Math.min(1.5, Math.max(0.2, Number(c.anim?.duracion) || 0.5)), salida: c.anim?.salida || null, movimiento: c.anim?.movimiento || null, intensidad: intensidadDe(c) });
   }
   // Si hay demasiados grupos se funden los últimos (ffmpeg con 14 overlays va sobrado; 40 no).
   while (grupos.length > MAX_GRUPOS) {
@@ -138,29 +171,105 @@ export function agruparCapas(capas: Capa[]): { base: Capa[]; grupos: GrupoAnimad
 
 const n2 = (n: number) => (Math.round(n * 1000) / 1000).toString();
 
-/** Filtros de ffmpeg para que un grupo entre en pantalla. `idx` es la entrada (-i) del PNG recortado. */
+/**
+ * Filtros de ffmpeg para una capa (grupo) de la escena: entrada (aparece,
+ * desliza, zoom, rebote) + movimiento continuo (flota, late, se balancea…).
+ * `idx` es la entrada (-i) del PNG recortado. Todo se posiciona por el centro
+ * de la caja para que escalar o girar no la desplace.
+ */
 export function filtroDeEntrada(idx: number, g: GrupoAnimado, caja: { x: number; y: number; w: number; h: number }, dur: number, desde: string, hacia: string): string {
   const st = Math.min(Math.max(0, dur - 0.3), g.retraso), du = Math.min(g.duracion, Math.max(0.2, dur - st));
   const P = `min(1,max(0,(t-${n2(st)})/${n2(du)}))`;
   const E = `(1-pow(1-${P},3))`;
   const { x: X, y: Y, w: LW, h: LH } = caja;
   const CX = X + LW / 2, CY = Y + LH / 2;
-  const fade = `fade=t=in:st=${n2(st)}:d=${n2(Math.min(du, 0.35))}:alpha=1`;
+  const fade = g.entrada ? `,fade=t=in:st=${n2(st)}:d=${n2(Math.min(du, 0.35))}:alpha=1` : "";
   const salida = g.salida === "desvanecer" && dur > 1 ? `,fade=t=out:st=${n2(Math.max(0, dur - 0.4))}:d=0.4:alpha=1` : "";
-  const ov = (x: string, y: string) => `[${desde}][l${idx}]overlay=x='${x}':y='${y}':format=auto:eval=frame[${hacia}];`;
-  switch (g.entrada) {
-    case "deslizar-izq": return `[${idx}:v]format=rgba,${fade}${salida}[l${idx}];${ov(`${X}-(${X}+w)*(1-${E})`, String(Y))}`;
-    case "deslizar-der": return `[${idx}:v]format=rgba,${fade}${salida}[l${idx}];${ov(`${X}+(${ANCHO_VIDEO}-${X})*(1-${E})`, String(Y))}`;
-    case "deslizar-arriba": return `[${idx}:v]format=rgba,${fade}${salida}[l${idx}];${ov(String(X), `${Y}-(${Y}+h)*(1-${E})`)}`;
-    case "deslizar-abajo": return `[${idx}:v]format=rgba,${fade}${salida}[l${idx}];${ov(String(X), `${Y}+(${ALTO_VIDEO}-${Y})*(1-${E})`)}`;
-    case "zoom": return `[${idx}:v]format=rgba,scale=w='max(2,iw*(0.5+0.5*${E}))':h=-1:eval=frame,${fade}${salida}[l${idx}];${ov(`${n2(CX)}-w/2`, `${n2(CY)}-h/2`)}`;
-    case "rebote": {
-      const B = `(1+2.70158*pow(${P}-1,3)+1.70158*pow(${P}-1,2))`;
-      return `[${idx}:v]format=rgba,${fade}${salida}[l${idx}];${ov(String(X), `${Y}-(${Y}+h)*(1-${B})`)}`;
-    }
-    case "aparecer": return `[${idx}:v]format=rgba,${fade}${salida}[l${idx}];${ov(String(X), String(Y))}`;
-    default: return `[${idx}:v]format=rgba${salida}[l${idx}];${ov(String(X), String(Y))}`;
+  const k = g.intensidad ?? 2, fase = n2((idx % 7) * 0.9);
+  // Movimiento continuo: desplazamiento (dx, dy), escala (S) y giro (R) en función de t.
+  let dx = "0", dy = "0";
+  const escalas: string[] = [];
+  let giro: string | null = null;
+  switch (g.movimiento) {
+    case "flotar": dy = `${12 * k}*sin(2*PI*t/2.4+${fase})`; break;
+    case "latido": escalas.push(`(1+${n2(0.03 * k)}*sin(2*PI*t/1.5+${fase}))`); break;
+    case "balancear": giro = `${n2(0.035 * k)}*sin(2*PI*t/2.8+${fase})`; break;
+    case "orbita": dx = `${8 * k}*cos(2*PI*t/3.4+${fase})`; dy = `${8 * k}*sin(2*PI*t/3.4+${fase})`; break;
+    case "girar": giro = `2*PI*t/${n2(8 / k)}`; break;
+    case "deriva": dx = `${-16 * k}+${32 * k}*t/${n2(dur)}`; break;
+    case "acercar": escalas.push(`(1+${n2(0.06 * k)}*t/${n2(dur)})`); break;
+    default: break;
   }
+  // Entrada: desplazamiento extra que se anula cuando E llega a 1.
+  let ex = "0", ey = "0";
+  switch (g.entrada) {
+    case "deslizar-izq": ex = `-(${n2(X + LW)})*(1-${E})`; break;
+    case "deslizar-der": ex = `(${n2(ANCHO_VIDEO - X)})*(1-${E})`; break;
+    case "deslizar-arriba": ey = `-(${n2(Y + LH)})*(1-${E})`; break;
+    case "deslizar-abajo": ey = `(${n2(ALTO_VIDEO - Y)})*(1-${E})`; break;
+    case "rebote": { const B = `(1+2.70158*pow(${P}-1,3)+1.70158*pow(${P}-1,2))`; ey = `-(${n2(Y + LH)})*(1-${B})`; break; }
+    case "zoom": escalas.push(`(0.5+0.5*${E})`); break;
+    default: break;
+  }
+  let cadena = `[${idx}:v]format=rgba${fade}${salida}`;
+  if (giro) cadena += `,rotate=a='${giro}':ow='hypot(iw,ih)':oh='ow':c=none`;
+  if (escalas.length) cadena += `,scale=w='max(2,iw*${escalas.join("*")})':h=-1:eval=frame`;
+  cadena += `[l${idx}];`;
+  const x = `${n2(CX)}-w/2+${dx}+${ex}`, y = `${n2(CY)}-h/2+${dy}+${ey}`;
+  return `${cadena}[${desde}][l${idx}]overlay=x='${x}':y='${y}':format=auto:eval=frame[${hacia}];`;
+}
+
+// ─── Ambiente (partículas) ───────────────────────────────────────────────────
+
+const SPRITES: Record<Ambiente, { ref: string | null; svg?: string; lado: number; sube: boolean; gira: boolean; n: number }> = {
+  nieve: { ref: "emoji:snowflake", lado: 54, sube: false, gira: false, n: 14 },
+  confeti: { ref: null, svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect x="4" y="6" width="14" height="8" rx="2" fill="#F43F5E"/><rect x="22" y="4" width="8" height="14" rx="2" fill="#FACC15"/><rect x="8" y="24" width="10" height="10" rx="2" fill="#22C55E"/><circle cx="29" cy="29" r="5" fill="#3B82F6"/></svg>`, lado: 40, sube: false, gira: true, n: 16 },
+  chispas: { ref: "emoji:sparkles", lado: 46, sube: true, gira: false, n: 12 },
+  burbujas: { ref: null, svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><circle cx="24" cy="24" r="20" fill="#ffffff" fill-opacity="0.16" stroke="#ffffff" stroke-opacity="0.75" stroke-width="2.5"/><circle cx="17" cy="16" r="5" fill="#ffffff" fill-opacity="0.7"/></svg>`, lado: 44, sube: true, gira: false, n: 12 },
+  corazones: { ref: "emoji:red-heart", lado: 44, sube: true, gira: false, n: 12 },
+  hojas: { ref: "emoji:fallen-leaf", lado: 50, sube: false, gira: true, n: 12 },
+};
+
+/** PNG del sprite de un ambiente (null si la colección de emojis no está). */
+export async function spriteDeAmbiente(a: Ambiente): Promise<Buffer | null> {
+  const def = SPRITES[a];
+  if (!def) return null;
+  let svg = def.svg || null;
+  if (!svg && def.ref) svg = svgDeElemento(def.ref)?.svg || null;
+  if (!svg) return null;
+  const sharp = (await import("sharp")).default;
+  const conTamano = svg.replace(/<svg\b([^>]*)>/, (_m, attrs: string) => `<svg${attrs.replace(/\s(width|height)="[^"]*"/g, "")} width="${def.lado}" height="${def.lado}">`);
+  try { return await sharp(Buffer.from(conTamano), { density: 72 }).resize(def.lado, def.lado, { fit: "fill" }).png().toBuffer(); } catch { return null; }
+}
+
+/** Generador determinista (misma escena → mismas partículas en cada render). */
+function azar(semilla: number): () => number {
+  let s = (semilla * 9301 + 49297) % 233280;
+  return () => { s = (s * 9301 + 49297) % 233280; return s / 233280; };
+}
+
+/** Filtros para N copias del sprite (entrada `idx`) cayendo o subiendo con vaivén. Deja `[hacia]`. */
+export function filtroAmbiente(idx: number, a: Ambiente, semilla: number, desde: string, hacia: string): string {
+  const def = SPRITES[a];
+  const r = azar(semilla + 7);
+  const n = def.n, L = def.lado;
+  const etiquetas = Array.from({ length: n }, (_, i) => `[a${idx}_${i}]`).join("");
+  let f = `[${idx}:v]format=rgba,split=${n}${etiquetas};`;
+  let prev = desde;
+  for (let i = 0; i < n; i++) {
+    const x0 = Math.round(r() * (ANCHO_VIDEO - L));
+    const v = Math.round(90 + r() * 150);
+    const fase = Math.round(r() * (ALTO_VIDEO + L));
+    const vaiven = Math.round(14 + r() * 26), per = n2(1.8 + r() * 2.2), ph = n2(r());
+    const y = def.sube ? `${ALTO_VIDEO}-mod(${fase}+${v}*t,${ALTO_VIDEO + L})` : `mod(${fase}+${v}*t,${ALTO_VIDEO + L})-${L}`;
+    const x = `${x0}+${vaiven}*sin(2*PI*(t/${per}+${ph}))`;
+    let capa = `[a${idx}_${i}]`;
+    if (def.gira) { f += `[a${idx}_${i}]rotate=a='2*PI*t/${n2(2 + r() * 3)}':c=none[g${idx}_${i}];`; capa = `[g${idx}_${i}]`; }
+    const salida = i === n - 1 ? `[${hacia}]` : `[p${idx}_${i}]`;
+    f += `[${prev.replace(/^\[|\]$/g, "")}]${capa}overlay=x='${x}':y='${y}':format=auto:eval=frame${salida};`;
+    prev = salida;
+  }
+  return f;
 }
 
 async function pistaDeMusica(): Promise<string | null> {
@@ -200,21 +309,30 @@ interface Preparada {
   /** Fotograma completo (modo clásico) o fondo+base (modo por capas). */
   base: string;
   grupos: Array<{ png: string; caja: { x: number; y: number; w: number; h: number }; g: GrupoAnimado }>;
+  /** Sprite del ambiente (partículas) ya pintado. */
+  ambiente?: { png: string; tipo: Ambiente; semilla: number } | null;
+  /** Clip de vídeo que hace de fondo (ruta local). */
+  clip?: string | null;
 }
 
 /** Pinta lo necesario para la escena: un PNG completo, o fondo + un PNG recortado por grupo animado. */
 async function prepararEscena(e: EscenaParaVideo, i: number, tmp: string, cargar: Cargador, conAnimaciones: boolean): Promise<Preparada> {
   const base = path.join(tmp, `escena-${i}.png`);
   const d = { ...e.diseno, ancho: ANCHO_VIDEO, alto: ALTO_VIDEO };
-  const tieneAnim = conAnimaciones && !e.fotograma && d.capas.some((c) => c.tipo !== "fondo" && c.anim?.entrada);
-  if (!tieneAnim) {
-    await fotogramaDe(e, base, cargar);
-    return { base, grupos: [] };
+  const clip = !e.fotograma ? rutaLocalDeUpload(e.clip) : null;
+  let ambiente: Preparada["ambiente"] = null;
+  if (e.ambiente && SPRITES[e.ambiente]) {
+    const png = await spriteDeAmbiente(e.ambiente);
+    if (png) { const ruta = path.join(tmp, `ambiente-${i}.png`); await writeFile(ruta, png); ambiente = { png: ruta, tipo: e.ambiente, semilla: i + 1 }; }
   }
-  const { base: capasBase, grupos } = agruparCapas(d.capas);
-  // Fondo + capas estáticas de abajo, pintadas como un solo PNG opaco.
-  const fondoPng = await renderizarDiseno({ ...d, capas: capasBase }, { cargar });
-  await writeFile(base, fondoPng);
+  const porCapas = (conAnimaciones && !e.fotograma && d.capas.some((c) => c.tipo !== "fondo" && tieneAnim(c))) || !!clip;
+  if (!porCapas) {
+    await fotogramaDe(e, base, cargar);
+    return { base, grupos: [], ambiente };
+  }
+  const { base: capasBase, grupos } = agruparCapas(d.capas, { todoArriba: !!clip });
+  // Fondo + capas estáticas de abajo, pintadas como un solo PNG opaco (con clip, el fondo lo pone el vídeo).
+  if (!clip) await writeFile(base, await renderizarDiseno({ ...d, capas: capasBase }, { cargar }));
   const salida: Preparada["grupos"] = [];
   for (let k = 0; k < grupos.length; k++) {
     const g = grupos[k]!;
@@ -224,23 +342,31 @@ async function prepararEscena(e: EscenaParaVideo, i: number, tmp: string, cargar
     await writeFile(png, pintada.png);
     salida.push({ png, caja: { x: pintada.x, y: pintada.y, w: pintada.w, h: pintada.h }, g });
   }
-  return { base, grupos: salida };
+  return { base, grupos: salida, ambiente, clip };
 }
 
 /** Argumentos de ffmpeg para el clip de una escena ya preparada. */
-export function argumentosDeClip(p: Preparada, mov: Escena["movimiento"], dur: number, i: number, salida: string): string[] {
+export function argumentosDeClip(p: Preparada, mov: MovimientoCamara | undefined, dur: number, i: number, salida: string): string[] {
   const frames = Math.round(dur * FPS);
-  if (!p.grupos.length) {
-    return ["-y", "-loop", "1", "-i", p.base, "-filter_complex", filtroMovimiento(mov, frames, i, "v", "yuv420p"), "-map", "[v]", "-t", String(dur), "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", salida];
+  const codec = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "20"];
+  if (!p.grupos.length && !p.ambiente && !p.clip) {
+    return ["-y", "-loop", "1", "-i", p.base, "-filter_complex", filtroMovimiento(mov, frames, i, "v", "yuv420p"), "-map", "[v]", "-t", String(dur), "-an", ...codec, salida];
   }
-  const entradas = ["-loop", "1", "-t", String(dur), "-i", p.base];
-  let filtro = filtroMovimiento(mov, frames, i, "b0", "rgba") + ";";
+  const entradas = p.clip ? ["-stream_loop", "-1", "-t", String(dur), "-i", p.clip] : ["-loop", "1", "-t", String(dur), "-i", p.base];
+  let filtro = (p.clip ? filtroClip("b0", "rgba") : filtroMovimiento(mov, frames, i, "b0", "rgba")) + ";";
+  let n = 1, etiqueta = "b0";
+  if (p.ambiente) {
+    entradas.push("-loop", "1", "-framerate", String(FPS), "-t", String(dur), "-i", p.ambiente.png);
+    filtro += filtroAmbiente(n, p.ambiente.tipo, p.ambiente.semilla, etiqueta, "amb");
+    etiqueta = "amb"; n++;
+  }
   p.grupos.forEach((gr, k) => {
     entradas.push("-loop", "1", "-framerate", String(FPS), "-t", String(dur), "-i", gr.png);
-    filtro += filtroDeEntrada(k + 1, gr.g, gr.caja, dur, `b${k}`, `b${k + 1}`);
+    filtro += filtroDeEntrada(n, gr.g, gr.caja, dur, etiqueta, `c${k}`);
+    etiqueta = `c${k}`; n++;
   });
-  filtro += `[b${p.grupos.length}]format=yuv420p[v]`;
-  return ["-y", ...entradas, "-filter_complex", filtro, "-map", "[v]", "-t", String(dur), "-r", String(FPS), "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", salida];
+  filtro += `[${etiqueta}]format=yuv420p[v]`;
+  return ["-y", ...entradas, "-filter_complex", filtro, "-map", "[v]", "-t", String(dur), "-r", String(FPS), "-an", ...codec, salida];
 }
 
 export async function armarVideoDesdeEscenas(escenas: EscenaParaVideo[], opts: OpcionesVideo): Promise<VideoArmado> {
@@ -281,8 +407,9 @@ export async function armarVideoDesdeEscenas(escenas: EscenaParaVideo[], opts: O
       const d = duraciones[i]!;
       const salida = path.join(tmp, `clip-${i}.mp4`);
       let r = await run("ffmpeg", argumentosDeClip(preparadas[i]!, escenas[i]!.movimiento, d, i, salida), 300_000);
-      if (r.code !== 0 && preparadas[i]!.grupos.length) {
-        // Si la animación por capas falla por lo que sea, la escena sale con el fotograma completo.
+      if (r.code !== 0 && (preparadas[i]!.grupos.length || preparadas[i]!.ambiente || preparadas[i]!.clip)) {
+        // Si la animación por capas (o el clip/ambiente) falla por lo que sea, la escena sale con el fotograma completo.
+        avisar(50 + Math.round((i / escenas.length) * 30), `Escena ${i + 1}: reintentando sin capas`);
         const plano = path.join(tmp, `escena-${i}-plano.png`);
         await fotogramaDe({ ...escenas[i]!, fotograma: null }, plano, cargar);
         r = await run("ffmpeg", argumentosDeClip({ base: plano, grupos: [] }, escenas[i]!.movimiento, d, i, salida), 240_000);

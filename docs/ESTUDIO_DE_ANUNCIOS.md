@@ -6,7 +6,10 @@ y un vídeo vertical de 15–30 s, a partir de un catálogo de 31.000+
 plantillas (maqueta × estilo × tema) y las propias del negocio. Todo editable desde el panel
 (`/estudio-anuncios`) con un editor de lienzo (Fabric.js) y un editor de vídeo
 por escenas. Disponibilidad alta: sale aunque falten Chromium, la IA, Pexels o
-la voz; solo necesita `sharp` (imágenes) y `ffmpeg` (vídeo).
+la voz; solo necesita `sharp` (imágenes) y `ffmpeg` (vídeo). Desde la etapa 3
+el producto **se mueve dentro del cuadro** (recorte sin IA que flota, late o
+gira, partículas, cámara 3D) y hay un espacio de **IA fiel a la foto real**
+(nunca inventa el producto: solo pinta el entorno o lo anima).
 
 ## Dónde vive
 
@@ -19,6 +22,8 @@ la voz; solo necesita `sharp` (imágenes) y `ffmpeg` (vídeo).
 | Tipografías (20 familias OFL vía `@fontsource`, trazadas con opentype) | `…/estudio-anuncios/tipografia.ts` |
 | Elementos abiertos (emoji, iconos, logos, formas) | `…/estudio-anuncios/elementos.ts` |
 | Guiones de vídeo (5) y escenas con entradas animadas | `…/estudio-anuncios/escenas.ts` |
+| Recorte del producto sin IA (fondo liso → PNG con alfa, sombra, máscara de conservación) | `…/estudio-anuncios/recorte.ts` |
+| IA fiel a la foto real (proveedores por clave, imagen a imagen con máscara, imagen a vídeo, verificación) | `…/estudio-anuncios/ia.ts` |
 | Herramientas de Atlas | `…/estudio-anuncios/atlas.ts` (se enchufan en `app-operator.ts`) |
 | Contenido del anuncio (qué se dice) | `…/estudio-anuncios/contenido.ts` |
 | Render servidor (sharp + Inter en contornos) | `…/estudio-anuncios/render.ts`, `tipografia.ts`, `assets/fonts/` |
@@ -28,7 +33,7 @@ la voz; solo necesita `sharp` (imágenes) y `ffmpeg` (vídeo).
 | Fotogramas sin Chromium para el motor viejo | `…/estudio-anuncios/fotogramas.ts` (lo usa `video-anuncio.ts` si puppeteer no arranca) |
 | API | `artifacts/api-server/src/routes/estudio-anuncios.ts` → `/api/estudio-anuncios` |
 | Panel | `artifacts/ventas-pro/src/pages/estudio-anuncios.tsx`, `components/estudio/editor-imagen.tsx`, `editor-video.tsx`, `lib/estudio/` |
-| Pruebas | `artifacts/api-server/src/lib/__tests__/estudio-anuncios.test.ts`, `estudio-plantillas.test.ts` |
+| Pruebas | `artifacts/api-server/src/lib/__tests__/estudio-anuncios.test.ts`, `estudio-plantillas.test.ts`, `estudio-rutas-archivos.test.ts`, `estudio-movimiento.test.ts`, `estudio-ia.test.ts` |
 
 ## El Diseño (JSON)
 
@@ -161,7 +166,12 @@ producto si se pasa), `GET /plantillas/:id`, `GET|POST /plantillas/personales`,
 pieza al instante), `PUT /:productId/pieza/:id/textos {Gancho?, Precio?…}`,
 `GET /elementos`, `GET /elementos/svg?ref=&color=`, `GET /fuentes`,
 `GET /fuentes.css`, `GET /patrones/:id.svg`. `/generar` y `/video` aceptan
-`estilo`, `tema`, `guion`; `/video` además `conAnimaciones`.
+`estilo`, `tema`, `guion`; `/video` además `conAnimaciones`, `movimiento`
+(cámara), `ambiente`, `productoVivo`. Etapa 3: `GET /plantillas` añade
+`movimientos`, `camaras`, `ambientes` e `ia`; `GET /ia` (proveedores
+configurados), `POST /:productId/recortar {foto?}` → `{recorte: {url,
+confianza, usable, motivo?}}`, `POST /:productId/ia`, `POST
+/:productId/ia/:cid/usar`, `DELETE /:productId/ia/:cid`.
 
 ### Atlas
 
@@ -169,9 +179,95 @@ pieza al instante), `PUT /:productId/pieza/:id/textos {Gancho?, Precio?…}`,
 catálogo y lista estilos/temas/guiones/propias), `estudio_generar` (paquete
 con plantillas/estilo/tema/guion, avisa al terminar), `estudio_pieza` (una
 imagen al instante, devuelve enlace e id), `estudio_editar_texto` (cambia
-textos por rol y repinta), `estudio_video` (rearma con otro guion/tema),
-`estudio_estado`. Entran por las familias "video" y "plantilla|estudio|
-navidad|…"; las dos de lectura están en `READ_ONLY_TOOLS`.
+textos por rol y repinta), `estudio_video` (rearma con otro guion/tema,
+cámara, ambiente y producto vivo), `estudio_estado`, `estudio_recortar`
+(quita el fondo de la foto real y dice si sirve) y `estudio_ia_crear` (crea
+una imagen o un clip con IA sobre la foto real; avisa si no hay proveedor).
+Entran por las familias "video" y "plantilla|estudio|navidad|…"; las de
+lectura están en `READ_ONLY_TOOLS`.
+
+## Producto vivo (etapa 3): el producto se mueve dentro del cuadro
+
+Hasta la etapa 2 el vídeo movía la cámara (zoom) y las capas entraban
+animadas; ahora **las capas se mueven de forma continua** mientras la escena
+dura, como lo haría una pieza hecha con IA, pero sin IA y sin inventar nada:
+
+* **Recorte sin IA** (`recorte.ts`, `recortarProducto`): si la foto es de
+  estudio (fondo liso), se separa el producto por inundación desde el borde
+  con tolerancia adaptada al ruido del fondo, se quita la **sombra
+  proyectada** (mismo tono que el fondo, más oscura, bajo el producto), se
+  borran las motas lejanas, se rellenan los brillos interiores pequeños y se
+  mide una **confianza** (0–1). Solo se usa a partir de `UMBRAL_RECORTE`
+  (0,72). Se rebaja o se descarta —con motivo en español— cuando:
+  el fondo no es liso (`uniformidad < 0,6`), **la imagen es un montaje**
+  (banner con textos e iconos sueltos: ≥ 6 piezas lejos del cuerpo, o ≥ 3 con
+  ≥ 6 componentes → ×0,35; se usa entera para no comerse las letras), el
+  producto es del color del fondo (**fuga** > 12 % tras cerrar y rellenar la
+  máscara → ×0,5; una zapatilla blanca sobre gris no se recorta), ocupa casi
+  toda la foto o está cortado por el borde. Un aro o un asa (un único hueco
+  grande) no cuenta como fuga. Los PNG/WebP que ya traen alfa se respetan.
+  Resultado: `/uploads/anuncios/<id>/recortes/<hash>.png`, guardado en
+  `metadata.estudio.recortes[fotoUrl]` y reutilizado por todos los diseños.
+* **Dónde se aplica** (`aplicarRecortes`): solo en las vitrinas `contener`
+  (la foto completa) → capa `recortada: true` con `sombra` de silueta y sin
+  esquinas. El fondo "foto difuminada" de esa misma foto se cambia por un
+  **degradado del color de la marca** (una foto de estudio difuminada queda
+  gris y deja un fantasma del producto detrás del recorte). Las fotos
+  `cubrir` (tarjetas, collages) y los montajes siguen enteros.
+* **Movimiento interno por capa** (`anim.movimiento` + `intensidad` 1–3):
+  `flotar`, `latido`, `balancear`, `deriva`, `orbita`, `brillo` (barrido de
+  luz) o `ninguno`. En ffmpeg cada grupo de capas con el mismo movimiento se
+  pinta aparte (`agruparCapas`, máx. 14 grupos) y se superpone con
+  expresiones por fotograma (`filtroMovimiento`), encima del fondo y debajo
+  del contenido estático.
+* **Cámara nueva**: además de `acercar`/`alejar`/`fijo`, `balanceo`,
+  `respirar` y `giro3d` (perspectiva con sobreescaneo 1,06× y recorte para
+  no dejar bordes).
+* **Ambiente** (`Escena.ambiente`): partículas `nieve`, `confeti`,
+  `corazones`, `burbujas`, `chispas`, `hojas` con sprite propio por ambiente;
+  `undefined` = según el tema (`ambienteDeTema`), `null` = sin partículas.
+* **Clip de fondo** (`Escena.clip`): un MP4 propio (o creado con IA, abajo)
+  que vive bajo `IMAGE_STORE_DIR`; las capas van encima.
+* `darVidaAEscenas` lo decide solo cuando nadie configuró movimiento: la
+  foto del producto flota o late, el sello de precio late, las decoraciones
+  se balancean, la cámara va rotando por escena y el tema trae sus
+  partículas. Es idempotente y `pedirVideo` lo aplica salvo
+  `productoVivo: false`.
+
+## IA sobre la foto real (etapa 3)
+
+Un espacio para crear **con IA pero sobre el producto real** (`ia.ts`): la
+IA nunca parte de un texto solo; siempre recibe la foto del producto y, si
+hay recorte, una **máscara de conservación** (`mascaraDeConservacion`) que
+protege los píxeles del producto y solo deja pintar el fondo.
+
+* **Proveedores por clave** (`proveedoresDeIA`, `hayIAConfigurada`): OpenAI
+  `gpt-image-1` (imagen a imagen con máscara), Google Gemini
+  `gemini-2.5-flash-image` (imagen a imagen), Google **Veo** (imagen a
+  vídeo, 5–8 s desde la foto real), Replicate `flux-kontext-pro` (edición
+  fiel). Claves: `OPENAI_API_KEY`/`AI_INTEGRATIONS_OPENAI_API_KEY`,
+  `GOOGLE_API_KEY`/`GEMINI_API_KEY`, `REPLICATE_API_TOKEN`/`REPLICATE_API_KEY`;
+  modelos con `ESTUDIO_IA_MODELO_*` y sondeo con `ESTUDIO_IA_SONDEO_MS`. Sin
+  claves, `GET /ia` lo dice y el panel lo explica; todo lo demás sigue
+  funcionando sin IA.
+* **Instrucción fiel** (`instruccionFiel`): a la petición del dueño se le
+  añade siempre "no cambies el producto, ni su forma, color, etiquetas o
+  texto; solo el entorno".
+* **Fidelidad** de cada creación (`CreacionIA.fidelidad`): `protegida` (se
+  pintó con máscara y además se vuelve a pegar el recorte real encima),
+  `verificada` (sin máscara, pero el desvío medio bajo la silueta del
+  producto es < 0,18), `baja` (la IA tocó el producto: se guarda, pero no se
+  deja usar como foto) o `no_verificable` (vídeo o sin recorte).
+* **Flujo**: `POST /:productId/ia {tipo: "imagen"|"video", instruccion,
+  foto, proveedor?, duracion?, conservarProducto?}` → 202 con la creación en
+  cola (`ia:<id>:<creacionId>`); `POST /:productId/ia/:cid/usar {como:
+  "foto"|"clip", escena?}` la mete como foto del contenido (y se recorta) o
+  como clip de una escena; `DELETE /:productId/ia/:cid`. Nada entra solo al
+  anuncio: el dueño elige.
+* Panel: pestaña **IA** (`panel-ia.tsx`) con estado de proveedores, foto de
+  partida, instrucción, galería de creaciones con su fidelidad y botones
+  «Usar como foto» / «Usar como clip». Atlas: `estudio_recortar` y
+  `estudio_ia_crear`.
 
 ## Editor del panel
 
@@ -188,8 +284,14 @@ navidad|…"; las dos de lectura están en `READ_ONLY_TOOLS`.
   hecha con el producto, filtros por tema/categoría/formato, «Usar» crea la
   pieza al instante; «Mis plantillas» con borrar. Arriba, selector de estilo,
   tema y guion que aplica a «Generar».
+* **Editor de imagen, novedades etapa 3**: tarjeta «Quitar el fondo» en la
+  foto del producto (muestra confianza y motivo si no se puede) y selector
+  de **movimiento interno** e intensidad por capa.
 * **Editor de vídeo** (`editor-video.tsx`): tira de escenas con miniaturas,
-  duración, locución, transición, movimiento, reordenar/duplicar/eliminar,
+  duración, locución, transición, movimiento de cámara (incluye balanceo,
+  respirar y giro 3D), **ambiente** de partículas, **producto vivo**
+  (recorte flotando) y clip de fondo (propio o de la pestaña IA),
+  reordenar/duplicar/eliminar,
   "Editar diseño de la escena" (abre el editor de imagen en 9:16), voz
   (Salomé/Gonzalo), música. Al generar exporta cada fotograma en el navegador
   y lo sube; si falla, el servidor pinta las escenas él mismo.
@@ -205,8 +307,18 @@ navidad|…"; las dos de lectura están en `READ_ONLY_TOOLS`.
   5 guiones, plantillas propias e importación de Fabric, herramientas de
   Atlas. Pendiente de esta etapa: línea de tiempo libre y subtítulos
   sincronizados con la voz.
-* **Etapa 3**: biblioteca de música/stickers, kits de marca, variantes A/B
-  automáticas, programación al calendario orgánico.
+* **Etapa 3 (esta)**: producto vivo (recorte sin IA con sombra, montaje y
+  fuga detectados, movimiento interno por capa, cámara con balanceo/respirar/
+  giro 3D, partículas de ambiente, clip de fondo) y el espacio de IA fiel a
+  la foto real (proveedores por clave, máscara de conservación, fidelidad
+  verificada, usar como foto o clip). Límites conocidos: el recorte es por
+  color (fondo liso); con fondo de ambiente o producto del color del fondo
+  se deja la foto entera y lo dice; el movimiento interno no se previsualiza
+  en el lienzo del editor (solo en el vídeo); con fotogramas del navegador
+  el servidor aplica ambiente pero no movimiento por capa ni clip.
+* **Etapa 4**: biblioteca de música/stickers, kits de marca, variantes A/B
+  automáticas, programación al calendario orgánico, previsualización del
+  movimiento en el editor.
 
 ## Operación
 
@@ -216,4 +328,7 @@ navidad|…"; las dos de lectura están en `READ_ONLY_TOOLS`.
   (`FUENTES_DIR` para moverlas); las otras 19 vienen de `@fontsource/*`
   (dependencias del api-server). Las que falten se pintan con Inter.
 * Música opcional: pistas en `data/musica/*.mp3` (`MUSICA_DIR`).
-* Pruebas: `cd artifacts/api-server && node_modules/.bin/vitest run src/lib/__tests__/estudio-anuncios.test.ts src/lib/__tests__/estudio-plantillas.test.ts`.
+* IA opcional: con `OPENAI_API_KEY`, `GOOGLE_API_KEY`/`GEMINI_API_KEY` o
+  `REPLICATE_API_TOKEN` aparece la pestaña IA activa; sin ellas el Estudio
+  funciona igual (recorte, movimiento y partículas son locales).
+* Pruebas (69): `cd artifacts/api-server && node_modules/.bin/vitest run src/lib/__tests__/estudio-anuncios.test.ts src/lib/__tests__/estudio-plantillas.test.ts src/lib/__tests__/estudio-rutas-archivos.test.ts src/lib/__tests__/estudio-movimiento.test.ts src/lib/__tests__/estudio-ia.test.ts`.

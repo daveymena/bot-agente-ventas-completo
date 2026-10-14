@@ -16,7 +16,7 @@ import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import { ArrowDown, ArrowUp, BookmarkPlus, Copy, ImagePlus, Loader2, Redo2, Save, Search, Smile, Square, Circle as CircleIcon, Trash2, Type, Undo2, Upload, X, AlignLeft, AlignCenter, AlignRight } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { AMARILLO, ANIMACIONES, FUENTES, PATRONES, apiEstudio, esDegradado, esPatron, familiaCss, nuevoId, type Animacion, type Capa, type CapaFondo, type CapaIcono, type CapaImagen, type CapaTexto, type Diseno, type Elemento, type Entrada } from "@/lib/estudio/diseno";
+import { AMARILLO, ANIMACIONES, FUENTES, MOVIMIENTOS_CAPA, PATRONES, apiEstudio, esDegradado, esPatron, familiaCss, nuevoId, type Animacion, type Capa, type CapaFondo, type CapaIcono, type CapaImagen, type CapaTexto, type Diseno, type Elemento, type Entrada, type Movimiento, type RecorteGuardado } from "@/lib/estudio/diseno";
 import { TextoAnuncio, aplicarEstiloImagen, canvasADiseno, cargarDisenoEnCanvas, cargarHojaDeFuentes, esperarFuentes, hornearEscala, objetoDeCapa } from "@/lib/estudio/fabric-diseno";
 
 type Obj = FabricObject & { capa?: Capa; esFondo?: boolean };
@@ -26,6 +26,8 @@ export interface EditorImagenProps {
   diseno: Diseno;
   /** Fotos reales del producto para "Agregar foto". */
   fotos: string[];
+  /** Recortes ya calculados (foto → PNG sin fondo) para que "Quitar fondo" sea instantáneo. */
+  recortes?: Record<string, { url: string; confianza: number }>;
   productId: number;
   guardando?: boolean;
   onGuardar: (d: Diseno, jpgDataUrl: string) => Promise<void> | void;
@@ -34,7 +36,8 @@ export interface EditorImagenProps {
 
 const COLORES = ["#111827", "#ffffff", "#4F46E5", AMARILLO, "#25D366", "#EF4444", "#F97316", "#0EA5E9", "#64748B"];
 
-export function EditorImagen({ titulo, diseno, fotos, productId, guardando, onGuardar, onCerrar }: EditorImagenProps) {
+export function EditorImagen({ titulo, diseno, fotos, recortes = {}, productId, guardando, onGuardar, onCerrar }: EditorImagenProps) {
+  const [recortando, setRecortando] = useState(false);
   const contRef = useRef<HTMLDivElement>(null);
   const canvasEl = useRef<HTMLCanvasElement>(null);
   const canvasRef = useRef<Canvas | null>(null);
@@ -172,14 +175,37 @@ export function EditorImagen({ titulo, diseno, fotos, productId, guardando, onGu
     } catch (e: any) { toast.error(`No se pudo guardar la plantilla: ${e?.message || e}`); }
   };
 
-  /** Cambia la animación de la capa seleccionada (solo cuenta en el vídeo). */
+  /** Cambia la animación de la capa seleccionada (solo cuenta en el vídeo): entrada y/o movimiento interno continuo. */
   const setAnim = (cambios: Partial<Animacion> | null) => {
     const c = canvasRef.current;
     const o = c?.getActiveObject() as Obj | undefined;
     if (!c || !o?.capa) return;
-    o.capa = { ...o.capa, anim: cambios === null ? null : { entrada: "aparecer", retraso: 0.3, duracion: 0.5, ...(o.capa.anim || {}), ...cambios } } as Capa;
+    const anim: Animacion | null = cambios === null ? null : { retraso: 0.3, duracion: 0.5, ...(o.capa.anim || {}), ...cambios };
+    const vacia = !anim || (!anim.entrada && (!anim.movimiento || anim.movimiento === "ninguno"));
+    o.capa = { ...o.capa, anim: vacia ? null : anim } as Capa;
     refrescar();
     guardarHistorial();
+  };
+
+  /** Quita el fondo de la foto seleccionada (recorte local del servidor) o vuelve a la foto original. */
+  const quitarFondo = async () => {
+    const c = canvasRef.current;
+    const o = c?.getActiveObject() as Obj | undefined;
+    if (!c || !o || o.capa?.tipo !== "imagen") return;
+    const capa = o.capa as CapaImagen;
+    if (capa.recortada) { await setImagen({ src: capa.original || capa.src, recortada: false, original: undefined, radio: 28 }); return; }
+    setRecortando(true);
+    try {
+      let url = recortes[capa.src]?.url || null;
+      if (!url) {
+        const r = await apiEstudio<{ recorte: RecorteGuardado }>(`/${productId}/recortar`, { method: "POST", body: JSON.stringify({ foto: capa.src }) });
+        if (!r.recorte.usable || !r.recorte.url) { toast.message(`No se recortó: ${r.recorte.motivo || "el fondo no es liso"} (confianza ${Math.round(r.recorte.confianza * 100)} %). Se deja la foto entera.`); return; }
+        url = r.recorte.url;
+      }
+      await setImagen({ src: `${url}${url.includes("?") ? "&" : "?"}v=${Date.now()}`, original: capa.src, recortada: true, ajuste: "contener", radio: 0, sombra: true });
+      toast.success("Fondo quitado: el producto flota sobre el diseño");
+    } catch (e: any) { toast.error(`No se pudo recortar: ${e?.message || e}`); }
+    finally { setRecortando(false); }
   };
 
   const setIcono = async (cambios: Partial<CapaIcono>) => {
@@ -496,6 +522,17 @@ export function EditorImagen({ titulo, diseno, fotos, productId, guardando, onGu
                     <Label className="text-slate-300">Sombra</Label>
                     <Switch checked={!!(capa as CapaImagen).sombra} onCheckedChange={(on) => setImagen({ sombra: on })} />
                   </div>
+                  <div className="rounded-xl border border-white/10 p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <Label className="text-slate-300">{(capa as CapaImagen).recortada ? "Producto sin fondo" : "Quitar el fondo"}</Label>
+                        <p className="text-[11px] text-slate-500">{(capa as CapaImagen).recortada ? "Recorte local de la foto real, con sombra de silueta." : "Recorte local (sin IA): solo si el fondo de la foto es liso."}</p>
+                      </div>
+                      <Button size="sm" variant="secondary" disabled={recortando} onClick={() => void quitarFondo()}>
+                        {recortando ? <Loader2 className="h-4 w-4 animate-spin" /> : (capa as CapaImagen).recortada ? "Foto original" : "Quitar fondo"}
+                      </Button>
+                    </div>
+                  </div>
                   {fotos.length > 1 && (
                     <div>
                       <Label className="text-slate-300">Cambiar por otra foto del producto</Label>
@@ -538,7 +575,7 @@ export function EditorImagen({ titulo, diseno, fotos, productId, guardando, onGu
               <div className="rounded-xl border border-white/10 p-3">
                 <div className="flex items-center justify-between">
                   <Label className="text-slate-300">Animación de entrada <span className="text-[10px] text-slate-500">(solo vídeo)</span></Label>
-                  <Switch checked={!!capa.anim?.entrada} onCheckedChange={(on) => setAnim(on ? { entrada: "aparecer" } : null)} />
+                  <Switch checked={!!capa.anim?.entrada} onCheckedChange={(on) => setAnim(on ? { entrada: "aparecer" } : { entrada: null })} />
                 </div>
                 {capa.anim?.entrada && (
                   <div className="mt-2 space-y-2">
@@ -550,6 +587,21 @@ export function EditorImagen({ titulo, diseno, fotos, productId, guardando, onGu
                     <div><Label className="text-xs text-slate-400">Dura {(capa.anim.duracion ?? 0.5).toFixed(1)} s</Label><Slider className="mt-1" min={2} max={15} step={1} value={[Math.round((capa.anim.duracion ?? 0.5) * 10)]} onValueCommit={(v) => setAnim({ duracion: v[0]! / 10 })} /></div>
                   </div>
                 )}
+                <div className="mt-3 border-t border-white/10 pt-3">
+                  <Label className="text-slate-300">Movimiento interno <span className="text-[10px] text-slate-500">(sigue toda la escena)</span></Label>
+                  <Select value={capa.anim?.movimiento || "ninguno"} onValueChange={(v) => setAnim({ movimiento: v as Movimiento })}>
+                    <SelectTrigger className="mt-1 border-white/10 bg-slate-800"><SelectValue /></SelectTrigger>
+                    <SelectContent>{Object.entries(MOVIMIENTOS_CAPA).map(([k, n]) => <SelectItem key={k} value={k}>{n}</SelectItem>)}</SelectContent>
+                  </Select>
+                  {capa.anim?.movimiento && capa.anim.movimiento !== "ninguno" && (
+                    <div className="mt-2 flex rounded-md border border-white/10">
+                      {([[1, "Sutil"], [2, "Normal"], [3, "Marcado"]] as const).map(([v, n]) => (
+                        <button key={v} className={`flex-1 py-1 text-xs ${(capa.anim?.intensidad ?? 2) === v ? "bg-indigo-600 text-white" : "text-slate-300"}`} onClick={() => setAnim({ intensidad: v })}>{n}</button>
+                      ))}
+                    </div>
+                  )}
+                  <p className="mt-1 text-[11px] text-slate-500">El producto recortado, los emojis y el sello de precio se mueven solos dentro del cuadro, como en los anuncios hechos con IA.</p>
+                </div>
               </div>
 
               <div>

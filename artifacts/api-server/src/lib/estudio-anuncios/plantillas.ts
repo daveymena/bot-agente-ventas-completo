@@ -15,7 +15,7 @@ import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getImageStoreDir } from "../image-store";
 import { sanearSvg } from "./elementos";
-import { FORMATOS, validarDiseno, type Capa, type CapaTexto, type Contenido, type Diseno, type Formato } from "./esquema";
+import { FORMATOS, oscurecerHex, validarDiseno, type Ambiente, type Animacion, type Capa, type CapaTexto, type Contenido, type Diseno, type Escena, type Formato, type MovimientoCamara } from "./esquema";
 import { ESTILOS, estiloPorId } from "./estilos";
 import { PLANTILLAS, PLANTILLAS_LISTA, disenoDePlantilla, type CategoriaMaqueta, type Plantilla } from "./maquetas";
 import { TEMAS, temaPorId } from "./temas";
@@ -400,4 +400,77 @@ export function nombrarRoles(d: Diseno): Diseno {
     return k;
   });
   return { ...d, capas };
+}
+
+// ─── Recorte del producto y "producto vivo" ──────────────────────────────────
+
+/**
+ * Sustituye la foto del producto por su recorte sin fondo cuando el recorte
+ * fue confiable: solo en las cajas de tipo "contener" (la vitrina del
+ * producto); las fotos a sangre ("cubrir") y el fondo difuminado siguen con la
+ * foto original. El recorte lleva sombra de silueta y sin esquinas.
+ */
+export function aplicarRecortes(d: Diseno, c: Contenido): Diseno {
+  const recortes = c.recortes || {};
+  if (!Object.keys(recortes).length) return d;
+  let cambio = false;
+  const capas = d.capas.map((capa): Capa => {
+    // El fondo "foto difuminada" de una foto de estudio (producto sobre liso) queda gris y
+    // con un fantasma del producto detrás del recorte: mejor un degradado del color de la marca.
+    if (capa.tipo === "fondo" && capa.imagen && recortes[capa.imagen]?.url) {
+      cambio = true;
+      const base = c.color || "#4F46E5";
+      return { ...capa, imagen: null, relleno: { degradado: [oscurecerHex(base, 0.55), oscurecerHex(base, 0.22)], angulo: 160 } };
+    }
+    if (capa.tipo !== "imagen" || capa.ajuste !== "contener" || capa.recortada) return capa;
+    const r = recortes[capa.src];
+    if (!r?.url) return capa;
+    cambio = true;
+    return { ...capa, src: r.url, recortada: true, sombra: true, radio: 0 };
+  });
+  return cambio ? { ...d, capas } : d;
+}
+
+const AMBIENTE_POR_TEMA: Record<string, Ambiente> = {
+  navidad: "nieve", anonuevo: "confeti", fiesta: "confeti", blackfriday: "confeti", diasinvia: "confeti",
+  amor: "corazones", madre: "corazones", bebes: "burbujas", belleza: "chispas", lujo: "chispas",
+  naturaleza: "hojas", halloween: "hojas", mascotas: "corazones",
+};
+
+/** Ambiente de partículas que sugiere un tema (null = sin partículas). */
+export function ambienteDeTema(tema: string | null | undefined): Ambiente | null {
+  return (tema && AMBIENTE_POR_TEMA[tema]) || null;
+}
+
+const CAMARAS: MovimientoCamara[] = ["acercar", "giro3d", "alejar", "balanceo", "respirar", "acercar"];
+
+/**
+ * Da vida a las escenas: la foto del producto flota o late, el sello de
+ * precio late, las decoraciones se balancean, la cámara varía (zoom, paneo,
+ * giro 3D) y el tema aporta partículas. Es idempotente: no pisa lo que el
+ * dueño ya configuró.
+ */
+export function darVidaAEscenas(escenas: Escena[], opts: { tema?: string | null; ambiente?: Ambiente | null; camara?: MovimientoCamara | null } = {}): Escena[] {
+  const ambiente = opts.ambiente === undefined ? ambienteDeTema(opts.tema) : opts.ambiente;
+  return escenas.map((e, i) => {
+    const rol = e.diseno.plantilla.replace(/^escena-/, "");
+    const capas: Capa[] = e.diseno.capas.map((capa, k): Capa => {
+      if (capa.anim?.movimiento) return capa;
+      const anim: Animacion = { ...(capa.anim || {}) };
+      if (capa.tipo === "imagen" && (capa.recortada || capa.ajuste === "contener")) {
+        anim.movimiento = rol === "producto" || rol === "precio" ? "latido" : "flotar";
+        anim.intensidad = capa.recortada ? 2 : 1;
+        return { ...capa, anim };
+      }
+      if (capa.tipo === "icono" && /decoraci/i.test(capa.nombre || "")) return { ...capa, anim: { ...anim, movimiento: k % 2 ? "balancear" : "flotar", intensidad: 2 } };
+      if ((capa.tipo === "circulo" || capa.tipo === "icono" || capa.tipo === "texto") && /sello de precio|^precio$|detalle del precio/i.test(capa.nombre || "")) return { ...capa, anim: { ...anim, movimiento: "latido", intensidad: 2 } };
+      return capa;
+    });
+    return {
+      ...e,
+      diseno: { ...e.diseno, capas },
+      movimiento: e.movimiento && e.movimiento !== "acercar" && e.movimiento !== "alejar" ? e.movimiento : (opts.camara || CAMARAS[i % CAMARAS.length]),
+      ambiente: e.ambiente === undefined ? ambiente : e.ambiente,
+    };
+  });
 }

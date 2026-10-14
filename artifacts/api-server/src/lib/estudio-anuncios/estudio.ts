@@ -7,18 +7,22 @@
  * muestre, lo edite (diseños JSON) y lo reutilice en el flujo de Meta.
  * Archivos en `IMAGE_STORE_DIR/anuncios/<productId>/` servidos por /uploads.
  */
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import sharp from "sharp";
 import { and, eq } from "drizzle-orm";
 import { db, products, tenants } from "@workspace/db";
 import { logger } from "../logger";
 import { getImageStoreDir } from "../image-store";
 import { colaDelEstudio, type Trabajo } from "./cola";
 import { contenidoDelProducto, ganchosConIA, type ProductoParaEstudio } from "./contenido";
-import { escenasAutomaticas, disenoDePlantilla, validarDiseno, FORMATOS, FORMATOS_LISTA, PAQUETE_POR_DEFECTO, GUIONES_LISTA, estiloPorId, temaPorId, type Contenido, type Diseno, type Escena, type Formato, type Plantilla } from "./diseno";
-import { aplicarDisenoAContenido, contenidoDeMuestra, disenoDeCatalogo, leerPersonal, resolverIdDePlantilla, type PlantillaResuelta } from "./plantillas";
-import { cargadorConCache, renderizarDiseno } from "./render";
+import { escenasAutomaticas, disenoDePlantilla, validarDiseno, FORMATOS, FORMATOS_LISTA, PAQUETE_POR_DEFECTO, GUIONES_LISTA, MOVIMIENTOS_CAMARA, AMBIENTES, estiloPorId, temaPorId, type Ambiente, type Contenido, type Diseno, type Escena, type Formato, type MovimientoCamara, type Plantilla } from "./diseno";
+import { aplicarDisenoAContenido, aplicarRecortes, contenidoDeMuestra, darVidaAEscenas, disenoDeCatalogo, leerPersonal, resolverIdDePlantilla, type PlantillaResuelta } from "./plantillas";
+import { cargadorConCache, cargarImagen, renderizarDiseno } from "./render";
+import { UMBRAL_RECORTE, mascaraDeConservacion, recortarProducto, type Recorte } from "./recorte";
+import { hayIAConfigurada, imagenConIA, proveedoresDeIA, videoConIA, type ProveedorId } from "./ia";
 import { armarVideoDesdeEscenas, hayFfmpegDisponible, type EscenaParaVideo } from "./video";
 
 export interface ImagenGenerada {
@@ -47,6 +51,45 @@ export interface VideoDelEstudio {
   error?: string;
 }
 
+/** Recorte (foto sin fondo) de una foto del producto, calculado en local. */
+export interface RecorteGuardado {
+  /** URL del PNG con transparencia; null cuando el recorte no fue confiable. */
+  url: string | null;
+  confianza: number;
+  /** true cuando se usa automáticamente (confianza ≥ UMBRAL_RECORTE). */
+  usable: boolean;
+  motivo?: string;
+  fondo?: string;
+  caja?: { x: number; y: number; w: number; h: number };
+  en: string;
+}
+
+/** Una creación de IA hecha SOBRE la foto real (entorno nuevo o vídeo a partir de la foto). */
+export interface CreacionIA {
+  id: string;
+  tipo: "imagen" | "video";
+  estado: "pendiente" | "en_curso" | "lista" | "fallo";
+  /** Foto real de la que partió. */
+  foto: string;
+  instruccion: string;
+  proveedor?: ProveedorId;
+  modelo?: string;
+  url?: string;
+  ancho?: number;
+  alto?: number;
+  duracion?: number;
+  /**
+   * protegida: el producto se preservó por máscara y se volvió a pegar el recorte original.
+   * verificada: sin máscara, pero el producto quedó en su sitio y se pegó el recorte original encima.
+   * baja: el proveedor movió/alteró el producto; se guarda pero se avisa (no se usa sola).
+   * no_verificable: vídeo (no hay forma local de comprobar cada fotograma).
+   */
+  fidelidad?: "protegida" | "verificada" | "baja" | "no_verificable";
+  nota?: string;
+  en: string;
+  error?: string;
+}
+
 export interface EstadoEstudio {
   version: 1;
   paquete?: { estado: "pendiente" | "en_curso" | "listo" | "fallo"; en?: string; error?: string; conIA?: boolean; estilo?: string; tema?: string; guion?: string };
@@ -58,6 +101,10 @@ export interface EstadoEstudio {
   video?: VideoDelEstudio;
   /** Archivos subidos desde el editor (fotos propias, logos). */
   archivos?: Array<{ url: string; en: string; nombre?: string }>;
+  /** Recortes por URL de foto. */
+  recortes?: Record<string, RecorteGuardado>;
+  /** Creaciones de IA sobre la foto real (nunca se mezclan solas con las fotos). */
+  ia?: CreacionIA[];
 }
 
 export interface OpcionesPaquete {
@@ -102,8 +149,14 @@ export async function resolverPlantillas(tenantId: number, ids: string[] | undef
 
 /** Diseño de una plantilla pedida para un formato, rotando gancho y foto con `i`. */
 export function disenoDePedida(p: PlantillaPedida, formato: Formato, c: Contenido, i: number): Diseno {
-  if (p.tipo === "personal") return aplicarDisenoAContenido(p.diseno, c, formato, { gancho: i, foto: i });
-  return disenoDePlantilla(p.r.maqueta as Plantilla, formato, c, { estilo: p.r.estilo, tema: p.r.tema, gancho: i, foto: i });
+  if (p.tipo === "personal") return aplicarRecortes(aplicarDisenoAContenido(p.diseno, c, formato, { gancho: i, foto: i }), c);
+  return aplicarRecortes(disenoDePlantilla(p.r.maqueta as Plantilla, formato, c, { estilo: p.r.estilo, tema: p.r.tema, gancho: i, foto: i }), c);
+}
+
+/** Escenas automáticas con el producto recortado y "vivo" (movimiento interno, cámara variada, partículas del tema). */
+export function escenasVivas(c: Contenido, opts: { guion?: string | null; estilo?: string | null; tema?: string | null }): Escena[] {
+  const escenas = escenasAutomaticas(c, opts).map((e) => ({ ...e, diseno: aplicarRecortes(e.diseno, c) }));
+  return darVidaAEscenas(escenas, { tema: opts.tema });
 }
 
 /** Id de archivo de una pieza: maqueta-formato (como siempre) o con sufijo cuando la plantilla trae estilo/tema o es propia. */
@@ -151,9 +204,71 @@ async function guardarEstudio(productId: number, mutar: (e: EstadoEstudio) => vo
   return e;
 }
 
+/** Contenido guardado (o calculado), siempre con sus recortes: los estudios de antes de esta versión no los traen. */
+async function contenidoDe(tenantId: number, leido: { producto: any; estudio: EstadoEstudio }): Promise<Contenido> {
+  const c = leido.estudio.contenido;
+  if (!c) return contenidoPara(tenantId, leido.producto);
+  if (c.recortes || !c.fotos.length) return c;
+  const previos = leido.estudio.recortes;
+  const faltan = c.fotos.slice(0, 4).some((f) => !previos?.[f]);
+  const recortes = faltan ? { ...(previos || {}), ...(await recortesPara(Number(leido.producto.id), c.fotos)) } : previos!;
+  const conRecortes: Contenido = { ...c, recortes: recortesUsables(recortes) };
+  await guardarEstudio(Number(leido.producto.id), (e) => { e.recortes = { ...(e.recortes || {}), ...recortes }; if (e.contenido) e.contenido = { ...e.contenido, recortes: conRecortes.recortes }; }).catch(() => {});
+  return conRecortes;
+}
+
 // ─── Contenido: marca + condiciones + fotos reales ───────────────────────────
 
-export async function contenidoPara(tenantId: number, p: any, opts: { ganchos?: string[]; destino?: "whatsapp" | "web"; conIA?: boolean } = {}): Promise<Contenido> {
+// ─── Recortes: la foto del producto sin fondo (local, sin IA) ────────────────
+
+const hashCorto = (s: string) => createHash("sha1").update(s).digest("hex").slice(0, 12);
+
+/**
+ * Calcula (o reutiliza) el recorte de cada foto. Los PNG viven en
+ * anuncios/<id>/recortes/<hash>.png con un .json al lado con la confianza; las
+ * fotos cuyo fondo no es liso quedan registradas con su motivo y no se usan.
+ */
+export async function recortesPara(productId: number, fotos: string[], opts: { max?: number; forzar?: boolean; cargar?: (src: string) => Promise<Buffer | null> } = {}): Promise<Record<string, RecorteGuardado>> {
+  const out: Record<string, RecorteGuardado> = {};
+  const carpeta = path.join(carpetaDe(productId), "recortes");
+  const cargar = opts.cargar || cargadorConCache();
+  for (const foto of fotos.slice(0, opts.max ?? 4)) {
+    const h = hashCorto(foto);
+    const rutaPng = path.join(carpeta, `${h}.png`), rutaJson = path.join(carpeta, `${h}.json`);
+    if (!opts.forzar && existsSync(rutaJson)) {
+      try {
+        const previo = JSON.parse(await readFile(rutaJson, "utf8")) as RecorteGuardado;
+        if (!previo.url || existsSync(rutaPng)) { out[foto] = previo; continue; }
+      } catch { /* se recalcula */ }
+    }
+    try {
+      const buf = await cargar(foto);
+      if (!buf) continue;
+      const rec = await recortarProducto(buf);
+      if (!rec) continue;
+      await mkdir(carpeta, { recursive: true });
+      const usable = rec.confianza >= UMBRAL_RECORTE;
+      if (usable) await writeFile(rutaPng, rec.png);
+      const guardado: RecorteGuardado = { url: usable ? urlDe(productId, `recortes/${h}.png`) : null, confianza: Math.round(rec.confianza * 100) / 100, usable, motivo: rec.motivo, fondo: rec.fondo, caja: rec.caja, en: new Date().toISOString() };
+      await writeFile(rutaJson, JSON.stringify(guardado));
+      out[foto] = guardado;
+    } catch (e: any) {
+      logger.warn({ productId, foto, err: e?.message }, "[Estudio] no se pudo recortar la foto");
+    }
+  }
+  return out;
+}
+
+/** Solo los recortes usables, en la forma que entienden las maquetas. */
+export function recortesUsables(r: Record<string, RecorteGuardado> | undefined): Contenido["recortes"] {
+  const out: NonNullable<Contenido["recortes"]> = {};
+  for (const [src, x] of Object.entries(r || {})) if (x.usable && x.url) out[src] = { url: x.url, confianza: x.confianza };
+  return Object.keys(out).length ? out : undefined;
+}
+
+// ─── Contenido: marca + condiciones + fotos reales ───────────────────────────
+
+export async function contenidoPara(tenantId: number, p: any, opts: { ganchos?: string[]; destino?: "whatsapp" | "web"; conIA?: boolean; recortes?: boolean } = {}): Promise<Contenido> {
   const [t] = await db.select().from(tenants).where(eq(tenants.id, tenantId)).limit(1);
   let negocio: any = null;
   try { const { getBusinessContext } = await import("../business-context"); negocio = await getBusinessContext(tenantId); } catch { /* sin contexto */ }
@@ -179,6 +294,11 @@ export async function contenidoPara(tenantId: number, p: any, opts: { ganchos?: 
       const extra = await ganchosConIA(tenantId, c, p as ProductoParaEstudio);
       if (extra.length) c.ganchos = [...new Set([...extra, ...c.ganchos])];
     } catch { /* la IA es opcional */ }
+  }
+  if (opts.recortes !== false && c.fotos.length && Number.isFinite(Number(p?.id))) {
+    const recortes = await recortesPara(Number(p.id), c.fotos);
+    c.recortes = recortesUsables(recortes);
+    await guardarEstudio(Number(p.id), (e) => { e.recortes = { ...(e.recortes || {}), ...recortes }; }).catch(() => {});
   }
   return c;
 }
@@ -228,7 +348,7 @@ async function trabajoPaquete(tenantId: number, productId: number, opts: Opcione
   avance({ progreso: 92, detalle: "Armando escenas del vídeo" });
   const estiloVideo = opts.estilo || (pedidas[0]?.tipo === "catalogo" ? pedidas[0].r.estilo : null);
   const temaVideo = opts.tema || (pedidas[0]?.tipo === "catalogo" ? pedidas[0].r.tema : null);
-  const escenas = escenasAutomaticas(c, { guion: opts.guion, estilo: estiloVideo, tema: temaVideo });
+  const escenas = escenasVivas(c, { guion: opts.guion, estilo: estiloVideo, tema: temaVideo });
   const estado = await guardarEstudio(productId, (e) => {
     e.contenido = c;
     // Se conservan diseños editados a mano de otras piezas; las regeneradas se reemplazan.
@@ -278,6 +398,12 @@ export interface OpcionesVideoEstudio {
   guion?: string | null;
   estilo?: string | null;
   tema?: string | null;
+  /** Movimiento de cámara para TODAS las escenas (si no, cada una conserva/varía el suyo). */
+  movimiento?: MovimientoCamara | null;
+  /** Partículas para todas las escenas: "nieve", "confeti"… ("ninguno" las quita; undefined = según el tema). */
+  ambiente?: Ambiente | "ninguno" | null;
+  /** false = las escenas se dejan tal cual (sin añadir movimiento interno al producto). */
+  productoVivo?: boolean;
 }
 
 export async function pedirVideo(tenantId: number, productId: number, opts: OpcionesVideoEstudio = {}): Promise<Trabajo<VideoDelEstudio>> {
@@ -288,11 +414,16 @@ export async function pedirVideo(tenantId: number, productId: number, opts: Opci
   const rearmar = !!(opts.guion || opts.estilo || opts.tema) && !opts.escenas?.length;
   if (!escenas.length || rearmar) {
     if (opts.guion && !GUIONES_LISTA.includes(String(opts.guion))) throw new Error(`Guion desconocido: ${opts.guion}. Opciones: ${GUIONES_LISTA.join(", ")}.`);
-    const c = leido.estudio.contenido || await contenidoPara(tenantId, leido.producto);
-    escenas = escenasAutomaticas(c, { guion: opts.guion || leido.estudio.paquete?.guion, estilo: opts.estilo || leido.estudio.paquete?.estilo, tema: opts.tema || leido.estudio.paquete?.tema });
+    const c = await contenidoDe(tenantId, leido);
+    escenas = escenasVivas(c, { guion: opts.guion || leido.estudio.paquete?.guion, estilo: opts.estilo || leido.estudio.paquete?.estilo, tema: opts.tema || leido.estudio.paquete?.tema });
   }
   if (!escenas.every((e) => e && validarDiseno(e.diseno))) throw new Error("Hay escenas con un diseño inválido.");
   if (escenas.length > 12) throw new Error("Máximo 12 escenas por vídeo.");
+  if (opts.movimiento && !MOVIMIENTOS_CAMARA[opts.movimiento]) throw new Error(`Movimiento de cámara desconocido: ${opts.movimiento}. Opciones: ${Object.keys(MOVIMIENTOS_CAMARA).join(", ")}.`);
+  if (opts.ambiente && opts.ambiente !== "ninguno" && !AMBIENTES[opts.ambiente]) throw new Error(`Ambiente desconocido: ${opts.ambiente}. Opciones: ${Object.keys(AMBIENTES).join(", ")}, ninguno.`);
+  // Escenas guardadas antes de esta versión (o pedidas "planas"): se les da vida salvo que el dueño lo apague.
+  if (opts.productoVivo !== false && !escenas.some((e) => e.diseno.capas.some((k) => k.anim?.movimiento))) escenas = darVidaAEscenas(escenas, { tema: opts.tema || leido.estudio.paquete?.tema });
+  if (opts.movimiento || opts.ambiente) escenas = escenas.map((e) => ({ ...e, movimiento: opts.movimiento || e.movimiento, ambiente: opts.ambiente ? (opts.ambiente === "ninguno" ? null : opts.ambiente) : e.ambiente }));
   await guardarEstudio(productId, (e) => { e.escenas = escenas; e.video = { ...(e.video || {}), estado: "pendiente", en: new Date().toISOString(), error: undefined }; });
   const cola = colaDelEstudio();
   const trabajo = cola.encolar<VideoDelEstudio>(`video:${productId}`, async (avance) => {
@@ -374,7 +505,7 @@ export async function generarPieza(tenantId: number, productId: number, opts: { 
   const formato: Formato = opts.formato && FORMATOS_LISTA.includes(opts.formato) ? opts.formato : "vertical";
   const [pedida] = await resolverPlantillas(tenantId, [opts.plantilla], { estilo: opts.estilo, tema: opts.tema });
   if (!pedida || (opts.plantilla && !opts.plantilla.startsWith("personal:") && !resolverIdDePlantilla(opts.plantilla))) throw new Error(`Plantilla desconocida: ${opts.plantilla}.`);
-  const c = leido.estudio.contenido || await contenidoPara(tenantId, leido.producto, { conIA: opts.conIA });
+  const c = leido.estudio.contenido ? await contenidoDe(tenantId, leido) : await contenidoPara(tenantId, leido.producto, { conIA: opts.conIA });
   const contenido: Contenido = opts.gancho?.trim() ? { ...c, ganchos: [opts.gancho.trim().slice(0, 80), ...c.ganchos] } : c;
   const diseno = disenoDePedida(pedida, formato, contenido, 0);
   const id = idDePieza(pedida, formato);
@@ -429,7 +560,7 @@ export async function vistaPreviaDePlantilla(tenantId: number, id: string, opts:
     diseno = p.formato === formato ? p.diseno : aplicarDisenoAContenido(p.diseno, contenidoDeMuestra(), formato);
     if (opts.productId) {
       const leido = await leerEstudio(tenantId, opts.productId);
-      if (leido) { const c = leido.estudio.contenido || await contenidoPara(tenantId, leido.producto); diseno = aplicarDisenoAContenido(p.diseno, c, formato); clave += `-p${opts.productId}`; }
+      if (leido) { const c = await contenidoDe(tenantId, leido); diseno = aplicarRecortes(aplicarDisenoAContenido(p.diseno, c, formato), c); clave += `-p${opts.productId}`; }
     }
   } else {
     const r = resolverIdDePlantilla(id);
@@ -439,9 +570,10 @@ export async function vistaPreviaDePlantilla(tenantId: number, id: string, opts:
     let c = contenidoDeMuestra();
     if (opts.productId) {
       const leido = await leerEstudio(tenantId, opts.productId);
-      if (leido) { c = leido.estudio.contenido || await contenidoPara(tenantId, leido.producto); clave = `t${tenantId}-p${opts.productId}-${clave}-${(c.fotos[0] || "").length}`; }
+      if (leido) { c = await contenidoDe(tenantId, leido); clave = `t${tenantId}-p${opts.productId}-${clave}-${(c.fotos[0] || "").length}`; }
     }
-    diseno = disenoDeCatalogo(idPleno, formato, c);
+    const base = disenoDeCatalogo(idPleno, formato, c);
+    diseno = base ? aplicarRecortes(base, c) : base;
   }
   if (!diseno) return null;
   const archivo = `${clave.replace(/[^a-z0-9.-]/gi, "_")}.jpg`;
@@ -463,7 +595,6 @@ export async function borrarImagen(tenantId: number, productId: number, id: stri
 /** Guarda un archivo subido desde el editor (foto propia, logo, fotograma) y devuelve su URL. */
 export async function guardarArchivo(tenantId: number, productId: number, buf: Buffer, opts: { nombre?: string; temporal?: boolean } = {}): Promise<{ url: string; ruta: string }> {
   if (!(await productoDe(tenantId, productId))) throw new Error(`No existe el producto ${productId}.`);
-  const sharp = (await import("sharp")).default;
   const meta = await sharp(buf, { failOn: "none" }).metadata();
   if (!meta.width || !meta.height) throw new Error("El archivo no es una imagen válida.");
   const carpeta = path.join(carpetaDe(productId), opts.temporal ? "tmp" : "subidos");
@@ -475,6 +606,182 @@ export async function guardarArchivo(tenantId: number, productId: number, buf: B
   const url = urlDe(productId, `${opts.temporal ? "tmp" : "subidos"}/${nombre}`);
   if (!opts.temporal) await guardarEstudio(productId, (e) => { e.archivos = [...(e.archivos || []), { url, en: new Date().toISOString(), nombre: opts.nombre }].slice(-50); });
   return { url, ruta };
+}
+
+// ─── IA sobre la foto real ───────────────────────────────────────────────────
+
+export interface PedidoIA {
+  tipo: "imagen" | "video";
+  /** Qué entorno/escena se quiere ("sobre una mesa de madera con luz de tarde"). El producto no se toca. */
+  instruccion?: string;
+  /** Foto real de partida (una de contenido.fotos o un archivo subido); por defecto la primera. */
+  foto?: string | null;
+  proveedor?: ProveedorId | null;
+  /** Segundos de vídeo (4–10). */
+  duracion?: number;
+  /** false = no volver a pegar el recorte original sobre el resultado (se guarda lo que devolvió la IA tal cual). */
+  conservarProducto?: boolean;
+}
+
+/** Qué IA hay disponible, para el panel y Atlas (honesto: sin claves, nada). */
+export function estadoDeIA() {
+  const proveedores = proveedoresDeIA();
+  return { proveedores, imagen: hayIAConfigurada("imagen"), video: hayIAConfigurada("video"), configurada: proveedores.some((p) => p.configurado) };
+}
+
+/** Media de la diferencia RGB (0–1) entre dos imágenes del mismo tamaño dentro de la silueta del producto. */
+async function desvioEnProducto(a: Buffer, b: Buffer, rec: Recorte): Promise<number> {
+  const LADO = 200;
+  const { ancho, alto } = rec.original;
+  const w = ancho >= alto ? LADO : Math.max(1, Math.round(LADO * ancho / alto));
+  const h = ancho >= alto ? Math.max(1, Math.round(LADO * alto / ancho)) : LADO;
+  const raw = (buf: Buffer) => sharp(buf).resize(w, h, { fit: "fill" }).removeAlpha().toColourspace("srgb").raw().toBuffer({ resolveWithObject: true });
+  const [ra, rb, mk] = await Promise.all([raw(a), raw(b), sharp(await mascaraDeConservacion(rec)).resize(w, h, { fit: "fill" }).ensureAlpha().extractChannel("alpha").toColourspace("b-w").raw().toBuffer({ resolveWithObject: true })]);
+  const ca = ra.info.channels, cb = rb.info.channels, cm = mk.info.channels;
+  let suma = 0, n = 0;
+  for (let p = 0; p < w * h; p++) {
+    if (mk.data[p * cm]! < 128) continue;
+    for (let k = 0; k < 3; k++) suma += Math.abs(ra.data[p * ca + k]! - rb.data[p * cb + k]!);
+    n++;
+  }
+  return n ? suma / (n * 3 * 255) : 1;
+}
+
+async function trabajoIA(tenantId: number, productId: number, creacion: CreacionIA, pedido: PedidoIA, nombreProducto: string, avance: (a: { progreso?: number; detalle?: string }) => void): Promise<CreacionIA> {
+  avance({ progreso: 5, detalle: "Leyendo la foto real" });
+  const buf = await cargarImagen(creacion.foto);
+  if (!buf) throw new Error("No se pudo leer la foto de partida.");
+  const rec = await recortarProducto(buf);
+  const fotoIA = rec?.foto || await sharp(buf, { failOn: "none" }).rotate().resize(2500, 2500, { fit: "inside", withoutEnlargement: true }).removeAlpha().jpeg({ quality: 92 }).toBuffer();
+  const meta: { ancho: number; alto: number } = rec?.original || await sharp(fotoIA).metadata().then((m) => ({ ancho: m.width || 1024, alto: m.height || 1024 }));
+  const carpeta = path.join(carpetaDe(productId), "ia");
+  await mkdir(carpeta, { recursive: true });
+  const conservar = pedido.conservarProducto !== false;
+  const confiable = !!rec && rec.confianza >= UMBRAL_RECORTE;
+  const instruccion = String(pedido.instruccion || "").trim().slice(0, 500);
+  const listo = (extra: Partial<CreacionIA>): CreacionIA => ({ ...creacion, ...extra, estado: "lista", en: new Date().toISOString(), error: undefined });
+
+  if (pedido.tipo === "video") {
+    avance({ progreso: 15, detalle: "La IA anima la foto real (1–6 min)" });
+    const r = await videoConIA({ foto: fotoIA, instruccion, producto: nombreProducto, duracion: pedido.duracion, proveedor: pedido.proveedor });
+    const archivo = `${creacion.id}.mp4`;
+    await writeFile(path.join(carpeta, archivo), r.buffer);
+    let duracion: number | undefined;
+    try { const { duracionDe } = await import("./video"); duracion = await duracionDe(path.join(carpeta, archivo)); } catch { /* sin duración */ }
+    return listo({ url: urlDe(productId, `ia/${archivo}`), proveedor: r.proveedor, modelo: r.modelo, duracion, fidelidad: "no_verificable", nota: "Vídeo generado a partir de la foto real como primer fotograma. Revisa que el producto se mantenga idéntico antes de publicarlo." });
+  }
+
+  const mascara = confiable && conservar ? await mascaraDeConservacion(rec!) : null;
+  avance({ progreso: 15, detalle: mascara ? "La IA pinta el entorno (el producto va protegido por máscara)" : "La IA pinta el entorno alrededor del producto" });
+  const r = await imagenConIA({ foto: fotoIA, mascara, instruccion, producto: nombreProducto, ancho: meta.ancho, alto: meta.alto, proveedor: pedido.proveedor });
+  avance({ progreso: 80, detalle: "Comprobando que el producto siga igual" });
+  let salida = await sharp(r.buffer, { failOn: "none" }).resize(meta.ancho, meta.alto, { fit: "cover" }).removeAlpha().toBuffer();
+  let fidelidad: CreacionIA["fidelidad"] = "no_verificable";
+  let nota: string | undefined;
+  if (confiable && conservar) {
+    const desvio = await desvioEnProducto(salida, fotoIA, rec!);
+    const proveedorConMascara = !!mascara && proveedoresDeIA().find((p) => p.id === r.proveedor)?.conMascara;
+    if (proveedorConMascara || desvio < 0.18) {
+      salida = await sharp(salida).composite([{ input: rec!.png, left: rec!.caja.x, top: rec!.caja.y }]).toBuffer();
+      fidelidad = proveedorConMascara ? "protegida" : "verificada";
+      nota = proveedorConMascara ? "El producto se protegió con máscara y se volvió a pegar el recorte original: píxel a píxel es tu foto." : `El producto quedó en su sitio (desvío ${(desvio * 100).toFixed(0)} %) y se pegó encima el recorte original.`;
+    } else {
+      fidelidad = "baja";
+      nota = `La IA movió o alteró el producto (desvío ${(desvio * 100).toFixed(0)} %). Se guarda para que lo revises, pero no se recomienda publicarla.`;
+    }
+  } else if (!confiable) {
+    nota = `${rec?.motivo || "La foto no tiene fondo liso"}: no se pudo proteger el producto con máscara. Revisa que siga idéntico.`;
+  }
+  const archivo = `${creacion.id}.jpg`;
+  await sharp(salida).jpeg({ quality: 92 }).toFile(path.join(carpeta, archivo));
+  return listo({ url: urlDe(productId, `ia/${archivo}`, Date.now()), proveedor: r.proveedor, modelo: r.modelo, ancho: meta.ancho, alto: meta.alto, fidelidad, nota });
+}
+
+/** Encola una creación de IA sobre la foto real; devuelve la entrada (pendiente) y el trabajo. */
+export async function pedirCreacionIA(tenantId: number, productId: number, pedido: PedidoIA): Promise<{ creacion: CreacionIA; trabajo: Trabajo<CreacionIA> }> {
+  const tipo = pedido.tipo === "video" ? "video" : "imagen";
+  if (!hayIAConfigurada(tipo)) throw new Error(tipo === "video" ? "No hay IA de vídeo configurada (GOOGLE_API_KEY para Veo o REPLICATE_API_TOKEN). El Estudio sigue armando vídeos en local." : "No hay IA de imágenes configurada (OPENAI_API_KEY, GOOGLE_API_KEY o REPLICATE_API_TOKEN). El Estudio sigue generando piezas en local.");
+  const leido = await leerEstudio(tenantId, productId);
+  if (!leido) throw new Error(`No existe el producto ${productId}.`);
+  const c = await contenidoDe(tenantId, leido);
+  const permitidas = new Set([...c.fotos, ...(leido.estudio.archivos || []).map((a) => a.url)]);
+  const foto = String(pedido.foto || c.fotos[0] || "").trim();
+  if (!foto) throw new Error("El producto no tiene fotos reales: la IA solo trabaja sobre una foto real.");
+  if (!permitidas.has(foto)) throw new Error("La foto de partida tiene que ser una foto real del producto (o un archivo subido al Estudio).");
+  const creacion: CreacionIA = { id: `ia-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, tipo, estado: "pendiente", foto, instruccion: String(pedido.instruccion || "").trim().slice(0, 500), proveedor: pedido.proveedor || undefined, en: new Date().toISOString() };
+  await guardarEstudio(productId, (e) => { e.ia = [creacion, ...(e.ia || [])].slice(0, 40); });
+  const cola = colaDelEstudio();
+  const clave = `ia:${productId}:${creacion.id}`;
+  const trabajo = cola.encolar<CreacionIA>(clave, async (avance) => {
+    await guardarEstudio(productId, (e) => { e.ia = (e.ia || []).map((x) => (x.id === creacion.id ? { ...x, estado: "en_curso" } : x)); });
+    const lista = await trabajoIA(tenantId, productId, creacion, { ...pedido, tipo }, c.nombre, avance);
+    await guardarEstudio(productId, (e) => { e.ia = (e.ia || []).map((x) => (x.id === creacion.id ? lista : x)); });
+    logger.info({ tenantId, productId, id: creacion.id, tipo, proveedor: lista.proveedor, fidelidad: lista.fidelidad }, "[Estudio] creación IA lista");
+    return lista;
+  });
+  void cola.esperar<CreacionIA>(clave)?.then(async (t) => {
+    if (t.estado !== "fallo") return;
+    await guardarEstudio(productId, (e) => { e.ia = (e.ia || []).map((x) => (x.id === creacion.id ? { ...x, estado: "fallo", error: t.error, en: new Date().toISOString() } : x)); }).catch(() => {});
+    logger.error({ tenantId, productId, id: creacion.id, err: t.error }, "[Estudio] creación IA falló");
+  });
+  return { creacion, trabajo };
+}
+
+/**
+ * Pone una creación de IA a trabajar: como foto del producto (entra en las
+ * maquetas y escenas, siempre con origen marcado) o como clip de fondo de una
+ * escena del vídeo. Nunca se hace solo: lo decide el dueño o Atlas.
+ */
+export async function usarCreacionIA(tenantId: number, productId: number, id: string, como: "foto" | "clip", escena?: number): Promise<EstadoEstudio> {
+  const leido = await leerEstudio(tenantId, productId);
+  if (!leido) throw new Error(`No existe el producto ${productId}.`);
+  const cr = (leido.estudio.ia || []).find((x) => x.id === id);
+  if (!cr?.url || cr.estado !== "lista") throw new Error("Esa creación de IA no existe o no está lista.");
+  if (como === "foto") {
+    if (cr.tipo !== "imagen") throw new Error("Solo las imágenes se pueden usar como foto.");
+    if (cr.fidelidad === "baja") throw new Error("Esa imagen alteró el producto (fidelidad baja): no se usa como foto del producto.");
+    return guardarEstudio(productId, (e) => {
+      if (!e.contenido) return;
+      e.contenido = { ...e.contenido, fotos: [cr.url!, ...e.contenido.fotos.filter((f) => f !== cr.url)].slice(0, 8) };
+    });
+  }
+  if (cr.tipo !== "video") throw new Error("Solo los vídeos se pueden usar como clip de fondo.");
+  const i = Math.max(0, Math.floor(Number(escena) || 0));
+  return guardarEstudio(productId, (e) => {
+    if (!e.escenas?.[i]) throw new Error(`No existe la escena ${i + 1}.`);
+    e.escenas = e.escenas.map((s, k) => (k === i ? { ...s, clip: cr.url!, movimiento: "ninguno" as MovimientoCamara, editada: true } as Escena : s));
+  });
+}
+
+export async function borrarCreacionIA(tenantId: number, productId: number, id: string): Promise<void> {
+  const leido = await leerEstudio(tenantId, productId);
+  if (!leido) throw new Error(`No existe el producto ${productId}.`);
+  const cr = (leido.estudio.ia || []).find((x) => x.id === id);
+  if (!cr) return;
+  if (cr.url) await rm(path.join(carpetaDe(productId), "ia", path.basename(cr.url.split("?")[0]!)), { force: true }).catch(() => {});
+  await guardarEstudio(productId, (e) => {
+    e.ia = (e.ia || []).filter((x) => x.id !== id);
+    if (cr.url && e.contenido) e.contenido = { ...e.contenido, fotos: e.contenido.fotos.filter((f) => f !== cr.url) };
+    if (cr.url && e.escenas) e.escenas = e.escenas.map((s) => (s.clip === cr.url ? { ...s, clip: null } : s));
+  });
+}
+
+/** Recorte a demanda (botón "Quitar fondo" del editor): recalcula aunque exista. */
+export async function recortarFoto(tenantId: number, productId: number, foto: string | null | undefined): Promise<RecorteGuardado & { foto: string }> {
+  const leido = await leerEstudio(tenantId, productId);
+  if (!leido) throw new Error(`No existe el producto ${productId}.`);
+  const c = leido.estudio.contenido || await contenidoPara(tenantId, leido.producto, { recortes: false });
+  const permitidas = new Set([...c.fotos, ...(leido.estudio.archivos || []).map((a) => a.url), ...(leido.estudio.ia || []).map((x) => x.url).filter(Boolean) as string[]]);
+  const src = String(foto || c.fotos[0] || "").trim();
+  if (!src || !permitidas.has(src)) throw new Error("Esa foto no pertenece al producto.");
+  const r = await recortesPara(productId, [src], { forzar: true, max: 1 });
+  const rec = r[src];
+  if (!rec) throw new Error("No se pudo leer la foto.");
+  await guardarEstudio(productId, (e) => {
+    e.recortes = { ...(e.recortes || {}), [src]: rec };
+    if (e.contenido) e.contenido = { ...e.contenido, recortes: recortesUsables(e.recortes) };
+  });
+  return { ...rec, foto: src };
 }
 
 export async function borrarEstudio(tenantId: number, productId: number): Promise<void> {
@@ -494,16 +801,24 @@ export async function estadoCompleto(tenantId: number, productId: number): Promi
   const tp = cola.estado(`paquete:${productId}`);
   const tv = cola.estado(`video:${productId}`);
   const { producto, estudio } = leido;
+  const ia: Record<string, any> = {};
+  for (const x of estudio.ia || []) {
+    const t = cola.estado(`ia:${productId}:${x.id}`);
+    if (t) ia[x.id] = { estado: t.estado, progreso: t.progreso, detalle: t.detalle, posicion: t.posicion, error: t.error };
+  }
   return {
     producto: { id: producto.id, nombre: producto.name, precio: producto.price, imagen: producto.imageUrl },
     estudio: {
       ...estudio,
       imagenes: estudio.imagenes.map((i) => ({ ...i, urlAbsoluta: absoluta(i.url) })),
       video: estudio.video ? { ...estudio.video, urlAbsoluta: estudio.video.url ? absoluta(estudio.video.url) : undefined } : undefined,
+      ia: (estudio.ia || []).map((x) => ({ ...x, urlAbsoluta: x.url ? absoluta(x.url) : undefined })),
     },
+    ia: estadoDeIA(),
     trabajos: {
       paquete: tp ? { estado: tp.estado, progreso: tp.progreso, detalle: tp.detalle, posicion: tp.posicion, intento: tp.intento, error: tp.error } : null,
       video: tv ? { estado: tv.estado, progreso: tv.progreso, detalle: tv.detalle, posicion: tv.posicion, intento: tv.intento, error: tv.error } : null,
+      ia,
     },
   };
 }

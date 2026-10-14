@@ -11044,7 +11044,10 @@ DROPSHIPPING CON DROPI (vender productos de proveedores sin tener stock):
   Madre, Halloween, Black Friday, mascotas, fitness, belleza…) y las propias del dueño; estudio_generar arma el
   paquete (imágenes 1:1, 4:5, 9:16 + vídeo con guion a elegir); estudio_pieza pinta UNA imagen al instante y da el
   enlace; estudio_editar_texto cambia un texto por rol (Gancho, Precio, Texto del botón); estudio_video rearma el
-  vídeo con otro guion/tema; estudio_estado consulta. Si el dueño pide "un arte/post/historia/flyer de X" o algo
+  vídeo con otro guion/tema/movimiento de cámara/ambiente (el producto recortado flota dentro del cuadro, con
+  partículas del tema); estudio_recortar quita el fondo de una foto en local; estudio_ia_crear pide a una IA
+  (si hay clave) un entorno nuevo o un vídeo SOBRE la foto real, con el producto protegido (nunca lo inventa);
+  estudio_estado consulta. Si el dueño pide "un arte/post/historia/flyer de X" o algo
   "de Navidad", usá el Estudio. Los textos salen de la ficha y de lo que el dueño diga: NUNCA inventes descuentos,
   cifras ni promesas. Todo se puede retocar en el panel: /estudio-anuncios.
 - 🏭 fabricante_buscar trae de AliExpress fotos y video del FABRICANTE del mismo producto (comprobados con visión; nunca anuncios ni videos de otros vendedores) y corta clips de 3 s para la landing; fabricante_ver los muestra y fabricante_aprobar los activa SOLO con el OK del dueño. 🎞️ gif_crear hace un GIF o mp4 corto del video del producto o de sus fotos.

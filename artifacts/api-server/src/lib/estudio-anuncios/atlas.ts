@@ -118,15 +118,15 @@ export const HERRAMIENTAS_ESTUDIO: HerramientaEstudio[] = [
   },
   {
     name: "estudio_video",
-    description: "Arma (o rearma) el VÍDEO vertical 9:16 del Estudio para un producto con sus fotos reales: escenas con entradas animadas, transiciones, voz en off y música opcional. Elige guion (clasico, rapido, beneficios, fotos, pregunta), estilo y tema. Corre en segundo plano (2–5 min) y avisa por WhatsApp/Telegram. Crea un archivo → requiere confirmación.",
-    args: '{ "productId": number (req), "guion"?: "clasico"|"rapido"|"beneficios"|"fotos"|"pregunta", "estilo"?: string, "tema"?: string, "conVoz"?: boolean (por defecto true), "conMusica"?: boolean (por defecto true) }',
+    description: "Arma (o rearma) el VÍDEO vertical 9:16 del Estudio para un producto con sus fotos reales: el producto recortado flota/late dentro del cuadro, cámara con zoom/paneo/giro 3D, partículas del tema (nieve, confeti, chispas…), entradas animadas, transiciones, voz en off y música opcional. Elige guion (clasico, rapido, beneficios, fotos, pregunta), estilo, tema, movimiento de cámara y ambiente. Corre en segundo plano (2–5 min) y avisa por WhatsApp/Telegram. Crea un archivo → requiere confirmación.",
+    args: '{ "productId": number (req), "guion"?: "clasico"|"rapido"|"beneficios"|"fotos"|"pregunta", "estilo"?: string, "tema"?: string, "movimiento"?: "acercar"|"alejar"|"paneo"|"balanceo"|"respirar"|"giro3d"|"ninguno", "ambiente"?: "nieve"|"confeti"|"chispas"|"corazones"|"burbujas"|"hojas"|"ninguno", "conVoz"?: boolean (por defecto true), "conMusica"?: boolean (por defecto true) }',
     run: async (args, ctx) => {
       const id = num(args?.productId);
       if (!id) return { ok: false, summary: "Falta 'productId'." };
       const { pedirVideo, absoluta } = await import("./estudio");
       const { colaDelEstudio } = await import("./cola");
       try {
-        await pedirVideo(ctx.tenantId, id, { guion: str(args?.guion), estilo: str(args?.estilo), tema: str(args?.tema), conVoz: args?.conVoz !== false, conMusica: args?.conMusica !== false });
+        await pedirVideo(ctx.tenantId, id, { guion: str(args?.guion), estilo: str(args?.estilo), tema: str(args?.tema), movimiento: str(args?.movimiento) as any, ambiente: str(args?.ambiente) as any, conVoz: args?.conVoz !== false, conMusica: args?.conMusica !== false });
         void colaDelEstudio().esperar<any>(`video:${id}`)?.then(async (t) => {
           if (t.estado === "fallo") { await avisar(ctx.tenantId, `⚠️ No pude armar el vídeo del producto ${id}: ${t.error}`); return; }
           const v = t.resultado;
@@ -156,7 +156,51 @@ export const HERRAMIENTAS_ESTUDIO: HerramientaEstudio[] = [
         tv && tv.estado !== "listo" ? `Vídeo: ${tv.estado} ${tv.progreso ?? 0}% ${tv.detalle || ""}${tv.error ? ` — ${tv.error}` : ""}` : est.video?.url ? `Vídeo: ${est.video.urlAbsoluta || est.video.url} (${est.video.duracion}s, ${est.video.escenas} escenas${est.video.conVoz ? ", con voz" : ""})` : `Vídeo: ${est.video?.estado || "sin generar"}${est.video?.error ? ` — ${est.video.error}` : ""}.`,
         `Editor del panel: ${appUrl()}/estudio-anuncios?producto=${id}`,
       ];
-      return { ok: true, summary: lineas.join("\n"), data: { imagenes: imagenes.map((i) => ({ id: i.id, url: i.urlAbsoluta || i.url })), video: est.video || null } };
+      const ia: any[] = est.ia || [];
+      if (ia.length) lineas.splice(lineas.length - 1, 0, `Creaciones de IA sobre la foto real (${ia.length}):\n${ia.slice(0, 6).map((x) => `• ${x.id} (${x.tipo}, ${x.estado}${x.fidelidad ? `, fidelidad ${x.fidelidad}` : ""}): ${x.urlAbsoluta || x.url || x.error || ""}`).join("\n")}`);
+      return { ok: true, summary: lineas.join("\n"), data: { imagenes: imagenes.map((i) => ({ id: i.id, url: i.urlAbsoluta || i.url })), video: est.video || null, ia: ia.map((x) => ({ id: x.id, tipo: x.tipo, estado: x.estado, fidelidad: x.fidelidad, url: x.urlAbsoluta || x.url })) } };
+    },
+  },
+  {
+    name: "estudio_recortar",
+    description: "Quita el FONDO de una foto real del producto en local (sin IA): devuelve el PNG recortado y la confianza. Si el fondo no es liso lo dice y no inventa nada. Las piezas y escenas nuevas usan el recorte automáticamente cuando es confiable. Crea un archivo → requiere confirmación.",
+    args: '{ "productId": number (req), "foto"?: string (URL de una foto del producto; por defecto la primera) }',
+    run: async (args, ctx) => {
+      const id = num(args?.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'." };
+      const { recortarFoto, absoluta } = await import("./estudio");
+      try {
+        const r = await recortarFoto(ctx.tenantId, id, str(args?.foto));
+        if (!r.usable) return { ok: true, summary: `✂️ No recorté la foto del producto ${id}: ${r.motivo || "el fondo no es liso"} (confianza ${Math.round(r.confianza * 100)} %). Se sigue usando la foto entera, que es lo honesto.`, data: r };
+        return { ok: true, summary: `✂️ Foto del producto ${id} recortada sin fondo (confianza ${Math.round(r.confianza * 100)} %): ${absoluta(r.url!)}\nLas piezas y vídeos que generes ahora la usan flotando sobre el diseño.`, data: { ...r, urlAbsoluta: absoluta(r.url!) } };
+      } catch (e: any) { return { ok: false, summary: `No se pudo recortar: ${e?.message || e}` }; }
+    },
+  },
+  {
+    name: "estudio_ia_crear",
+    description: "Crea con IA SOBRE la foto real del producto (nunca lo inventa): tipo \"imagen\" pinta un entorno nuevo alrededor del producto protegiéndolo con máscara y volviendo a pegar el recorte original; tipo \"video\" anima la foto real (5–8 s). Necesita un proveedor configurado (OPENAI_API_KEY, GOOGLE_API_KEY o REPLICATE_API_TOKEN); si no hay, lo dice y el Estudio sigue en local. Corre en segundo plano y avisa. Gasta créditos del proveedor → requiere confirmación.",
+    args: '{ "productId": number (req), "tipo": "imagen"|"video" (req), "instruccion"?: string (el entorno deseado, p. ej. "sobre una mesa de madera con luz cálida"), "foto"?: string (URL de la foto real de partida), "usarComo"?: "foto"|"clip" (al terminar: foto del producto o clip de la escena 1) }',
+    run: async (args, ctx) => {
+      const id = num(args?.productId);
+      if (!id) return { ok: false, summary: "Falta 'productId'." };
+      const tipo = args?.tipo === "video" ? "video" : args?.tipo === "imagen" ? "imagen" : null;
+      if (!tipo) return { ok: false, summary: "Falta 'tipo' (imagen o video)." };
+      const { pedirCreacionIA, usarCreacionIA, estadoDeIA, absoluta } = await import("./estudio");
+      const { colaDelEstudio } = await import("./cola");
+      const ia = estadoDeIA();
+      if (!ia[tipo]) return { ok: false, summary: `No hay IA de ${tipo} configurada (${ia.proveedores.filter((p) => p[tipo]).map((p) => p.variable).join(" o ")}). El Estudio sigue generando en local con las fotos reales; si el dueño quiere IA, hay que poner la clave en el servidor.` };
+      try {
+        const { creacion } = await pedirCreacionIA(ctx.tenantId, id, { tipo, instruccion: str(args?.instruccion), foto: str(args?.foto) });
+        const usarComo = args?.usarComo === "clip" ? "clip" : args?.usarComo === "foto" ? "foto" : null;
+        void colaDelEstudio().esperar<any>(`ia:${id}:${creacion.id}`)?.then(async (t) => {
+          if (t.estado === "fallo") { await avisar(ctx.tenantId, `⚠️ La IA no pudo crear la ${tipo} del producto ${id}: ${t.error}`); return; }
+          const r = t.resultado;
+          let extra = "";
+          if (usarComo && r?.fidelidad !== "baja") { try { await usarCreacionIA(ctx.tenantId, id, creacion.id, usarComo, 0); extra = usarComo === "foto" ? "\nYa quedó como primera foto del producto." : "\nYa quedó como fondo de la escena 1 del vídeo."; } catch (e: any) { extra = `\n(No se pudo aplicar: ${e?.message})`; } }
+          await avisar(ctx.tenantId, `✨ *IA lista* (${tipo}) del producto ${id} — fidelidad: ${r?.fidelidad || "?"}. ${r?.nota || ""}\n${r?.url ? absoluta(r.url) : ""}${extra}`);
+        });
+        return { ok: true, summary: `✨ Pedí a la IA (${ia.proveedores.find((p) => p.configurado && p[tipo])?.nombre}) una ${tipo} sobre la foto real del producto ${id}. El producto va protegido: solo cambia el entorno. Tarda 1–6 min; aviso por WhatsApp/Telegram. Id: ${creacion.id}.` };
+      } catch (e: any) { return { ok: false, summary: `No se pudo pedir la creación: ${e?.message || e}` }; }
     },
   },
 ];

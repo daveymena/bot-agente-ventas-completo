@@ -13,7 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 import { ChevronLeft, ChevronRight, Clapperboard, Copy, Loader2, Pencil, Plus, Save, Trash2, X } from "lucide-react";
-import { MOVIMIENTOS, TRANSICIONES, apiEstudio, nuevoId, type Diseno, type Escena, type Transicion } from "@/lib/estudio/diseno";
+import { AMBIENTES, MOVIMIENTOS, TRANSICIONES, apiEstudio, nuevoId, type Ambiente, type CreacionIA, type Diseno, type Escena, type MovimientoCamara, type Transicion } from "@/lib/estudio/diseno";
 import { dataUrlABlob, exportarDiseno } from "@/lib/estudio/fabric-diseno";
 import { EditorImagen } from "./editor-imagen";
 
@@ -21,12 +21,16 @@ export interface EditorVideoProps {
   productId: number;
   escenas: Escena[];
   fotos: string[];
+  /** Recortes (foto → PNG sin fondo) para el botón "Quitar fondo" del editor de escena. */
+  recortes?: Record<string, { url: string; confianza: number }>;
+  /** Creaciones de IA listas (los vídeos sirven de fondo de escena). */
+  creacionesIA?: CreacionIA[];
   onCerrar: () => void;
   /** Se llama cuando el vídeo quedó encolado (el padre hace el seguimiento). */
   onVideoPedido: () => void;
 }
 
-export function EditorVideo({ productId, escenas: iniciales, fotos, onCerrar, onVideoPedido }: EditorVideoProps) {
+export function EditorVideo({ productId, escenas: iniciales, fotos, recortes, creacionesIA = [], onCerrar, onVideoPedido }: EditorVideoProps) {
   const [escenas, setEscenas] = useState<Escena[]>(() => JSON.parse(JSON.stringify(iniciales)));
   const [activa, setActiva] = useState(0);
   const [miniaturas, setMiniaturas] = useState<Record<string, string>>({});
@@ -94,7 +98,8 @@ export function EditorVideo({ productId, escenas: iniciales, fotos, onCerrar, on
   const generar = async () => {
     if (!(await guardarGuion(true))) return;
     const fotogramas: Record<number, string> = {};
-    const hayAnim = conAnimaciones && escenas.some((e) => e.diseno.capas.some((k) => k.anim?.entrada));
+    // Con capas que entran o se mueven, partículas o clip de fondo, las escenas las pinta el servidor (el fotograma plano las perdería).
+    const hayAnim = (conAnimaciones && escenas.some((e) => e.diseno.capas.some((k) => k.anim?.entrada || (k.anim?.movimiento && k.anim.movimiento !== "ninguno")))) || escenas.some((e) => e.clip);
     try {
       for (let i = 0; i < escenas.length && !hayAnim; i++) {
         setOcupado(`Exportando escena ${i + 1} de ${escenas.length}…`);
@@ -125,6 +130,7 @@ export function EditorVideo({ productId, escenas: iniciales, fotos, onCerrar, on
         titulo={`Escena ${editando + 1} de ${escenas.length}`}
         diseno={e.diseno}
         fotos={fotos}
+        recortes={recortes}
         productId={productId}
         onCerrar={() => setEditando(null)}
         onGuardar={(d) => { actualizar(editando, { diseno: d }); setEditando(null); }}
@@ -191,10 +197,34 @@ export function EditorVideo({ productId, escenas: iniciales, fotos, onCerrar, on
                 </div>
                 <div>
                   <Label className="text-slate-300">Movimiento de cámara</Label>
-                  <Select value={esc.movimiento || "acercar"} onValueChange={(v) => actualizar(activa, { movimiento: v as Escena["movimiento"] })}>
+                  <Select value={esc.movimiento || "acercar"} onValueChange={(v) => actualizar(activa, { movimiento: v as MovimientoCamara })}>
                     <SelectTrigger className="mt-1 border-white/10 bg-slate-800"><SelectValue /></SelectTrigger>
                     <SelectContent>{Object.entries(MOVIMIENTOS).map(([k, n]) => <SelectItem key={k} value={k}>{n}</SelectItem>)}</SelectContent>
                   </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-slate-300">Ambiente (partículas)</Label>
+                  <Select value={esc.ambiente === undefined ? "auto" : esc.ambiente === null ? "ninguno" : esc.ambiente} onValueChange={(v) => actualizar(activa, { ambiente: v === "auto" ? undefined : v === "ninguno" ? null : (v as Ambiente) })}>
+                    <SelectTrigger className="mt-1 border-white/10 bg-slate-800"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="auto">Según el tema</SelectItem>
+                      <SelectItem value="ninguno">Sin partículas</SelectItem>
+                      {Object.entries(AMBIENTES).map(([k, n]) => <SelectItem key={k} value={k}>{n}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label className="text-slate-300">Fondo de la escena</Label>
+                  <Select value={esc.clip || "pintado"} onValueChange={(v) => actualizar(activa, v === "pintado" ? { clip: null } : { clip: v, movimiento: "ninguno" })}>
+                    <SelectTrigger className="mt-1 border-white/10 bg-slate-800"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="pintado">Diseño pintado</SelectItem>
+                      {creacionesIA.filter((c) => c.tipo === "video" && c.estado === "lista" && c.url).map((c) => <SelectItem key={c.id} value={c.url!}>Clip IA {c.instruccion ? `· ${c.instruccion.slice(0, 28)}` : `· ${c.id}`}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  {!creacionesIA.some((c) => c.tipo === "video" && c.estado === "lista") && <p className="mt-1 text-[11px] text-slate-500">Los vídeos de la pestaña IA aparecen aquí como fondo.</p>}
                 </div>
               </div>
 
@@ -215,7 +245,8 @@ export function EditorVideo({ productId, escenas: iniciales, fotos, onCerrar, on
               <div className="rounded-xl border border-white/10 p-3">
                 <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Movimiento</h4>
                 <div className="flex items-center justify-between py-1"><Label className="text-slate-300">Animar la entrada de cada capa</Label><Switch checked={conAnimaciones} onCheckedChange={setConAnimaciones} /></div>
-                <p className="text-xs text-slate-500">{conAnimaciones ? `Títulos, precio, botón y adornos entran uno a uno (${esc.diseno.capas.filter((k) => k.anim?.entrada).length} capas animadas en esta escena). Se edita por capa en «Editar diseño» → Animación.` : "Cada escena entra completa con el movimiento de cámara."}</p>
+                <p className="text-xs text-slate-500">{conAnimaciones ? `Títulos, precio, botón y adornos entran uno a uno (${esc.diseno.capas.filter((k) => k.anim?.entrada).length} con entrada, ${esc.diseno.capas.filter((k) => k.anim?.movimiento && k.anim.movimiento !== "ninguno").length} con movimiento interno en esta escena). Se edita por capa en «Editar diseño» → Animación.` : "Cada escena entra completa con el movimiento de cámara."}</p>
+                {esc.diseno.capas.some((k) => k.tipo === "imagen" && (k as any).recortada) && <p className="mt-1 text-xs text-emerald-300/80">✂️ Esta escena usa la foto del producto sin fondo: flota sobre el diseño con su sombra.</p>}
               </div>
             </div>
           </div>

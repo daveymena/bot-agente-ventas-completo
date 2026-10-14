@@ -15,6 +15,7 @@ import { existsSync } from "node:fs";
 import { getImageStoreDir } from "../image-store";
 import { parrafo } from "./tipografia";
 import { svgDeElemento } from "./elementos";
+import { sombraDeSilueta } from "./recorte";
 import { FACTOR_LINEA_FABRIC, svgDePatron, type Capa, type CapaFondo, type CapaIcono, type CapaImagen, type CapaTexto, type Diseno } from "./esquema";
 
 export type Cargador = (src: string) => Promise<Buffer | null>;
@@ -100,7 +101,7 @@ async function prepararImagen(capa: CapaImagen, buf: Buffer): Promise<{ png: Buf
   const salida = await img.png().toBuffer({ resolveWithObject: true });
   let png = salida.data;
   outW = salida.info.width; outH = salida.info.height;
-  if (capa.radio && capa.radio > 0) {
+  if (capa.radio && capa.radio > 0 && !capa.recortada) {
     png = await sharp(png).composite([{ input: svgRectRedondeado(outW, outH, Math.min(capa.radio, outW / 2, outH / 2)), blend: "dest-in" }]).png().toBuffer();
   }
   return { png, x, y, w: outW, h: outH };
@@ -197,7 +198,12 @@ async function overlaysDe(capas: Capa[], W: number, H: number, cargar: Cargador)
       try {
         const prep = await prepararImagen(capa, buf);
         if (!prep) continue;
-        if (capa.sombra) {
+        if (capa.sombra && capa.recortada) {
+          // Recorte sin fondo: la sombra sigue la silueta del producto, no la caja.
+          const sb = await sombraDeSilueta(prep.png, { opacidad: 0.42 });
+          const s = await colocar(sb.png, prep.x - sb.margen, prep.y - sb.margen, W, H);
+          if (s) out.push(s);
+        } else if (capa.sombra) {
           const s = await colocar(await sombraPara(prep.w, prep.h, capa.radio ?? 0), prep.x - 60, prep.y - 60 + 26, W, H);
           if (s) out.push(s);
         }

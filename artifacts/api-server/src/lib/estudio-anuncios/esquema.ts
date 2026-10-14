@@ -38,6 +38,17 @@ export const ANIMACIONES: Record<Entrada, string> = {
   "deslizar-arriba": "Entrar desde arriba", "deslizar-abajo": "Entrar desde abajo", zoom: "Zoom", rebote: "Rebote",
 };
 
+/**
+ * Movimiento continuo de una capa mientras está en pantalla (además de la
+ * entrada): es lo que hace que el producto "viva" dentro del vídeo.
+ */
+export type Movimiento = "flotar" | "latido" | "balancear" | "orbita" | "girar" | "deriva" | "acercar";
+
+export const MOVIMIENTOS: Record<Movimiento, string> = {
+  flotar: "Flotar (sube y baja)", latido: "Latido (crece y encoge)", balancear: "Balancearse", orbita: "Órbita suave",
+  girar: "Girar sin parar", deriva: "Deriva lateral", acercar: "Acercarse lentamente",
+};
+
 export interface Animacion {
   entrada?: Entrada | null;
   /** Segundos desde el inicio de la escena. */
@@ -45,6 +56,10 @@ export interface Animacion {
   /** Duración de la entrada en segundos (0.2–1.5). */
   duracion?: number;
   salida?: "desvanecer" | null;
+  /** Movimiento continuo durante toda la escena. */
+  movimiento?: Movimiento | null;
+  /** 1 sutil · 2 normal · 3 marcado. */
+  intensidad?: 1 | 2 | 3;
 }
 
 // ─── Capas ───────────────────────────────────────────────────────────────────
@@ -83,6 +98,10 @@ export interface CapaImagen extends CapaBase {
   ajuste: "contener" | "cubrir";
   radio?: number;
   sombra?: boolean;
+  /** PNG con el producto recortado (sin fondo): la sombra sigue la silueta y no se redondean esquinas. */
+  recortada?: boolean;
+  /** Foto original de la que salió el recorte (el editor la usa para volver atrás). */
+  original?: string;
 }
 
 export interface CapaRect extends CapaBase {
@@ -158,6 +177,8 @@ export interface Contenido {
   color: string;
   /** Fotos reales del producto (URLs o rutas). La primera es la principal. */
   fotos: string[];
+  /** Recortes sin fondo por foto (clave = src de la foto), solo cuando el recorte fue confiable. */
+  recortes?: Record<string, { url: string; confianza: number }>;
   logo?: string | null;
 }
 
@@ -331,6 +352,17 @@ export const TRANSICIONES: Record<string, string> = {
 };
 export type Transicion = string;
 
+export type MovimientoCamara = "acercar" | "alejar" | "fijo" | "balanceo" | "respirar" | "giro3d";
+export const MOVIMIENTOS_CAMARA: Record<MovimientoCamara, string> = {
+  acercar: "Acercar", alejar: "Alejar", fijo: "Fijo", balanceo: "Paneo suave", respirar: "Respirar (zoom que late)", giro3d: "Giro 3D sutil",
+};
+
+/** Partículas ambientales por encima del fondo y debajo del contenido. */
+export type Ambiente = "nieve" | "confeti" | "chispas" | "burbujas" | "corazones" | "hojas";
+export const AMBIENTES: Record<Ambiente, string> = {
+  nieve: "Nieve", confeti: "Confeti", chispas: "Chispas", burbujas: "Burbujas", corazones: "Corazones", hojas: "Hojas",
+};
+
 export interface Escena {
   id: string;
   /** Diseño 9:16 de la escena (el fotograma base). */
@@ -341,7 +373,11 @@ export interface Escena {
   locucion: string;
   transicion?: Transicion;
   /** Movimiento de cámara. */
-  movimiento?: "acercar" | "alejar" | "fijo";
+  movimiento?: MovimientoCamara;
+  /** Partículas ambientales (nieve, confeti…). */
+  ambiente?: Ambiente | null;
+  /** Clip de vídeo (URL bajo /uploads) que reemplaza al fondo: p. ej. la foto animada con IA. */
+  clip?: string | null;
   editada?: boolean;
 }
 

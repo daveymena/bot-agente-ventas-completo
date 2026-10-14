@@ -24,6 +24,11 @@
  *   POST   /api/estudio-anuncios/:productId/fotograma?indice=N   PNG de una escena exportado por el editor
  *   POST   /api/estudio-anuncios/:productId/video      encola el vídeo con las escenas guardadas
  *   POST   /api/estudio-anuncios/:productId/archivo    sube una imagen propia (logo, foto) → URL
+ *   POST   /api/estudio-anuncios/:productId/recortar   recorte local (sin IA) de una foto real → PNG sin fondo
+ *   GET    /api/estudio-anuncios/ia                    proveedores de IA configurados (honesto: sin claves, nada)
+ *   POST   /api/estudio-anuncios/:productId/ia         encola una creación de IA SOBRE la foto real (imagen o vídeo)
+ *   POST   /api/estudio-anuncios/:productId/ia/:id/usar  la usa como foto del producto o como clip de una escena
+ *   DELETE /api/estudio-anuncios/:productId/ia/:id
  *   DELETE /api/estudio-anuncios/:productId            borra el estudio del producto
  */
 import { Router, raw, type NextFunction, type Response } from "express";
@@ -32,14 +37,14 @@ import { eq } from "drizzle-orm";
 import { db, products } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { getImageStoreDir } from "../lib/image-store";
-import { ANIMACIONES, FORMATOS, FORMATOS_LISTA, PLANTILLAS, TRANSICIONES, PATRONES_LISTA, validarDiseno, resumenDeEstilos, resumenDeTemas, resumenDeGuiones, type Formato, svgDePatron } from "../lib/estudio-anuncios/diseno";
+import { ANIMACIONES, AMBIENTES, FORMATOS, FORMATOS_LISTA, MOVIMIENTOS, MOVIMIENTOS_CAMARA, PLANTILLAS, TRANSICIONES, PATRONES_LISTA, validarDiseno, resumenDeEstilos, resumenDeTemas, resumenDeGuiones, type Formato, svgDePatron } from "../lib/estudio-anuncios/diseno";
 import { FUENTES, familiasInstaladas, fuentesDisponibles, archivoDeFuente, cssDeFuentes, type Peso } from "../lib/estudio-anuncios/tipografia";
 import { buscarElementos, resumenDeColecciones, svgDeElemento, type Coleccion } from "../lib/estudio-anuncios/elementos";
 import { borrarPersonal, buscarPlantillas, contenidoDeMuestra, desdeFabricJSON, disenoDeCatalogo, guardarPersonal, leerPersonal, listarPersonales, aplicarDisenoAContenido, totalDePlantillas } from "../lib/estudio-anuncios/plantillas";
 import { cargarImagen, renderizarDiseno } from "../lib/estudio-anuncios/render";
 import { hayFfmpegDisponible } from "../lib/estudio-anuncios/video";
 import { colaDelEstudio } from "../lib/estudio-anuncios/cola";
-import { absoluta, borrarEstudio, borrarImagen, contenidoPara, editarTextosDePieza, estadoCompleto, generarPieza, guardarArchivo, guardarDiseno, guardarEscenas, leerEstudio, pedirPaquete, pedirVideo, vistaPreviaDePlantilla } from "../lib/estudio-anuncios/estudio";
+import { absoluta, borrarCreacionIA, borrarEstudio, borrarImagen, contenidoPara, editarTextosDePieza, estadoCompleto, estadoDeIA, generarPieza, guardarArchivo, guardarDiseno, guardarEscenas, leerEstudio, pedirCreacionIA, pedirPaquete, pedirVideo, recortarFoto, usarCreacionIA, vistaPreviaDePlantilla } from "../lib/estudio-anuncios/estudio";
 
 const router = Router();
 
@@ -70,7 +75,8 @@ router.get("/plantillas", async (req, res) => {
   const personales = tenantId ? (await listarPersonales(tenantId)).map((p) => ({ id: `personal:${p.id}`, nombre: p.nombre, formato: p.formato, creadoEn: p.creadoEn, origen: p.origen })) : [];
   return res.json({
     plantillas: PLANTILLAS, formatos: FORMATOS, estilos: resumenDeEstilos(), temas: resumenDeTemas(), guiones: resumenDeGuiones(),
-    transiciones: TRANSICIONES, animaciones: ANIMACIONES, patrones: PATRONES_LISTA, total: totalDePlantillas(), personales,
+    transiciones: TRANSICIONES, animaciones: ANIMACIONES, movimientos: MOVIMIENTOS, camaras: MOVIMIENTOS_CAMARA, ambientes: AMBIENTES, patrones: PATRONES_LISTA, total: totalDePlantillas(), personales,
+    ia: estadoDeIA(),
   });
 });
 
@@ -274,6 +280,9 @@ router.get("/imagen", async (req, res) => {
   } catch { return res.status(415).end(); }
 });
 
+/** Proveedores de IA (va antes de /:productId para que "ia" no se lea como id). */
+router.get("/ia", (_req, res) => res.json(estadoDeIA()));
+
 router.post("/:productId/generar", async (req, res, next) => {
   try {
     const tenantId = tenantDe(req);
@@ -444,10 +453,80 @@ router.post("/:productId/video", async (req, res, next) => {
       guion: typeof b.guion === "string" ? b.guion : undefined,
       estilo: typeof b.estilo === "string" ? b.estilo : undefined,
       tema: typeof b.tema === "string" ? b.tema : undefined,
+      movimiento: typeof b.movimiento === "string" ? b.movimiento as any : undefined,
+      ambiente: typeof b.ambiente === "string" ? b.ambiente as any : undefined,
+      productoVivo: b.productoVivo !== false,
     });
     return res.status(202).json({ ok: true, trabajo });
   } catch (e: any) {
-    if (/inválid|No existe|escenas|ffmpeg|Guion/i.test(String(e?.message))) return res.status(400).json({ error: e.message });
+    if (/inválid|No existe|escenas|ffmpeg|Guion|desconocid/i.test(String(e?.message))) return res.status(400).json({ error: e.message });
+    return next(e);
+  }
+});
+
+// ─── Recorte local e IA sobre la foto real ───────────────────────────────────
+
+router.post("/:productId/recortar", async (req, res, next) => {
+  try {
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ error: "No autenticado" });
+    const productId = idDe(req.params.productId);
+    if (!productId) return res.status(400).json({ error: "Producto inválido" });
+    const r = await recortarFoto(tenantId, productId, typeof req.body?.foto === "string" ? req.body.foto : null);
+    return res.json({ ok: true, recorte: { ...r, urlAbsoluta: r.url ? absoluta(r.url) : null } });
+  } catch (e: any) {
+    if (/inválid|No existe|no pertenece|no se pudo leer/i.test(String(e?.message))) return res.status(400).json({ error: e.message });
+    return next(e);
+  }
+});
+
+router.post("/:productId/ia", async (req, res, next) => {
+  try {
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ error: "No autenticado" });
+    const productId = idDe(req.params.productId);
+    if (!productId) return res.status(400).json({ error: "Producto inválido" });
+    const b = req.body || {};
+    const { creacion, trabajo } = await pedirCreacionIA(tenantId, productId, {
+      tipo: b.tipo === "video" ? "video" : "imagen",
+      instruccion: typeof b.instruccion === "string" ? b.instruccion : "",
+      foto: typeof b.foto === "string" ? b.foto : null,
+      proveedor: ["openai", "gemini", "replicate"].includes(b.proveedor) ? b.proveedor : null,
+      duracion: Number.isFinite(Number(b.duracion)) ? Number(b.duracion) : undefined,
+      conservarProducto: b.conservarProducto !== false,
+    });
+    return res.status(202).json({ ok: true, creacion, trabajo });
+  } catch (e: any) {
+    if (/inválid|No existe|No hay IA|foto|configurad/i.test(String(e?.message))) return res.status(400).json({ error: e.message });
+    return next(e);
+  }
+});
+
+router.post("/:productId/ia/:id/usar", async (req, res, next) => {
+  try {
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ error: "No autenticado" });
+    const productId = idDe(req.params.productId);
+    if (!productId) return res.status(400).json({ error: "Producto inválido" });
+    const como = req.body?.como === "clip" ? "clip" : "foto";
+    const estudio = await usarCreacionIA(tenantId, productId, String(req.params.id), como, Number(req.body?.escena) || 0);
+    return res.json({ ok: true, contenido: estudio.contenido, escenas: estudio.escenas });
+  } catch (e: any) {
+    if (/inválid|No existe|no existe|Solo|fidelidad/i.test(String(e?.message))) return res.status(400).json({ error: e.message });
+    return next(e);
+  }
+});
+
+router.delete("/:productId/ia/:id", async (req, res, next) => {
+  try {
+    const tenantId = tenantDe(req);
+    if (!tenantId) return res.status(401).json({ error: "No autenticado" });
+    const productId = idDe(req.params.productId);
+    if (!productId) return res.status(400).json({ error: "Producto inválido" });
+    await borrarCreacionIA(tenantId, productId, String(req.params.id));
+    return res.json({ ok: true });
+  } catch (e: any) {
+    if (/inválid|No existe/i.test(String(e?.message))) return res.status(400).json({ error: e.message });
     return next(e);
   }
 });

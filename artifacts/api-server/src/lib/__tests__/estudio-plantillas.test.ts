@@ -5,7 +5,7 @@ import {
   TEMAS, TEMAS_LISTA, ESTILOS, ESTILOS_BASE, estiloPorId, decoracionesDeTema, resolverEstilo, ANIMACIONES, TRANSICIONES,
   type Capa, type CapaTexto, type Contenido, type Entrada,
 } from "../estudio-anuncios/diseno";
-import { FUENTES, trazar, medir, fuentesDisponibles, familiasInstaladas, parrafo } from "../estudio-anuncios/tipografia";
+import { FUENTES, trazar, medir, envolver, fuentesDisponibles, familiasInstaladas, parrafo } from "../estudio-anuncios/tipografia";
 import { buscarElementos, svgDeElemento, existeElemento, resumenDeColecciones } from "../estudio-anuncios/elementos";
 import { buscarPlantillas, resolverIdDePlantilla, totalDePlantillas, contenidoDeMuestra, disenoDeCatalogo, desdeFabricJSON, aplicarDisenoAContenido } from "../estudio-anuncios/plantillas";
 import { agruparCapas, filtroDeEntrada, transicionDe } from "../estudio-anuncios/video";
@@ -49,6 +49,17 @@ describe("tipografía propia (opentype, sin fuentes del sistema)", () => {
       expect(p.svg).not.toMatch(/NaN/);
       for (const l of p.lineas) expect(medir(l, p.size, 700, f)).toBeLessThanOrEqual(700 + 2);
     }
+  });
+
+  it("envolver no deja una viuda de una palabra corta ('1 L' no se parte en 'L' sola)", () => {
+    const texto = "Botella térmica Nórdica 1 L";
+    // Ancho justo para que quepa "Botella térmica Nórdica 1" pero no la "L": sin la regla quedaría "L" sola.
+    const ancho = medir("Botella térmica Nórdica 1", 60, 700, "inter") + 4;
+    const lineas = envolver(texto, 60, 700, ancho, 3, "inter");
+    expect(lineas.length).toBe(2);
+    expect(lineas[1]).toBe("1 L");
+    expect(lineas.join(" ")).toBe(texto);
+    for (const l of lineas) expect(medir(l, 60, 700, "inter")).toBeLessThanOrEqual(ancho + 2);
   });
 });
 
@@ -286,13 +297,13 @@ describe("resolución de plantillas pedidas por Atlas o el panel", () => {
 describe("herramientas de Atlas para el Estudio", () => {
   it("existen con nombre, descripción en español y contrato de argumentos; solo dos son de lectura", () => {
     const nombres = HERRAMIENTAS_ESTUDIO.map((h) => h.name);
-    expect(nombres).toEqual(["estudio_plantillas", "estudio_generar", "estudio_pieza", "estudio_editar_texto", "estudio_video", "estudio_estado"]);
+    expect(nombres).toEqual(["estudio_plantillas", "estudio_generar", "estudio_pieza", "estudio_editar_texto", "estudio_video", "estudio_estado", "estudio_recortar", "estudio_ia_crear"]);
     for (const h of HERRAMIENTAS_ESTUDIO) {
       expect(h.description.length).toBeGreaterThan(40);
       expect(h.args).toContain("{");
       expect(typeof h.run).toBe("function");
     }
-    for (const n of ["estudio_generar", "estudio_pieza", "estudio_editar_texto", "estudio_video"]) expect(HERRAMIENTAS_ESTUDIO.find((h) => h.name === n)!.description).toMatch(/requiere confirmación/);
+    for (const n of ["estudio_generar", "estudio_pieza", "estudio_editar_texto", "estudio_video", "estudio_recortar", "estudio_ia_crear"]) expect(HERRAMIENTAS_ESTUDIO.find((h) => h.name === n)!.description).toMatch(/requiere confirmación/);
   });
 
   it("estudio_plantillas responde con ids reales y el resumen de temas/estilos/guiones", async () => {

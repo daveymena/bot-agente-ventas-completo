@@ -18,6 +18,7 @@ import { FORMATOS, PLANTILLAS, apiEstudio, nombreDePlantilla, type CatalogoEstud
 // Los editores traen Fabric.js (~300 KB): se cargan solo al abrirlos.
 const EditorImagen = lazy(() => import("@/components/estudio/editor-imagen").then((m) => ({ default: m.EditorImagen })));
 const EditorVideo = lazy(() => import("@/components/estudio/editor-video").then((m) => ({ default: m.EditorVideo })));
+const PanelIA = lazy(() => import("@/components/estudio/panel-ia").then((m) => ({ default: m.PanelIA })));
 const CargandoEditor = () => <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/90 text-sm text-slate-200"><Loader2 className="mr-2 h-5 w-5 animate-spin" />Abriendo el editor…</div>;
 
 const miniatura = (src: string | null | undefined) => (!src ? "" : src.startsWith("/") || src.startsWith("data:") ? src : `/api/estudio-anuncios/imagen?src=${encodeURIComponent(src)}`);
@@ -58,7 +59,7 @@ export default function EstudioAnunciosPage() {
   useEffect(() => { if (seleccion) { setEstado(null); setMarcadas(new Set()); void cargarEstado(seleccion); } }, [seleccion, cargarEstado]);
 
   // Seguimiento mientras hay trabajos en cola/en curso.
-  const activo = !!estado && ((estado.trabajos.paquete && ["pendiente", "en_curso"].includes(estado.trabajos.paquete.estado)) || (estado.trabajos.video && ["pendiente", "en_curso"].includes(estado.trabajos.video.estado)) || estado.estudio.paquete?.estado === "pendiente" || estado.estudio.paquete?.estado === "en_curso" || estado.estudio.video?.estado === "pendiente" || estado.estudio.video?.estado === "en_curso");
+  const activo = !!estado && ((estado.trabajos.paquete && ["pendiente", "en_curso"].includes(estado.trabajos.paquete.estado)) || (estado.trabajos.video && ["pendiente", "en_curso"].includes(estado.trabajos.video.estado)) || estado.estudio.paquete?.estado === "pendiente" || estado.estudio.paquete?.estado === "en_curso" || estado.estudio.video?.estado === "pendiente" || estado.estudio.video?.estado === "en_curso" || (estado.estudio.ia || []).some((c) => c.estado === "pendiente" || c.estado === "en_curso"));
   useEffect(() => {
     if (!activo || !seleccion) return;
     const t = setInterval(() => { void cargarEstado(seleccion); }, 2500);
@@ -254,8 +255,14 @@ export default function EstudioAnunciosPage() {
                     <TabsTrigger value="imagenes"><Images className="mr-1 h-4 w-4" />Imágenes ({e.imagenes.length})</TabsTrigger>
                     <TabsTrigger value="video"><Video className="mr-1 h-4 w-4" />Vídeo {e.video?.estado === "listo" ? "✓" : ""}</TabsTrigger>
                     <TabsTrigger value="plantillas"><LayoutTemplate className="mr-1 h-4 w-4" />Plantillas</TabsTrigger>
+                    <TabsTrigger value="ia"><Sparkles className="mr-1 h-4 w-4" />IA {(e.ia || []).some((c) => c.estado === "en_curso" || c.estado === "pendiente") ? <Loader2 className="ml-1 h-3 w-3 animate-spin" /> : (e.ia?.length ? `(${e.ia.length})` : "")}</TabsTrigger>
                   </TabsList>
 
+                  <TabsContent value="ia">
+                    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground"><Loader2 className="mr-2 inline h-4 w-4 animate-spin" />Cargando…</div>}>
+                      <PanelIA productId={seleccion!} estado={estado!} onCambio={() => cargarEstado(seleccion!)} />
+                    </Suspense>
+                  </TabsContent>
                   <TabsContent value="plantillas">
                     <GaleriaDePlantillas productId={seleccion} catalogo={catalogo} opciones={opciones} onPiezaCreada={async () => { await cargarEstado(seleccion); }} onRecargarCatalogo={cargarCatalogo} />
                   </TabsContent>
@@ -327,7 +334,7 @@ export default function EstudioAnunciosPage() {
                           {!salud?.ffmpeg && <p className="mt-2 text-xs text-amber-600">El servidor no tiene ffmpeg: las imágenes salen, el vídeo no.</p>}
                         </div>
                         <div className="rounded-2xl border bg-card p-4 text-sm text-muted-foreground">
-                          <p><strong className="text-foreground">Cómo se arma:</strong> cada escena es un fotograma 9:16 con la foto real del producto, con movimiento de cámara, transición y voz en off (Salomé o Gonzalo, es-CO). Si pones pistas en <code>data/musica</code> se mezcla música de fondo. Dura lo que sumen las escenas (la voz alarga la escena si hace falta).</p>
+                          <p><strong className="text-foreground">Cómo se arma:</strong> cada escena es un fotograma 9:16 con la foto real del producto —recortada sin fondo cuando se puede— que flota o late dentro del cuadro, con cámara (zoom, paneo, giro 3D), partículas del tema (nieve, confeti, chispas…), transición y voz en off (Salomé o Gonzalo, es-CO). Si pones pistas en <code>data/musica</code> se mezcla música de fondo. Dura lo que sumen las escenas (la voz alarga la escena si hace falta). Los vídeos de la pestaña IA sirven de fondo de escena.</p>
                         </div>
                       </div>
                     </div>
@@ -341,12 +348,12 @@ export default function EstudioAnunciosPage() {
 
       {editando && seleccion && (
         <Suspense fallback={<CargandoEditor />}>
-          <EditorImagen titulo={editando.titulo} diseno={editando.diseno} fotos={fotos} productId={seleccion} guardando={guardando} onGuardar={guardarDiseno} onCerrar={() => setEditando(null)} />
+          <EditorImagen titulo={editando.titulo} diseno={editando.diseno} fotos={fotos} recortes={e?.contenido?.recortes} productId={seleccion} guardando={guardando} onGuardar={guardarDiseno} onCerrar={() => setEditando(null)} />
         </Suspense>
       )}
       {editorVideo && seleccion && !!e?.escenas?.length && (
         <Suspense fallback={<CargandoEditor />}>
-          <EditorVideo productId={seleccion} escenas={e.escenas} fotos={fotos} onCerrar={() => setEditorVideo(false)} onVideoPedido={() => void cargarEstado(seleccion)} />
+          <EditorVideo productId={seleccion} escenas={e.escenas} fotos={fotos} recortes={e.contenido?.recortes} creacionesIA={e.ia} onCerrar={() => setEditorVideo(false)} onVideoPedido={() => void cargarEstado(seleccion)} />
         </Suspense>
       )}
     </Layout>
