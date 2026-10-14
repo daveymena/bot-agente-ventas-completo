@@ -87,7 +87,7 @@ async function start() {
     logger.warn({ err }, "[Bootstrap] no se pudo verificar si existe un administrador");
   }
 
-  app.listen(port, "0.0.0.0", (err: any) => {
+  const servidorHttp = app.listen(port, "0.0.0.0", (err: any) => {
     if (err) {
       logger.error({ err }, "Error listening on port");
       process.exit(1);
@@ -113,6 +113,20 @@ async function start() {
     // Le costó al negocio dos clientes que venían de anuncios pagos.
     instalarApagadoOrdenado();
   });
+
+  // ── Canal en vivo (WebSocket) ──────────────────────────────────────────
+  // Se engancha al MISMO http.Server que atiende la API: una sola puerta de
+  // entrada y una sola regla de autenticación (la cookie firmada del panel).
+  // Emite a Atlas y a los agentes lo que pasa al instante, sin polling.
+  try {
+    const { arrancarPuenteEnVivo } = await import("./lib/eventos");
+    const { montarEventosEnVivo } = await import("./routes/eventos");
+    arrancarPuenteEnVivo();
+    montarEventosEnVivo(servidorHttp as any);
+  } catch (err: any) {
+    // Un canal en vivo caído no puede impedir que el vendedor atienda.
+    logger.warn({ err: err?.message }, "[Eventos] no se pudo montar el canal en vivo");
+  }
 }
 
 start().catch((err) => {

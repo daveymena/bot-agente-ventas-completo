@@ -23,6 +23,7 @@ import { integracionesRouter, integracionesWebhooksRouter } from "./routes/integ
 import canvaRouter from "./routes/canva";
 import { facturacionRouter } from "./routes/facturacion";
 import { posRouter } from "./routes/pos";
+import { eventosRouter } from "./routes/eventos";
 import { logger } from "./lib/logger";
 import { securityShield } from "./lib/security-shield";
 import { imageUrlFixer } from "./lib/image-url-fixer";
@@ -1012,6 +1013,10 @@ app.use("/api/canva", canvaRouter);
 app.use("/api/facturacion", facturacionRouter);
 // POS tienda física: inventario, caja, ventas, devoluciones. Con sesión.
 app.use("/api/pos", posRouter);
+// Canal en vivo: estado y emisión de prueba. El WebSocket se monta aparte, en
+// index.ts, porque necesita el http.Server. Estas rutas van acá para pasar por
+// el mismo middleware de sesión que el resto de la API.
+app.use("/api/eventos", eventosRouter);
 app.use("/api", router);
 
 // Short URL redirect: /p/:productId → /tienda/:slug/producto/:productId
