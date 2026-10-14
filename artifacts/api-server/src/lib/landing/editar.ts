@@ -15,6 +15,8 @@ import { db, landingPages } from "@workspace/db";
 import { callMarketingAI } from "../marketing-team/ai";
 import { aTextoPlano } from "../texto-plano";
 import { MODELOS, pedidoDeComposicion, semillaNueva, type ModeloId } from "./composicion";
+import { normalizarRetoque } from "../estudio/retoque";
+import { FUENTES } from "../estudio/fuentes";
 
 /** La fecha con el formato que la base acepta (el repo lo trae: date-utils). */
 async function dbNow(): Promise<Date | unknown> {
@@ -48,7 +50,8 @@ export async function operacionesDeEdicion(
     systemPrompt:
       "Eres el editor de landing pages de VentasPro. Analiza la instrucción del usuario y el estado actual y devuelve SOLO JSON con {message, operations}. " +
       "Operaciones permitidas: update_section {sectionId, patch:{title?,subtitle?,body?,cta?,layout?}}, add_section {section:{type,title,subtitle?,body?,cta?}}, " +
-      "remove_section {sectionId}, move_section {sectionId, direction:'up'|'down'}, update_design {patch:{familia?}}, set_cta {sectionId, cta}. " +
+      "remove_section {sectionId}, move_section {sectionId, direction:'up'|'down'}, update_design {patch:{familia?}}, set_cta {sectionId, cta}, " +
+      `update_theme {patch:{acento?:'#RRGGBB', titulos?:fuente, texto?:fuente, radio?:0-40}} con fuente una de ${FUENTES.map((f) => f.id).join(", ")} (para 'poné los botones verdes', 'letra más elegante', 'bordes rectos'). ` +
       "Las operaciones deben ser pequeñas y seguras. No inventes datos, testimonios, garantías, descuentos ni urgencia; NUNCA agregues testimonials ni before-after (no hay datos reales). " +
       "No agregues dos secciones del mismo tipo: si ya existe, editala con update_section. " +
       "EL ASPECTO VISUAL (colores, tipografía, 'frontend', 'diseño', 'estilo') SÍ se cambia: update_design {patch:{familia}} con familia una de premium, respuesta-directa, minimal, editorial, ecommerce, belleza, fitness, educacion, tecnologia, familiar, creativa, oscura. Nunca digas que no podés cambiar el diseño. " +
@@ -155,8 +158,24 @@ export function aplicarOperaciones(
         break;
       }
       case "update_design": {
-        if (o.patch && typeof o.patch === "object") { design = { ...design, ...o.patch }; aplicadas.push("diseño"); }
+        // Solo la familia: antes se mezclaba el patch entero y el modelo podía
+        // escribir cualquier clave de `design` (renderer, style, html...).
+        const familia = o.patch && typeof o.patch === "object" ? (o.patch as any).familia : undefined;
+        if (typeof familia === "string" && familia.trim()) { design = { ...design, familia: familia.trim(), renderer: null, style: null }; aplicadas.push("diseño"); }
+        else if (o.patch && typeof o.patch === "object" && ((o.patch as any).acento || (o.patch as any).titulos || (o.patch as any).texto || (o.patch as any).radio !== undefined)) {
+          // El modelo a veces manda el tema por acá: se trata como update_theme.
+          const retoque = normalizarRetoque({ ...(design.retoque || {}), ...o.patch });
+          if (retoque) { design = { ...design, retoque }; aplicadas.push("tema"); } else ignoradas.push("update_design inválido");
+        }
         else ignoradas.push("update_design vacío");
+        break;
+      }
+      case "update_theme": {
+        // Color de acento, letras y redondeo: lo hornea el servidor en la
+        // preview y en la publicada (lib/estudio/retoque.ts).
+        const retoque = normalizarRetoque({ ...(design.retoque || {}), ...(o.patch || {}) });
+        if (retoque) { design = { ...design, retoque }; aplicadas.push("tema"); }
+        else ignoradas.push("update_theme sin valores válidos");
         break;
       }
       default:

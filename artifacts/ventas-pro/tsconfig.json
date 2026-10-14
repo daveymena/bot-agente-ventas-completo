@@ -13,7 +13,8 @@
     "skipLibCheck": true,
     "noImplicitAny": false,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@estudio/*": ["../api-server/src/lib/estudio/*"]
     }
   },
   "references": [

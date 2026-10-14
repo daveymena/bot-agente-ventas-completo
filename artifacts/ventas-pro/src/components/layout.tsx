@@ -27,6 +27,8 @@ import {
   ReceiptText,
   GraduationCap,
   Plug,
+  PencilRuler,
+  ImagePlus,
 } from "lucide-react";
 import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent } from "./ui/sidebar";
 import { Badge as UiBadge } from "@/components/ui/badge";
@@ -73,7 +75,10 @@ export function AppSidebar() {
     { label: "Personalización", href: "/branding", icon: Palette },
     { label: "Facebook", href: "/facebook", icon: iconoMarca("facebook") },
     { label: "Marketing", href: "/marketing", icon: Megaphone },
-    { label: "Landing Studio", href: "/landing-studio", icon: LayoutTemplate, external: "/api/landing-forge/entrar" },
+    // Studio: landings + diseños + creativos con Atlas adentro (/estudio).
+    { label: "Studio", href: "/estudio", icon: PencilRuler },
+    { label: "Creativos", href: "/estudio?espacio=creativos", icon: ImagePlus },
+    { label: "Landing Forge", href: "/landing-studio", icon: LayoutTemplate, external: "/api/landing-forge/entrar" },
     { label: "Configuración", href: "/settings", icon: Settings },
     { label: "Diagnóstico", href: "/diagnostico", icon: Activity },
     // Oculto del menú 29-09-2026: duplicado de "Probar vendedor" (línea de arriba).
