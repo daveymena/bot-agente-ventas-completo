@@ -59,6 +59,14 @@ import {
 import { buscarContextoRelevante } from "./buscar-contexto";
 import { bloqueDeLaFichaEnFoco, puntosDeLaFicha } from "./lo-que-dice-la-ficha";
 import { sinCondicionesSinRespaldo, condicionesSinRespaldo } from "./condiciones-sin-respaldo";
+import { describirObjecion } from "./objeciones";
+import {
+  clasificarObjecion,
+  registrarObjecion,
+  anotarCausaReal,
+  marcoDiagnosticoPedido,
+  caminoDeObjecion,
+} from "./objeciones";
 import { renderGuion, type GuionDelNegocio } from "./nicho";
 import { hablarColombiano } from "../hablar-colombiano";
 import type { ClienteLLM } from "./cliente-llm";
@@ -269,8 +277,14 @@ ${catalogoCompacto}${voz.instruccionesExtra ? `\n\nINDICACIONES DEL DUEÑO\n${vo
     estado.productoEnFoco != null
       ? bloqueDeLaFichaEnFoco(catalogo.find((p) => p.id === estado.productoEnFoco))
       : "";
+  /** La objeción vigente, ya convertida en instrucción operativa. */
+  const objecion = describirObjecion(estado);
   const delTurno = `LO QUE YA PASÓ EN ESTA CONVERSACIÓN
 ${describirEstado(estado, params.nombrePorProducto)}${fichaEnFoco ? `\n\n${fichaEnFoco}` : ""}${
+    // La objeción vigente va como HECHO del turno, no como consejo del guion:
+    // dice qué se intentó ya y qué no repetir. Ver objeciones.ts.
+    objecion ? `\n\nOBJECIÓN SIN RESOLVER\n${objecion}` : ""
+  }${
     temas.length
       ? `\n\nRESPUESTAS QUE CARGÓ EL DUEÑO (valen aunque el tema figure en "NO TIENES ESTOS DATOS"; ` +
         `el texto exacto te lo da consultar_conocimiento): ${temas.join(" · ")}`
@@ -1258,6 +1272,35 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
   }
 
   estado.turnos += 1;
+
+  // ── La objeción del cliente se registra como HECHO, no se deduce después ──
+  // El modelo puede declararla con `anotar_contexto`, pero no se depende de él:
+  // si el cliente escribió "está caro" o "lo voy a pensar", eso ES una objeción
+  // y el turno siguiente tiene que saberlo. Mismo principio que el resto del
+  // motor: lo que se puede decidir en el servidor, se decide en el servidor.
+  if (mensajeDelClienteActual && mensajeDelClienteActual.trim()) {
+    const tipo = clasificarObjecion(mensajeDelClienteActual);
+    if (tipo !== "otra") {
+      // No re-registrar si el turno YA la marcó y el cliente sigue en lo mismo.
+      registrarObjecion(estado, mensajeDelClienteActual, tipo);
+    } else if (estado.objecion?.diagnosticoPedido && mensajeDelClienteActual.trim().length > 12) {
+      // El vendedor preguntó qué le frena y el cliente contestó algo: esa
+      // respuesta ES la causa real, aunque no matchee ningún patrón.
+      anotarCausaReal(estado, mensajeDelClienteActual);
+    }
+  }
+
+  // Si el vendedor preguntó por la causa en este turno, queda marcado para no
+  // repetir la misma pregunta en el siguiente.
+  if (estado.objecion && !estado.objecion.diagnosticoPedido && textoFinal) {
+    const camino = caminoDeObjecion(estado.objecion.tipo, {
+      intentos: estado.objecion.intentos,
+      yaPregunto: false,
+    });
+    const pregunto = textoFinal.includes("?") &&
+      (camino.exigeDiagnostico || /qu[eé] es lo que te frena|por qu[eé]|qu[eé] te|cu[aá]l es/i.test(textoFinal));
+    if (pregunto) marcoDiagnosticoPedido(estado);
+  }
   // La ficha completa (o de precio) de algo que se despacha sale DESPUÉS del
   // texto y cierra con "¿Te lo enviamos?" / "¿Te tomo el pedido?" (whatsapp.ts):
   // es lo último que el cliente ve. Chat de prueba desplegado (30-09-2026):
