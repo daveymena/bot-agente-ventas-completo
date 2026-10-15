@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Send, Square, Sparkles, X, RotateCcw } from "lucide-react";
 
 export interface ContextoEstudio {
-  espacio: "landings" | "disenos" | "creativos";
+  espacio: "landings" | "disenos" | "creativos" | "marca";
   producto?: { id: number; nombre: string } | null;
   landing?: { id: number; nombre: string; publicada?: boolean } | null;
   creativo?: { id: string | null; nombre: string } | null;
@@ -41,6 +41,10 @@ const SUGERENCIAS: Record<ContextoEstudio["espacio"], string[]> = {
     "¿Qué diseño le conviene a este producto y por qué?",
     "Creá una landing nueva para este producto",
   ],
+  marca: [
+    "Proponeme un kit de marca para mi negocio a partir de mis productos",
+    "¿Qué tipografía va con mi marca y por qué?",
+  ],
   creativos: [
     "Creá 3 creativos 4:5 para este producto con ganchos distintos",
     "Hacé versiones 9:16 para historias",
@@ -53,11 +57,15 @@ function contextoComoTexto(c: ContextoEstudio): string {
   if (c.producto) partes.push(`Producto abierto: [${c.producto.id}] ${c.producto.nombre}.`);
   if (c.landing) partes.push(`Landing abierta: [${c.landing.id}] ${c.landing.nombre}${c.landing.publicada ? " (publicada)" : " (borrador)"}.`);
   if (c.creativo?.id) partes.push(`Creativo abierto: [${c.creativo.id}] ${c.creativo.nombre}.`);
-  partes.push("Si pide cambios sin decir cuál, se refiere a lo que tiene abierto. Para landings: landing_editar o landing_tema; para creativos: creativo_crear / creativo_editar.");
+  partes.push(
+    "Si pide cambios sin decir cuál, se refiere a lo que tiene abierto. Mirá antes de tocar: landing_ver / creativo_ver (y ver_imagen con el PNG). " +
+    "Cambios exactos: landing_bloque (un bloque), landing_diseno (uno de los 22 diseños), landing_tema (color/letras), creativo_capa (una capa). " +
+    "Pedidos abiertos: landing_editar, creativo_crear, creativo_editar. Marca: marca_kit_ver / marca_kit_cambiar. Lo que está abierto ya está guardado.",
+  );
   return `[CONTEXTO DEL ESTUDIO] ${partes.join(" ")}`;
 }
 
-export function AtlasDock({ contexto, onTurnoTerminado, onCerrar }: { contexto: ContextoEstudio; onTurnoTerminado: () => void; onCerrar?: () => void }) {
+export function AtlasDock({ contexto, leerContexto, onTurnoTerminado, onCerrar, antesDeEnviar }: { contexto: ContextoEstudio; leerContexto?: () => ContextoEstudio; onTurnoTerminado: () => void; onCerrar?: () => void; antesDeEnviar?: () => Promise<void> }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [texto, setTexto] = useState("");
   const [ocupado, setOcupado] = useState(false);
@@ -87,6 +95,16 @@ export function AtlasDock({ contexto, onTurnoTerminado, onCerrar }: { contexto: 
     const historial = msgs.slice(-20).map((m) => ({ role: m.role, content: m.content }));
     setMsgs((m) => [...m, { role: "user", content: limpio }]);
     setOcupado(true);
+    // Lo que el dueño tiene sin guardar se guarda ANTES: Atlas lee de la base,
+    // y al terminar el estudio recarga desde la base (sin esto, se pisaban).
+    if (antesDeEnviar) {
+      setProgreso("Guardando lo que tenés abierto…");
+      await antesDeEnviar().catch(() => {});
+      // Un creativo recién guardado recibe su id en el render siguiente: se
+      // espera un momento y se lee el contexto FRESCO (si no, Atlas no sabía cuál era).
+      await new Promise((r) => setTimeout(r, 80));
+    }
+    const ctxAhora = leerContexto?.() ?? contexto;
     setProgreso("Atlas está pensando…");
     const ctl = new AbortController();
     corte.current = ctl;
@@ -95,7 +113,7 @@ export function AtlasDock({ contexto, onTurnoTerminado, onCerrar }: { contexto: 
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: `${contextoComoTexto(contexto)}\n\n${limpio}`, history: historial, sessionId: SESION, stream: true }),
+        body: JSON.stringify({ prompt: `${contextoComoTexto(ctxAhora)}\n\n${limpio}`, history: historial, sessionId: SESION, stream: true }),
         signal: ctl.signal,
       });
       if (!r.ok) throw new Error(`Atlas respondió ${r.status}`);

@@ -10,6 +10,7 @@
 import { and, eq } from "drizzle-orm";
 import { db, products } from "@workspace/db";
 import type { DatosCreativo } from "../estudio/maquetas-creativo";
+import type { KitDeMarca } from "../estudio/kit";
 
 export interface VarianteDeCopy { gancho: string; apoyo: string; cta: string; angulo?: string }
 
@@ -17,6 +18,11 @@ export interface DatosDelProducto {
   producto: { id: number; name: string; price: string | null; currency: string | null; kind: string | null };
   datos: DatosCreativo;
   modelo: string;
+  /** El kit de marca del negocio (vacío si el dueño no lo definió). */
+  kit: KitDeMarca;
+  kitDefinido: boolean;
+  /** Por qué no se pudo recortar la primera foto (si no se pudo). */
+  recorteMotivo?: string | null;
 }
 
 const corta = (s: string, max: number) => {
@@ -69,7 +75,17 @@ export async function datosDelProducto(tenantId: number, productId: number): Pro
     sobreAcento: color?.sobreAcento || "#ffffff",
     marca: ctx?.businessName || null,
   };
-  return { producto: { id: p.id, name: p.name, price: p.price, currency: p.currency, kind: p.kind }, datos, modelo };
+  // El producto "flotando": se intenta quitar el fondo de la primera foto que
+  // lo permita (fondo liso). Si ninguna, las maquetas usan la foto completa.
+  let recorteMotivo: string | null = null;
+  try {
+    const { recortesDe, recortarFondo } = await import("./recorte");
+    datos.recortes = await recortesDe(fotos, 1);
+    if (!Object.keys(datos.recortes).length && fotos[0]) { const r = await recortarFondo(fotos[0]); recorteMotivo = r.ok ? null : r.motivo; }
+  } catch { datos.recortes = {}; }
+  const { leerKit } = await import("./kit");
+  const k = await leerKit(tenantId).catch(() => ({ kit: {}, definido: false }));
+  return { producto: { id: p.id, name: p.name, price: p.price, currency: p.currency, kind: p.kind }, datos, modelo, kit: k.kit, kitDefinido: k.definido, recorteMotivo };
 }
 
 /**

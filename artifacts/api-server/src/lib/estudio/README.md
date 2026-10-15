@@ -9,7 +9,8 @@ puros (sin node ni DOM). La app los importa con el alias `@estudio`
 | `fuentes.ts` | Las tipografías (Google Fonts, OFL) y parejas título/texto. |
 | `retoque.ts` | El **tema** de una landing (`design.retoque`): acento, letras, redondeo. |
 | `escena.ts` | El **creativo**: escena JSON (capas en % del lienzo) → HTML. Revisión antes de exportar. |
-| `maquetas-creativo.ts` | 10 maquetas que diagraman solas (apilan piezas según el largo del texto) en 4:5, 1:1, 9:16 y 1.91:1. |
+| `maquetas-creativo.ts` | 16 maquetas que diagraman solas (apilan piezas según el largo del texto) en 4:5, 1:1, 9:16 y 1.91:1. `armarCreativo` = maqueta + kit de marca. |
+| `kit.ts` | **Kit de marca** (acento, oscuro, claro, letras, logo): reemplaza los neutros y el acento adivinado de las maquetas, corrige contraste con tintas de la marca y pone el logo donde no pisa texto. Paletas desde un color. |
 
 ## Regla: un solo dibujante
 
@@ -49,3 +50,24 @@ propósito (ver `lib/creativos/almacen.ts`).
 14 % arriba / 35 % abajo / 6 % a los lados en 9:16. Fuente: guías de terceros
 consultadas el 2026-10-14 (adkit.so, billo.app, adsuploader.com): **vendor-reported**,
 no documentación de Meta. Se usan como guía visual y aviso, nunca como bloqueo.
+
+## Contra el look genérico (14-10-2026)
+
+- **Kit de marca** (Studio → Marca; Atlas: `marca_kit_ver` / `marca_kit_cambiar`).
+  Se guarda en `<CREATIVOS_DIR>/_kits/<tenant>.json`. NO se deduce de
+  `tenants.brand_colors` (suele tener los valores por defecto del sistema); del
+  perfil solo se toma el logo. En landings se aplica con "Usar mi marca" en el
+  tema (no automático: no se cambian páginas publicadas sin que el dueño lo pida).
+- **Recorte de fondo** (`lib/creativos/recorte.ts`, sharp, sin modelos): solo
+  fondos lisos; sigue degradados y sombras suaves; si lo que borró tiene textura
+  vuelve al recorte estricto. **No recorta** (y se usa la foto completa) cuando:
+  el fondo no es liso, la foto mide menos de 320 px, o queda >12 % de "fondo"
+  encerrado dentro del producto (producto claro sobre fondo claro). Umbrales
+  medidos con 6 fotos el 14-10: las limpias tenían ≤ 8,5 %, la sucia (faja
+  blanca de Dropi) 16 %. Las paletas del kit salen del color del producto
+  recortado, no de la foto entera (que daba el gris del fondo).
+- **Juez visual** (`lib/creativos/juez.ts`): reglas medibles siempre (contraste
+  WCAG del texto contra su fondo, tamaño, zona segura, foto visible) + modelo de
+  visión con rúbrica de director de arte cuando hay uno con clave. Sin modelo, lo
+  dice y no inventa puntaje. `creativo_crear` arma hasta 2 candidatos de más y se
+  queda con los de mejor puntaje.

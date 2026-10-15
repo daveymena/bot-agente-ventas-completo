@@ -10,26 +10,28 @@
  * Los tres espacios quedan montados (se esconden, no se desmontan) para que
  * cambiar de pestaña no pierda lo que se estaba editando.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, LayoutTemplate, Image as ImageIcon, Palette, Sparkles, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { ArrowLeft, LayoutTemplate, Image as ImageIcon, Palette, Sparkles, PanelRightClose, PanelRightOpen, Gem } from "lucide-react";
+import { KitMarca } from "@/components/estudio/kit-marca";
 import LandingStudioV2, { type ContextoLanding } from "@/pages/landing-studio-v2";
 import CreativosPage from "@/pages/creativos";
 import { GaleriaDisenos, DISENOS } from "@/components/estudio/galeria-disenos";
 import { AtlasDock, type ContextoEstudio } from "@/components/estudio/atlas-dock";
 
-type Espacio = "landings" | "disenos" | "creativos";
+type Espacio = "landings" | "disenos" | "creativos" | "marca";
 
 const ESPACIOS: { id: Espacio; nombre: string; icono: any; ayuda: string }[] = [
   { id: "landings", nombre: "Landings", icono: LayoutTemplate, ayuda: "Editá tu página: bloques, textos, tema" },
   { id: "disenos", nombre: "Diseños", icono: Palette, ayuda: "22 diseños en vivo con tu producto" },
   { id: "creativos", nombre: "Creativos", icono: ImageIcon, ayuda: "Imágenes para tus anuncios" },
+  { id: "marca", nombre: "Marca", icono: Gem, ayuda: "Tus colores, letras y logo: todo sale con tu identidad" },
 ];
 
 export default function EstudioPage() {
   const [espacio, setEspacio] = useState<Espacio>(() => {
     const q = new URLSearchParams(window.location.search).get("espacio");
-    return q === "creativos" || q === "disenos" ? q : "landings";
+    return q === "creativos" || q === "disenos" || q === "marca" ? q : "landings";
   });
   const [producto, setProducto] = useState<number | "">("");
   const [ctxLanding, setCtxLanding] = useState<ContextoLanding | null>(null);
@@ -56,8 +58,14 @@ export default function EstudioPage() {
     creativo: espacio === "creativos" ? ctxCreativo?.creativo ?? null : null,
   };
 
+  const contextoRef = useRef<ContextoEstudio | null>(null);
   const alTerminarAtlas = useCallback(() => { window.dispatchEvent(new Event("estudio:refrescar")); }, []);
+  // Cada espacio registra cómo guardar lo suyo; antes de un pedido a Atlas se guarda todo.
+  const guardadores = useRef<Record<string, () => Promise<void>>>({});
+  const registrarGuardado = useCallback((espacio: string, fn: (() => Promise<void>) | null) => { if (fn) guardadores.current[espacio] = fn; else delete guardadores.current[espacio]; }, []);
+  const guardarTodo = useCallback(async () => { for (const fn of Object.values(guardadores.current)) await fn().catch(() => {}); }, []);
 
+  contextoRef.current = contexto;
   const plantillaActual = ctxLanding?.plantilla || "";
   const disenoActual = DISENOS.find((d) => d.id === plantillaActual)?.id ?? null;
 
@@ -92,7 +100,7 @@ export default function EstudioPage() {
       <div className="flex-1 min-h-0 flex">
         <main className="flex-1 min-w-0 min-h-0 flex flex-col">
           <div className={espacio === "landings" ? "flex-1 min-h-0 flex flex-col" : "hidden"}>
-            <LandingStudioV2 incrustado producto={producto} onProducto={setProducto} onContexto={setCtxLanding} pedidoDiseno={pedidoDiseno} />
+            <LandingStudioV2 incrustado producto={producto} onProducto={setProducto} onContexto={setCtxLanding} pedidoDiseno={pedidoDiseno} registrarGuardado={registrarGuardado} />
           </div>
           <div className={espacio === "disenos" ? "flex-1 min-h-0 overflow-y-auto" : "hidden"}>
             {!producto && productos.length > 0 && (
@@ -115,14 +123,25 @@ export default function EstudioPage() {
             )}
           </div>
           <div className={espacio === "creativos" ? "flex-1 min-h-0 flex flex-col" : "hidden"}>
-            <CreativosPage incrustado producto={producto} onProducto={setProducto} onContexto={setCtxCreativo} />
+            <CreativosPage incrustado producto={producto} onProducto={setProducto} onContexto={setCtxCreativo} onIrAMarca={() => setEspacio("marca")} registrarGuardado={registrarGuardado} />
+          </div>
+          <div className={espacio === "marca" ? "flex-1 min-h-0 overflow-y-auto" : "hidden"}>
+            {!producto && productos.length > 0 && (
+              <div className="px-6 pt-6">
+                <select value="" onChange={(e) => setProducto(e.target.value ? Number(e.target.value) : "")} className="h-10 rounded-lg border bg-background px-3 text-sm" aria-label="Producto">
+                  <option value="">Elegí un producto para ver la vista previa…</option>
+                  {productos.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+            )}
+            {espacio === "marca" && <KitMarca productId={typeof producto === "number" ? producto : null} />}
           </div>
         </main>
 
         {/* Atlas: acoplado en pantallas grandes, encima en las chicas. */}
         {atlasAbierto && (
           <aside className="fixed inset-0 z-40 lg:static lg:z-auto lg:w-[380px] xl:w-[420px] lg:border-l flex flex-col min-h-0 bg-background">
-            <AtlasDock contexto={contexto} onTurnoTerminado={alTerminarAtlas} onCerrar={() => setAtlasAbierto(false)} />
+            <AtlasDock contexto={contexto} onTurnoTerminado={alTerminarAtlas} onCerrar={() => setAtlasAbierto(false)} antesDeEnviar={guardarTodo} leerContexto={() => contextoRef.current || contexto} />
           </aside>
         )}
       </div>

@@ -325,6 +325,32 @@ export function revisarEscena(escenaCruda: Escena | unknown): Aviso[] {
     if (t.tam < 2.6) avisos.push({ nivel: "aviso", texto: `"${t.texto.slice(0, 24)}" es muy chico para leerse en un celular.`, capa: t.id });
     if (t.x < 0 || t.y < 0 || t.x + t.w > 100 || t.y + t.h > 100) avisos.push({ nivel: "aviso", texto: `"${t.texto.slice(0, 24)}" se sale del lienzo.`, capa: t.id });
   }
+  // Contraste (WCAG) del texto contra la forma de color que tiene debajo.
+  // Sobre fotos no se puede medir sin mirar la imagen: eso lo hace el juez visual.
+  const lum = (h: string) => {
+    const n = parseInt(h.slice(1, 7), 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => { const s = v / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; }).reduce((a, v, i) => a + v * [0.2126, 0.7152, 0.0722][i]!, 0);
+  };
+  const ratio = (a: string, b: string) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x! + 0.05) / (y! + 0.05); };
+  const hex6 = (c?: string | null) => (c && /^#[0-9a-f]{6}$/i.test(c) ? c : null);
+  for (const t of textos) {
+    if (t.fondo) { const f = hex6(t.fondo), c = hex6(t.color); if (f && c && ratio(f, c) < 3) avisos.push({ nivel: "aviso", texto: `"${t.texto.slice(0, 24)}" casi no se lee sobre su resaltado.`, capa: t.id }); continue; }
+    const cx = t.x + t.w / 2, cy = t.y + t.h / 2;
+    const idx = visibles.indexOf(t);
+    let fondo: string | null = null, sobreFoto = false;
+    for (let i = idx - 1; i >= 0; i--) {
+      const f = visibles[i]!;
+      if (cx < f.x || cx > f.x + f.w || cy < f.y || cy > f.y + f.h) continue;
+      if (f.tipo === "forma") { fondo = hex6(f.relleno); break; }
+      if (f.tipo === "imagen" || f.tipo === "degradado") { sobreFoto = true; break; }
+    }
+    if (!fondo && !sobreFoto) fondo = hex6(e.fondo);
+    const color = hex6(t.color);
+    const minimo = t.tam >= 5 ? 3 : 4.5;
+    if (fondo && color && ratio(fondo, color) < minimo) avisos.push({ nivel: "aviso", texto: `"${t.texto.slice(0, 24)}" tiene poco contraste con su fondo (${ratio(fondo, color).toFixed(1)}:1).`, capa: t.id });
+    if (sobreFoto && !t.sombra && !t.contorno) avisos.push({ nivel: "idea", texto: `"${t.texto.slice(0, 24)}" va sobre la foto sin sombra: puede perderse según la imagen.`, capa: t.id });
+  }
+
   const zona = ZONAS_SEGURAS[e.formato];
   if (zona) {
     for (const t of textos) {

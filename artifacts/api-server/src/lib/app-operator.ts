@@ -5676,6 +5676,142 @@ ${explicarObjetivos()}` };
     },
   },
   {
+    name: "landing_ver",
+    description:
+      "Mira una landing POR DENTRO: sus bloques en orden (id, tipo, título, subtítulo, texto, botón, foto, si está oculto), el diseño (familia o modelo COD), el tema (color/letras/redondeo), el estado y la URL. " +
+      "Usala antes de cambiar algo puntual, para saber el id del bloque. LECTURA, no cambia nada.",
+    args: '{ "id": number (req) }',
+    run: async (args, ctx) => {
+      const id = num(args?.id ?? args?.landingId);
+      if (!id) return { ok: false, summary: "Falta 'id' de la landing (landing_listar)." };
+      const { landingPages } = await import("@workspace/db");
+      const { and: y } = await import("drizzle-orm");
+      const [l] = await db.select().from(landingPages).where(y(eq(landingPages.id, id), eq(landingPages.tenantId, ctx.tenantId))).limit(1);
+      if (!l) return { ok: false, summary: `No encontré la landing [${id}].` };
+      const { resumenDeBloques } = await import("./estudio/control");
+      const d: any = l.design || {};
+      const diseno = d.renderer === "estilo" ? `modelo COD "${d.style || "automático"}"` : d.familia ? `familia "${d.familia}"` : "automático";
+      const htmlPropio = !!(l as any).html;
+      return {
+        ok: true,
+        summary:
+          `Landing [${l.id}] "${l.name}" · ${l.status === "published" ? `PUBLICADA ${l.publishedUrl}` : "borrador"} · producto ${l.productId ?? "—"} · diseño ${diseno}` +
+          (d.retoque ? ` · tema ${JSON.stringify(d.retoque)}` : " · sin tema propio") +
+          (htmlPropio ? "\n⚠️ Tiene HTML propio: los bloques no mandan en lo que se ve; se edita con landing_editar." : "") +
+          `\nBloques:\n${resumenDeBloques(l.sections)}`,
+        data: { id: l.id, nombre: l.name, estado: l.status, url: l.publishedUrl, productId: l.productId, design: d, sections: l.sections, htmlPropio },
+      };
+    },
+  },
+  {
+    name: "landing_bloque",
+    description:
+      "Cambia UN bloque de una landing de forma exacta, sin pasar por el modelo: " +
+      "op 'mover' (a: 'arriba'|'abajo'|posición 0-based), 'ocultar', 'mostrar', 'duplicar', 'quitar', 'texto' (campo: title|subtitle|body|cta, valor), 'foto' (url, o null = automática). " +
+      "Mirá los ids con landing_ver. Se ve igual en la vista previa y en la publicada. ⚠️ Va por propose_action.",
+    args: '{ "id": number (req, landing), "bloque": string (req, id del bloque), "op": string (req), "a"?: string|number, "campo"?: string, "valor"?: string, "url"?: string|null }',
+    run: async (args, ctx) => {
+      const id = num(args?.id ?? args?.landingId);
+      const bloque = String(args?.bloque || args?.sectionId || "").trim();
+      if (!id || !bloque || !args?.op) return { ok: false, summary: "Faltan 'id' (landing), 'bloque' y 'op'." };
+      const { landingPages } = await import("@workspace/db");
+      const { and: y } = await import("drizzle-orm");
+      const [l] = await db.select().from(landingPages).where(y(eq(landingPages.id, id), eq(landingPages.tenantId, ctx.tenantId))).limit(1);
+      if (!l) return { ok: false, summary: `No encontré la landing [${id}].` };
+      const { operarBloque } = await import("./estudio/control");
+      const r = operarBloque(l.sections, { op: String(args.op), id: bloque, a: args.a, campo: args.campo, valor: args.valor, url: args.url ?? null } as any);
+      if (!r.ok) return { ok: false, summary: r.error };
+      await db.update(landingPages).set({ sections: r.secciones, updatedAt: new Date() } as any).where(eq(landingPages.id, id));
+      return { ok: true, summary: `Landing [${id}]: ${r.hecho}.${(l as any).html ? " ⚠️ Esta landing tiene HTML propio: el cambio queda en los bloques pero lo que se ve lo manda el HTML (usá landing_editar)." : ""}`, data: { id, bloque } };
+    },
+  },
+  {
+    name: "landing_diseno",
+    description:
+      "Cambia el DISEÑO de una landing conservando todos sus textos y su tema. Modelos de producto COD: 'estilo:cleanhome', 'estilo:urgencia', 'estilo:clinico', 'estilo:pro'. " +
+      "Familias visuales: dropshipping, respuesta-directa, ecommerce, premium, minimal, editorial, belleza, fitness, suplemento, clinica, tecnologia, electronica, oscura, launch, educacion, familiar, creativa, gourmet. ⚠️ Va por propose_action.",
+    args: '{ "id": number (req), "diseno": string (req) }',
+    run: async (args, ctx) => {
+      const id = num(args?.id ?? args?.landingId);
+      const diseno = String(args?.diseno || args?.familia || args?.modelo || "").trim().toLowerCase();
+      if (!id || !diseno) return { ok: false, summary: "Faltan 'id' y 'diseno'." };
+      const { landingPages } = await import("@workspace/db");
+      const { and: y } = await import("drizzle-orm");
+      const [l] = await db.select().from(landingPages).where(y(eq(landingPages.id, id), eq(landingPages.tenantId, ctx.tenantId))).limit(1);
+      if (!l) return { ok: false, summary: `No encontré la landing [${id}].` };
+      const previo: any = { ...((l.design as any) || {}) };
+      let design: any;
+      const estilo = diseno.replace(/^estilo:/, "");
+      if (diseno.startsWith("estilo:") || ["cleanhome", "urgencia", "clinico", "pro"].includes(diseno)) {
+        if (!["cleanhome", "urgencia", "clinico", "pro"].includes(estilo)) return { ok: false, summary: `Modelo COD desconocido: ${estilo}.` };
+        design = { ...previo, familia: null, renderer: "estilo", style: estilo };
+      } else {
+        const { esFamilia } = await import("./landing/design-system");
+        if (!esFamilia(diseno)) return { ok: false, summary: `Diseño desconocido: "${diseno}". Mirá la lista en la descripción de la herramienta.` };
+        design = { ...previo, renderer: null, style: null, familia: diseno };
+      }
+      await db.update(landingPages).set({ design, updatedAt: new Date() } as any).where(eq(landingPages.id, id));
+      return { ok: true, summary: `Landing [${id}] con diseño "${diseno}". Textos y tema intactos${l.status === "published" ? "; la URL publicada ya se ve así" : ""}.`, data: { id, design } };
+    },
+  },
+  {
+    name: "creativo_ver",
+    description:
+      "Mira un creativo POR DENTRO: sus capas en orden (id, nombre, texto, letra, color, posición y tamaño), el PNG si está exportado y la revisión del director de arte (reglas medibles; con 'conVision': true también la mirada de un modelo de visión). " +
+      "Para verlo como imagen, pasá su PNG a ver_imagen. LECTURA, no cambia nada.",
+    args: '{ "id": string (req), "conVision"?: boolean }',
+    run: async (args, ctx) => {
+      const id = String(args?.id || args?.creativoId || "").trim();
+      if (!id) return { ok: false, summary: "Falta 'id' del creativo (creativo_listar)." };
+      const { leerCreativo } = await import("./creativos/almacen");
+      const c = await leerCreativo(ctx.tenantId, id);
+      if (!c) return { ok: false, summary: `No encontré el creativo ${id}.` };
+      const { resumenDeCapas } = await import("./estudio/control");
+      const { juzgarCreativo } = await import("./creativos/juez");
+      const v = await juzgarCreativo(c.escena, { tenantId: ctx.tenantId, conVision: !!args?.conVision });
+      const base = (process.env.APP_URL || "").replace(/\/+$/, "");
+      return {
+        ok: true,
+        summary: `Creativo [${c.id}] "${c.nombre}"${c.maqueta ? ` (maqueta ${c.maqueta})` : ""}${c.png ? ` · PNG ${base}${c.png}` : " · sin exportar"}\n${resumenDeCapas(c.escena)}\nRevisión: ${v.puntaje}/10 (${v.fuente})${v.problemas.length ? ` · ${v.problemas.join(" / ")}` : ""}`,
+        data: { creativo: c, revision: v },
+      };
+    },
+  },
+  {
+    name: "creativo_capa",
+    description:
+      "Cambia UNA capa de un creativo de forma exacta: op 'cambiar' (cambios: texto, color, fondo, fuente, tam, peso, x, y, w, h, rot, opacidad, alinear, mayus, sombra, relleno, src, ajuste — posición y tamaño en % del lienzo), " +
+      "'ocultar', 'mostrar', 'borrar', 'duplicar', 'traer-adelante', 'llevar-atras'. La capa se nombra por id o por nombre (ej. 'Gancho', 'Precio', 'Botón'). Mirá las capas con creativo_ver. Reexporta el PNG. ⚠️ Va por propose_action.",
+    args: '{ "id": string (req, creativo), "capa": string (req), "op": string (req), "cambios"?: object }',
+    run: async (args, ctx) => {
+      const id = String(args?.id || args?.creativoId || "").trim();
+      const capa = String(args?.capa || "").trim();
+      if (!id || !capa || !args?.op) return { ok: false, summary: "Faltan 'id' (creativo), 'capa' y 'op'." };
+      const { leerCreativo, guardarCreativo } = await import("./creativos/almacen");
+      const c = await leerCreativo(ctx.tenantId, id);
+      if (!c) return { ok: false, summary: `No encontré el creativo ${id}.` };
+      const { operarCapa } = await import("./estudio/control");
+      const r = operarCapa(c.escena, { op: String(args.op) as any, id: capa, cambios: args.cambios || {} });
+      if (!r.ok) return { ok: false, summary: r.error };
+      let png: string | null = null;
+      try { const { exportarEscena } = await import("./creativos/render"); png = await exportarEscena(ctx.tenantId, r.escena, c.nombre); } catch { png = null; }
+      await guardarCreativo(ctx.tenantId, { ...c, escena: r.escena, png: png ?? c.png });
+      const base = (process.env.APP_URL || "").replace(/\/+$/, "");
+      return { ok: true, summary: `Creativo [${id}]: ${r.hecho}.${png ? ` PNG nuevo: ${base}${png}` : " (sin PNG nuevo: exportalo desde Creativos)"}`, data: { id, png } };
+    },
+  },
+  {
+    name: "creativo_borrar",
+    description: "Borra un creativo guardado. ⚠️ Irreversible: va por propose_action.",
+    args: '{ "id": string (req) }',
+    run: async (args, ctx) => {
+      const id = String(args?.id || "").trim();
+      if (!id) return { ok: false, summary: "Falta 'id'." };
+      const { borrarCreativo } = await import("./creativos/almacen");
+      return (await borrarCreativo(ctx.tenantId, id)) ? { ok: true, summary: `Creativo ${id} borrado.` } : { ok: false, summary: `No encontré el creativo ${id}.` };
+    },
+  },
+  {
     name: "landing_tema",
     description:
       "Cambia el TEMA de una landing de forma exacta (sin pasar por el modelo): color de acento de botones y precios, tipografía de títulos y de texto, y redondeo de esquinas. " +
@@ -5697,6 +5833,48 @@ ${explicarObjetivos()}` };
       design.retoque = retoque;
       await db.update(landingPages).set({ design, updatedAt: new Date() } as any).where(eq(landingPages.id, id));
       return { ok: true, summary: retoque ? `Tema de la landing [${id}] actualizado: ${JSON.stringify(retoque)}. Ya se ve así en la vista previa y en la publicada.` : `Tema de la landing [${id}] quitado: vuelve al diseño del modelo.`, data: { id, retoque } };
+    },
+  },
+  {
+    name: "marca_kit_ver",
+    description: "Muestra el kit de marca del negocio (color principal, oscuro y claro, tipografías y logo) que usan los creativos y, si el dueño lo pide, las landings. Si no está definido, sugiere paletas desde la foto de un producto. LECTURA, no cambia nada.",
+    args: '{ "productId"?: number (para sugerir paletas desde su foto) }',
+    run: async (args, ctx) => {
+      const { leerKit } = await import("./creativos/kit");
+      const { kit, definido } = await leerKit(ctx.tenantId);
+      let sugerencias = "";
+      const pid = num(args?.productId);
+      if (pid) {
+        const { datosDelProducto } = await import("./creativos/datos");
+        const { paletasDesde } = await import("./estudio/kit");
+        const d = await datosDelProducto(ctx.tenantId, pid);
+        if (d) sugerencias = ` Paletas sugeridas desde el producto: ${paletasDesde(d.datos.acento).map((p) => `${p.nombre} (acento ${p.acento}, oscuro ${p.oscuro}, claro ${p.claro})`).join("; ")}.`;
+      }
+      return {
+        ok: true,
+        summary: (definido ? `Kit de marca: ${JSON.stringify(kit)}.` : `El negocio NO tiene kit de marca definido${kit.logo ? " (solo el logo del perfil)" : ""}: los creativos adivinan el color desde la foto. Conviene definirlo con marca_kit_cambiar.`) + sugerencias,
+        data: { kit, definido },
+      };
+    },
+  },
+  {
+    name: "marca_kit_cambiar",
+    description:
+      "Define o cambia el kit de marca del negocio: 'acento' (#RRGGBB, botones y precios), 'oscuro' y 'claro' (#RRGGBB, fondos de la marca), 'titulos' y 'texto' (fuentes: inter, poppins, montserrat, space-grotesk, nunito, dm-sans, anton, bebas, archivo-black, playfair, dm-serif, cormorant, merriweather), 'logo' (URL). " +
+      "Desde ahí todos los creativos nuevos salen con esa identidad. Mandá solo lo que cambia. ⚠️ Va por propose_action.",
+    args: '{ "acento"?: string, "oscuro"?: string, "claro"?: string, "titulos"?: string, "texto"?: string, "logo"?: string }',
+    run: async (args, ctx) => {
+      const { leerKit, guardarKit } = await import("./creativos/kit");
+      const { normalizarKit } = await import("./estudio/kit");
+      // El logo del perfil se lee en vivo: no se copia al kit (si el dueño lo
+      // cambia en Personalización, el kit lo sigue).
+      const r0 = await leerKit(ctx.tenantId);
+      const previo = r0.definido ? { ...r0.kit, logo: r0.kit.logo === r0.logoDelPerfil ? null : r0.kit.logo } : {};
+      const nuevo = normalizarKit({ ...previo, ...(args || {}) });
+      if (!Object.keys(nuevo).length) return { ok: false, summary: "Nada válido para guardar: colores como #RRGGBB y fuentes con su id." };
+      await guardarKit(ctx.tenantId, nuevo);
+      const { kit } = await leerKit(ctx.tenantId);
+      return { ok: true, summary: `Kit de marca guardado: ${JSON.stringify(kit)}. Los creativos nuevos ya salen así; para las landings, landing_tema con estos valores.`, data: kit };
     },
   },
   {
@@ -5753,7 +5931,10 @@ ${explicarObjetivos()}` };
         ok: true,
         summary:
           `${r.creativos.length} creativo(s) listos (${r.creativos[0]?.formato}; ganchos: ${r.motor === "ia" ? "IA" : r.motor === "respaldo" ? "de la ficha, la IA no respondió" : "los pedidos"}):\n` +
-          r.creativos.map((c) => `• [${c.id}] ${c.maqueta} — "${c.gancho}"${c.png ? ` → ${base}${c.png}` : " (sin PNG)"}${c.avisos.length ? ` ⚠ ${c.avisos.join(" / ")}` : ""}`).join("\n") +
+          r.creativos.map((c) => `• [${c.id}] ${c.maqueta} — "${c.gancho}"${c.puntaje != null ? ` (juez ${c.puntaje}/10)` : ""}${c.png ? ` → ${base}${c.png}` : " (sin PNG)"}${c.avisos.length ? ` ⚠ ${c.avisos.join(" / ")}` : ""}`).join("\n") +
+          (r.descartados ? `\nEl juez descartó ${r.descartados} candidato(s) más flojo(s).` : "") +
+          (r.recorte ? `\nFoto: ${r.recorte}.` : "") +
+          (r.kit ? "" : "\nEl negocio no tiene kit de marca: los colores salen de la foto. Ofrecé definirlo (marca_kit_ver / marca_kit_cambiar).") +
           (sinPng ? `\n${sinPng} sin PNG: el servidor no pudo abrir Chromium; quedan guardados para exportar desde la pantalla Creativos.` : "") +
           `\nSe retocan a mano en /creativos o con creativo_editar.`,
         data: r.creativos,
@@ -10841,7 +11022,9 @@ export const READ_ONLY_TOOLS = new Set([
   // Dropi de solo lectura: consultar el catálogo del proveedor no crea nada.
   "dropi_status", "dropi_margen", "dropi_pedidos", "dropi_buscar", "competencia_a_dropi", "video_anuncio_estado", "fabricante_ver", "dropi_search_products", "woocommerce_estado", "integraciones_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
   // Creativos: mirar maquetas y listar los guardados no cambia nada.
-  "creativo_maquetas", "creativo_listar",
+  "creativo_maquetas", "creativo_listar", "marca_kit_ver",
+  // Ver una landing o un creativo por dentro: lectura pura.
+  "landing_ver", "creativo_ver",
   "dropi_verificar_producto", "dropi_con_ordenes", "dropi_importar_lote_estado", "dropi_cotizar_envio",
   // Radar de ganadores + calculadora de rentabilidad + espía de tiendas +
   // estimación previa: las cuatro son lectura pura (cruzan datos y calculan,
@@ -11091,7 +11274,10 @@ const FAMILIAS: Array<{ cuando: RegExp; prefijos: string[] }> = [
     prefijos: ["fb_", "ad_", "crear_anuncio", "optimize_copy", "generate_image"] },
   { cuando: /producto|precio|cat[aá]logo|curso|pack|stock|categor[ií]a|imagen/i,
     prefijos: ["product", "categor", "create_product", "update_product", "delete_product", "generate_image", "optimize_copy", "terabox"] },
-  { cuando: /tienda|store|dominio|landi|landing|web|studio/i, prefijos: ["store", "domain", "landing"] },
+  { cuando: /tienda|store|dominio|landi|landing|web|studio/i, prefijos: ["store", "domain", "landing", "creativo", "marca_kit"] },
+  // Studio: creativos de anuncio y kit de marca (14-10-2026).
+  { cuando: /creativ|maqueta|kit de marca|marca|paleta|logo|tipograf|historias?|reels?|9:16|4:5|1:1|banner|pieza/i,
+    prefijos: ["creativo", "marca_kit", "landing_tema"] },
   { cuando: /agente|prompt|personalidad|bot|conversaci[oó]n|chat|lead|cliente/i,
     prefijos: ["agent", "agente", "conversa", "lead", "whatsapp", "seguimiento", "followup"] },
   { cuando: /pago|cobr|nequi|transferen|suscripci|plan|factur/i, prefijos: ["payment", "pago", "subscription", "plan"] },

@@ -128,6 +128,11 @@ const TOOL_SCHEMAS: Record<string, object> = {
     additionalProperties: false,
   },
   landing_forge_pendientes: { type: "object", properties: {} },
+  landing_ver: { type: "object", properties: { id: { type: "number", description: "id de la landing (landing_listar)" } }, required: ["id"] },
+  creativo_listar: { type: "object", properties: { productId: { type: "number" } } },
+  creativo_ver: { type: "object", properties: { id: { type: "string", description: "id del creativo (creativo_listar)" }, conVision: { type: "boolean" } }, required: ["id"] },
+  creativo_maquetas: { type: "object", properties: {} },
+  marca_kit_ver: { type: "object", properties: { productId: { type: "number", description: "para sugerir paletas desde su foto" } } },
   // ── Diagnóstico del vendedor de WhatsApp ────────────────────────────────────
   // Esquemas explícitos y no el genérico permisivo: son las herramientas que
   // Atlas tiene que poder llamar SOLO con lo que leyó del pedido, y el
@@ -1561,7 +1566,14 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // "no tengo una consulta que devuelva la lista de landings" teniéndola.
     // El patrón tolera "landipage"/"landing page"/"lp"/"Landing Studio".
     patron: /landi|landing|\bl\/|p[aá]gina de venta|\blp\b|studio/i,
-    herramientas: ["landing_listar", "landing_forge_pendientes", "list_products"],
+    // El Studio (14-10-2026): Atlas ve las landings y los creativos por dentro
+    // y el kit de marca. El dock del Studio manda "[CONTEXTO DEL ESTUDIO]", así
+    // que todo pedido hecho desde ahí cae en este grupo.
+    herramientas: ["landing_listar", "landing_forge_pendientes", "list_products", "landing_ver", "creativo_listar", "creativo_ver", "creativo_maquetas", "marca_kit_ver", "ver_imagen"],
+  },
+  {
+    patron: /creativ|maqueta|kit de marca|\bmarca\b|paleta|logo|tipograf|historias?\b|reels?\b|9:16|4:5|banner|pieza/i,
+    herramientas: ["creativo_listar", "creativo_ver", "creativo_maquetas", "marca_kit_ver", "list_products", "ver_imagen"],
   },
   {
     patron: /contenido|publicacion|publicar|org[aá]nic|calendario|estrategia|agencia|redes|instagram|posteo|postear/i,
