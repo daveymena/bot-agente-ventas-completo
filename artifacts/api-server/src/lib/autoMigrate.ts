@@ -371,6 +371,49 @@ const MIGRATIONS = [
   // El slug es la URL publica: unico POR INQUILINO, no global -- dos negocios
   // distintos pueden querer "curso-de-ia" y ninguno tiene por que ceder.
   `CREATE UNIQUE INDEX IF NOT EXISTS landing_pages_tenant_slug_idx ON landing_pages (tenant_id, slug)`,
+
+  // ── Índices de las tablas calientes ────────────────────────────────────────
+  //
+  // Medido el 2026-10-14 contra la base real: solo existían los tres de
+  // `landing_pages` (arriba) más los de `consumo_*` y `trabajos_programados`.
+  // **`conversations`, `messages`, `leads`, `products` y `payments` no tenían
+  // NINGUNO**, y son justo las que filtran por `tenant_id` en cada pantalla.
+  //
+  // Sin índice, `WHERE tenant_id = N` es un full table scan: el inbox lee la
+  // tabla entera de conversaciones y después una query por cada una para el
+  // último mensaje. Con el negocio de prueba no se nota; con 20 clientes
+  // escribiendo, cada carga del inbox se vuelve lineal en el tamaño total del
+  // sistema — de TODOS los clientes, no del propio.
+  //
+  // `IF NOT EXISTS` los hace idempotentes: se pueden repetir en cada arranque.
+  `CREATE INDEX IF NOT EXISTS conversations_tenant_idx ON conversations (tenant_id)`,
+  // El inbox ordena por último mensaje DENTRO del negocio: el compuesto evita
+  // el sort posterior.
+  `CREATE INDEX IF NOT EXISTS conversations_tenant_ultimo_idx ON conversations (tenant_id, last_message_at DESC)`,
+  `CREATE INDEX IF NOT EXISTS conversations_tenant_estado_idx ON conversations (tenant_id, status)`,
+  // La lectura más frecuente del sistema: abrir un chat.
+  `CREATE INDEX IF NOT EXISTS messages_conversation_idx ON messages (conversation_id)`,
+  // Y su orden natural dentro del chat.
+  `CREATE INDEX IF NOT EXISTS messages_conversation_fecha_idx ON messages (conversation_id, created_at)`,
+  `CREATE INDEX IF NOT EXISTS leads_tenant_idx ON leads (tenant_id)`,
+  // El bot busca al cliente por teléfono en cada mensaje entrante.
+  `CREATE INDEX IF NOT EXISTS leads_phone_idx ON leads (phone)`,
+  `CREATE INDEX IF NOT EXISTS products_tenant_idx ON products (tenant_id)`,
+  `CREATE INDEX IF NOT EXISTS products_tenant_activo_idx ON products (tenant_id, is_active)`,
+  `CREATE INDEX IF NOT EXISTS payments_tenant_idx ON payments (tenant_id)`,
+  `CREATE INDEX IF NOT EXISTS payments_conversation_idx ON payments (conversation_id)`,
+  // Seguimiento y recordatorios: se consultan por vencimiento.
+  `CREATE INDEX IF NOT EXISTS follow_ups_scheduled_idx ON follow_ups (scheduled_for, completed)`,
+  `CREATE INDEX IF NOT EXISTS follow_ups_conversation_idx ON follow_ups (conversation_id)`,
+  // Enlaces cortos: se resuelven por código en cada clic del cliente.
+  `CREATE INDEX IF NOT EXISTS payment_links_code_idx ON payment_links (short_code)`,
+  // Los barridos periódicos recorren todos los negocios.
+  `CREATE INDEX IF NOT EXISTS ad_agent_logs_tenant_idx ON ad_agent_logs (tenant_id, check_type)`,
+  `CREATE INDEX IF NOT EXISTS facebook_drafts_tenant_idx ON facebook_drafts (tenant_id)`,
+  `CREATE INDEX IF NOT EXISTS marketing_campaigns_tenant_idx ON marketing_campaigns (tenant_id)`,
+  `CREATE INDEX IF NOT EXISTS architect_memory_tenant_idx ON architect_memory (tenant_id)`,
+  // El programador revisa vencidos cada 60 segundos, sobre todos los negocios.
+  `CREATE INDEX IF NOT EXISTS trabajos_corre_estado_idx ON trabajos_programados (corre_at, estado)`,
 ];
 
 /**

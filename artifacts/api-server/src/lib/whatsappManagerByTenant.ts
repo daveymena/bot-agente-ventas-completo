@@ -16,6 +16,7 @@ import QRCode from "qrcode";
 import { tenantManager, type TenantContext } from "./tenantManager";
 import { WhatsAppManager } from "./whatsapp";
 import { logger } from "./logger";
+import { fingerprintDeDispositivo } from "./identidad-de-whatsapp";
 
 export class WhatsAppByTenant extends WhatsAppManager {
   public tenantAuthDir: string;
@@ -99,13 +100,23 @@ export class WhatsAppByTenant extends WhatsAppManager {
 
         const sock = makeWASocket({
           auth: authState,
-          browser: ["VentasPro", "Chrome", "1.0.0"],
+          // El fingerprint del dispositivo. Antes decía
+          // `["VentasPro", "Chrome", "1.0.0"]`: "VentasPro" no es un navegador
+          // y la versión 1.0.0 es de 2008. Es la firma que delata a un cliente
+          // no oficial, y con 100 negocios conectados el riesgo no es que se
+          // caiga el servidor: es que le banneen el número a un cliente que
+          // paga. Ver lib/identidad-de-whatsapp.ts.
+          browser: fingerprintDeDispositivo(),
           syncFullHistory: false,
           markOnlineOnConnect: true,
           generateHighQualityLinkPreview: false,
           connectTimeoutMs: 30000, // Timeout aumentado de 6s a 30s
           defaultQueryTimeoutMs: 30000,
-          keepAliveIntervalMs: 10000,
+          // El default de Baileys son 30s. Estaba en 10s: con 100 sesiones eso
+          // son 10 pings por segundo sostenidos en el mismo proceso, y cada
+          // reconexión dispara `fetchLatestBaileysVersion()` con su timeout.
+          // Un latido más espaciado no pierde conexiones y baja el ruido.
+          keepAliveIntervalMs: 25000,
           ...(waVersion ? { version: waVersion } : {}),
           // El modo pairing DEBE estar en el constructor (igual que en
           // WhatsAppManager.start). Sin esto, requestPairingCode() falla con

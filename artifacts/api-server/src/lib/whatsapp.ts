@@ -37,6 +37,7 @@ import { presentarParaWhatsApp } from "./presentacion";
 import { createAIClient, getProviderConfig } from "@workspace/integrations-openai-ai-server";
 import { getMessageHandler } from "./services/message-handler";
 import { tenantManager, addTenantToInsert, type TenantContext } from "./tenantManager";
+import { fingerprintDeDispositivo } from "./identidad-de-whatsapp";
 import { 
   makeWASocket, 
   DisconnectReason, 
@@ -2182,7 +2183,9 @@ export class WhatsAppManager {
 
       const sock = makeWASocket({
          auth: authState,
-         browser: ["VentasPro", "Chrome", "1.0.0"],
+         // Ver lib/identidad-de-whatsapp.ts. Acá decía "VentasPro"/"Chrome"
+         // "1.0.0", que no es un cliente real y es lo que delata al bot.
+         browser: fingerprintDeDispositivo(),
          syncFullHistory: false,
          markOnlineOnConnect: true,
          generateHighQualityLinkPreview: false,

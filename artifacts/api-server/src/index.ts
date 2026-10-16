@@ -114,6 +114,23 @@ async function start() {
     instalarApagadoOrdenado();
   });
 
+  // ── Mantenimiento de las carpetas de sesión de WhatsApp ────────────────
+  //
+  // `useMultiFileAuthState` deja un archivo por clave. Medido el 2026-10-14:
+  // un solo negocio había acumulado 18.006 archivos (17.177 de mapeo LID, de
+  // los cuales 5.106 estaban vacíos) y listar la carpeta tardaba 2.120 ms.
+  // Con 100 negocios eso son ~1,8 millones de archivos dentro del contenedor:
+  // el disco se arrastra y los backups se inflan.
+  //
+  // Borra SOLO los mapeos LID de 0 bytes —caché que Baileys repuebla sola,
+  // nunca credenciales—. Ver lib/limpieza-sesiones-whatsapp.ts.
+  try {
+    const { programarLimpiezaDeSesiones } = await import("./lib/limpieza-sesiones-whatsapp");
+    programarLimpiezaDeSesiones(path.resolve(process.cwd(), "data", "whatsapp-tenants"));
+  } catch (err: any) {
+    logger.warn({ err: err?.message }, "[LimpiezaWA] no se pudo programar la limpieza");
+  }
+
   // ── Canal en vivo (WebSocket) ──────────────────────────────────────────
   // Se engancha al MISMO http.Server que atiende la API: una sola puerta de
   // entrada y una sola regla de autenticación (la cookie firmada del panel).
