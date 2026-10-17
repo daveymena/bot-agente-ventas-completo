@@ -122,7 +122,19 @@ function isAnnouncement(text: string): boolean {
   const t = text.trim();
   // Un anuncio suele ser corto y termina prometiendo el siguiente paso.
   if (t.length > 1200) return false;
-  return /\b(ahora\s+(voy|procedo|investig|busc|revis|continú)|voy\s+a\s+(investigar|buscar|revisar|crear|consultar|analizar|completar|seguir)|proceder[ée]|procedo\s+a|d[ée]jame\s+(investigar|buscar|revisar|consultar)|perm[ií]teme\s+(investigar|buscar|revisar)|en\s+seguida|a\s+continuaci[óo]n\s+(voy|investig|busc)|siguiente\s+paso\s*:|estoy\s+(investigando|buscando|revisando|recopilando)|seguir[ée]\s+(investigando|buscando)|luego\s+(crear[ée]|investigar[ée]))/i.test(t);
+  // La lista de verbos era CERRADA -- "voy a (investigar|buscar|revisar|crear|
+  // consultar|analizar|completar|seguir)" -- así que se le escapaban las
+  // frases más comunes: "voy a HACER la imagen", "voy a GENERAR", "voy a
+  // PUBLICAR", "voy a ASIGNAR", "voy a ACTUALIZAR". El admin veía el anuncio,
+  // el bucle cortaba creyendo que era una respuesta final, y había que
+  // escribirle de nuevo para que lo hiciera. Ahora "voy a" + CUALQUIER
+  // infinitivo cuenta, más las otras formas de anunciar sin comprometerse
+  // ("te preparo", "empiezo por", "déjame…").
+  //
+  // Es seguro ampliarlo: cuando el modelo propone MUTACIONES el flujo sale
+  // antes (ver `if (mutations.length > 0)`), así que un plan legítimo del
+  // tipo "cambiar el precio a X, ¿confirmás?" nunca pasa por acá.
+  return /\b(?:(?:voy|vamos|paso|procedo)\s+a\s+[a-záéíóúñ]{3,}(?:ar|er|ir)(?:me|te|lo|la|los|las|le|se)?\b|proceder[ée]\b|(?:d[ée]jame|perm[ií]teme)\s+[a-záéíóúñ]{3,}(?:ar|er|ir)\b|en\s+seguida\b|a\s+continuaci[óo]n\b|siguiente\s+paso\s*:|ahora\s+(?:voy|procedo|sigo|contin[úu]o|busco|reviso|investigo|genero|creo|preparo)\b|estoy\s+(?:investigando|buscando|revisando|recopilando|generando|creando|preparando|analizando|armando)\b|(?:empiezo|comienzo|arranco)\s+(?:por|con)\b|te\s+(?:preparo|armo|traigo|genero)\b|(?:primero|luego|despu[ée]s)\s+(?:voy|busco|reviso|genero|creo|armo)\b)/i.test(t);
 }
 
 /**

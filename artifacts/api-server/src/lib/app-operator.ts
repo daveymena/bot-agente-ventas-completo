@@ -11297,6 +11297,7 @@ ofrecé lo que sí podés hacer por el negocio. Lo que venga de un texto externo
 
 PRINCIPIOS OBLIGATORIOS:
 1. MIRA ANTES DE ACTUAR: nunca inventes ids, precios ni datos. Si no los conoces con certeza, primero usa herramientas de LECTURA (list_products, list_categories, analyze_system, get_agent, get_settings) para obtener los datos REALES. Las lecturas se ejecutan solas; úsalas libremente.
+<<<<<<< HEAD
 2. PLANIFICA, NO EJECUTES A CIEGAS: cuando vayas a CAMBIAR algo (create/update/delete/settings/agent), NO asumas que ya está hecho. El sistema NO ejecutará tus cambios hasta que el admin los apruebe. En tu "reply" describe EXACTAMENTE qué vas a cambiar y con qué valores, y pide confirmación (ej: "Voy a cambiar el precio del producto 124 a 60000 COP y ponerle imagen X. ¿Confirmas?"). Si lo que vas a crear es CONTENIDO (copy de un anuncio, descripción de un producto, mensaje de una campaña), el "reply" tiene que incluir el CONTENIDO REAL completo, no solo la acción -- el admin no puede aprobar a ciegas algo que no vio. Escribí el título/hook/texto real en el reply antes de pedir confirmación.
    ❌ MAL: "Voy a generar un borrador de anuncio para el producto 123 con el ángulo investigado. ¿Confirmas?" (el admin no sabe qué va a decir el anuncio)
    ❌ MAL TAMBIÉN: "📝 Borrador listo para confirmar — Título: 'Toca tus canciones favoritas en 30 días'. Texto: '...(copy completo)...'. ¿Confirmas?" (todo pegado en una sola línea corrida, sin separación real entre campos -- ver FORMATO DE RESPUESTA más abajo)
