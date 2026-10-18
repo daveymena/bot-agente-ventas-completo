@@ -814,7 +814,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                     <ExternalLink className="h-3.5 w-3.5 mr-2" />Copiar una landing de internet
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
-                    <Link href={typeof productId === "number" ? `/creativos?producto=${productId}` : "/creativos"}>
+                    <Link href={typeof productId === "number" ? `/estudio?espacio=creativos&producto=${productId}` : "/estudio?espacio=creativos"}>
                       <ImageIcon className="h-3.5 w-3.5 mr-2" />Crear creativos para el anuncio
                     </Link>
                   </DropdownMenuItem>

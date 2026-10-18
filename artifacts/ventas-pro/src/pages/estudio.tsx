@@ -17,6 +17,7 @@ import { KitMarca } from "@/components/estudio/kit-marca";
 import LandingStudioV2, { type ContextoLanding } from "@/pages/landing-studio-v2";
 import CreativosPage from "@/pages/creativos";
 import { GaleriaDisenos, DISENOS } from "@/components/estudio/galeria-disenos";
+import { EjemplosIA } from "@/components/estudio/ejemplos-ia";
 import { AtlasDock, type ContextoEstudio } from "@/components/estudio/atlas-dock";
 
 type Espacio = "landings" | "disenos" | "creativos" | "marca";
@@ -33,7 +34,10 @@ export default function EstudioPage() {
     const q = new URLSearchParams(window.location.search).get("espacio");
     return q === "creativos" || q === "disenos" || q === "marca" ? q : "landings";
   });
-  const [producto, setProducto] = useState<number | "">("");
+  const [producto, setProducto] = useState<number | "">(() => {
+    const p = Number(new URLSearchParams(window.location.search).get("producto"));
+    return Number.isInteger(p) && p > 0 ? p : "";
+  });
   const [ctxLanding, setCtxLanding] = useState<ContextoLanding | null>(null);
   const [ctxCreativo, setCtxCreativo] = useState<{ productId: number | null; productoNombre: string | null; creativo: { id: string | null; nombre: string } | null } | null>(null);
   const [atlasAbierto, setAtlasAbierto] = useState(() => window.innerWidth >= 1280);
@@ -70,10 +74,11 @@ export default function EstudioPage() {
   const disenoActual = DISENOS.find((d) => d.id === plantillaActual)?.id ?? null;
 
   return (
-    <div className="h-[100dvh] flex flex-col bg-background text-foreground overflow-hidden">
+    <div className="h-[100dvh] flex flex-col overflow-hidden bg-muted/30 text-foreground dark:bg-background">
       {/* Barra superior */}
-      <header className="h-14 shrink-0 border-b flex items-center gap-2 px-2 sm:px-3 bg-background/95 backdrop-blur">
-        <Link href="/" className="h-9 w-9 grid place-items-center rounded-lg hover:bg-muted text-muted-foreground" title="Volver al panel" aria-label="Volver al panel"><ArrowLeft className="h-4 w-4" /></Link>
+      <header className="shrink-0 border-b bg-background/95 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-background/80 sm:px-5">
+        <div className="flex min-w-0 items-center gap-2">
+        <Link href="/" className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2" title="Volver al panel" aria-label="Volver al panel"><ArrowLeft className="h-4 w-4" /></Link>
         <div className="flex items-center gap-2 pr-2 sm:pr-3 sm:border-r">
           <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-violet-600 to-indigo-600 grid place-items-center shadow-sm"><Sparkles className="h-4 w-4 text-white" /></div>
           <div className="hidden sm:block leading-tight">
@@ -81,24 +86,25 @@ export default function EstudioPage() {
             <p className="text-[10px] text-muted-foreground">Landings · Diseños · Creativos</p>
           </div>
         </div>
-        <nav className="flex items-center gap-1 overflow-x-auto" aria-label="Espacios del estudio">
+        <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-xl border bg-muted/50 p-1 [scrollbar-width:none]" aria-label="Espacios del estudio">
           {ESPACIOS.map((e) => (
             <button key={e.id} onClick={() => setEspacio(e.id)} aria-pressed={espacio === e.id} title={e.ayuda}
-              className={`h-9 px-3 rounded-lg text-sm font-semibold inline-flex items-center gap-1.5 whitespace-nowrap transition ${espacio === e.id ? "bg-violet-600 text-white shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>
+              className={`h-9 px-3 rounded-lg text-sm font-semibold inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 ${espacio === e.id ? "bg-background text-foreground shadow-sm dark:bg-violet-600 dark:text-white" : "text-muted-foreground hover:bg-background hover:text-foreground"}`}>
               <e.icono className="h-4 w-4" /><span className="hidden sm:inline">{e.nombre}</span>
             </button>
           ))}
         </nav>
         <div className="ml-auto flex items-center gap-2">
           <button onClick={() => setAtlasAbierto((v) => !v)} aria-pressed={atlasAbierto}
-            className={`h-9 px-3 rounded-lg text-sm font-semibold inline-flex items-center gap-1.5 border transition ${atlasAbierto ? "border-violet-500 text-violet-700 dark:text-violet-300 bg-violet-50 dark:bg-violet-950/40" : "hover:bg-muted"}`}>
+            className={`h-10 px-3 rounded-xl text-sm font-semibold inline-flex items-center gap-1.5 border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 ${atlasAbierto ? "border-violet-300 bg-violet-50 text-violet-800 dark:border-violet-800 dark:bg-violet-950/40 dark:text-violet-200" : "bg-background hover:bg-muted"}`}>
             {atlasAbierto ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}<span className="hidden sm:inline">Atlas</span>
           </button>
+        </div>
         </div>
       </header>
 
       <div className="flex-1 min-h-0 flex">
-        <main className="flex-1 min-w-0 min-h-0 flex flex-col">
+        <main className="flex-1 min-w-0 min-h-0 flex flex-col bg-background">
           <div className={espacio === "landings" ? "flex-1 min-h-0 flex flex-col" : "hidden"}>
             <LandingStudioV2 incrustado producto={producto} onProducto={setProducto} onContexto={setCtxLanding} pedidoDiseno={pedidoDiseno} registrarGuardado={registrarGuardado} />
           </div>
@@ -111,6 +117,7 @@ export default function EstudioPage() {
                 </select>
               </div>
             )}
+            {espacio === "disenos" && <EjemplosIA />}
             {espacio === "disenos" && (
               <GaleriaDisenos
                 productId={typeof producto === "number" ? producto : null}
@@ -140,14 +147,14 @@ export default function EstudioPage() {
 
         {/* Atlas: acoplado en pantallas grandes, encima en las chicas. */}
         {atlasAbierto && (
-          <aside className="fixed inset-0 z-40 lg:static lg:z-auto lg:w-[380px] xl:w-[420px] lg:border-l flex flex-col min-h-0 bg-background">
+          <aside className="fixed inset-0 z-40 flex min-h-0 flex-col bg-background shadow-2xl lg:static lg:z-auto lg:w-[380px] lg:border-l lg:shadow-none xl:w-[420px]">
             <AtlasDock contexto={contexto} onTurnoTerminado={alTerminarAtlas} onCerrar={() => setAtlasAbierto(false)} antesDeEnviar={guardarTodo} leerContexto={() => contextoRef.current || contexto} />
           </aside>
         )}
       </div>
 
       {!atlasAbierto && (
-        <button onClick={() => setAtlasAbierto(true)} className="lg:hidden fixed bottom-24 right-4 z-30 h-12 w-12 rounded-full bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-xl grid place-items-center" aria-label="Abrir Atlas">
+        <button onClick={() => setAtlasAbierto(true)} className="lg:hidden fixed bottom-24 right-4 z-30 grid h-12 w-12 place-items-center rounded-full bg-gradient-to-br from-violet-600 to-indigo-600 text-white shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2" aria-label="Abrir Atlas">
           <Sparkles className="h-6 w-6" />
         </button>
       )}

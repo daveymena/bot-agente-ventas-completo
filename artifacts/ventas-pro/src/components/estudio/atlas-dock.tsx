@@ -146,7 +146,7 @@ export function AtlasDock({ contexto, leerContexto, onTurnoTerminado, onCerrar, 
       onTurnoTerminado();
     } catch (e: any) {
       if (e?.name === "AbortError") setMsgs((m) => [...m, { role: "assistant", content: "⏹️ Detenido. Lo que ya se hizo queda como está." }]);
-      else setMsgs((m) => [...m, { role: "assistant", content: `No pude terminar: ${e?.message || "error"}. ¿Lo intentamos de nuevo?` }]);
+      else setMsgs((m) => [...m, { role: "assistant", content: "La aplicación dejó de recibir la respuesta. Atlas sigue protegido por el servidor; al volver a abrir este panel se sincroniza el resultado antes de repetir el pedido." }]);
     } finally {
       setOcupado(false);
       setProgreso("");
@@ -159,8 +159,8 @@ export function AtlasDock({ contexto, leerContexto, onTurnoTerminado, onCerrar, 
   };
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-background">
-      <div className="flex items-center gap-2 px-3 h-12 border-b shrink-0">
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b px-3">
         <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-violet-600 to-indigo-600 grid place-items-center"><Sparkles className="h-4 w-4 text-white" /></div>
         <div className="leading-tight min-w-0">
           <p className="text-sm font-bold">Atlas</p>
@@ -172,11 +172,11 @@ export function AtlasDock({ contexto, leerContexto, onTurnoTerminado, onCerrar, 
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+      <div className="flex-1 space-y-3 overflow-y-auto bg-muted/20 px-3 py-4">
         {msgs.length === 0 && (
-          <div className="space-y-3 pt-2">
+          <div className="space-y-4 rounded-2xl border bg-background p-4 shadow-sm">
             <p className="text-sm text-muted-foreground">Pedime lo que quieras sobre tus landings y creativos. Uso tus productos reales y aplico los cambios; lo que cambia algo te lo confirmo antes.</p>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {SUGERENCIAS[contexto.espacio].map((s) => (
                 <button key={s} onClick={() => void enviar(s)} disabled={ocupado} className="w-full text-left text-xs rounded-lg border px-3 py-2 hover:border-violet-500 hover:bg-violet-50/60 dark:hover:bg-violet-950/30">{s}</button>
               ))}
@@ -200,7 +200,7 @@ export function AtlasDock({ contexto, leerContexto, onTurnoTerminado, onCerrar, 
         <div ref={fin} />
       </div>
 
-      <div className="border-t p-2 shrink-0 space-y-2">
+      <div className="shrink-0 space-y-2 border-t bg-background p-3">
         {esperaSi && !ocupado && (
           <div className="flex gap-1.5">
             <Button size="sm" className="h-8 flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs" onClick={() => void enviar("Sí, hacelo")}>Sí, hacelo</Button>

@@ -28,7 +28,7 @@ function Mini({ escena, ancho }: { escena: Escena; ancho: number }) {
   const esc = ancho / f.ancho;
   const html = useMemo(() => capasAHtml(escena), [escena]);
   return (
-    <div className="rounded-lg overflow-hidden ring-1 ring-black/10 shadow-md" style={{ width: ancho, height: f.alto * esc }}>
+    <div className="overflow-hidden rounded-xl border bg-background shadow-sm" style={{ width: ancho, height: f.alto * esc }}>
       <div style={{ width: f.ancho, height: f.alto, maxWidth: "none", transform: `scale(${esc})`, transformOrigin: "top left", pointerEvents: "none" }} dangerouslySetInnerHTML={{ __html: html }} />
     </div>
   );
@@ -36,7 +36,7 @@ function Mini({ escena, ancho }: { escena: Escena; ancho: number }) {
 
 function Color({ etiqueta, ayuda, valor, onChange }: { etiqueta: string; ayuda: string; valor?: string | null; onChange: (v: string) => void }) {
   return (
-    <label className="flex items-center gap-3 rounded-lg border p-2 cursor-pointer hover:bg-muted/50">
+    <label className="flex cursor-pointer items-center gap-3 rounded-xl border bg-card p-3 transition-colors hover:border-violet-300 hover:bg-muted/30 dark:hover:border-violet-800">
       <span className="h-10 w-10 rounded-md border relative overflow-hidden shrink-0" style={{ background: valor || "transparent" }}>
         <input type="color" value={valor || "#888888"} onChange={(e) => onChange(e.target.value)} className="absolute inset-0 opacity-0 cursor-pointer" aria-label={etiqueta} />
       </span>
@@ -107,8 +107,8 @@ export function KitMarca({ productId }: { productId: number | null }) {
   const pareja = PAREJAS.find((p) => p.titulos === kit.titulos && p.texto === kit.texto)?.id;
 
   return (
-    <div className="p-4 sm:p-6 grid gap-6 xl:grid-cols-[minmax(0,460px)_1fr]">
-      <div className="space-y-5">
+    <div className="mx-auto grid w-full max-w-[1600px] gap-6 p-4 sm:p-6 xl:grid-cols-[minmax(0,480px)_minmax(0,1fr)] xl:gap-8">
+      <div className="space-y-5 rounded-2xl border bg-card p-4 shadow-sm sm:p-5">
         <div>
           <h2 className="text-lg font-bold tracking-tight">Tu marca</h2>
           <p className="text-sm text-muted-foreground">{definido ? "Todas tus piezas salen con esta identidad." : "Todavía no definiste tu marca: los creativos adivinan el color desde la foto. Definila una vez y todo sale con tu identidad."}</p>
@@ -170,7 +170,7 @@ export function KitMarca({ productId }: { productId: number | null }) {
           <p className="text-[10px] text-muted-foreground">Mejor un PNG con fondo transparente. Se pone chico, arriba, y solo donde no pisa ningún texto.</p>
         </section>
 
-        <div className="flex gap-2 sticky bottom-0 bg-background py-2">
+        <div className="sticky bottom-0 -mx-4 flex gap-2 border-t bg-card/95 px-4 py-3 backdrop-blur sm:-mx-5 sm:px-5">
           <Button variant="ghost" className="text-xs" disabled={!hayCambios} onClick={() => setKit(JSON.parse(guardado))}><RotateCcw className="h-3.5 w-3.5 mr-1" />Deshacer</Button>
           <Button className="flex-1 bg-violet-600 hover:bg-violet-700 text-white" disabled={!hayCambios || guardando} onClick={() => void guardar()}>
             {guardando ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : <Save className="h-4 w-4 mr-1" />}Guardar mi marca
@@ -178,10 +178,10 @@ export function KitMarca({ productId }: { productId: number | null }) {
         </div>
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-4 rounded-2xl border bg-card p-4 shadow-sm sm:p-5 xl:sticky xl:top-5 xl:self-start">
         <p className="text-sm font-semibold">Así salen tus creativos</p>
         {!productId && <p className="text-sm text-muted-foreground">Elegí un producto arriba para ver la vista previa con su foto real.</p>}
-        {productId && !datos && <div className="h-40 grid place-items-center"><Loader2 className="h-6 w-6 animate-spin text-violet-500" /></div>}
+        {productId && !datos && <div className="grid h-40 place-items-center rounded-xl border border-dashed bg-muted/30"><Loader2 className="h-6 w-6 animate-spin text-violet-500" /></div>}
         <div className="flex flex-wrap gap-4">
           {muestras.map((m) => (
             <div key={m.id} className="space-y-1">
