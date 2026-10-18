@@ -9105,6 +9105,35 @@ ${r.texto}`, data: r.grupos };
     },
   },
   {
+    name: "dropi_validar_pedido",
+    description: "Revisa un pedido de Dropi ANTES de proponerlo: indica de una vez todo lo que falta (nombre, teléfono, dirección, ciudad, departamento) y valida ciudad y departamento contra la geografía oficial de Dropi. Úsala SIEMPRE antes de dropi_create_order, con todos los datos que ya tengas.",
+    args: '{ "productId"?: number, "clientName"?: string, "clientPhone"?: string, "clientAddress"?: string, "clientCity"?: string, "clientDepartment"?: string, "transportadora"?: string }',
+    run: async (args: any, ctx: any) => {
+      const faltan: string[] = [];
+      if (!String(args.clientName || "").trim()) faltan.push("nombre completo");
+      if (!String(args.clientPhone || "").trim()) faltan.push("teléfono");
+      if (!String(args.clientAddress || "").trim()) faltan.push("dirección");
+      if (!String(args.clientCity || "").trim()) faltan.push("ciudad");
+      if (!String(args.clientDepartment || "").trim()) faltan.push("departamento");
+      if (faltan.length) return { ok: false, summary: `Faltan estos datos del pedido: ${faltan.join(", ")}. Pídelos todos en un solo mensaje, no uno por uno.` };
+      const { geografiaDeDropi } = await import("./dropi-cotizador");
+      const { validarDestinoDropi } = await import("./destino-dropi");
+      const geo = await geografiaDeDropi(ctx.tenantId).catch(() => null);
+      if (!geo) return { ok: false, summary: "No pude consultar la geografía de Dropi (sin token o sin respuesta). No puedo validar la ciudad ni el departamento." };
+      const dest = validarDestinoDropi(geo, String(args.clientCity), String(args.clientDepartment));
+      if (!dest.ok) {
+        const deptos = geo.map((g) => g.nombre).join(", ");
+        return { ok: false, summary: `${dest.motivo}${dest.sugerencias.length ? ` Ciudades parecidas: ${dest.sugerencias.join(", ")}.` : ""} Departamentos válidos en Dropi: ${deptos}. Pide al cliente el departamento y la ciudad de esa lista, en el mismo mensaje.` };
+      }
+      if (args.transportadora) {
+        const { transportadoraConId } = await import("./dropi-cotizador");
+        const t = await transportadoraConId(ctx.tenantId, String(args.transportadora));
+        if (!t) return { ok: false, summary: `La transportadora "${args.transportadora}" no está en la cuenta de Dropi. Elige una de la cuenta.` };
+      }
+      return { ok: true, summary: `Listo para confirmar: ${args.clientName} · ${args.clientPhone} · ${args.clientAddress} · ${dest.city} (${dest.state})${args.transportadora ? ` · ${args.transportadora}` : ""}.` };
+    },
+  },
+  {
     name: "dropi_create_order",
     description: "Crear una orden REAL en Dropi para que el proveedor despache al cliente (pago contra entrega). Úsala solo cuando una venta ya esté cerrada y tengas los datos de envío completos. GENERA UN PEDIDO REAL con costo → requiere confirmación explícita.",
     args: '{ "productId": number (req, id del producto en ESTA tienda), "quantity": number (req), "clientName": string (req), "clientPhone": string (req), "clientAddress": string (req), "clientCity": string (opcional), "clientDepartment": string (opcional), "transportadora"?: string (opcional, nombre tal como lista Dropi, p. ej. ENVIA o VELOCES), "notes": string (opcional) }',
@@ -10976,6 +11005,7 @@ export const READ_ONLY_TOOLS = new Set([
   "fb_permisos_formularios",
   "objetivos_de_campana",
   "dropi_transportadoras_sondeo",
+  "dropi_validar_pedido",
   "embudo_de_ventas",
   // La agenda: solo lee qué hay programado (ver lib/atlas-agenda.ts).
   "agenda_ver",
