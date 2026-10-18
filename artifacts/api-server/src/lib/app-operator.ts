@@ -9168,12 +9168,12 @@ ${r.texto}`, data: r.grupos };
           notas: args.notes ? String(args.notes) : null, cantidad: num(args.quantity) || 1,
           precioUnitario: Number(prod.price) || 0, transportadora: transportadoraElegida, contraentrega: true, referencia: `atlas-${Date.now()}`,
         });
-        if (!d.ok) return { ok: false, summary: `Dropi rechazó la orden: ${d.error}` };
+        if (!d.ok) return { ok: false, summary: `Dropi rechazó la orden (negocio #${ctx.tenantId}, token propio, contraentrega): ${d.error}` };
         return { ok: true, summary: `📦 Orden creada en Dropi${d.data?.id ? ` #${d.data.id}` : ""} para "${prod.name}" → ${args.clientName} (${args.clientPhone})` };
       }
       // Sin token de integración propio NO se crea la orden: el puente del dueño no
       // envía la forma de pago contra entrega y Dropi la cobra distinto (saldo y flete).
-      return { ok: false, summary: mensajeTokenDropi(await estadoTokenDropi(ctx.tenantId)) + " Sin ese token no creo órdenes contra entrega." };
+      return { ok: false, summary: mensajeTokenDropi(await estadoTokenDropi(ctx.tenantId)) + ` Sin ese token no creo órdenes contra entrega (negocio #${ctx.tenantId}).` };
     },
   },
 
