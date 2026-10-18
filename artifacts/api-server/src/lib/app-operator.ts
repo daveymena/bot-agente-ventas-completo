@@ -9171,19 +9171,9 @@ ${r.texto}`, data: r.grupos };
         if (!d.ok) return { ok: false, summary: `Dropi rechazó la orden: ${d.error}` };
         return { ok: true, summary: `📦 Orden creada en Dropi${d.data?.id ? ` #${d.data.id}` : ""} para "${prod.name}" → ${args.clientName} (${args.clientPhone})` };
       }
-      if (!(await puedeUsarPuenteDropi(ctx.tenantId))) return { ok: false, summary: mensajeTokenDropi(await estadoTokenDropi(ctx.tenantId)) };
-      const r = await dropiCreateOrder({
-        dropiProductId,
-        quantity: num(args.quantity) || 1,
-        clientName: String(args.clientName),
-        clientPhone: String(args.clientPhone),
-        clientAddress: String(args.clientAddress),
-        clientCity: args.clientCity ? String(args.clientCity) : undefined,
-        clientDepartment: args.clientDepartment ? String(args.clientDepartment) : undefined,
-        notes: args.notes ? String(args.notes) : undefined,
-      });
-      if (!r.ok) return { ok: false, summary: `Dropi rechazó la orden: ${r.error}` };
-      return { ok: true, summary: `📦 Orden creada en Dropi para "${prod.name}" → ${args.clientName} (${args.clientPhone})`, data: r.data };
+      // Sin token de integración propio NO se crea la orden: el puente del dueño no
+      // envía la forma de pago contra entrega y Dropi la cobra distinto (saldo y flete).
+      return { ok: false, summary: mensajeTokenDropi(await estadoTokenDropi(ctx.tenantId)) + " Sin ese token no creo órdenes contra entrega." };
     },
   },
 
