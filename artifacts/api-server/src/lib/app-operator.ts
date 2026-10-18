@@ -9107,11 +9107,13 @@ ${r.texto}`, data: r.grupos };
   {
     name: "dropi_create_order",
     description: "Crear una orden REAL en Dropi para que el proveedor despache al cliente (pago contra entrega). Úsala solo cuando una venta ya esté cerrada y tengas los datos de envío completos. GENERA UN PEDIDO REAL con costo → requiere confirmación explícita.",
-    args: '{ "productId": number (req, id del producto en ESTA tienda), "quantity": number (req), "clientName": string (req), "clientPhone": string (req), "clientAddress": string (req), "clientCity": string (opcional), "clientDepartment": string (opcional), "notes": string (opcional) }',
+    args: '{ "productId": number (req, id del producto en ESTA tienda), "quantity": number (req), "clientName": string (req), "clientPhone": string (req), "clientAddress": string (req), "clientCity": string (opcional), "clientDepartment": string (opcional), "transportadora"?: string (opcional, nombre tal como lista Dropi, p. ej. ENVIA o VELOCES), "notes": string (opcional) }',
     run: async (args, ctx) => {
       const { dropiCreateOrder } = await import("./dropi");
       const pid = num(args.productId);
       if (!pid) return { ok: false, summary: "Falta 'productId'" };
+      // Atlas a veces arma el pedido con nombres en español: se aceptan, no se pierden en silencio.
+      args = { ...args, quantity: args.quantity ?? args.cantidad, clientName: args.clientName ?? args.nombreCliente, clientPhone: args.clientPhone ?? args.telefono, clientAddress: args.clientAddress ?? args.direccion, clientCity: args.clientCity ?? args.ciudad, clientDepartment: args.clientDepartment ?? args.departamento };
 
       // El más delicado de los tres agujeros de aislamiento encontrados el
       // 2026-08-15: esta herramienta no recibía `ctx` y buscaba el producto
@@ -9132,6 +9134,25 @@ ${r.texto}`, data: r.grupos };
         if (!String(args[campo] || "").trim()) return { ok: false, summary: `Falta '${campo}' (obligatorio para el envío)` };
       }
 
+      // Ciudad y departamento deben existir en Dropi: si no, Dropi rechaza la orden
+      // y el pedido queda muerto. Sin validación no se crea nada.
+      {
+        const { geografiaDeDropi } = await import("./dropi-cotizador");
+        const { validarDestinoDropi } = await import("./destino-dropi");
+        const geo = await geografiaDeDropi(ctx.tenantId).catch(() => null);
+        if (!geo) return { ok: false, summary: "No pude validar la ciudad y el departamento con Dropi (sin token o sin respuesta). No creo la orden." };
+        const dest = validarDestinoDropi(geo, String(args.clientCity || ""), String(args.clientDepartment || ""));
+        if (!dest.ok) return { ok: false, summary: `${dest.motivo}${dest.sugerencias.length ? ` Opciones: ${dest.sugerencias.join(", ")}.` : ""} No creo la orden.` };
+        args = { ...args, clientCity: dest.city, clientDepartment: dest.state };
+      }
+      // Transportadora elegida: se resuelve por su id en Dropi. Si no existe en la cuenta,
+      // no se crea la orden: Dropi la asignaría sola y eso cambiaría lo pedido en silencio.
+      let transportadoraElegida: { id: number; nombre: string } | null = null;
+      if (args.transportadora) {
+        const { transportadoraConId } = await import("./dropi-cotizador");
+        transportadoraElegida = await transportadoraConId(ctx.tenantId, String(args.transportadora));
+        if (!transportadoraElegida) return { ok: false, summary: `La transportadora "${args.transportadora}" no está en la cuenta de Dropi de este negocio. No creo la orden para no cambiarla en silencio.` };
+      }
       // Primero el token de integración DEL NEGOCIO (el pedido queda en su
       // cuenta de Dropi). El puente global es la cuenta del dueño de la
       // plataforma: solo para el admin (ver puedeUsarPuenteDropi).
@@ -9145,7 +9166,7 @@ ${r.texto}`, data: r.grupos };
           nombre: String(args.clientName), telefono: String(args.clientPhone), direccion: String(args.clientAddress),
           ciudad: String(args.clientCity || ""), departamento: String(args.clientDepartment || ""),
           notas: args.notes ? String(args.notes) : null, cantidad: num(args.quantity) || 1,
-          precioUnitario: Number(prod.price) || 0, contraentrega: true, referencia: `atlas-${Date.now()}`,
+          precioUnitario: Number(prod.price) || 0, transportadora: transportadoraElegida, contraentrega: true, referencia: `atlas-${Date.now()}`,
         });
         if (!d.ok) return { ok: false, summary: `Dropi rechazó la orden: ${d.error}` };
         return { ok: true, summary: `📦 Orden creada en Dropi${d.data?.id ? ` #${d.data.id}` : ""} para "${prod.name}" → ${args.clientName} (${args.clientPhone})` };
