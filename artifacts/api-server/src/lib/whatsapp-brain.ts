@@ -36,7 +36,7 @@ export async function analyzeWhatsAppMessage(
       .select()
       .from(messages)
       .where(eq(messages.conversationId, conversationId))
-      .orderBy((m) => m.createdAt)
+      .orderBy((m: any) => m.createdAt)
       .limit(5);
 
     if (!msgs.length) {

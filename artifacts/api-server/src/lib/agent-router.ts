@@ -257,7 +257,7 @@ async function scoreAgents(
     }
 
     // 2. Bonus si el agente ya participó en esta conversación
-    const agentParticipated = history.some(msg => 
+    const agentParticipated = history.some((msg: any) => 
       msg.role === "agent" && msg.content.includes(agent.name)
     );
     if (agentParticipated) {

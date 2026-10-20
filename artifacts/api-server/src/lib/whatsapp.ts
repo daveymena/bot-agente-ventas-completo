@@ -2160,21 +2160,10 @@ export class WhatsAppManager {
         console.log("[PROXY] Configurando proxy para WhatsApp...");
         try {
           const proxyUri = new URL(proxyUrl);
-          const proxyAuth = proxyUri.username && proxyUri.password
-            ? `${proxyUri.username}:${proxyUri.password}`
-            : undefined;
-
-          httpAgent = new HttpProxyAgent({
-            host: proxyUri.hostname || undefined,
-            port: proxyUri.port ? Number(proxyUri.port) : undefined,
-            proxyAuth: proxyAuth,
-          });
-
-          httpsAgent = new HttpsProxyAgent({
-            host: proxyUri.hostname || undefined,
-            port: proxyUri.port ? Number(proxyUri.port) : undefined,
-            proxyAuth: proxyAuth,
-          });
+          // La URL conserva host, puerto y credenciales; las versiones
+          // actuales de los agentes ya no aceptan el antiguo objeto proxyAuth.
+          httpAgent = new HttpProxyAgent(proxyUri);
+          httpsAgent = new HttpsProxyAgent(proxyUri);
           console.log("✅ [PROXY] Proxy configurado correctamente");
         } catch (err) {
           console.warn("⚠️ [PROXY] Error al configurar proxy:", err instanceof Error ? err.message : err);
@@ -3505,7 +3494,7 @@ export class WhatsAppManager {
     
      if (cardIds.length) {
        const rows = await db.select().from(products).where(inArray(products.id, cardIds.filter((id): id is number => id !== undefined)));
-       cardCache = new Map(rows.map((r) => [r.id, r]));
+       cardCache = new Map(rows.map((r: (typeof rows)[number]) => [r.id, r]));
        console.log(`📦 [WA-PARTS] Productos cargados: ${rows.length}/${cardIds.length} - ${timestamp}`);
      }
 
