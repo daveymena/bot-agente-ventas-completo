@@ -130,8 +130,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # Sin "ports": la base solo la alcanza la app por la red interna.
 
   opencode-proxy:
     name: "OpenCode AI Proxy"
@@ -181,8 +180,7 @@ services:
       OLLAMA_HOST: "0.0.0.0:11434"
     volumes:
       - ollama_data:/root/.ollama
-    ports:
-      - "11434:11434"
+    # Sin "ports": Ollama solo lo usa la app por la red interna.
 
 volumes:
   postgres_data:
