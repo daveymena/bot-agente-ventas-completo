@@ -23,18 +23,18 @@ export function extraerTagsDelMensaje(mensaje: string): string[] {
   const tags: string[] = [];
 
   const mapeos: [RegExp, string][] = [
-    (/dolor|duele|duela|molest/i, "dolor"),
-    (/espalda|lumbar|cervical|dorsal/i, "espalda"),
-    (/precio|costo|cuánto|cuesta|vale|dinero/i, "precio"),
-    (/garantía|devuelvo|devolución|refund|cambio/i, "garantia"),
-    (/envío|entrega|cuándo|cuánto tarda|tiempo/i, "envio"),
-    (/color|colores|qué color|el color/i, "color"),
-    (/tamaño|talla|medida|grande|pequeño|mediano/i, "tamanio"),
-    (/pago|cómo pago|transferencia|tarjeta|efectivo/i, "pago"),
-    (/próxima|después|otra|alternativa|qué más/i, "alternativa"),
-    (/prueba|probar|antes|test|muestra/i, "prueba"),
-    (/comparar|vs|diferencia|mejor|peor/i, "comparacion"),
-    (/urgente|rápido|rapido|ya|prisa/i, "urgencia"),
+    [/dolor|duele|duela|molest/i, "dolor"],
+    [/espalda|lumbar|cervical|dorsal/i, "espalda"],
+    [/precio|costo|cuánto|cuesta|vale|dinero/i, "precio"],
+    [/garantía|devuelvo|devolución|refund|cambio/i, "garantia"],
+    [/envío|entrega|cuándo|cuánto tarda|tiempo/i, "envio"],
+    [/color|colores|qué color|el color/i, "color"],
+    [/tamaño|talla|medida|grande|pequeño|mediano/i, "tamanio"],
+    [/pago|cómo pago|transferencia|tarjeta|efectivo/i, "pago"],
+    [/próxima|después|otra|alternativa|qué más/i, "alternativa"],
+    [/prueba|probar|antes|test|muestra/i, "prueba"],
+    [/comparar|vs|diferencia|mejor|peor/i, "comparacion"],
+    [/urgente|rápido|rapido|ya|prisa/i, "urgencia"],
   ];
 
   for (const [regex, tag] of mapeos) {

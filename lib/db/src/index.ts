@@ -44,7 +44,11 @@ console.log(`[DB-ENV] CWD=${process.cwd()}`);
 const USE_SQLITE = process.env.USE_SQLITE === "true";
 
 // ── SCHEMA (conditional: SQLite or PG) ───────────────────────────────────────
-const schema = USE_SQLITE ? sqliteSchema : pgSchema;
+// Los tipos son los de Postgres (producción). SQLite comparte nombres de tabla y
+// columnas, pero sus tipos no tienen todas las columnas (p. ej. tenantId): tiparlo
+// como unión rompía el typecheck. El cast solo afecta a la compilación; en ejecución
+// se usa el esquema real según USE_SQLITE.
+const schema = (USE_SQLITE ? sqliteSchema : pgSchema) as unknown as typeof pgSchema;
 
 export const tenants = schema.tenants;
 export const agents = schema.agents;
