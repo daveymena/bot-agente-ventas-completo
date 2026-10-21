@@ -61,7 +61,7 @@ DATABASE_URL=postgres://postgres:${DB_PASSWORD}@postgres:5432/tecnovariedades-db
 # AI — OpenCode local (proxy interno)
 OPENCODE_API_URL=http://opencode-proxy:5000/v1
 OPENCODE_MODEL=opencode/deepseek-v4-flash-free
-OPENCODE_API_KEY=sk-y8Fg5Ccoox-lVH0O8s1qzHaD6b6zrNNVExAxx_pcNZE
+OPENCODE_API_KEY=sk-REEMPLAZA_CON_TU_CLAVE
 
 # AI Fallbacks
 NVIDIA_API_KEY=nvapi-xxxxx
@@ -110,7 +110,7 @@ MAX_TIMEOUT=180
 GUNICORN_WORKERS=2
 GUNICORN_WORKER_CLASS=gevent
 GUNICORN_TIMEOUT=240
-API_KEY=sk-y8Fg5Ccoox-lVH0O8s1qzHaD6b6zrNNVExAxx_pcNZE
+API_KEY=sk-REEMPLAZA_CON_TU_CLAVE
 RATE_LIMIT_PER_MINUTE=60
 CORS_ORIGINS=*
 ```
