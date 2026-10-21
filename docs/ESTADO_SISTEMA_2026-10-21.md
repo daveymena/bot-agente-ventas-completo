@@ -8,7 +8,7 @@ Documento de cierre de la sesión. Todo lo que aquí dice "medido" se verificó 
 
 - Producción responde (HTTP 200, base OK, WhatsApp conectado), pero corre el build de las 02:30 UTC y **no incluye nada de lo hecho hoy**.
 - El build del api-server no se pudo verificar en Windows (sandbox). El build real corre en Docker (Linux) y no se ha probado desde esta sesión.
-- Quedan **243 errores de TypeScript** y **27 tests fallando en 18 archivos** (medido en la última corrida completa).
+- Quedan **214 errores de TypeScript** (medido después de la última corrección de Atlas) y **27 tests fallando** en la última corrida completa.
 - Atlas tiene buena cobertura de tests (148/150), pero depende de un proveedor de IA con cupo limitado (ver sección Atlas).
 
 ## Qué está en producción (`para-subir` = `591d44c`)
@@ -34,6 +34,7 @@ Documento de cierre de la sesión. Todo lo que aquí dice "medido" se verificó 
 | `66ff08f` | Copia de respaldos a un destino externo (`RESPALDO_DESTINO_URL`) |
 | `9ee0611` | Respaldos cifrados con AES-256-GCM (`RESPALDO_CLAVE` obligatoria) |
 | `be8f6a2` | Vendedor: una sola pregunta y un beneficio de la ficha al primer interés |
+| `ec7a03e`, `108c890` | Atlas: bugs reales corregidos y tipos de Atlas en 0 |
 
 **Nota:** `para-subir` ya tiene `591d44c`, y `fase1/base-compila` tiene `be8f6a2`. Esos dos commits **no** están en la rama de producción.
 
@@ -54,8 +55,16 @@ Documento de cierre de la sesión. Todo lo que aquí dice "medido" se verificó 
 Medido:
 
 - `app-operator.ts`: **12.114 líneas**. `operator-opencode.ts`: 2.963 líneas.
-- Errores de TypeScript en el código de Atlas (app-operator, operator-opencode, code-agent): **18**.
-- Tests de Atlas (17 archivos, 150 casos): **148 pasan, 2 fallan**.
+- Errores de TypeScript en el código de Atlas: **18 al empezar, 0 ahora**.
+- Tests de Atlas (17 archivos, 150 casos): **148 pasan, 2 fallan** (sin cambio en esto).
+
+Bugs reales de Atlas corregidos en esta sesión (commits `ec7a03e` y `108c890`):
+- El enlace de WhatsApp de los anuncios salía sin número (leía un campo que no existe).
+- La caché del negocio no se invalidaba al guardar el píxel de Facebook.
+- Guardar la sesión de Copilot lanzaba `RangeError` (campo `expires_at` inexistente).
+- Las instrucciones del admin para una landing se perdían en silencio.
+- Una página de servicio se generaba con texto de "pago contra entrega".
+- El historial de conversación podía mandar roles inválidos al proveedor.
   - `prompt-de-atlas`: el prompt no cabe en el límite de Groq (el proveedor gratuito).
   - `catalogo-de-capacidades`: el catálogo que Atlas consulta supera los 1.700 caracteres.
 
