@@ -348,7 +348,7 @@ const LAYOUTS: Record<string, Renderizador> = {
 
   benefits_cards: (s, p) => `<section class="sec" id="${esc(s.id || "")}"><div class="wrap">
     <div class="sec-head">${eyebrow(s)}<h2>${esc(s.title || "")}</h2>${bajada(s)}</div>
-    <div class="bens">${items(s.body).map(i => `<div class="ben"><div class="trust-ico">✓</div><b>${esc(i)}</b></div>`).join('')}</div>
+    <ul class="bens">${items(s.body).map(i => `<li class="ben"><div class="trust-ico">✓</div><b>${esc(i)}</b></li>`).join('')}</ul>
   </div></section>`,
   benefits_icon_grid: (s, p, t) => LAYOUTS.benefits_cards(s, p, t),
   benefits_split: (s, p, t) => LAYOUTS.benefits_cards(s, p, t),
@@ -676,7 +676,9 @@ export function renderizarLanding(opts: OpcionesDeRender): string {
       const confianza = s.type === "hero" && n?.confianza?.length
         ? `<section class="sec sec--confianza"><ul class="confianza">${n.confianza.map((c) => `<li>${conVineta(c)}</li>`).join("")}</ul></section>`
         : "";
-      return `<section class="sec sec--${esc(s.type || "generica")}" id="${esc(s.id || "")}">${html}</section>${confianza}`;
+      // El id ya lo lleva la sección que dibuja `html`: repetirlo acá dejaba dos
+      // <section id="..."> anidados (HTML inválido y anclas ambiguas).
+      return `<section class="sec sec--${esc(s.type || "generica")}">${html}</section>${confianza}`;
     })
     .join("\n");
 

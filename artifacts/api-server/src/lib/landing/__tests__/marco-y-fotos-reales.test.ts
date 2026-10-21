@@ -24,9 +24,9 @@ describe("la página tiene marco: encabezado, franja de confianza, pie y CTA fij
   });
 
   it("encabezado con la marca y el CTA, pie con WhatsApp, CTA fijo", () => {
-    expect(html).toMatch(/<header class="top">.*TecnoVariedades.*¡Quiero la mía!/s);
-    expect(html).toMatch(/<footer class="pie">.*wa\.me\/573042748687/s);
-    expect(html).toMatch(/<div class="fijo">/);
+    expect(html).toMatch(/<header class="hdr".*TecnoVariedades.*¡Quiero la mía!/s);
+    expect(html).toMatch(/<footer class="foot".*wa\.me\/573042748687/s);
+    expect(html).toMatch(/<div class="sticky">/);
   });
 
   it("franja de confianza debajo del hero, con las condiciones del negocio", () => {
@@ -44,7 +44,7 @@ describe("la página tiene marco: encabezado, franja de confianza, pie y CTA fij
   });
 
   it("la galería muestra las fotos reales", () => {
-    expect((html.match(/class="galeria"[\s\S]*?<\/ul>/)?.[0] || "").match(/<img/g)?.length).toBe(3);
+    expect((html.match(/sec--gallery[\s\S]*?<\/section>/)?.[0] || "").match(/<img/g)?.length).toBe(3);
   });
 
   it("una sección sin contenido no se dibuja", () => {
@@ -52,7 +52,7 @@ describe("la página tiene marco: encabezado, franja de confianza, pie y CTA fij
   });
 
   it("la FAQ trae la respuesta, no solo la pregunta", () => {
-    expect(html).toMatch(/<summary>¿Cuánto tarda\?<\/summary><p>Entre 3 y 5 días hábiles<\/p>/);
+    expect(html).toMatch(/<summary>¿Cuánto tarda\?<span class="pm">\+<\/span><\/summary><p>Entre 3 y 5 días hábiles<\/p>/);
   });
 });
 
@@ -68,7 +68,7 @@ describe("el cierre depende del modelo del producto", () => {
     expect(html).not.toMatch(/Cédula/);
     expect(html).toMatch(/wa\.me\/573042748687\?text=/);
     // todos los CTA de la página apuntan al bloque de pedido
-    expect(html).toMatch(/<header class="top">.*href="#pedido"/s);
+    expect(html).toMatch(/<header class="hdr">.*href="#pedido"/s);
   });
 
   it("fuera de Colombia pide documento y estado/provincia", () => {
