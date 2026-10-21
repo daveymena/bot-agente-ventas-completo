@@ -52,6 +52,9 @@ export interface ComparacionPrompt {
   confianzaPromedio: number; // 0-100
   desvioEstandar: number;
   sinRiesgos: boolean;
+  /** Evidencia: cuántas simulaciones se corrieron y cuánto mejoró en promedio. */
+  simulacionesTotal: number;
+  mejoraMedia: number;
   /** Los 14 arquetipos que mejoraron */
   arquetiposMejoraron: string[];
   /** Los que empeoraron */
