@@ -71,3 +71,6 @@ copilot-worktrees/
 # Es material privado del negocio, no codigo. Fuera del repo.
 entrenamiento-meta/
 .cache/
+
+# Backups de reset de pruebas: pueden contener datos de negocios; nunca al repo
+artifacts/api-server/data/backups/

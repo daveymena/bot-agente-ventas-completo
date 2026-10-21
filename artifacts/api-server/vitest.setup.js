@@ -21,10 +21,15 @@
 // producción. Si vuelve a aparecer, es una carrera nueva, no "el test flaky".
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 
 const worker = process.env.VITEST_WORKER_ID || "1";
+
+// Los backups de reset de pruebas no pueden caer en data/backups del repo: se
+// escriben en un directorio temporal por corrida.
+process.env.BACKUP_DIR ??= path.join(os.tmpdir(), `ventaspro-test-backups-${process.pid}`);
 
 // Un worker no corre UN archivo de pruebas: corre varios, uno tras otro, en el
 // mismo proceso. Por eso no alcanza con "una base por worker":
