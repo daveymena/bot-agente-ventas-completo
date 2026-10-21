@@ -301,7 +301,7 @@ function figura(sec: SeccionParaRenderizar, p?: ProductoParaRenderizar | null, c
 
 // ─── Layouts ─────────────────────────────────────────────────────────────────
 
-type Renderizador = (s: SeccionParaRenderizar, p: ProductoParaRenderizar | null | undefined, t: TokensDeDiseno) => string;
+type Renderizador = (s: SeccionParaRenderizar, p: ProductoParaRenderizar | null | undefined, t?: TokensDeDiseno) => string;
 
 // Antes imprimía el nombre INTERNO de la sección ("hero", "how it works"):
 // salía "HERO" y "BENEFITS" arriba de cada bloque en la página del cliente.
@@ -337,14 +337,38 @@ const LAYOUTS: Record<string, Renderizador> = {
     ${galeriaHero(s, p)}
   </div></section>`,
 
-  hero_left: (s, p, t) => LAYOUTS.hero_center(s, p, t),
-  hero_split: (s, p, t) => LAYOUTS.hero_center(s, p, t),
-  hero_product_focus: (s, p, t) => LAYOUTS.hero_center(s, p, t),
-  hero_editorial: (s, p, t) => LAYOUTS.hero_center(s, p, t),
-  hero_gradient_product: (s, p, t) => LAYOUTS.hero_center(s, p, t),
-  hero_dark: (s, p, t) => LAYOUTS.hero_center(s, p, t),
-  hero_offer: (s, p, t) => LAYOUTS.hero_center(s, p, t),
-  hero_full_visual: (s, p, t) => LAYOUTS.hero_center(s, p, t),
+  // Cada variante tiene su estructura: texto solo, producto primero, foto de fondo,
+  // oscura, editorial. Antes eran alias del mismo bloque y todas las familias se veían igual.
+  hero_left: (s, p) => `<section class="sec hero hero-texto" id="${esc(s.id || "")}"><div class="wrap narrow">
+    ${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}
+    <div class="hero-acc">${boton(s.cta || "Comprar Ahora", p)}${precio(p) ? `<span class="price-now">${esc(precio(p))}</span>` : ""}</div>
+    ${galeriaHero(s, p)}
+  </div></section>`,
+  hero_split: (s, p) => `<section class="sec hero hero-split" id="${esc(s.id || "")}"><div class="wrap hero-grid">
+    ${galeriaHero(s, p)}
+    <div class="hero-info">${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}${boton(s.cta || "Comprar Ahora", p)}</div>
+  </div></section>`,
+  hero_product_focus: (s, p) => `<section class="sec hero hero-producto" id="${esc(s.id || "")}"><div class="wrap narrow center">
+    ${galeriaHero(s, p)}
+    ${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}
+    ${precio(p) ? `<div class="price-card"><div><small>Precio</small><span class="price-now">${esc(precio(p))}</span></div></div>` : ""}
+    ${boton(s.cta || "Comprar Ahora", p)}
+  </div></section>`,
+  hero_editorial: (s, p) => `<section class="sec hero hero-editorial" id="${esc(s.id || "")}"><div class="wrap narrow">
+    ${eyebrow(s)}<h1 class="display-xl">${esc(s.title || "")}</h1>${bajada(s)}
+    ${boton(s.cta || "Comprar Ahora", p)}
+  </div>${galeriaHero(s, p)}</section>`,
+  hero_dark: (s, p) => `<section class="sec hero dark hero-oscuro" id="${esc(s.id || "")}"><div class="wrap hero-grid">
+    <div class="hero-info">${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}
+      ${precio(p) ? `<span class="price-now">${esc(precio(p))}</span>` : ""}
+      ${boton(s.cta || "Comprar Ahora", p)}
+    </div>${galeriaHero(s, p)}
+  </div></section>`,
+  hero_gradient_product: (s, p) => LAYOUTS.hero_dark(s, p),
+  hero_offer: (s, p) => LAYOUTS.hero_center(s, p),
+  hero_full_visual: (s, p) => `<section class="sec hero hero-fondo" id="${esc(s.id || "")}" style="background-image:url('${esc(urlSegura(p?.imageUrl))}')"><img class="hero-fondo-img" src="${esc(urlSegura(p?.imageUrl))}" alt="" aria-hidden="true"><div class="wrap narrow center">
+    ${eyebrow(s)}<h1>${esc(s.title || "")}</h1>${bajada(s)}${boton(s.cta || "Comprar Ahora", p)}
+  </div></section>`,
 
   benefits_cards: (s, p) => `<section class="sec" id="${esc(s.id || "")}"><div class="wrap">
     <div class="sec-head">${eyebrow(s)}<h2>${esc(s.title || "")}</h2>${bajada(s)}</div>
@@ -365,28 +389,48 @@ const LAYOUTS: Record<string, Renderizador> = {
     ${precio(p) ? `<div class="pack"><div class="pack-info"><b>1 Unidad</b></div><div class="pack-price"><b>${esc(precio(p))}</b></div></div>` : ""}
     ${boton(s.cta || "Comprar Ahora", p)}
   </div></section>`,
-  offer_split: (s, p, t) => LAYOUTS.offer_card(s, p, t),
-  offer_product: (s, p, t) => LAYOUTS.offer_card(s, p, t),
-  offer_minimal: (s, p, t) => LAYOUTS.offer_card(s, p, t),
-  offer_dark: (s, p, t) => LAYOUTS.offer_card(s, p, t),
-  offer_urgency: (s, p, t) => LAYOUTS.offer_card(s, p, t),
+  offer_split: (s, p) => `<section class="sec order-sec" id="${esc(s.id || "")}"><div class="wrap order order-split">
+    <div>${galeriaHero(s, p)}</div>
+    <div><h2>${esc(s.title || "Oferta")}</h2>${bajada(s)}
+      ${precio(p) ? `<div class="pack"><div class="pack-info"><b>1 Unidad</b></div><div class="pack-price"><b>${esc(precio(p))}</b></div></div>` : ""}
+      ${boton(s.cta || "Comprar Ahora", p)}</div>
+  </div></section>`,
+  offer_product: (s, p) => LAYOUTS.offer_split(s, p),
+  offer_minimal: (s, p) => `<section class="sec" id="${esc(s.id || "")}"><div class="wrap narrow center">
+    <h2>${esc(s.title || "")}</h2>${precio(p) ? `<p class="price-now">${esc(precio(p))}</p>` : ""}${boton(s.cta || "Comprar Ahora", p)}
+  </div></section>`,
+  offer_dark: (s, p) => `<section class="sec dark order-sec" id="${esc(s.id || "")}"><div class="wrap order">
+    <h2>${esc(s.title || "Oferta")}</h2>${bajada(s)}
+    ${precio(p) ? `<div class="pack"><div class="pack-info"><b>1 Unidad</b></div><div class="pack-price"><b>${esc(precio(p))}</b></div></div>` : ""}
+    ${boton(s.cta || "Comprar Ahora", p)}
+  </div></section>`,
+  offer_urgency: (s, p) => LAYOUTS.offer_card(s, p),
 
   testimonial_cards: (s, p) => `<section class="sec" id="${esc(s.id || "")}"><div class="wrap">
     <div class="sec-head"><h2>${esc(s.title || "Opiniones")}</h2>${bajada(s)}</div>
-    <div class="testis">${items(s.body).map(i => `<div class="testi"><q>${esc(i)}</q><div class="who"><div class="avatar">👤</div><b>Cliente Satisfecho</b><span class="stars">⭐⭐⭐⭐⭐</span></div></div>`).join('')}</div>
+    <div class="testis">${items(s.body).map(i => `<figure class="testi"><blockquote>${esc(i)}</blockquote></figure>`).join('')}</div>
   </div></section>`,
-  testimonial_quote: (s, p, t) => LAYOUTS.testimonial_cards(s, p, t),
-  testimonial_large: (s, p, t) => LAYOUTS.testimonial_cards(s, p, t),
-  testimonial_editorial: (s, p, t) => LAYOUTS.testimonial_cards(s, p, t),
-  testimonial_slider: (s, p, t) => LAYOUTS.testimonial_cards(s, p, t),
+  testimonial_quote: (s, p) => `<section class="sec" id="${esc(s.id || "")}"><div class="wrap narrow">
+    <div class="sec-head"><h2>${esc(s.title || "Opiniones")}</h2></div>
+    ${items(s.body).map(i => `<blockquote class="quote-solo">“${esc(i)}”</blockquote>`).join('')}
+  </div></section>`,
+  testimonial_large: (s, p) => LAYOUTS.testimonial_quote(s, p),
+  testimonial_editorial: (s, p) => LAYOUTS.testimonial_quote(s, p),
+  testimonial_slider: (s, p) => `<section class="sec" id="${esc(s.id || "")}"><div class="wrap">
+    <div class="sec-head"><h2>${esc(s.title || "Opiniones")}</h2></div>
+    <div class="testis testis-scroll">${items(s.body).map(i => `<figure class="testi"><blockquote>${esc(i)}</blockquote></figure>`).join('')}</div>
+  </div></section>`,
 
   faq_accordion: (s, p) => `<section class="sec" id="${esc(s.id || "")}"><div class="wrap">
     <div class="sec-head"><h2>${esc(s.title || "Preguntas Frecuentes")}</h2></div>
-    <div class="faq">${items(s.body).map(i => `<details><summary>${esc(i)}</summary><p>Respuesta detallada próximamente.</p></details>`).join('')}</div>
+    <div class="faq">${items(s.body).map(i => { const { q, a } = preguntaYRespuesta(i); return a ? `<details><summary>${esc(q)}<span class="pm">+</span></summary><p>${esc(a)}</p></details>` : `<details><summary>${esc(q)}<span class="pm">+</span></summary></details>`; }).join('')}</div>
   </div></section>`,
-  faq_minimal: (s, p, t) => LAYOUTS.faq_accordion(s, p, t),
-  faq_cards: (s, p, t) => LAYOUTS.faq_accordion(s, p, t),
-  faq_split: (s, p, t) => LAYOUTS.faq_accordion(s, p, t),
+  faq_minimal: (s, p) => LAYOUTS.faq_respuestas(s, p),
+  faq_cards: (s, p) => `<section class="sec" id="${esc(s.id || "")}"><div class="wrap">
+    <div class="sec-head"><h2>${esc(s.title || "Preguntas Frecuentes")}</h2></div>
+    <div class="faq-cards">${items(s.body).map(i => { const { q, a } = preguntaYRespuesta(i); return `<div class="faq-card"><b>${esc(q)}</b>${a ? `<p>${esc(a)}</p>` : ""}</div>`; }).join('')}</div>
+  </div></section>`,
+  faq_split: (s, p) => LAYOUTS.faq_respuestas(s, p),
   faq_respuestas: (s, p) => `<section class="sec" id="${esc(s.id || "")}"><div class="wrap">
     <div class="sec-head"><h2>${esc(s.title || "Preguntas Frecuentes")}</h2></div>
     <div class="faq">${items(s.body).map(i => { const { q, a } = preguntaYRespuesta(i); return `<details><summary>${esc(q)}<span class="pm">+</span></summary><p>${esc(a)}</p></details>`; }).join('')}</div>
@@ -556,6 +600,29 @@ html{scroll-behavior:smooth}
   .js .sec[data-reveal]{opacity:1;transform:none;transition:none}
   *{animation-duration:.01ms!important}
 }
+
+/* ── Variantes de hero, oferta, testimonios y FAQ ─────────────────────── */
+.hero-texto h1,.hero-editorial h1{max-width:18ch}
+.hero-acc{display:flex;flex-wrap:wrap;align-items:center;gap:16px;margin:20px 0}
+.hero-producto .gallery,.hero-texto .gallery{margin-top:28px}
+.hero-producto h1{margin-top:12px}
+.display-xl{font-size:clamp(2.4rem,6vw,4.6rem);line-height:1.02;letter-spacing:-0.03em}
+.hero-oscuro{background:var(--texto);color:var(--fondo)}
+.hero-oscuro .lead,.hero-oscuro .eyebrow{color:inherit;opacity:.8}
+.hero-fondo{position:relative;min-height:70vh;display:flex;align-items:center;background-size:cover;background-position:center;color:#fff;overflow:hidden}
+.hero-fondo::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.35),rgba(0,0,0,.78))}
+.hero-fondo .wrap{position:relative;z-index:1}
+.hero-fondo-img{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+.order-split{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center}
+@media (max-width:760px){.order-split{grid-template-columns:1fr}}
+.testis-scroll{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:16px;padding-bottom:8px}
+.testis-scroll .testi{flex:0 0 min(300px,82%);scroll-snap-align:start}
+.testi{margin:0}
+.testi blockquote{margin:0;font-size:1.02em;line-height:1.5}
+.quote-solo{margin:0 0 28px;padding:0 0 0 18px;border-left:3px solid var(--acento);font-size:1.15em;line-height:1.55;color:var(--texto)}
+.faq-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.faq-card{padding:20px;border:1px solid var(--linea);border-radius:var(--radio);background:var(--superficie)}
+.faq-card p{margin:10px 0 0;color:var(--suave)}
 `;
 
 const JS_MOVIMIENTO = `<script>
