@@ -67,7 +67,7 @@ export class ArchitectMultichannel {
     const [product] = await db.select().from(products).where(eq(products.id, context.productId));
     const realFeatures = (product?.features || []).filter(Boolean);
     const featureLines = realFeatures.length > 0
-      ? realFeatures.map((f) => `✅ ${f}`).join("\n")
+      ? realFeatures.map((f: any) => `✅ ${f}`).join("\n")
       : "(sin features cargadas en el producto -- agrégalas para que el copy las use en vez de quedar genérico)";
     const highlightLine = product?.highlight ? `\n🚀 ${product.highlight}\n` : "\n";
 
@@ -192,7 +192,7 @@ Oferta limitada: [CTA]`,
         .from(conversations)
         .where(and(eq(conversations.tenantId, tenantId), eq(conversations.channel, channel)));
 
-      const convoIds = convos.map((c) => c.id);
+      const convoIds = convos.map((c: any) => c.id);
       let confirmedCount = 0;
       if (convoIds.length > 0) {
         const confirmed = await db

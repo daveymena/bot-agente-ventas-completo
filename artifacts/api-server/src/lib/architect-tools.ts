@@ -191,7 +191,7 @@ export class ArchitectTools {
     const productCount = (await db.select().from(products)).length;
     const agentCount = (await db.select().from(agentsTable)).length;
     const all = await db.select().from(products);
-    const productsWithoutImage = all.filter(p => !p.imageUrl).length;
+    const productsWithoutImage = all.filter((p: any) => !p.imageUrl).length;
 
     return {
       totalProducts: productCount,
@@ -308,7 +308,7 @@ export class ArchitectTools {
         aiProvider: appSettings.aiProvider,
         autoReplyEnabled: appSettings.autoReplyEnabled,
       } : null,
-      categories: categories.map(c => ({ id: c.id, name: c.name })),
+      categories: categories.map((c: any) => ({ id: c.id, name: c.name })),
     };
   }
 

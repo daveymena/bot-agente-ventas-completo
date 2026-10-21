@@ -47,7 +47,7 @@ export async function resolveCategoryId(
     .from(productCategories)
     .where(eq(productCategories.tenantId, tenantId));
 
-  const match = existing.find((c) => normalize(c.name) === normalize(name) && c.kind === kind);
+  const match = existing.find((c: any) => normalize(c.name) === normalize(name) && c.kind === kind);
   if (match) return match.id;
 
   const [created] = await db.insert(productCategories).values({ tenantId, name, kind } as any).returning();

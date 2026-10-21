@@ -1762,7 +1762,7 @@ export const TOOLS: ToolDef[] = [
         settings: tenants.settings,
       }).from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
       const publicStoreUrl = tenantRow?.slug ? `/tienda/${tenantRow.slug}` : null;
-      const noImg = prods.filter((p) => !p.imageUrl).length;
+      const noImg = prods.filter((p: any) => !p.imageUrl).length;
       // ── CUANTOS ESTAN ACTIVOS, dicho y no deducido ────────────────────────
       //
       // Visto en vivo el 2026-09-02, y es la SEGUNDA vez que pasa lo mismo:
@@ -1781,12 +1781,12 @@ export const TOOLS: ToolDef[] = [
       // pero la descripcion de ESA herramienta manda a usar `analyze_system`
       // "para el conteo real completo", y aca el dato nunca se agrego. Se
       // reparo la puerta y se dejo la ventana.
-      const activos = prods.filter((p) => p.isActive).length;
+      const activos = prods.filter((p: any) => p.isActive).length;
       const inactivos = prods.length - activos;
       // El video de muestra se cuenta acá porque no se veía en ningún lado:
       // el agente sabía mandarlo y el catálogo entero estaba sin cargar, sin
       // que nada lo dijera. Un dato que nadie mide es un dato que nadie carga.
-      const sinVideo = prods.filter((p) => !videoDeProducto(p.metadata)).length;
+      const sinVideo = prods.filter((p: any) => !videoDeProducto(p.metadata)).length;
       return {
         ok: true,
         summary: `Productos: ${prods.length} en total — ${activos} ACTIVOS y ${inactivos} inactivos (usá estos tres números tal cual; no los deduzcas ni los restes) · ${noImg} sin imagen, ${sinVideo} sin video de muestra · Categorías: ${cats.length} · Agentes: ${ags.length} · Tienda pública: ${publicStoreUrl ? `activa en ${publicStoreUrl}` : "sin slug, no accesible"} (fila en tabla stores: ${stors.length})`,
@@ -1843,10 +1843,10 @@ export const TOOLS: ToolDef[] = [
       let ampliado = false;
       if (search && rows.length === 0) {
         const raices = (search.toLowerCase().match(/[a-záéíóúñ0-9]{3,}/g) || [])
-          .filter((p) => !VACIAS.has(p))
-          .map((p) => (p.length > 4 ? p.replace(/(es|s)$/, "") : p));
+          .filter((p: any) => !VACIAS.has(p))
+          .map((p: any) => (p.length > 4 ? p.replace(/(es|s)$/, "") : p));
         if (raices.length > 0) {
-          const alternativas = raices.flatMap((r) => [
+          const alternativas = raices.flatMap((r: any) => [
             ilike(products.name, `%${r}%`),
             ilike(products.description, `%${r}%`),
           ]);
@@ -1881,7 +1881,7 @@ export const TOOLS: ToolDef[] = [
       return {
         ok: true,
         summary: `${rows.length} productos en esta lista · EN EL CATÁLOGO HAY ${total} EN TOTAL, ${activos} ACTIVOS y ${total - activos} inactivos (usá estos números, no cuentes las filas)${search ? ` (filtrado por "${search}")` : ""}${ampliado ? ` -- no hubo coincidencia exacta, así que se buscó por palabras sueltas en nombre y descripción: ELEGÍ de esta lista el que de verdad corresponde antes de usar su id, y si ninguno encaja decilo en vez de inventar uno.` : ""}${truncado ? ` -- ADVERTENCIA: esto es una página parcial, hay ${total} en total. No reportes ${rows.length} como el total del catálogo; para el conteo real completo usá analyze_system.` : ""}`,
-        data: rows.map((p) => ({ id: p.id, name: p.name, price: p.price, currency: p.currency, category: p.category, isActive: p.isActive, hasImage: !!p.imageUrl, hasVideo: !!videoDeProducto(p.metadata) })),
+        data: rows.map((p: any) => ({ id: p.id, name: p.name, price: p.price, currency: p.currency, category: p.category, isActive: p.isActive, hasImage: !!p.imageUrl, hasVideo: !!videoDeProducto(p.metadata) })),
       };
     },
   },
@@ -1891,7 +1891,7 @@ export const TOOLS: ToolDef[] = [
     args: "{}",
     run: async (_args, ctx) => {
       const rows = await db.select().from(productCategories).where(eq(productCategories.tenantId, ctx.tenantId));
-      return { ok: true, summary: `${rows.length} categorías`, data: rows.map((c) => ({ id: c.id, name: c.name })) };
+      return { ok: true, summary: `${rows.length} categorías`, data: rows.map((c: any) => ({ id: c.id, name: c.name })) };
     },
   },
   {
@@ -3611,7 +3611,7 @@ ${explicarObjetivos()}` };
           const { resolveInterestIds } = await import("./facebook");
           targeting.interests = await resolveInterestIds((fb as any).config?.userAccessToken, args.interests.map(String).slice(0, 5));
         } catch {
-          targeting.interests = args.interests.map(String).slice(0, 5).map((name) => ({ id: "", name }));
+          targeting.interests = args.interests.map(String).slice(0, 5).map((name: any) => ({ id: "", name }));
         }
       }
 
@@ -4635,12 +4635,12 @@ ${explicarObjetivos()}` };
         eq(conversations.tenantId, ctx.tenantId),
         condicionConversacionOperativa(),
       ));
-      const won = allLeads.filter((l) => l.stage === "won");
+      const won = allLeads.filter((l: any) => l.stage === "won");
       const startOfMonth = new Date(); startOfMonth.setDate(1); startOfMonth.setHours(0, 0, 0, 0);
-      const revenue = won.filter((l) => new Date(l.createdAt as any) >= startOfMonth).reduce((a, l) => a + Number(l.value), 0);
+      const revenue = won.filter((l: any) => new Date(l.createdAt as any) >= startOfMonth).reduce((a: any, l: any) => a + Number(l.value), 0);
       const data = {
         totalLeads: allLeads.length,
-        activeConversations: allConvos.filter((c) => c.status !== "closed").length,
+        activeConversations: allConvos.filter((c: any) => c.status !== "closed").length,
         wonDeals: won.length,
         conversionRate: allLeads.length ? Math.round((won.length / allLeads.length) * 100) : 0,
         revenueThisMonth: revenue,
@@ -4891,7 +4891,7 @@ ${explicarObjetivos()}` };
       return {
         ok: true,
         summary: `${rows.length} conversaciones recientes`,
-        data: rows.map((c) => ({
+        data: rows.map((c: any) => ({
           id: c.id, name: c.contactName, phone: c.contactPhone, stage: c.currentStage,
           status: c.status, lastMessage: c.lastMessage, lastMessageAt: c.lastMessageAt,
         })),
@@ -6864,11 +6864,11 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
           link: `${raiz}/products/${String(p?.handle || "")}`,
         };
       });
-      const precios = items.map((i) => Number(i.precio)).filter((n) => Number.isFinite(n) && n > 0);
+      const precios = items.map((i: any) => Number(i.precio)).filter((n: any) => Number.isFinite(n) && n > 0);
       const porTipo: Record<string, number> = {};
       for (const i of items) porTipo[i.tipo] = (porTipo[i.tipo] || 0) + 1;
       const topTipos = Object.entries(porTipo).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([t, n]) => `${t} (${n})`).join(" · ");
-      const lineas = items.slice(0, 25).map((i) => `• ${i.titulo} — ${f(i.precio)}${i.antes ? ` (antes ${f(i.antes)})` : ""} · ${i.tipo} · ${i.link}`);
+      const lineas = items.slice(0, 25).map((i: any) => `• ${i.titulo} — ${f(i.precio)}${i.antes ? ` (antes ${f(i.antes)})` : ""} · ${i.tipo} · ${i.link}`);
       return {
         ok: true,
         summary:
@@ -11220,7 +11220,7 @@ export async function verifyMutation(tool: string, args: any, ctx: OperatorConte
         [row] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
       } else if (args?.name) {
         const all = await db.select().from(products).where(eq(products.tenantId, ctx.tenantId));
-        row = all.find((p) => (p.name || "").toLowerCase() === String(args.name).toLowerCase());
+        row = all.find((p: any) => (p.name || "").toLowerCase() === String(args.name).toLowerCase());
       }
       if (!row) return "⚠️ No se pudo verificar (producto no encontrado tras la operación).";
       return `Verificado → [ID ${row.id}] ${row.name} · ${row.price} ${row.currency} · ${row.imageUrl ? "con imagen" : "SIN imagen"} · ${row.isActive ? "activo" : "inactivo"}`;

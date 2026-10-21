@@ -150,7 +150,7 @@ export async function buildPostDraft(
   // ── INTERÉS: Qué gana el cliente ──
   if (p.description) {
     const desc = p.description
-      .split(/\r?\n/).map(s => s.trim()).filter(Boolean)[0] || "";
+      .split(/\r?\n/).map((s: any) => s.trim()).filter(Boolean)[0] || "";
     if (desc) {
       lines.push("✨ " + (desc.length > 180 ? desc.substring(0, 177) + "..." : desc));
       lines.push("");

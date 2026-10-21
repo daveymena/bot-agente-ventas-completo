@@ -81,7 +81,7 @@ router.get("/cobrabilidad", async (req: TenantRequest, res, next) => {
         .map((p: any) => ({ p, e: evaluarEntregabilidad({ kind: p.kind, deliveryLink: p.deliveryLink }) }))
         .filter((x: any) => !x.e.entregable)
         .map((x: any) => ({ id: x.p.id, name: x.p.name, problemas: x.e.problemas })),
-      detalle: evaluados.map((e) => {
+      detalle: evaluados.map((e: any) => {
         const p: any = rows.find((r: any) => r.id === e.producto.id);
         return {
           id: e.producto.id,

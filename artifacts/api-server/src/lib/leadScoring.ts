@@ -279,7 +279,7 @@ export class LeadScoringEngine {
       const [appSettings] = await db.select().from(settingsTable).limit(1);
 
       // Build conversation history for AI
-      const history = recentMessages.map(m => ({
+      const history = recentMessages.map((m: any) => ({
         role: m.role === "customer" ? "customer" : "agent",
         content: m.content
       }));
@@ -422,7 +422,7 @@ export class LeadScoringEngine {
         ));
 
       const leadsWithScores = await Promise.all(
-        allConversations.map(async (conv) => {
+        allConversations.map(async (conv: any) => {
           const score = await this.calculateLeadScore(conv.id);
           return {
             conversationId: conv.id,

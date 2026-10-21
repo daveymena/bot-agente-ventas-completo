@@ -788,12 +788,12 @@ export class PaymentGateway {
         );
 
       const totalTransactions = paymentLinkData.length;
-      const successfulTransactions = paymentLinkData.filter(link => link.clicks > 0).length;
+      const successfulTransactions = paymentLinkData.filter((link: any) => link.clicks > 0).length;
       const failedTransactions = totalTransactions - successfulTransactions;
       const successRate = totalTransactions > 0 ? (successfulTransactions / totalTransactions) * 100 : 0;
 
       // Calculate method usage
-      const methodUsage = paymentLinkData.reduce((acc, link) => {
+      const methodUsage = paymentLinkData.reduce((acc: any, link: any) => {
         acc[link.method] = (acc[link.method] || 0) + 1;
         return acc;
       }, {} as Record<string, number>);

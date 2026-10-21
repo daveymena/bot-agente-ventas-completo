@@ -190,7 +190,7 @@ export class AnalyticsEngine {
       const totalLeads = allLeads.length;
 
       // Analyze lead stages
-      const stageDistribution = allLeads.reduce((acc, lead) => {
+      const stageDistribution = allLeads.reduce((acc: any, lead: any) => {
         acc[lead.stage] = (acc[lead.stage] || 0) + 1;
         return acc;
       }, {} as Record<string, number>);
@@ -233,9 +233,9 @@ export class AnalyticsEngine {
       const conversionRate = totalLeads > 0 ? (conversions / totalLeads) * 100 : 0;
 
       // Calculate average time to conversion
-      const convertedLeads = allLeads.filter(lead => lead.stage === 'converted');
+      const convertedLeads = allLeads.filter((lead: any) => lead.stage === 'converted');
       const averageTimeToConversion = convertedLeads.length > 0 
-        ? convertedLeads.reduce((sum, lead) => {
+        ? convertedLeads.reduce((sum: any, lead: any) => {
             const timeToConvert = (new Date().getTime() - lead.createdAt.getTime()) / (1000 * 60 * 60);
             return sum + timeToConvert;
           }, 0) / convertedLeads.length
@@ -283,16 +283,16 @@ export class AnalyticsEngine {
         )
         .groupBy(messages.role, messages.createdAt);
 
-      const totalMessages = messageData.reduce((sum, msg) => sum + msg.count, 0);
+      const totalMessages = messageData.reduce((sum: any, msg: any) => sum + msg.count, 0);
       const incomingMessages = messageData
-        .filter(msg => msg.role === 'customer')
-        .reduce((sum, msg) => sum + msg.count, 0);
+        .filter((msg: any) => msg.role === 'customer')
+        .reduce((sum: any, msg: any) => sum + msg.count, 0);
       const outgoingMessages = messageData
-        .filter(msg => msg.role === 'assistant')
-        .reduce((sum, msg) => sum + msg.count, 0);
+        .filter((msg: any) => msg.role === 'assistant')
+        .reduce((sum: any, msg: any) => sum + msg.count, 0);
 
       // Calculate peak hours
-      const hourlyDistribution = messageData.reduce((acc, msg) => {
+      const hourlyDistribution = messageData.reduce((acc: any, msg: any) => {
         const hour = msg.createdAt.getHours();
         acc[hour] = (acc[hour] || 0) + msg.count;
         return acc;
@@ -434,7 +434,7 @@ export class AnalyticsEngine {
 
       // Calculate engagement metrics
       const totalConversations = conversationData.length;
-      const averageSessionDuration = conversationData.reduce((sum, conv) => {
+      const averageSessionDuration = conversationData.reduce((sum: any, conv: any) => {
         if (conv.lastMessageAt) {
           const duration = (conv.lastMessageAt.getTime() - conv.createdAt.getTime()) / (1000 * 60);
           return sum + duration;
@@ -460,12 +460,12 @@ export class AnalyticsEngine {
         .groupBy(messages.conversationId);
 
       const averageMessagesPerSession = messagesPerConversation.reduce(
-        (sum, conv) => sum + conv.messageCount, 0
+        (sum: any, conv: any) => sum + conv.messageCount, 0
       ) / Math.max(messagesPerConversation.length, 1);
 
       // Real return-user rate: of the contactPhones seen in this window, what
       // fraction already had a conversation (with this tenant) before startDate.
-      const phonesInWindow = [...new Set(conversationData.map((c) => c.contactPhone).filter(Boolean))];
+      const phonesInWindow = [...new Set(conversationData.map((c: any) => c.contactPhone).filter(Boolean))];
       let returningPhones = 0;
       if (phonesInWindow.length > 0) {
         const priorConvos = await db
@@ -478,7 +478,7 @@ export class AnalyticsEngine {
               inArray(conversations.contactPhone, phonesInWindow)
             )
           );
-        returningPhones = new Set(priorConvos.map((c) => c.contactPhone)).size;
+        returningPhones = new Set(priorConvos.map((c: any) => c.contactPhone)).size;
       }
       const returnUserRate = phonesInWindow.length > 0
         ? Math.round((returningPhones / phonesInWindow.length) * 100)
@@ -581,7 +581,7 @@ export class AnalyticsEngine {
         );
 
       // Real conversions: confirmed payments per product in this window.
-      const productIds = tenantProducts.map((p) => p.id);
+      const productIds = tenantProducts.map((p: any) => p.id);
       const confirmedPayments = productIds.length > 0
         ? await db
             .select({ productId: payments.productId, count: sql<number>`count(*)` })
@@ -597,15 +597,15 @@ export class AnalyticsEngine {
             )
             .groupBy(payments.productId)
         : [];
-      const conversionsByProduct = new Map(confirmedPayments.map((p) => [p.productId, Number(p.count)]));
+      const conversionsByProduct = new Map(confirmedPayments.map((p: any) => [p.productId, Number(p.count)]));
 
-      const productAnalytics = tenantProducts.map(product => {
+      const productAnalytics = tenantProducts.map((product: any) => {
         const productKeywords = [
           product.name.toLowerCase(),
           ...(product.category ? [product.category.toLowerCase()] : [])
         ];
 
-        const inquiries = messageContent.filter(msg =>
+        const inquiries = messageContent.filter((msg: any) =>
           productKeywords.some(keyword =>
             msg.content.toLowerCase().includes(keyword)
           )
@@ -624,8 +624,8 @@ export class AnalyticsEngine {
       });
 
       return productAnalytics
-        .filter(p => p.inquiries > 0)
-        .sort((a, b) => b.inquiries - a.inquiries)
+        .filter((p: any) => p.inquiries > 0)
+        .sort((a: any, b: any) => b.inquiries - a.inquiries)
         .slice(0, 10);
 
     } catch (error) {

@@ -53,7 +53,7 @@ describe('Flujo Completo: Saludo → Búsqueda → Presentación → Pago → Ve
 
     productList = await db.select().from(products).where(eq(products.isActive, true));
     const categories = await db.select().from(productCategories);
-    categoryMap = new Map(categories.map(c => [c.id, c.name.toLowerCase()]));
+    categoryMap = new Map(categories.map((c: any) => [c.id, c.name.toLowerCase()]));
   });
 
   afterEach(async () => {

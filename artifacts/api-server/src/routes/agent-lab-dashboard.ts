@@ -44,18 +44,18 @@ router.get("/metrics", async (req: Request, res: Response) => {
         avgSuccessRate:
           simulations.length > 0
             ? (
-                simulations.reduce((sum, s) => sum + ((s.data as any)?.tasaExito || 0), 0) / simulations.length
+                simulations.reduce((sum: any, s: any) => sum + ((s.data as any)?.tasaExito || 0), 0) / simulations.length
               ).toFixed(2)
             : 0,
         trend: calculateTrend(simulations),
       },
       abTests: {
-        active: abTests.filter((v) => {
+        active: abTests.filter((v: any) => {
           const config = (v.performanceBefore as any) || {};
           return config.abTestActive && config.status === "running";
         }).length,
-        completed: abTests.filter((v) => v.isActive).length,
-        pending: abTests.filter((v) => !v.isActive && !((v.performanceBefore as any)?.abTestActive)).length,
+        completed: abTests.filter((v: any) => v.isActive).length,
+        pending: abTests.filter((v: any) => !v.isActive && !((v.performanceBefore as any)?.abTestActive)).length,
       },
       lastSimulation: simulations[simulations.length - 1]?.createdAt || null,
       recentFindings: extractTopFindings(simulations, 5),
@@ -135,7 +135,7 @@ router.get("/timeline", async (req: Request, res: Response) => {
       .orderBy(architectMemory.createdAt)
       .limit(lim);
 
-    const timeline = events.map((e) => ({
+    const timeline = events.map((e: any) => ({
       timestamp: e.createdAt,
       type: e.type,
       tags: e.tags,

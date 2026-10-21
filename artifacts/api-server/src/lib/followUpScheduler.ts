@@ -369,7 +369,7 @@ export class FollowUpScheduler {
     // 3. El cliente tiene que haber dicho algo alguna vez. Alguien que llegó de
     //    un anuncio, recibió el saludo automático y nunca contestó no mostró
     //    ningún interés: escribirle de nuevo es mensaje no solicitado.
-    const mensajesDelCliente = historial.filter((m) => m.role === "customer").length;
+    const mensajesDelCliente = historial.filter((m: any) => m.role === "customer").length;
     if (mensajesDelCliente < 2) {
       return { ok: false, motivo: "el cliente nunca respondió (no mostró interés)" };
     }

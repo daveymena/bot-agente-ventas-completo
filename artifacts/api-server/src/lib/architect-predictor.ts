@@ -38,9 +38,9 @@ export class ArchitectPredictor {
       }
 
       const recentConvos = customer_convos.slice(-10);
-      const convoIds = recentConvos.map((c) => c.id);
+      const convoIds = recentConvos.map((c: any) => c.id);
       const messageCount = await this.countMessages(convoIds);
-      const hasPaymentPending = recentConvos.some((c) => c.paymentStatus === "pending");
+      const hasPaymentPending = recentConvos.some((c: any) => c.paymentStatus === "pending");
       const daysSinceLastContact = this.daysSinceLastMessage(customer_convos);
       const avgResponseTime = await this.calculateAvgResponseTime(convoIds);
 
@@ -117,7 +117,7 @@ export class ArchitectPredictor {
         warnings.push(`Silencio de ${daysSilent} días`);
       }
 
-      const convoIds = customer_convos.map((c) => c.id);
+      const convoIds = customer_convos.map((c: any) => c.id);
       const messagesDecline = await this.calculateTrendDecline(convoIds);
       if (messagesDecline !== null && messagesDecline > 50) {
         risk += 25;
@@ -194,7 +194,7 @@ export class ArchitectPredictor {
             gte(messages.createdAt, lastMonth.toISOString())
           )
         );
-      const interestedInquiries = recentMessages.filter((m) => m.content.toLowerCase().includes(productKeyword)).length;
+      const interestedInquiries = recentMessages.filter((m: any) => m.content.toLowerCase().includes(productKeyword)).length;
       const conversionRate = interestedInquiries > 0 ? (recentSales.length / interestedInquiries) * 100 : 0;
 
       let priceChange = 0;
@@ -258,7 +258,7 @@ export class ArchitectPredictor {
         };
       }
 
-      const convoIds = customer_convos.map((c) => c.id);
+      const convoIds = customer_convos.map((c: any) => c.id);
       const customerMessages = await db
         .select({ createdAt: messages.createdAt })
         .from(messages)
@@ -276,7 +276,7 @@ export class ArchitectPredictor {
       const hourCounts = new Array(24).fill(0);
       const dayCounts = new Array(7).fill(0);
 
-      customerMessages.forEach((m) => {
+      customerMessages.forEach((m: any) => {
         hourCounts[m.createdAt.getHours()]++;
         dayCounts[m.createdAt.getDay()]++;
       });
@@ -368,8 +368,8 @@ export class ArchitectPredictor {
 
     if (rows.length < 5) return null; // no hay suficiente historial para una tendencia confiable
 
-    const recentCount = rows.filter((r) => r.createdAt >= day14).length;
-    const priorCount = rows.filter((r) => r.createdAt < day14).length;
+    const recentCount = rows.filter((r: any) => r.createdAt >= day14).length;
+    const priorCount = rows.filter((r: any) => r.createdAt < day14).length;
 
     if (priorCount === 0) return null;
     const decline = ((priorCount - recentCount) / priorCount) * 100;

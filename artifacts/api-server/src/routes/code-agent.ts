@@ -278,7 +278,7 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
           // "objeciones comunes" y las "preguntas frecuentes" con las que
           // Atlas disena el agente salian de un unico chat, y de ahi que
           // parecieran tan pobres.
-          inArray(messages.conversationId, recentConversations.length ? recentConversations.map((c) => c.id) : [0]),
+          inArray(messages.conversationId, recentConversations.length ? recentConversations.map((c: any) => c.id) : [0]),
           eq(messages.role, "customer")
         )
       )
@@ -326,20 +326,20 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
 
     // 7. Detectar objeciones comunes
     const objectionKeywords = ["caro", "costoso", "no sé", "duda", "garantía", "funciona", "estafa"];
-    const objectionMessages = allMessages.filter(m => 
+    const objectionMessages = allMessages.filter((m: any) => 
       objectionKeywords.some(k => m.content.toLowerCase().includes(k))
     );
 
     // 8. Detectar preguntas frecuentes
     const faqKeywords = ["entrega", "acceso", "garantía", "duración", "incluye", "soporte"];
-    const faqMessages = allMessages.filter(m =>
+    const faqMessages = allMessages.filter((m: any) =>
       faqKeywords.some(k => m.content.toLowerCase().includes(k))
     );
 
     // 9. Detectar productos más mencionados
     const productMentions = new Map<string, number>();
-    activeProducts.forEach(p => {
-      const mentions = allMessages.filter(m =>
+    activeProducts.forEach((p: any) => {
+      const mentions = allMessages.filter((m: any) =>
         m.content.toLowerCase().includes(p.name.toLowerCase())
       ).length;
       if (mentions > 0) productMentions.set(p.name, mentions);
@@ -356,8 +356,8 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5)
         .map(([name]) => name),
-      commonObjections: objectionMessages.slice(0, 10).map(m => m.content),
-      frequentQuestions: faqMessages.slice(0, 10).map(m => m.content),
+      commonObjections: objectionMessages.slice(0, 10).map((m: any) => m.content),
+      frequentQuestions: faqMessages.slice(0, 10).map((m: any) => m.content),
       conversacionesReales,
       hasActiveAgent: !!currentAgent,
       currentAgentConfig: currentAgent ? {
@@ -436,10 +436,10 @@ NO eres un chat genérico. Eres una CONSULTORA EXPERTA que analiza datos reales 
 ${businessProfile.topProducts.length > 0 ? businessProfile.topProducts.map((p, i) => `${i + 1}. ${p}`).join('\n') : "• No hay datos suficientes aún"}
 
 **OBJECIONES COMUNES DETECTADAS:**
-${businessProfile.commonObjections.length > 0 ? businessProfile.commonObjections.slice(0, 5).map((o, i) => `${i + 1}. "${o}"`).join('\n') : "• No hay datos suficientes aún"}
+${businessProfile.commonObjections.length > 0 ? businessProfile.commonObjections.slice(0, 5).map((o: any, i: any) => `${i + 1}. "${o}"`).join('\n') : "• No hay datos suficientes aún"}
 
 **PREGUNTAS FRECUENTES DETECTADAS:**
-${businessProfile.frequentQuestions.length > 0 ? businessProfile.frequentQuestions.slice(0, 5).map((q, i) => `${i + 1}. "${q}"`).join('\n') : "• No hay datos suficientes aún"}
+${businessProfile.frequentQuestions.length > 0 ? businessProfile.frequentQuestions.slice(0, 5).map((q: any, i: any) => `${i + 1}. "${q}"`).join('\n') : "• No hay datos suficientes aún"}
 
 **COMO ESTA CONTESTANDO HOY (conversaciones reales, textuales):**
 ${businessProfile.conversacionesReales.length > 0 ? businessProfile.conversacionesReales.map((c, i) => `--- Conversacion ${i + 1} ---\n${c}`).join("\n\n") : "• Todavia no hay conversaciones para revisar"}

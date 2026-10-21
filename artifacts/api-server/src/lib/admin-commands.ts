@@ -49,8 +49,8 @@ Puedes escribir en español natural, el bot interpreta la intención.`,
         .having(not(sql`${conversations.currentStage} is null`));
 
       const stageLines = stageDist
-        .filter(s => s.stage)
-        .map(s => `  • *${s.stage}*: ${s.c}`)
+        .filter((s: any) => s.stage)
+        .map((s: any) => `  • *${s.stage}*: ${s.c}`)
         .join("\n");
 
       return {
@@ -79,7 +79,7 @@ _Para más detalle, usa "ventas" o "leads"_.`,
 
       if (recent.length === 0) return { text: "📭 No hay ventas registradas aún." };
 
-      const lines = recent.map((p, i) =>
+      const lines = recent.map((p: any, i: any) =>
         `${i + 1}. *${p.payerName || "Anónimo"}* — $${Number(p.amount || 0).toLocaleString("es-CO")} — ${p.productId ? `Prod #${p.productId}` : "N/A"} — *${p.status}*`
       );
 
@@ -104,7 +104,7 @@ _Total mostradas: ${recent.length}_`,
 
       if (leadStages.length === 0) return { text: "📭 No hay leads registrados." };
 
-      const lines = leadStages.map(s => `  • *${s.stage || "sin etapa"}*: ${s.c} leads`);
+      const lines = leadStages.map((s: any) => `  • *${s.stage || "sin etapa"}*: ${s.c} leads`);
 
       return {
         text: `👤 *LEADS POR ETAPA*

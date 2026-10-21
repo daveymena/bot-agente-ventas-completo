@@ -50,18 +50,18 @@ router.get("/summary", async (req, res, next) => {
     ));
 
     const totalLeads = allLeads.length;
-    const wonLeads = allLeads.filter((l) => l.stage === "won");
+    const wonLeads = allLeads.filter((l: any) => l.stage === "won");
     const wonDeals = wonLeads.length;
     const startOfMonth = new Date();
     startOfMonth.setDate(1);
     startOfMonth.setHours(0, 0, 0, 0);
     const revenueThisMonth = wonLeads
-      .filter((l) => new Date(l.createdAt as any) >= startOfMonth)
-      .reduce((acc, l) => acc + Number(l.value), 0);
+      .filter((l: any) => new Date(l.createdAt as any) >= startOfMonth)
+      .reduce((acc: any, l: any) => acc + Number(l.value), 0);
     const conversionRate = totalLeads === 0 ? 0 : Math.round((wonDeals / totalLeads) * 100);
 
     // messages no guarda tenantId: se acota por las conversaciones del tenant.
-    const convoIds = allConvos.map((c) => c.id);
+    const convoIds = allConvos.map((c: any) => c.id);
     const { desde: startOfDay, hasta: endOfDay } = rangoHoyColombia();
     const todayMsgs = convoIds.length
       ? await db
@@ -125,12 +125,12 @@ router.get("/summary", async (req, res, next) => {
     return res.json(
       GetDashboardSummaryResponse.parse({
         totalLeads,
-        activeConversations: allConvos.filter((c) => c.status !== "closed").length,
+        activeConversations: allConvos.filter((c: any) => c.status !== "closed").length,
         conversionRate,
         totalRevenue: revenueThisMonth,
         avgResponseTime,
         messagesLast24h: Number(todayMsgs[0]?.count ?? 0),
-        newLeadsToday: allLeads.filter((l) => new Date(l.createdAt as any) >= startOfDay).length,
+        newLeadsToday: allLeads.filter((l: any) => new Date(l.createdAt as any) >= startOfDay).length,
         closedDeals: wonDeals,
         whatsappConnected,
       }),
@@ -166,7 +166,7 @@ router.get("/activity", async (req, res, next) => {
       .limit(20);
     return res.json(
       GetRecentActivityResponse.parse(
-        rows.map((r) => ({
+        rows.map((r: any) => ({
           id: r.id,
           type: r.type,
           description: r.title + (r.subtitle ? ` — ${r.subtitle}` : ""),
@@ -188,7 +188,7 @@ router.get("/funnel", async (req, res, next) => {
     const rows = await db.select().from(leads).where(eq(leads.tenantId, tenantId));
     const total = rows.length || 1;
     const grouped = STAGES.map((stage) => {
-      const subset = rows.filter((r) => r.stage === stage);
+      const subset = rows.filter((r: any) => r.stage === stage);
       return {
         stage,
         count: subset.length,

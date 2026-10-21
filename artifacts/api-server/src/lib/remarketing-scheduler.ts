@@ -32,7 +32,7 @@ async function processEmailCampaign(campaign: typeof remarketingCampaigns.$infer
   if (batch.length === 0) return;
 
   const batchLeads = await db.select().from(leads).where(and(eq(leads.tenantId, campaign.tenantId!)));
-  const byId = new Map<number, (typeof batchLeads)[number]>(batchLeads.map((l) => [l.id, l]));
+  const byId = new Map<number, (typeof batchLeads)[number]>(batchLeads.map((l: any) => [l.id, l]));
 
   const baseUrl = (process.env.APP_URL || "https://ventasproia.com").replace(/\/$/, "");
   let sent = campaign.totalSent, failed = campaign.totalFailed;
@@ -77,7 +77,7 @@ async function processWhatsappCampaign(campaign: typeof remarketingCampaigns.$in
   }
 
   const batchLeads = await db.select().from(leads).where(and(eq(leads.tenantId, campaign.tenantId!)));
-  const byId = new Map<number, (typeof batchLeads)[number]>(batchLeads.map((l) => [l.id, l]));
+  const byId = new Map<number, (typeof batchLeads)[number]>(batchLeads.map((l: any) => [l.id, l]));
 
   let sent = campaign.totalSent, failed = campaign.totalFailed;
   const results: any[] = Array.isArray(campaign.results) ? [...(campaign.results as any[])] : [];
