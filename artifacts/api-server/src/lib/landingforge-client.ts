@@ -598,10 +598,14 @@ export async function generateMagicLanding(
 export async function getOrCreateLanding(
   productName: string,
   productUrl: string,
-  productKind: "physical" | "digital",
+  productKind: "physical" | "digital" | "service",
   productData?: {
     description?: string; price?: string; currency?: string; category?: string;
     checkoutUrl?: string; images?: string[]; dropiProductId?: string;
+    /** Instrucciones del admin para la landing (antes se pasaban y se perdían en silencio). */
+    prompt?: string;
+    tenantId?: number;
+    producto?: unknown;
   },
 ): Promise<MagicLandingResult> {
   try {
@@ -638,7 +642,12 @@ export async function getOrCreateLanding(
       `Landing para vender ${productName}`,
       priceNum ? `a ${priceNum} ${productData?.currency || "COP"}` : "",
       productData?.description ? `. ${productData.description.slice(0, 400)}` : "",
-      productKind === "digital" ? " (producto digital, acceso inmediato)" : " (pago contra entrega)",
+      productData?.prompt ? ` Instrucciones del admin: ${productData.prompt.slice(0, 600)}` : "",
+      productKind === "digital"
+        ? " (producto digital, acceso inmediato)"
+        : productKind === "service"
+          ? " (servicio: se agenda una consulta, no se compra en la página)"
+          : " (pago contra entrega)",
     ].filter(Boolean);
     const data = await api<{ spec: any; engine: string }>("/api/generate", {
       method: "POST",

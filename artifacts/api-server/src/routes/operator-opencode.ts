@@ -799,7 +799,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
     // "Detener" dice lo contrario, y hasta hoy no existía: el spinner no tenía
     // botón y recargar la página solo dejaba de mirar mientras el servidor
     // seguía gastando los 135s del turno.
-    const claveTurno = claveDeTurno(tenantId, sessionId);
+    const claveTurno = claveDeTurno(String(tenantId), sessionId);
     const senalDeCorte = empezarTurno(claveTurno);
     // Un pedido nuevo del admin (no una continuación) reinicia la cuenta de
     // tramos que el servidor sigue solo cuando el admin se fue.
@@ -2847,7 +2847,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
         estado: "completo",
         totalMs: Date.now() - t0,
         tramos,
-        modelo: modeloUsado?.modelID ?? null,
+        modelo: (modeloUsado as { modelID: string } | null)?.modelID ?? null,
         pedido: String(prompt),
         // Qué consultó de verdad este turno. Es la respuesta a "¿cómo sé si
         // consultó algo o no?": se mira, no se discute.
@@ -2953,7 +2953,7 @@ router.post("/operator-opencode/detener", async (req: TenantRequest, res) => {
   const tenantId = req.tenant?.id;
   if (!tenantId) return res.status(401).json({ message: "Tenant not resolved" });
   const sessionId: string = (req.body?.sessionId as string) || "default";
-  const clave = claveDeTurno(tenantId, sessionId);
+  const clave = claveDeTurno(String(tenantId), sessionId);
   const habia = hayTurnoEnVuelo(clave);
   const detenido = pedirDetener(clave);
   logger.info({ tenantId, sessionId, habia }, "[AtlasOpenCode] El admin pidió detener el turno");

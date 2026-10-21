@@ -704,7 +704,7 @@ Actúa con la autoridad de una Ingeniera Senior de Software y Directora de Venta
             model: config.model,
             messages: [
               { role: "system", content: systemPrompt },
-              ...history,
+              ...history.map((m: any) => ({ role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user", content: String(m.content ?? "") })),
               { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres Atlas, la Arquitecta experta (una consultora de IA). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario, entender sus necesidades y hacer preguntas si falta información. Usa el campo "reply" del JSON para charlar con el usuario. Si tienes suficiente información, genera la "config". RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
             ],
             temperature: 0.7,
@@ -1026,7 +1026,7 @@ Responde SIEMPRE en JSON con esta estructura:
             model: config.model,
             messages: [
               { role: "system", content: systemPrompt },
-              ...history,
+              ...history.map((m: any) => ({ role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user", content: String(m.content ?? "") })),
               { role: "user", content: `Mensaje del usuario: "${prompt}"\n\nRECORDATORIO CRÍTICO: Eres Atlas, la Arquitecta Visual (una consultora experta). NO eres el bot de ventas. TU OBJETIVO: Conversar con el usuario para entender qué bot necesita crear. Usa el campo "reply" del JSON para responderle, hacerle preguntas y asesorarlo. Cuando tengas información suficiente o propongas algo, llena también los campos de preview y configuración. RESPONDE SIEMPRE EN FORMATO JSON ESTRICTO.` }
             ],
             temperature: 0.8,

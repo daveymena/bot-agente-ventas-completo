@@ -810,7 +810,7 @@ export async function iniciarInvestigacion(ctx: OperatorContext, instruccion: st
         eq(architectMemory.tenantId, ctx.tenantId),
         eq(architectMemory.sessionId, ctx.sessionId!),
         eq(architectMemory.memoryType, "research_result"),
-        gte(architectMemory.createdAt, new Date(Date.now() - 20 * 60 * 1000).toISOString()),
+        gte(architectMemory.createdAt, new Date(Date.now() - 20 * 60 * 1000)),
       ),
     )
     .orderBy(desc(architectMemory.createdAt))
@@ -1275,7 +1275,7 @@ export async function validarContenidoAnuncio(
   // publicada, el admin tiene que cumplírsela a quien la reclame, o
   // quedar mal. Se valida contra los datos REALES del producto y, si la
   // promesa no está respaldada, se rechaza la generación.
-  const [prodReal] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
+  const [prodReal] = await db.select().from(products).where(and(eq(products.id, id as number), eq(products.tenantId, ctx.tenantId))).limit(1);
   // Mismo agujero que el id en cero, un paso más adelante: un id con forma
   // válida pero que no existe en ESTA tienda salía por acá con "todo bien" y
   // se llevaba puestos todos los controles de contenido de abajo. Además es
@@ -4135,7 +4135,7 @@ ${explicarObjetivos()}` };
       // investigar internet; solo se investiga si el admin lo pide. Lo que
       // protege contra la fabricación es validarContenidoAnuncio, que corre
       // siempre, abajo.
-      const [prodReal] = await db.select().from(products).where(and(eq(products.id, id), eq(products.tenantId, ctx.tenantId))).limit(1);
+      const [prodReal] = await db.select().from(products).where(and(eq(products.id, id as number), eq(products.tenantId, ctx.tenantId))).limit(1);
       const conDatosReales = !!prodReal && (String(prodReal.description || "").trim().length >= 30 || (Array.isArray(prodReal.features) && prodReal.features.length > 0));
       if (!investigo && !copyPropio && !conDatosReales) {
         return {
