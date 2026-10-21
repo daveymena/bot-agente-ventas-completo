@@ -1,0 +1,78 @@
+# Monitoreo EXTERNO de producción: corre en GitHub, no en el servidor que vigila.
+# Si el servidor cae por completo, este chequeo sigue funcionando y abre un issue.
+#
+# Revisa /api/health y exige:
+#   - HTTP 200 dentro de 20 s
+#   - base.ok == true
+#   - whatsapp.estado == "connected"
+#
+# Si falla: abre (o comenta) un issue con la etiqueta "incidente-produccion".
+# Si vuelve a estar bien: cierra el issue abierto.
+name: monitor-produccion
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: monitor-produccion
+  cancel-in-progress: false
+
+env:
+  URL_HEALTH: https://ventasproia.com/api/health
+  ETIQUETA: incidente-produccion
+
+jobs:
+  chequeo:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Consultar health de producción
+        id: health
+        run: |
+          set +e
+          code=$(curl -s -o health.json -w "%{http_code}" --max-time 20 "$URL_HEALTH")
+          echo "http=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" != "200" ]; then
+            echo "problema=HTTP $code (o sin respuesta en 20 s)" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base=$(jq -r '.base.ok' health.json)
+          wa=$(jq -r '.whatsapp.estado' health.json)
+          build=$(jq -r '.build' health.json)
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          if [ "$base" != "true" ]; then
+            echo "problema=base de datos no está OK (base.ok=$base)" >> "$GITHUB_OUTPUT"
+          elif [ "$wa" != "connected" ]; then
+            echo "problema=WhatsApp desconectado (estado=$wa)" >> "$GITHUB_OUTPUT"
+          fi
+          exit 0
+
+      - name: Abrir o actualizar incidente
+        if: steps.health.outputs.problema != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROBLEMA: ${{ steps.health.outputs.problema }}
+        run: |
+          abierto=$(gh issue list --label "$ETIQUETA" --state open --json number --jq '.[0].number')
+          cuerpo="Monitor externo detectó un problema en producción.\n\n- Problema: $PROBLEMA\n- Revisado: $(date -u +'%Y-%m-%d %H:%M UTC')\n- Endpoint: $URL_HEALTH"
+          if [ -n "$abierto" ]; then
+            gh issue comment "$abierto" --body "$(printf "$cuerpo")"
+          else
+            gh label create "$ETIQUETA" --color B60205 --description "Producción caída o degradada" 2>/dev/null || true
+            gh issue create --title "Producción: $PROBLEMA" --label "$ETIQUETA" --body "$(printf "$cuerpo")"
+          fi
+
+      - name: Cerrar incidente si se recuperó
+        if: steps.health.outputs.problema == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          abiertos=$(gh issue list --label "$ETIQUETA" --state open --json number --jq '.[].number')
+          for n in $abiertos; do
+            gh issue close "$n" --comment "Producción respondió bien en la última revisión ($(date -u +'%Y-%m-%d %H:%M UTC'))."
+          done

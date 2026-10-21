@@ -52,6 +52,14 @@ async function start() {
   // Non-blocking database migrations (fires in background)
   runAutoMigrations().catch(() => {});
 
+  // Respaldos periódicos de la base (RESPALDO_ACTIVO=false los apaga).
+  try {
+    const { iniciarRespaldosPeriodicos } = await import("./lib/respaldo-base");
+    iniciarRespaldosPeriodicos(process.env.DATABASE_URL ? "postgres" : "sqlite");
+  } catch (err) {
+    logger.error({ err }, "[RESPALDO] No se pudo programar el respaldo periódico");
+  }
+
   // Claves de IA guardadas desde la pantalla de Configuración: se vuelcan al
   // entorno para que los proveedores las usen igual que las del .env.
   try {
