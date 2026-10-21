@@ -35,7 +35,7 @@ class Config:
     MAX_TIMEOUT = int(os.environ.get('MAX_TIMEOUT', 180))
     OPENCODE_ZEN_BASE_URL = resolve_upstream_base_url()
     RATE_LIMIT_PER_MINUTE = int(os.environ.get('RATE_LIMIT_PER_MINUTE', 100))  # Aumentado
-    API_KEY = os.environ.get('API_KEY') or "sk-WjeGlHujmGmDGBO1te2YM3sNGCgR72Ms650Lu5SL6gjacIP9Surmrarz5fUA4lfG"
+    API_KEY = os.environ.get('API_KEY') or "sk-REEMPLAZA_CON_TU_CLAVE"
     
     # Configuraciones de cache
     CACHE_TIMEOUT = int(os.environ.get('CACHE_TIMEOUT', 300))  # 5 minutos
