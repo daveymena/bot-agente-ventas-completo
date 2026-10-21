@@ -10,6 +10,7 @@ import {
   aplicarRetencion,
   tablasDelEsquema,
   PREFIJO_RESPALDO,
+  copiarRespaldoFueraDelServidor,
 } from "../respaldo-base";
 
 let dir: string;
@@ -59,5 +60,52 @@ describe("respaldo completo de la base", () => {
       `${PREFIJO_RESPALDO}2026-01-03T00-00-00-000Z.json.gz`,
       `${PREFIJO_RESPALDO}2026-01-02T00-00-00-000Z.json.gz`,
     ]);
+  });
+});
+
+describe("copia fuera del servidor", () => {
+  it("sin destino configurado no hace nada", async () => {
+    const anteriorUrl = process.env.RESPALDO_DESTINO_URL;
+    delete process.env.RESPALDO_DESTINO_URL;
+    const f = path.join(dir, "x.json.gz");
+    fs.writeFileSync(f, "x");
+    const r = await copiarRespaldoFueraDelServidor(f);
+    expect(r.omitido).toBe(true);
+    process.env.RESPALDO_DESTINO_URL = anteriorUrl;
+  });
+
+  it("sube el archivo íntegro al destino con el token", async () => {
+    const http = await import("node:http");
+    const recibido: { body?: Buffer; auth?: string; url?: string } = {};
+    const srv = http.createServer((req, res) => {
+      const trozos: Buffer[] = [];
+      req.on("data", (c) => trozos.push(c));
+      req.on("end", () => {
+        recibido.body = Buffer.concat(trozos);
+        recibido.auth = req.headers.authorization;
+        recibido.url = req.url;
+        res.writeHead(201).end();
+      });
+    });
+    await new Promise<void>((ok) => srv.listen(0, "127.0.0.1", () => ok()));
+    const port = (srv.address() as any).port;
+    const anteriorUrl = process.env.RESPALDO_DESTINO_URL;
+    const anteriorTok = process.env.RESPALDO_DESTINO_TOKEN;
+    process.env.RESPALDO_DESTINO_URL = `http://127.0.0.1:${port}/copias/`;
+    process.env.RESPALDO_DESTINO_TOKEN = "tok-prueba";
+    try {
+      const f = path.join(dir, `${PREFIJO_RESPALDO}prueba.json.gz`);
+      const contenido = zlib.gzipSync('{"a":1}');
+      fs.writeFileSync(f, contenido);
+      const r = await copiarRespaldoFueraDelServidor(f);
+      expect(r.ok).toBe(true);
+      expect(recibido.url).toBe(`/copias/${PREFIJO_RESPALDO}prueba.json.gz`);
+      expect(recibido.auth).toBe("Bearer tok-prueba");
+      expect(Buffer.compare(recibido.body!, contenido)).toBe(0);
+    } finally {
+      process.env.RESPALDO_DESTINO_URL = anteriorUrl;
+      process.env.RESPALDO_DESTINO_TOKEN = anteriorTok;
+      await new Promise<void>((ok) => srv.close(() => ok()));
+    }
   });
 });

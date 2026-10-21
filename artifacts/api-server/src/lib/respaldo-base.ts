@@ -153,6 +153,27 @@ export function aplicarRetencion(conservar: number): number {
 }
 
 /**
+ * Copia un respaldo fuera del servidor: HTTP PUT a `${RESPALDO_DESTINO_URL}/<archivo>`
+ * con `Authorization: Bearer RESPALDO_DESTINO_TOKEN` si existe. Sirve para WebDAV, un
+ * endpoint propio o un prefijo firmado de almacenamiento. Sin destino configurado, no hace nada.
+ */
+export async function copiarRespaldoFueraDelServidor(ruta: string): Promise<{ ok: boolean; omitido?: boolean; error?: string }> {
+  const base = (process.env.RESPALDO_DESTINO_URL || "").replace(/\/+$/, "");
+  if (!base) return { ok: true, omitido: true };
+  try {
+    const cuerpo = fs.readFileSync(ruta);
+    const cabeceras: Record<string, string> = { "Content-Type": "application/gzip" };
+    if (process.env.RESPALDO_DESTINO_TOKEN) cabeceras.Authorization = `Bearer ${process.env.RESPALDO_DESTINO_TOKEN}`;
+    const destino = `${base}/${encodeURIComponent(path.basename(ruta))}`;
+    const r = await fetch(destino, { method: "PUT", headers: cabeceras, body: cuerpo, signal: AbortSignal.timeout(120_000) });
+    if (!r.ok) return { ok: false, error: `destino respondió HTTP ${r.status}` };
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+}
+
+/**
  * Programa respaldos periódicos. Se apaga con RESPALDO_ACTIVO=false.
  * RESPALDO_CADA_HORAS (defecto 24) y RESPALDO_CONSERVAR (defecto 14).
  */
@@ -166,6 +187,10 @@ export function iniciarRespaldosPeriodicos(motor: "postgres" | "sqlite"): NodeJS
     if (r.ok) {
       const borrados = aplicarRetencion(conservar);
       console.log(`[RESPALDO] ${r.filas} filas en ${r.tablas} tablas → ${r.ruta} (retención: -${borrados})`);
+      const copia = await copiarRespaldoFueraDelServidor(r.ruta!);
+      if (copia.omitido) console.warn("[RESPALDO] sin copia fuera del servidor: falta RESPALDO_DESTINO_URL");
+      else if (!copia.ok) console.error(`[RESPALDO] la copia fuera del servidor FALLÓ: ${copia.error}`);
+      else console.log("[RESPALDO] copia fuera del servidor OK");
     } else {
       console.error(`[RESPALDO] FALLÓ: ${r.error}`);
     }

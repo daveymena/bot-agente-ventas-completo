@@ -14,12 +14,18 @@
 | `RESPALDO_CADA_HORAS` | 24 | frecuencia |
 | `RESPALDO_CONSERVAR` | 14 | cuántos respaldos guardar |
 | `BACKUP_DIR` | `data/backups` | dónde se guardan |
+| `RESPALDO_DESTINO_URL` | (vacío) | **copia fuera del servidor**: cada respaldo se sube por PUT a `<URL>/<archivo>` |
+| `RESPALDO_DESTINO_TOKEN` | (vacío) | se envía como `Authorization: Bearer` |
 
 ## ⚠️ Lo que el sistema NO resuelve solo
 Un respaldo en el mismo disco que la base **no protege** si se pierde el disco o el contenedor.
-Hay que copiar `BACKUP_DIR` fuera del servidor: un volumen aparte de EasyPanel montado en ese
-directorio, o una copia periódica a otro almacenamiento. Sin esto, el respaldo sirve para un
-error de datos, no para una caída del servidor.
+Con `RESPALDO_DESTINO_URL` configurado, cada respaldo se sube también a ese destino. Sin esa
+variable el sistema lo avisa en el log en cada corrida: sin copia externa, el respaldo sirve
+para un error de datos, no para una caída del servidor.
+
+El destino tiene que aceptar `PUT` (WebDAV, un endpoint propio, o un prefijo de almacenamiento
+con URL firmada). Un bucket S3 requiere firma por objeto; si se usa uno, hay que apuntar a un
+endpoint que firme o a una URL prefirmada.
 
 Los respaldos contienen datos de clientes. No los subas a git (ya están en `.gitignore`) ni los
 compartas sin cifrar.
