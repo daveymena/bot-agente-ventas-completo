@@ -182,8 +182,8 @@ export class AnalyticsEngine {
         .where(
           and(
             eq(leads.tenantId, this.tenant.id),
-            gte(leads.createdAt, startDate.toISOString()),
-            lte(leads.createdAt, endDate.toISOString())
+            gte(leads.createdAt, startDate),
+            lte(leads.createdAt, endDate)
           )
         );
 
@@ -277,8 +277,8 @@ export class AnalyticsEngine {
         .where(
           and(
             eq(conversations.tenantId, this.tenant.id),
-            gte(messages.createdAt, startDate.toISOString()),
-            lte(messages.createdAt, endDate.toISOString())
+            gte(messages.createdAt, startDate),
+            lte(messages.createdAt, endDate)
           )
         )
         .groupBy(messages.role, messages.createdAt);
@@ -319,8 +319,8 @@ export class AnalyticsEngine {
         .where(
           and(
             eq(conversations.tenantId, this.tenant.id),
-            gte(messages.createdAt, startDate.toISOString()),
-            lte(messages.createdAt, endDate.toISOString())
+            gte(messages.createdAt, startDate),
+            lte(messages.createdAt, endDate)
           )
         )
         .orderBy(asc(messages.conversationId), asc(messages.createdAt));
@@ -427,8 +427,8 @@ export class AnalyticsEngine {
         .where(
           and(
             eq(conversations.tenantId, this.tenant.id),
-            gte(conversations.createdAt, startDate.toISOString()),
-            lte(conversations.createdAt, endDate.toISOString())
+            gte(conversations.createdAt, startDate),
+            lte(conversations.createdAt, endDate)
           )
         );
 
@@ -474,7 +474,7 @@ export class AnalyticsEngine {
           .where(
             and(
               eq(conversations.tenantId, this.tenant.id),
-              lte(conversations.createdAt, startDate.toISOString()),
+              lte(conversations.createdAt, startDate),
               inArray(conversations.contactPhone, phonesInWindow)
             )
           );
@@ -498,8 +498,8 @@ export class AnalyticsEngine {
           and(
             eq(conversations.tenantId, this.tenant.id),
             eq(messages.role, "customer"),
-            gte(messages.createdAt, startDate.toISOString()),
-            lte(messages.createdAt, endDate.toISOString()),
+            gte(messages.createdAt, startDate),
+            lte(messages.createdAt, endDate),
             sql`${messages.content} LIKE '%?%'`
           )
         );
@@ -591,8 +591,8 @@ export class AnalyticsEngine {
                 eq(payments.tenantId, this.tenant.id),
                 eq(payments.status, "confirmed"),
                 inArray(payments.productId, productIds),
-                gte(payments.createdAt, startDate.toISOString()),
-                lte(payments.createdAt, endDate.toISOString())
+                gte(payments.createdAt, startDate),
+                lte(payments.createdAt, endDate)
               )
             )
             .groupBy(payments.productId)
@@ -655,7 +655,7 @@ export class AnalyticsEngine {
           and(
             eq(conversations.tenantId, this.tenant.id),
             eq(messages.role, "assistant"),
-            gte(messages.createdAt, oneDayAgo.toISOString())
+            gte(messages.createdAt, oneDayAgo)
           )
         );
       const lastSeenByProvider = new Map<string, Date>();
@@ -683,12 +683,12 @@ export class AnalyticsEngine {
         .select({ count: sql<number>`count(*)` })
         .from(messages)
         .innerJoin(conversations, eq(messages.conversationId, conversations.id))
-        .where(and(eq(conversations.tenantId, this.tenant.id), eq(messages.role, "assistant"), gte(messages.createdAt, oneDayAgo.toISOString())));
+        .where(and(eq(conversations.tenantId, this.tenant.id), eq(messages.role, "assistant"), gte(messages.createdAt, oneDayAgo)));
       const [receivedCount] = await db
         .select({ count: sql<number>`count(*)` })
         .from(messages)
         .innerJoin(conversations, eq(messages.conversationId, conversations.id))
-        .where(and(eq(conversations.tenantId, this.tenant.id), eq(messages.role, "customer"), gte(messages.createdAt, oneDayAgo.toISOString())));
+        .where(and(eq(conversations.tenantId, this.tenant.id), eq(messages.role, "customer"), gte(messages.createdAt, oneDayAgo)));
       const whatsappHealth = {
         status: (waConnected ? 'connected' : 'disconnected') as 'connected' | 'disconnected' | 'error',
         messagesSent: Number(sentCount?.count) || 0,
