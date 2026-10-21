@@ -98,7 +98,7 @@ class AuthManager:
         # Auto-seed: Insertar las claves fijas del usuario si no existen
         default_keys = [
             ("sk_y8Fg5Ccoox-lVH0O8s1qzHaD6b6zrNNVExAxx_pcNZE", "Clave Principal 1"),
-            ("sk-WjeGlHujmGmDGBO1te2YM3sNGCgR72Ms650Lu5SL6gjacIP9Surmrarz5fUA4lfG", "Clave Principal 2")
+            ("sk-REEMPLAZA_CON_TU_CLAVE", "Clave Principal 2")
         ]
         
         for fixed_key, key_name in default_keys:
