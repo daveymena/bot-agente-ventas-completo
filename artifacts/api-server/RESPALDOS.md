@@ -1,6 +1,7 @@
 # Respaldos de la base
 
 ## Qué hace el sistema
+- Cada respaldo se **cifra** con AES-256-GCM (clave derivada de `RESPALDO_CLAVE` con scrypt) antes de tocar el disco. Un archivo alterado no se puede abrir.
 - Al arrancar, a los 5 minutos programa un respaldo y luego uno cada `RESPALDO_CADA_HORAS` (defecto 24).
 - Cada respaldo exporta **todas** las tablas del esquema a `base-<fecha>.json.gz`, con un manifiesto de conteos.
 - Después de escribir, el archivo se **relee y se compara** con el manifiesto. Si no cuadra, se borra y se avisa.
@@ -10,6 +11,7 @@
 ## Variables de entorno
 | Variable | Defecto | Qué hace |
 |---|---|---|
+| `RESPALDO_CLAVE` | **obligatoria** (≥16 caracteres) | clave de cifrado de los respaldos. Sin ella no se crea ningún respaldo |
 | `RESPALDO_ACTIVO` | activo | `false` lo apaga |
 | `RESPALDO_CADA_HORAS` | 24 | frecuencia |
 | `RESPALDO_CONSERVAR` | 14 | cuántos respaldos guardar |
@@ -27,8 +29,13 @@ El destino tiene que aceptar `PUT` (WebDAV, un endpoint propio, o un prefijo de 
 con URL firmada). Un bucket S3 requiere firma por objeto; si se usa uno, hay que apuntar a un
 endpoint que firme o a una URL prefirmada.
 
-Los respaldos contienen datos de clientes. No los subas a git (ya están en `.gitignore`) ni los
-compartas sin cifrar.
+Los respaldos contienen datos de clientes. Están cifrados, pero la clave es lo que los protege:
+
+- **Guarda `RESPALDO_CLAVE` en tu gestor de contraseñas**, no en EasyPanel junto a la base. Si el
+  servidor y la clave se pierden juntos, los respaldos son inútiles para siempre; si la clave se
+  pierde sola, lo mismo.
+- No cambies la clave sin conservar la anterior: los respaldos viejos se abren solo con la que los creó.
+- Nunca subas respaldos a git (ya están en `.gitignore`).
 
 ## Probar que se pueden restaurar
 Un respaldo que nunca se restauró es una suposición. Una vez al mes:

@@ -1,23 +1,31 @@
 /**
  * Respaldo completo de la base, en Node (sin pg_dump: la imagen de producción
- * no lo trae). Exporta TODAS las tablas del esquema, comprimidas, con un
- * manifiesto de conteos para poder verificar que el archivo se puede leer.
+ * no lo trae). Exporta TODAS las tablas, las comprime y las CIFRA antes de
+ * escribir nada a disco.
  *
- * Retención: se conservan los N respaldos más recientes; los demás se borran.
+ * Formato del archivo (.json.gz.enc):
+ *   "VPB1" (4) | salt (16) | iv (12) | tag (16) | ciphertext
+ *   AES-256-GCM, clave = scrypt(RESPALDO_CLAVE, salt). Cualquier alteración
+ *   del archivo hace fallar el descifrado.
  *
- * ⚠️ Un respaldo que vive en el mismo disco que la base no protege contra la
- * pérdida del disco. Para eso hay que copiar `BACKUP_DIR` a otro lugar (un
- * volumen aparte o almacenamiento externo) — ver RESPALDOS.md.
+ * Sin RESPALDO_CLAVE no se crea ningún respaldo: es preferible no tenerlo a
+ * tener una copia de datos de clientes en claro.
+ *
+ * ⚠️ La clave NO debe vivir en el mismo servidor que la base. Guárdala en tu
+ * gestor de contraseñas. Si se pierde, los respaldos no se pueden abrir.
  */
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
+import crypto from "node:crypto";
 import { getTableName } from "drizzle-orm";
 import { db } from "@workspace/db";
 import * as esquema from "@workspace/db";
 
 export const PREFIJO_RESPALDO = "base-";
-const EXTENSION = ".json.gz";
+const EXTENSION = ".json.gz.enc";
+const MAGIA = Buffer.from("VPB1");
+const LARGO_MIN_CLAVE = 16;
 
 export interface ManifiestoRespaldo {
   version: 1;
@@ -36,11 +44,46 @@ export interface ResultadoRespaldo {
   error?: string;
 }
 
+// ── Cifrado ────────────────────────────────────────────────────────────────
+
+function claveDeCifrado(): string {
+  const clave = process.env.RESPALDO_CLAVE || "";
+  if (clave.length < LARGO_MIN_CLAVE) {
+    throw new Error(`RESPALDO_CLAVE no está definida o tiene menos de ${LARGO_MIN_CLAVE} caracteres`);
+  }
+  return clave;
+}
+
+export function cifrarRespaldo(texto: Buffer, clave: string): Buffer {
+  const salt = crypto.randomBytes(16);
+  const iv = crypto.randomBytes(12);
+  const key = crypto.scryptSync(clave, salt, 32);
+  const cifrador = crypto.createCipheriv("aes-256-gcm", key, iv);
+  const cuerpo = Buffer.concat([cifrador.update(texto), cifrador.final()]);
+  return Buffer.concat([MAGIA, salt, iv, cifrador.getAuthTag(), cuerpo]);
+}
+
+export function descifrarRespaldo(archivo: Buffer, clave: string): Buffer {
+  if (archivo.length < 4 + 16 + 12 + 16 || !archivo.subarray(0, 4).equals(MAGIA)) {
+    throw new Error("el archivo no es un respaldo cifrado válido");
+  }
+  const salt = archivo.subarray(4, 20);
+  const iv = archivo.subarray(20, 32);
+  const tag = archivo.subarray(32, 48);
+  const cuerpo = archivo.subarray(48);
+  const key = crypto.scryptSync(clave, salt, 32);
+  const descifrador = crypto.createDecipheriv("aes-256-gcm", key, iv);
+  descifrador.setAuthTag(tag);
+  return Buffer.concat([descifrador.update(cuerpo), descifrador.final()]);
+}
+
+// ── Esquema y directorios ──────────────────────────────────────────────────
+
 /** Tablas del esquema: los exports de @workspace/db que son tablas de drizzle. */
 export function tablasDelEsquema(): Array<{ nombre: string; tabla: any }> {
   const vistas = new Set<unknown>();
   const out: Array<{ nombre: string; tabla: any }> = [];
-  for (const [clave, valor] of Object.entries(esquema)) {
+  for (const [, valor] of Object.entries(esquema)) {
     if (!valor || typeof valor !== "object" || vistas.has(valor)) continue;
     let nombre: string | null = null;
     try {
@@ -65,9 +108,12 @@ function esTablaAusente(e: any): boolean {
   return e?.code === "42P01" || /no such table|does not exist/i.test(msg);
 }
 
-/** Crea un respaldo completo y devuelve su ruta. Nunca borra nada. */
+// ── Crear y verificar ──────────────────────────────────────────────────────
+
+/** Crea un respaldo cifrado y devuelve su ruta. Nunca borra nada. */
 export async function crearRespaldoBase(motor: "postgres" | "sqlite" = "postgres"): Promise<ResultadoRespaldo> {
   try {
+    const clave = claveDeCifrado();
     const dir = directorioRespaldos();
     fs.mkdirSync(dir, { recursive: true });
 
@@ -94,11 +140,11 @@ export async function crearRespaldoBase(motor: "postgres" | "sqlite" = "postgres
 
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const ruta = path.join(dir, `${PREFIJO_RESPALDO}${stamp}${EXTENSION}`);
-    const cuerpo = JSON.stringify({ manifiesto, tablas });
-    // Se escribe a un temporal y se renombra: un corte a mitad de escritura no deja
-    // un respaldo corrupto que parezca válido.
+    const abierto = zlib.gzipSync(Buffer.from(JSON.stringify({ manifiesto, tablas })));
+    const cifrado = cifrarRespaldo(abierto, clave);
+    // Temporal + renombrado: un corte a mitad de escritura no deja un respaldo a medias.
     const tmp = `${ruta}.tmp`;
-    fs.writeFileSync(tmp, zlib.gzipSync(cuerpo));
+    fs.writeFileSync(tmp, cifrado);
     fs.renameSync(tmp, ruta);
 
     const verificacion = verificarRespaldo(ruta);
@@ -117,11 +163,12 @@ export async function crearRespaldoBase(motor: "postgres" | "sqlite" = "postgres
   }
 }
 
-/** Relee un respaldo y compara sus filas con el manifiesto. */
+/** Descifra, descomprime y compara las filas con el manifiesto. */
 export function verificarRespaldo(ruta: string): { ok: boolean; error?: string; manifiesto?: ManifiestoRespaldo } {
   try {
-    const crudo = zlib.gunzipSync(fs.readFileSync(ruta)).toString("utf8");
-    const { manifiesto, tablas } = JSON.parse(crudo) as { manifiesto: ManifiestoRespaldo; tablas: Record<string, any[]> };
+    const clave = claveDeCifrado();
+    const abierto = zlib.gunzipSync(descifrarRespaldo(fs.readFileSync(ruta), clave)).toString("utf8");
+    const { manifiesto, tablas } = JSON.parse(abierto) as { manifiesto: ManifiestoRespaldo; tablas: Record<string, any[]> };
     for (const [nombre, esperadas] of Object.entries(manifiesto.tablas)) {
       const reales = Array.isArray(tablas[nombre]) ? tablas[nombre].length : -1;
       if (reales !== esperadas) return { ok: false, error: `${nombre}: manifiesto ${esperadas}, archivo ${reales}` };
@@ -152,17 +199,19 @@ export function aplicarRetencion(conservar: number): number {
   return viejos.length;
 }
 
+// ── Copia fuera del servidor ───────────────────────────────────────────────
+
 /**
- * Copia un respaldo fuera del servidor: HTTP PUT a `${RESPALDO_DESTINO_URL}/<archivo>`
- * con `Authorization: Bearer RESPALDO_DESTINO_TOKEN` si existe. Sirve para WebDAV, un
- * endpoint propio o un prefijo firmado de almacenamiento. Sin destino configurado, no hace nada.
+ * Copia un respaldo cifrado fuera del servidor: HTTP PUT a `${RESPALDO_DESTINO_URL}/<archivo>`
+ * con `Authorization: Bearer RESPALDO_DESTINO_TOKEN` si existe. Sin destino, no hace nada.
+ * (Para S3/B2 hace falta firma SigV4 o una URL prefirmada: ver RESPALDOS.md.)
  */
 export async function copiarRespaldoFueraDelServidor(ruta: string): Promise<{ ok: boolean; omitido?: boolean; error?: string }> {
   const base = (process.env.RESPALDO_DESTINO_URL || "").replace(/\/+$/, "");
   if (!base) return { ok: true, omitido: true };
   try {
     const cuerpo = fs.readFileSync(ruta);
-    const cabeceras: Record<string, string> = { "Content-Type": "application/gzip" };
+    const cabeceras: Record<string, string> = { "Content-Type": "application/octet-stream" };
     if (process.env.RESPALDO_DESTINO_TOKEN) cabeceras.Authorization = `Bearer ${process.env.RESPALDO_DESTINO_TOKEN}`;
     const destino = `${base}/${encodeURIComponent(path.basename(ruta))}`;
     const r = await fetch(destino, { method: "PUT", headers: cabeceras, body: cuerpo, signal: AbortSignal.timeout(120_000) });
@@ -172,6 +221,8 @@ export async function copiarRespaldoFueraDelServidor(ruta: string): Promise<{ ok
     return { ok: false, error: e?.message || String(e) };
   }
 }
+
+// ── Programación ───────────────────────────────────────────────────────────
 
 /**
  * Programa respaldos periódicos. Se apaga con RESPALDO_ACTIVO=false.
@@ -184,16 +235,16 @@ export function iniciarRespaldosPeriodicos(motor: "postgres" | "sqlite"): NodeJS
 
   const correr = async () => {
     const r = await crearRespaldoBase(motor);
-    if (r.ok) {
-      const borrados = aplicarRetencion(conservar);
-      console.log(`[RESPALDO] ${r.filas} filas en ${r.tablas} tablas → ${r.ruta} (retención: -${borrados})`);
-      const copia = await copiarRespaldoFueraDelServidor(r.ruta!);
-      if (copia.omitido) console.warn("[RESPALDO] sin copia fuera del servidor: falta RESPALDO_DESTINO_URL");
-      else if (!copia.ok) console.error(`[RESPALDO] la copia fuera del servidor FALLÓ: ${copia.error}`);
-      else console.log("[RESPALDO] copia fuera del servidor OK");
-    } else {
+    if (!r.ok) {
       console.error(`[RESPALDO] FALLÓ: ${r.error}`);
+      return;
     }
+    const borrados = aplicarRetencion(conservar);
+    console.log(`[RESPALDO] ${r.filas} filas en ${r.tablas} tablas, cifrado → ${r.ruta} (retención: -${borrados})`);
+    const copia = await copiarRespaldoFueraDelServidor(r.ruta!);
+    if (copia.omitido) console.warn("[RESPALDO] sin copia fuera del servidor: falta RESPALDO_DESTINO_URL");
+    else if (!copia.ok) console.error(`[RESPALDO] la copia fuera del servidor FALLÓ: ${copia.error}`);
+    else console.log("[RESPALDO] copia fuera del servidor OK");
   };
   // Primer respaldo a los 5 minutos del arranque, luego cada N horas.
   setTimeout(correr, 5 * 60 * 1000).unref();
