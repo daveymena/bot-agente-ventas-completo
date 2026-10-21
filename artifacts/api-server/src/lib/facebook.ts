@@ -2727,7 +2727,7 @@ Responde SOLO con este JSON exacto:
     }
   }
 
-  private async fbPost(endpoint: string, body: Record<string, any>, step?: string, token?: string): Promise<any> {
+  async fbPost(endpoint: string, body: Record<string, any>, step?: string, token?: string): Promise<any> {
     const ESPERAS_MS = [1200, 3000];
     for (let intento = 0; ; intento++) {
       try {
@@ -2784,7 +2784,7 @@ Responde SOLO con este JSON exacto:
     return data;
   }
 
-  private async fbGet(endpoint: string, query: Record<string, string> = {}, token?: string): Promise<any> {
+  async fbGet(endpoint: string, query: Record<string, string> = {}, token?: string): Promise<any> {
     const params = new URLSearchParams({ access_token: token || this.config.accessToken, ...query });
     const res = await fetch(`${FB_GRAPH_URL}/${endpoint}?${params}`, { signal: AbortSignal.timeout(15000) });
     const data: any = await res.json();

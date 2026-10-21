@@ -407,7 +407,7 @@ router.post("/architect", async (req: TenantRequest, res, next) => {
           await db.update(settings)
             .set({ 
               copilotSessionToken: session.token,
-              copilotSessionExpiresAt: new Date(session.expires_at).toISOString()
+              copilotSessionExpiresAt: new Date(session.expiresAt).toISOString()
             })
             .where(eq(settings.id, dbSettings!.id));
         }
@@ -888,7 +888,7 @@ router.post("/visual-architect", async (req: TenantRequest, res, next) => {
           await db.update(settings)
             .set({ 
               copilotSessionToken: session.token,
-              copilotSessionExpiresAt: new Date(session.expires_at).toISOString()
+              copilotSessionExpiresAt: new Date(session.expiresAt).toISOString()
             })
             .where(eq(settings.id, dbSettings!.id));
         }

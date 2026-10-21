@@ -1232,8 +1232,9 @@ export async function validarContenidoAnuncio(
   }
   const marcador = textosDelAnuncio.match(/\[[^\]]{2,40}\]|\{\{[^}]{2,40}\}\}|\bXXX+\b|<[A-ZÁÉÍÓÚÑ\s_]{3,30}>/);
   if (marcador) {
-    const tenant = await tenantManager.getTenantById(ctx.tenantId);
-    const numeroReal = tenant?.whatsappNumber || "";
+    // El número del negocio vive en tenants.contactPhone (lo mismo que usa ad-growth-agent).
+    const [filaNegocio] = await db.select({ contactPhone: tenants.contactPhone }).from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
+    const numeroReal = String(filaNegocio?.contactPhone || "").replace(/[^0-9]/g, "");
     // El enlace de la tienda/producto es el marcador que más aparece, y es
     // el único que el modelo NO puede deducir: lo arma el backend. Antes se
     // le decía "poné el dato real" sin decirle cuál, y el modelo improvisaba
@@ -8807,7 +8808,8 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
         const meta: any = (tenant as any)?.metadata || {};
         const fbMeta = { ...(meta.facebook || {}), pixelId: r.pixelId };
         await db.update(tenants).set({ metadata: { ...meta, facebook: fbMeta } as any }).where(eq(tenants.id, ctx.tenantId));
-        tenantManager.invalidate?.(ctx.tenantId);
+        // clearCache(slug): invalida la caché del negocio para que el próximo turno lea el píxel nuevo.
+        tenantManager.clearCache((tenant as any)?.slug);
       } catch (e: any) {
         return { ok: true, summary: `${r.message} ⚠️ Pero NO se pudo guardar en la app (${e?.message || e}): cargá el píxel ${r.pixelId} a mano en la sección Facebook del panel.` };
       }
@@ -10796,7 +10798,7 @@ async function generateImageUrl(prompt: string, size: string): Promise<string | 
         // la imagen. 30s alcanza de sobra para una generación normal.
         signal: AbortSignal.timeout(30000),
       });
-      const data = await resp.json();
+      const data: any = await resp.json();
       const url = data?.data?.[0]?.url;
       if (url) return url;
     } catch (e: any) {
