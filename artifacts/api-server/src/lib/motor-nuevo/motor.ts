@@ -651,7 +651,8 @@ export async function responder(params: {
   // CEREBRO: razonar antes de responder
   const ctxRazonamiento: ContextoRazonamiento = {
     mensajeActual: mensajeDelClienteActual,
-    intentDelCliente: estado.intent || "desconocido",
+    // motor-nuevo todavía no clasifica la intención por turno: se declara, no se lee de un campo inexistente.
+    intentDelCliente: "sin_clasificar",
     estadoConversacion: estado,
     historial: historialParaRazonador.slice(-10), // Últimos 10 para contexto
     productoEnFoco: estado.productoEnFoco
@@ -678,7 +679,7 @@ export async function responder(params: {
     razonamientoDelCerebro = await razonar(ctxRazonamiento);
     traza.push({
       herramienta: "[CEREBRO:razonador]",
-      args: { intent: estado.intent },
+      args: { intent: "sin_clasificar" },
       resultado: `Confianza: ${razonamientoDelCerebro.confianza.toFixed(0)}% | Escalada: ${razonamientoDelCerebro.escalada}`,
     });
 

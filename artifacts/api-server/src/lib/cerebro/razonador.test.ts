@@ -1,9 +1,27 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { razonar, UMBRAL_CONFIANZA_AUTO } from "./razonador";
 import type { ContextoRazonamiento } from "./tipos-razonamiento";
 
 describe("razonador", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("genera 3 opciones y elige la mejor con confianza > 80%", async () => {
+    // Respuesta fija del proveedor: el test no depende de red ni de una clave real.
+    const opciones = [
+      { texto: "El corrector cuesta $89.000 COP.", estilo: "directo", razonamiento: "responde el precio" },
+      { texto: "Te cuento qué incluye antes del precio.", estilo: "consultivo", razonamiento: "descubre necesidad" },
+      { texto: "Si quieres, te envío el enlace de compra.", estilo: "cierre", razonamiento: "pasa a la acción" },
+    ];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ choices: [{ message: { content: JSON.stringify({ opciones }) } }] }),
+      })),
+    );
     const ctx: ContextoRazonamiento = {
       mensajeActual: "¿Cuál es el precio del corrector de postura?",
       intentDelCliente: "consultar_precio",
@@ -13,7 +31,7 @@ describe("razonador", () => {
         { role: "assistant", content: "Tenemos correctores de postura, cinturones y almohadas." },
       ],
       productoEnFoco: { id: 5, nombre: "Corrector Lumbar Pro", precio: 89000 },
-      catálogo: [{ id: 5, nombre: "Corrector Lumbar Pro", precio: 89000 }],
+      catalogo: [{ id: 5, nombre: "Corrector Lumbar Pro", precio: 89000 }],
       conocimientoCargado: [
         {
           pregunta: "¿Cuál es el precio?",
@@ -38,7 +56,7 @@ describe("razonador", () => {
       estadoConversacion: {},
       historial: [],
       productoEnFoco: { id: 1, nombre: "Producto", precio: 50000 },
-      catálogo: [],
+      catalogo: [],
       conocimientoCargado: [], // Sin conocimiento = riesgo de inventar precio
     };
 
@@ -63,7 +81,7 @@ describe("razonador", () => {
         { role: "user", content: "Pero ¿puedo probarlo?" },
       ],
       productoEnFoco: null,
-      catálogo: [],
+      catalogo: [],
       conocimientoCargado: [],
     };
 
@@ -83,7 +101,7 @@ describe("razonador", () => {
       estadoConversacion: {},
       historial: [],
       productoEnFoco: null,
-      catálogo: [],
+      catalogo: [],
       conocimientoCargado: [],
     };
 
@@ -104,7 +122,7 @@ describe("razonador", () => {
         { role: "assistant", content: "Entiendo, el corrector es lo mejor para eso." },
       ],
       productoEnFoco: { id: 5, nombre: "Corrector", precio: 89000 },
-      catálogo: [{ id: 5, nombre: "Corrector", precio: 89000 }],
+      catalogo: [{ id: 5, nombre: "Corrector", precio: 89000 }],
       conocimientoCargado: [{ pregunta: "¿Qué es lo mejor?", respuesta: "El corrector" }],
     };
 
