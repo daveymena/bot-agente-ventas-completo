@@ -164,3 +164,11 @@ Hecho y probado (39 pruebas en verde):
 - Estado de conexión por negocio (meta/estado-conexion.ts): token inválido → requiere_reconexion con código y mensaje; un trabajo exitoso lo devuelve a ok. El panel lo lee de meta_estado_conexion. 5 pruebas nuevas (48 en total en verde).
 - Códigos 4, 17, 32 y 613 confirmados como límites de uso en la documentación de Meta (developers.facebook.com, Rate Limits). Los códigos de la familia 80000 no tienen una tabla oficial clara en las fuentes consultadas; el código los trata como límites de uso (reintentables), que es la categoría correcta. Pendiente: confirmar en la documentación BUC.
 - Pendiente real: migrar las escrituras (crear, pausar, cambiar presupuesto) a la cola. Cambia respuestas síncronas de la interfaz y requiere pruebas por flujo; no se hizo a ciegas.
+
+### Actualización: exclusión de escrituras por cuenta
+- meta/bloqueo-cuenta.ts: bloqueo consultivo de Postgres por (negocio, cuenta). Una escritura a la vez por cuenta en todas las instancias. Mientras espera no retiene conexión del pool. Si no puede desbloquear, destruye la conexión para que Postgres libere el bloqueo. Espera máxima 25 s, luego error "cuenta ocupada".
+- meta/escritura-global.ts: wrapper de fetch que aplica el bloqueo a todo POST/DELETE/PUT/PATCH contra act_… en graph.facebook.com. Se instala al arrancar la API (index.ts). Apagable con META_EXCLUSION_CUENTA=false.
+- FacebookService.fbPost: bloqueo adicional por negocio y cuenta. Mismo orden de bloqueos (negocio primero, global después), sin ciclos.
+- Usos de cuota alta (>=80 %) se registran en el log desde fbPostUnaVez.
+- Pruebas: 61 en verde. El pool simulado valida la lógica de exclusión; el comportamiento entre conexiones reales de Postgres falta confirmarlo en una base de prueba.
+- Limitación: escrituras a objetos sueltos (campañas, conjuntos y anuncios por id, fuera de FacebookService) no se serializan por cuenta, porque el id del objeto no revela la cuenta sin una consulta extra.

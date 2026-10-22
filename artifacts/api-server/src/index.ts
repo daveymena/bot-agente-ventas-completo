@@ -52,6 +52,17 @@ async function start() {
   // Non-blocking database migrations (fires in background)
   runAutoMigrations().catch(() => {});
 
+  // Una escritura por cuenta publicitaria a la vez, en todas las instancias
+  // (ver lib/meta/escritura-global.ts). Apagable con META_EXCLUSION_CUENTA=false.
+  if (process.env.META_EXCLUSION_CUENTA !== "false") {
+    const { pool: poolDb } = await import("@workspace/db");
+    if (poolDb) {
+      const { instalarExclusionDeEscrituras } = await import("./lib/meta/escritura-global");
+      instalarExclusionDeEscrituras(poolDb as unknown as Parameters<typeof instalarExclusionDeEscrituras>[0]);
+      logger.info("Exclusión por cuenta publicitaria activa");
+    }
+  }
+
   // Claves de IA guardadas desde la pantalla de Configuración: se vuelcan al
   // entorno para que los proveedores las usen igual que las del .env.
   try {

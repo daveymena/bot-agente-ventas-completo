@@ -5,6 +5,8 @@ import { destinoWebDelProducto } from "./landing/destino-del-producto";
 import { db, products, pool } from "@workspace/db";
 import { historicoDesdeTabla } from "./meta/metricas";
 import { sqlDesdePool } from "./meta/sql-pool";
+import { conExclusionDeCuenta, type PoolBloqueo } from "./meta/bloqueo-cuenta";
+import { leerUso } from "./meta/graph";
 import { eq } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
 
@@ -2763,7 +2765,27 @@ Responde SOLO con este JSON exacto:
     }
   }
 
+  /**
+   * Toda escritura a Meta pasa por aquí. Con Postgres disponible, una sola
+   * escritura por cuenta a la vez en todas las instancias (ver meta/bloqueo-cuenta.ts).
+   * Sin Postgres, o con META_EXCLUSION_CUENTA=false, se escribe como antes.
+   */
   private async fbPost(endpoint: string, body: Record<string, any>, step?: string, token?: string): Promise<any> {
+    if (!pool || process.env.META_EXCLUSION_CUENTA === "false") {
+      return this.fbPostConReintentos(endpoint, body, step, token);
+    }
+    const cuenta = this.config.adAccountId
+      ? (String(this.config.adAccountId).startsWith("act_") ? String(this.config.adAccountId) : `act_${this.config.adAccountId}`)
+      : `pagina:${this.config.pageId || "global"}`;
+    return conExclusionDeCuenta(
+      pool as unknown as PoolBloqueo,
+      Number(this.tenant.id),
+      cuenta,
+      () => this.fbPostConReintentos(endpoint, body, step, token),
+    );
+  }
+
+  private async fbPostConReintentos(endpoint: string, body: Record<string, any>, step?: string, token?: string): Promise<any> {
     const ESPERAS_MS = [1200, 3000];
     for (let intento = 0; ; intento++) {
       try {
@@ -2789,6 +2811,11 @@ Responde SOLO con este JSON exacto:
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(20000),
     });
+    // Cuota de la cuenta: si ya va muy alta, se deja constancia antes del próximo fallo.
+    const uso = leerUso(res.headers);
+    if ((uso.cuentaPorcentaje ?? 0) >= 80 || (uso.appPorcentaje ?? 0) >= 80) {
+      logger.warn({ endpoint, uso }, "[Facebook] Cuota de Meta alta: cerca del límite");
+    }
     const data: any = await res.json();
     if (data.error) {
       const prefix = step ? `[${step}] ` : "";
