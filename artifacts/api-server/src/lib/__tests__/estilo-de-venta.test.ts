@@ -50,9 +50,9 @@ describe("la perilla de calificación cambia el turno", () => {
   // arreglo que este proyecto ya peleó una vez.
   const pidioPrecio = [cliente("hola"), bot("¡Hola! ¿Qué necesitas?"), cliente("cuánto vale el curso de piano?")];
 
-  it('"siempre" (el defecto pro 2026-10-12) averigua primero, aunque le hayan pedido el precio', () => {
+  it("el defecto (2026-10-22) contesta el precio en vez de interrogar", () => {
     const p = proximoPaso({ etapa: "interesado", historial: pidioPrecio, estilo: ESTILO_POR_DEFECTO });
-    expect(p.movimiento).toBe("calificar");
+    expect(p.movimiento).toBe("presentar");
   });
 
   it('"salvo_si_pidio_dato" (equilibrado) le contesta el precio en vez de interrogarlo', () => {
@@ -176,7 +176,8 @@ describe("lo guardado se lee sin romper la venta", () => {
 
 describe("lo que el dueño elige es lo que se guarda", () => {
   it("el id del perfil se traduce a las perillas", () => {
-    expect(estiloElegido("consultivo")).toEqual(ESTILO_POR_DEFECTO);
+    expect(estiloElegido("equilibrado")).toEqual(ESTILO_POR_DEFECTO);
+    expect(estiloElegido("consultivo")!.calificacion).toBe("siempre");
     expect(estiloElegido("equilibrado")!.calificacion).toBe("salvo_si_pidio_dato");
     expect(estiloElegido("directo")!.calificacion).toBe("nunca");
     expect(estiloElegido("consultivo")!.calificacion).toBe("siempre");

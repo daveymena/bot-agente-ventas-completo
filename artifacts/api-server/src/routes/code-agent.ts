@@ -1326,7 +1326,12 @@ router.post("/operator", async (req: TenantRequest, res, next) => {
      * sin streaming responde JSON normal. Todas las salidas del handler pasan
      * por acá para que las dos vías devuelvan lo mismo.
      */
+    // Vista previa del anuncio que devolvió una herramienta en este turno (ver crear_anuncio).
+    let vistaPreviaDelTurno: any = null;
     const finish = (payload: any, status = 200) => {
+      if (vistaPreviaDelTurno && payload && typeof payload === "object" && payload.preview === undefined) {
+        payload = { ...payload, preview: vistaPreviaDelTurno };
+      }
       if (streaming) {
         // Con SSE las cabeceras ya se enviaron, así que no se puede cambiar el
         // código de estado: un fallo se comunica como evento "error" y el
@@ -1669,7 +1674,7 @@ ESTADO REAL DEL CATALOGO, MEDIDO AHORA MISMO (${new Date().toISOString()}):
 
         const results: any[] = [];
         for (const a of actions) {
-          const r = await executeAction(a.tool, a.args || {}, ctx);
+          const r = await executeAction(a.tool, a.args || {}, ctx); if (r?.data?.preview) vistaPreviaDelTurno = r.data.preview;
           results.push({ tool: a.tool, ok: r.ok, summary: r.summary });
           log.push(`${r.ok ? "🔧✅" : "🔧❌"} ${r.summary}`);
           if (a.tool === action.tool && r.ok) {
@@ -1730,7 +1735,7 @@ ESTADO REAL DEL CATALOGO, MEDIDO AHORA MISMO (${new Date().toISOString()}):
         const executed: any[] = [];
         const lines: string[] = [];
         for (const a of pending.actions) {
-          let r = await executeAction(a.tool, a.args || {}, ctx);
+          let r = await executeAction(a.tool, a.args || {}, ctx); if (r?.data?.preview) vistaPreviaDelTurno = r.data.preview;
           let repairLog: string[] = [];
           if (!r.ok && !isUnfixableMetaAccountError(r.summary)) {
             const originalError = r.summary;
@@ -2041,7 +2046,7 @@ ESTADO REAL DEL CATALOGO, MEDIDO AHORA MISMO (${new Date().toISOString()}):
             // Una lectura que explote no debe tumbar todo el paso: se reporta
             // como fallida y el modelo sigue con las demás.
             try {
-              const r = await executeAction(a.tool, a.args || {}, ctx);
+              const r = await executeAction(a.tool, a.args || {}, ctx); if (r?.data?.preview) vistaPreviaDelTurno = r.data.preview;
               return { tool: a.tool, ok: r.ok, summary: r.summary, data: r.data };
             } catch (e: any) {
               logger.warn({ tool: a.tool, err: e?.message }, "[AppOperator] lectura falló");

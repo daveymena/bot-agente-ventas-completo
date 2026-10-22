@@ -60,7 +60,8 @@ export interface EstiloDeVenta {
  * ahora es el que convierte.
  */
 export const ESTILO_POR_DEFECTO: EstiloDeVenta = {
-  calificacion: "siempre",
+  // 2026-10-22: el dueño pidió ir al grano. Responder primero; preguntar solo si hace falta.
+  calificacion: "salvo_si_pidio_dato",
   ganchoVideo: true,
   anteLaDuda: "preguntar_que_frena",
 };
@@ -90,14 +91,14 @@ export const PERFILES: PerfilDeVenta[] = [
     cuandoConviene:
       "Cuando tenés varios productos parecidos y el cliente puede elegir mal, o cuando el ticket es alto y la decisión se piensa. Es el que más convierte por WhatsApp (default).",
     estilo: { calificacion: "siempre", ganchoVideo: true, anteLaDuda: "preguntar_que_frena" },
-    recomendado: true,
   },
   {
     id: "equilibrado",
     etiqueta: "Equilibrado",
     comoSeSiente: "Averigua una cosa antes de presentar, pero si le piden el precio lo da sin rodeos.",
     cuandoConviene: "Para casi cualquier negocio. Antes era el default; ahora es opción para quien quiere calificar solo si no pidió dato.",
-    estilo: { calificacion: "salvo_si_pidio_dato", ganchoVideo: true, anteLaDuda: "algo_concreto" },
+    estilo: { calificacion: "salvo_si_pidio_dato", ganchoVideo: true, anteLaDuda: "preguntar_que_frena" },
+    recomendado: true,
   },
   {
     id: "directo",

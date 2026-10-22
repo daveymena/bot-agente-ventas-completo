@@ -454,6 +454,27 @@ const landingsEnCurso = new Map<number, { tenantId: number; sessionId: string | 
 /** Landings que terminaron y todavía no se le contaron al modelo (por sesión). */
 const landingsPorAvisar = new Map<string, number[]>();
 
+/** Vista previa del anuncio tal como queda guardado el borrador (imagen, texto y botón reales). */
+export async function previewDelBorrador(draftId: number, tenantId: number): Promise<any | null> {
+  const { facebookDrafts } = await import("@workspace/db");
+  const { db } = await import("@workspace/db");
+  const { and, eq } = await import("drizzle-orm");
+  const { construirVistaPreviaAnuncio } = await import("./vista-previa-anuncio");
+  const [f] = await db.select().from(facebookDrafts).where(and(eq(facebookDrafts.id, draftId), eq(facebookDrafts.tenantId, tenantId))).limit(1);
+  if (!f) return null;
+  const imagenes = Array.isArray((f as any).images) && (f as any).images.length ? (f as any).images : [(f as any).imageUrl];
+  return construirVistaPreviaAnuncio({
+    formato: "feed",
+    titulo: (f as any).headline || (f as any).productName,
+    copy: (f as any).primaryText,
+    cta: "Más información",
+    imagenUrl: imagenes[0] || null,
+    paginaUrl: null,
+    html: null,
+    pagina: (f as any).productName,
+  });
+}
+
 function vistaPreviaDeLanding(slug: string): string {
   return `${getAppUrl().replace(/\/$/, "")}/l/${encodeURIComponent(slug)}`;
 }
@@ -8197,7 +8218,7 @@ Siguiente: dropi_importar { dropiProductId } y luego landing_forge_crear { produ
           `⭐ Calidad del copy: ${nota.puntaje}/100${nota.notas.length ? `\n${nota.notas.map((n: string) => `   ⚠️ ${n}`).join("\n")}` : ""}`,
           meta,
         ].filter(Boolean).join("\n"),
-        data: { draftId, productId: prod.id, copy },
+        data: { draftId, productId: prod.id, copy, preview: draftId ? await previewDelBorrador(draftId, ctx.tenantId) : null },
       };
     },
   },

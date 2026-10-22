@@ -78,6 +78,6 @@ describe("nada se usa sin declarar", () => {
       ).toEqual([]);
     },
     // tsc sobre el proyecto entero tarda; el tope por defecto no alcanza.
-    240_000,
+    600_000,
   );
 });
