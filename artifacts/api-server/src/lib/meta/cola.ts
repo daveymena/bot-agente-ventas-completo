@@ -69,6 +69,8 @@ export interface NuevoTrabajo {
   payload?: Record<string, unknown>;
   claveIdempotencia?: string;
   maxIntentos?: number;
+  /** Espera antes de que el trabajo sea elegible (escalonado por negocio). */
+  demoraMs?: number;
 }
 
 export interface Trabajo {
@@ -114,8 +116,8 @@ export async function encolar(sql: Sql, nuevo: NuevoTrabajo): Promise<number | n
       [nuevo.tenantId, nuevo.cuenta],
     );
     const { rows } = await tx.query(
-      `INSERT INTO meta_trabajos (tenant_id, cuenta, tipo, payload, clave_idempotencia, max_intentos)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+      `INSERT INTO meta_trabajos (tenant_id, cuenta, tipo, payload, clave_idempotencia, max_intentos, disponible_en)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $6, now() + ($7::int * interval '1 millisecond'))
        ON CONFLICT (tenant_id, clave_idempotencia) WHERE clave_idempotencia IS NOT NULL DO NOTHING
        RETURNING id`,
       [
@@ -125,6 +127,7 @@ export async function encolar(sql: Sql, nuevo: NuevoTrabajo): Promise<number | n
         JSON.stringify(nuevo.payload ?? {}),
         nuevo.claveIdempotencia ?? null,
         nuevo.maxIntentos ?? 5,
+        Math.max(0, Math.floor(nuevo.demoraMs ?? 0)),
       ],
     );
     return rows.length ? Number(rows[0].id) : null;

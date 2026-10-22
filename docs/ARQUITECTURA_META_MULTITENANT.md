@@ -137,3 +137,23 @@ Pendiente (no hecho aquí):
 - Tabla `meta_insights_diarios` y el trabajo nocturno.
 - Pruebas de carga con cuentas reales y de Meta; revisión de la app por Meta.
 - Verificar en la documentación vigente de Meta la lista de códigos de error usada en `graph.ts`.
+
+## 9. Actualización: métricas propias y worker (rama `meta-multitenant`)
+
+Hecho y probado (39 pruebas en verde):
+- `meta/metricas.ts`: tabla `meta_insights_diarios` (negocio, cuenta, campaña, día; upsert). Descarga paginada de Graph con tope de 50 páginas. Lectura de resumen siempre filtrada por negocio. Mapeo de resultados igual que `facebook.ts`.
+- Trabajo `sincronizar_insights`, con token por negocio tomado de `credenciales` (vía `conexion.ts`).
+- Programador diario idempotente: una clave `insights:<cuenta>:<fecha>` por cuenta y día, con demora fija dentro de una ventana de 6 h para no pegar todos a la vez.
+- `cola.encolar` acepta `demoraMs`.
+
+### Runbook EasyPanel (no ejecutado aún)
+1. Mergear la rama a `para-subir` (EasyPanel despliega esa rama; el deploy se dispara una sola vez).
+2. Crear el servicio `bot-agenwhatsapp-meta-worker` con la misma imagen, variables del servicio principal más `META_ROLE=worker`, y comando `npx tsx artifacts/api-server/src/lib/meta/arranque-worker.ts` (o el bundle `dist/meta-worker.mjs` cuando exista). Sin dominio ni puerto público.
+3. Verificar en logs: `meta-worker listo`, luego `insights programados`.
+4. El worker corre las migraciones de `meta_trabajos`, `meta_cuentas_cola` y `meta_insights_diarios` al arrancar.
+
+### Pendiente antes de competir
+- Migrar `lib/facebook.ts` (`getCampaignInsights`, `getCampaignMetrics`) para leer de `meta_insights_diarios` en vez de llamar a Meta.
+- Migrar las 73 llamadas directas restantes a la cola, por tandas.
+- Alertas por negocio cuando un token caiga (`requiere_reconexion`).
+- Pruebas de carga reales con cuentas de prueba de Meta.

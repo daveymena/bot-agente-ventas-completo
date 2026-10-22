@@ -10,6 +10,8 @@ import { migrarCola } from "./cola";
 import { sqlDesdePool } from "./sql-pool";
 import { iniciarWorker } from "./worker";
 import { crearClienteGraph } from "./graph";
+import { crearManejadorInsights, migrarMetricas, programarSincronizacionDiaria } from "./metricas";
+import { cuentasConectadas, tokenDeNegocio } from "./conexion";
 import { META_API_VERSION } from "../meta-api-version";
 
 if (!pool) {
@@ -20,23 +22,39 @@ if (!pool) {
 const sql = sqlDesdePool(pool as unknown as Parameters<typeof sqlDesdePool>[0]);
 const graph = crearClienteGraph({ version: META_API_VERSION });
 
-// Los manejadores concretos se registran aquí a medida que se migran las
-// llamadas directas a Meta. Por ahora solo existe la sonda de conectividad.
+const log = (mensaje: string, datos?: Record<string, unknown>) =>
+  console.log(JSON.stringify({ t: new Date().toISOString(), mensaje, ...datos }));
+
 const manejadores = {
   sonda: async () => {
     /* sin efecto: verifica que la cola y el worker arrancan */
   },
+  sincronizar_insights: crearManejadorInsights({ sql, graph, tokenDe: tokenDeNegocio }),
 };
 
-const log = (mensaje: string, datos?: Record<string, unknown>) =>
-  console.log(JSON.stringify({ t: new Date().toISOString(), mensaje, ...datos }));
+const INTERVALO_PROGRAMADOR_MS = 10 * 60_000;
+
+/** Programa la sincronización del día. Idempotente: llamarlo varias veces no duplica. */
+async function programarHoy(): Promise<void> {
+  const fecha = new Date().toISOString().slice(0, 10);
+  const cuentas = await cuentasConectadas();
+  const r = await programarSincronizacionDiaria(sql, cuentas, fecha);
+  if (r.encolados) log("insights programados", { fecha, ...r });
+}
 
 (async () => {
   await migrarCola(sql);
-  log("meta-worker listo", { version: META_API_VERSION, graphBase: typeof graph.get });
-  const control = iniciarWorker({ sql, manejadores, registrar: log });
+  await migrarMetricas(sql);
+  log("meta-worker listo", { version: META_API_VERSION });
 
-  const apagar = () => { log("apagando meta-worker"); control.detener(); };
+  await programarHoy().catch((e) => log("programador error", { mensaje: (e as Error).message }));
+  const reloj = setInterval(() => {
+    programarHoy().catch((e) => log("programador error", { mensaje: (e as Error).message }));
+  }, INTERVALO_PROGRAMADOR_MS);
+  reloj.unref?.();
+
+  const control = iniciarWorker({ sql, manejadores, registrar: log });
+  const apagar = () => { log("apagando meta-worker"); clearInterval(reloj); control.detener(); };
   process.on("SIGTERM", apagar);
   process.on("SIGINT", apagar);
   await control.terminado;
