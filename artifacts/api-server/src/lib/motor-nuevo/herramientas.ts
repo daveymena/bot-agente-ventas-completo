@@ -1386,6 +1386,7 @@ export const ejecutores: Record<string, Ejecutor> = {
       ok: true,
       mensaje:
         `Para poder concretar falta: ${faltan.map((d) => `${d.campo} (${d.porque})`).join("; ")}. ` +
+        `Úsalo SOLO si el cliente ya quiere comprar. Si solo preguntó algo, contesta esa pregunta y no pidas datos. ` +
         `Pide UNO por mensaje, y siempre DESPUÉS de contestar lo que el cliente acaba de decir. ` +
         `Nunca los pidas todos juntos: en WhatsApp eso se lee como un formulario.`,
     };
