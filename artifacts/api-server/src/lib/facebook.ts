@@ -6,6 +6,7 @@ import { db, products, pool } from "@workspace/db";
 import { historicoDesdeTabla } from "./meta/metricas";
 import { sqlDesdePool } from "./meta/sql-pool";
 import { conExclusionDeCuenta, type PoolBloqueo } from "./meta/bloqueo-cuenta";
+import { payloadProductoCatalogo } from "./meta/catalogo-producto";
 import { leerUso } from "./meta/graph";
 import { eq } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
@@ -3072,17 +3073,18 @@ Responde SOLO con este JSON exacto:
         // (la columna es imageUrl) y /productos/:id no es una ruta real --
         // ambos dejaban el catálogo con productos sin imagen y con un link
         // roto en cada anuncio dinámico/shopping generado desde él.
-        const absoluteImage = absoluteImageUrl(p.imageUrl);
-        const data = {
-          title: p.name,
-          description: (p.description || "").substring(0, 5000),
-          price: `${Number(p.price).toFixed(0)}_COP`,
-          currency: "COP",
-          image_url: absoluteImage || "",
-          product_type: p.category || "Digital",
-          sku: `PROD-${p.id}`,
-          url: `${process.env.APP_URL || ""}/p/${p.id}`,
-        };
+        // Campos y validación según la referencia de Meta (ver meta/catalogo-producto.ts).
+        // Un producto que no cumple se reporta con el motivo, sin llamar a Meta.
+        const armado = payloadProductoCatalogo(
+          { id: p.id, name: p.name, description: p.description, price: p.price, imageUrl: absoluteImageUrl(p.imageUrl), isActive: p.isActive },
+          { appUrl: process.env.APP_URL || "", moneda: "COP", marca: this.tenant?.name || "VentasPro" },
+        );
+        if (!armado.ok) {
+          result.failed++;
+          result.errors.push(`${p.name}: ${armado.motivos.join("; ")}`);
+          continue;
+        }
+        const data = armado.payload;
         if (existing) {
           await this.fbPost(existing.id, data, "catálogo: actualizar producto", this.config.userAccessToken);
         } else {
