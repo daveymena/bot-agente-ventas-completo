@@ -172,3 +172,7 @@ Hecho y probado (39 pruebas en verde):
 - Usos de cuota alta (>=80 %) se registran en el log desde fbPostUnaVez.
 - Pruebas: 61 en verde. El pool simulado valida la lógica de exclusión; el comportamiento entre conexiones reales de Postgres falta confirmarlo en una base de prueba.
 - Limitación: escrituras a objetos sueltos (campañas, conjuntos y anuncios por id, fuera de FacebookService) no se serializan por cuenta, porque el id del objeto no revela la cuenta sin una consulta extra.
+
+### Verificación con Postgres real (local, PostgreSQL vía embedded-postgres)
+- Pruebas de meta/__tests__/postgres-real.test.ts (se activan con TEST_PG_URL): exclusión entre conexiones reales, espera sin consumir el pool, concurrencia de 30 escrituras (máximo 1 a la vez), y cola con 200 trabajos en 20 cuentas y 8 workers sin violaciones. 3 corridas seguidas en verde.
+- Defecto encontrado y corregido: reclamar() podía entregar dos trabajos de la misma cuenta a la vez. Causa: en READ COMMITTED el chequeo "NOT EXISTS en curso" dentro del mismo SELECT que bloquea la cuenta usa el snapshot de la sentencia; si otro worker acababa de confirmar su reclamo, el chequeo veía datos viejos. Corrección: candidatas sin bloquear, luego candado de cuenta, y chequeo de en curso en una sentencia nueva.

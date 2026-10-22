@@ -140,26 +140,48 @@ export async function encolar(sql: Sql, nuevo: NuevoTrabajo): Promise<number | n
  */
 export async function reclamar(sql: Sql, arriendoMs = 120_000): Promise<Trabajo | null> {
   return sql.transaccion(async (tx) => {
-    // 1) Bloquea una cuenta libre (las ocupadas por otro worker se saltan).
-    const { rows: cuentas } = await tx.query(
-      `SELECT c.tenant_id, c.cuenta
-         FROM meta_cuentas_cola c
-        WHERE EXISTS (
-                SELECT 1 FROM meta_trabajos t
-                 WHERE t.tenant_id = c.tenant_id AND t.cuenta = c.cuenta
-                   AND t.estado = 'pendiente' AND t.disponible_en <= now())
-          AND NOT EXISTS (
-                SELECT 1 FROM meta_trabajos t
-                 WHERE t.tenant_id = c.tenant_id AND t.cuenta = c.cuenta
-                   AND t.estado = 'en_curso' AND t.arrendado_hasta > now())
-        ORDER BY c.cuenta
-        LIMIT 1
-          FOR UPDATE SKIP LOCKED`,
+    // Orden importante. Un chequeo "NOT EXISTS en_curso" dentro del mismo
+    // SELECT que bloquea la cuenta NO basta: en READ COMMITTED, la subconsulta
+    // ve el snapshot de la sentencia, y si otro worker acaba de confirmar su
+    // reclamo al liberar el candado, este puede pasar el chequeo con datos
+    // viejos (se detectó con Postgres real: dos trabajos de la misma cuenta).
+    //
+    // Por eso: 1) candidatas sin bloquear; 2) tomar el candado de la cuenta;
+    // 3) chequear trabajos en curso en una sentencia NUEVA, que ya ve los
+    // reclamos confirmados antes de ese candado.
+    const { rows: candidatas } = await tx.query(
+      `SELECT DISTINCT t.tenant_id, t.cuenta
+         FROM meta_trabajos t
+        WHERE t.estado = 'pendiente' AND t.disponible_en <= now()
+        ORDER BY t.cuenta
+        LIMIT 200`,
     );
-    if (!cuentas.length) return null;
-    const { tenant_id, cuenta } = cuentas[0];
 
-    // 2) Toma el trabajo pendiente más antiguo de esa cuenta.
+    let tenant_id: number | null = null;
+    let cuenta: string | null = null;
+    for (const c of candidatas) {
+      const { rows: candado } = await tx.query(
+        `SELECT 1 FROM meta_cuentas_cola
+          WHERE tenant_id = $1 AND cuenta = $2
+          FOR UPDATE SKIP LOCKED`,
+        [c.tenant_id, c.cuenta],
+      );
+      if (!candado.length) continue; // otro worker tiene la cuenta
+      const { rows: ocupada } = await tx.query(
+        `SELECT 1 FROM meta_trabajos
+          WHERE tenant_id = $1 AND cuenta = $2
+            AND estado = 'en_curso' AND arrendado_hasta > now()
+          LIMIT 1`,
+        [c.tenant_id, c.cuenta],
+      );
+      if (ocupada.length) continue; // ya hay un trabajo en curso en esta cuenta
+      tenant_id = Number(c.tenant_id);
+      cuenta = String(c.cuenta);
+      break;
+    }
+    if (tenant_id == null || cuenta == null) return null;
+
+    // Toma el trabajo pendiente más antiguo de esa cuenta.
     const { rows } = await tx.query(
       `UPDATE meta_trabajos
           SET estado = 'en_curso',
