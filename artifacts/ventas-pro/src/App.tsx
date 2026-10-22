@@ -49,7 +49,27 @@ const SessionContext=createContext<SessionContextType>({tenant:null,isLoading:tr
 export const useSession=()=>useContext(SessionContext);
 function TiendaRedirect(){const{tenant,isLoading}=useSession();const[,setLocation]=useLocation();useEffect(()=>{if(isLoading)return;const slug=tenant?.slug||"";window.open(slug?`/tienda/${slug}`:"/tienda","_blank","noopener,noreferrer");setLocation("/");},[tenant,isLoading,setLocation]);return null;}
 function HomeRoute(){const{isAuthenticated,isLoading}=useSession();if(isLoading)return null;return isAuthenticated?<Dashboard/>:<LandingPage/>;}
-const queryClient=new QueryClient({defaultOptions:{queries:{retry:false,refetchOnWindowFocus:false,staleTime:5000,onError:(error:any)=>{const status=error?.status||error?.response?.status;if(status===401&&window.location.pathname!=="/auth")window.location.href="/auth";}},mutations:{onError:(error:any)=>{const status=error?.status||error?.response?.status;if(status===401&&window.location.pathname!=="/auth")window.location.href="/auth";}}}});
+// Un 401 aislado (una petición sin cookie al volver de otra página) no debe
+// sacar al usuario de la app. Antes de mandarlo a /auth se confirma con
+// /api/auth/me: si la sesión sigue viva, solo se vuelven a pedir los datos.
+let verificandoSesion = false;
+async function verificarSesionAntesDeSalir() {
+  if (verificandoSesion || window.location.pathname === "/auth") return;
+  verificandoSesion = true;
+  try {
+    const r = await fetch("/api/auth/me", { credentials: "include" });
+    if (r.status === 401) {
+      window.location.href = "/auth";
+    } else {
+      queryClient.invalidateQueries();
+    }
+  } catch {
+    // Sin red: no se saca al usuario; la app sigue y reintenta sola.
+  } finally {
+    verificandoSesion = false;
+  }
+}
+const queryClient=new QueryClient({defaultOptions:{queries:{retry:false,refetchOnWindowFocus:false,staleTime:5000,onError:(error:any)=>{const status=error?.status||error?.response?.status;if(status===401)verificarSesionAntesDeSalir();}},mutations:{onError:(error:any)=>{const status=error?.status||error?.response?.status;if(status===401)verificarSesionAntesDeSalir();}}}});
 import DiagnosticoPage from "@/pages/diagnostico";
 /** /creativos vive dentro de /estudio: se conserva el producto y el espacio. */
 function IrAEstudioCreativos(){const[,setLocation]=useLocation();useEffect(()=>{const q=window.location.search.replace(/^\?/,"");setLocation("/estudio?espacio=creativos"+(q?"&"+q:""));},[setLocation]);return null}
