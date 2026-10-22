@@ -27,7 +27,24 @@ function absoluta(u: string, base: string): string {
   return `${base.replace(/\/+$/, "")}${v.startsWith("/") ? "" : "/"}${v}`;
 }
 
-const ES_IMAGEN = /\.(jpe?g|png|webp|gif)(\?|$)|\/images\/products\/|\/uploads\/products\//i;
+// ¿Es una foto? Antes se exigía la extensión, y una URL de CDN que sirve la
+// imagen sin extensión (Unsplash, Cloudinary, imgix: `.../photo-123?w=900`)
+// se descartaba junto con la foto principal: los diseños "estilo" y los
+// creativos salían con el recuadro de la foto vacío (23-10-2026). Ahora se
+// descarta lo que claramente NO es una foto: otra extensión (video,
+// documento) o un sitio de video.
+const EXTENSION_DE_IMAGEN = /\.(jpe?g|png|webp|gif|avif)(\?|#|$)/i;
+const RUTA_LOCAL_DE_FOTOS = /\/images\/products\/|\/uploads\/products\//i;
+const SITIO_DE_VIDEO = /^https?:\/\/(www\.)?(youtube\.com|youtu\.be|vimeo\.com|tiktok\.com|instagram\.com|facebook\.com|fb\.watch)\//i;
+function esImagen(u: string): boolean {
+  if (EXTENSION_DE_IMAGEN.test(u) || RUTA_LOCAL_DE_FOTOS.test(u)) return true;
+  if (SITIO_DE_VIDEO.test(u)) return false;
+  let ruta = u;
+  try { ruta = new URL(u).pathname; } catch { ruta = u.split(/[?#]/)[0] ?? u; }
+  const ultimo = ruta.split("/").pop() || "";
+  // Con extensión que no es de imagen (.mp4, .pdf, .html…): no es foto.
+  return /^https?:\/\//i.test(u) && !/\.[a-z0-9]{2,5}$/i.test(ultimo);
+}
 
 /** Todas las fotos del producto, la principal primero, sin repetidas. */
 export function fotosDelProducto(p: any, appUrl = process.env.APP_URL || "https://ventasproia.com", max = 12): string[] {
@@ -39,7 +56,7 @@ export function fotosDelProducto(p: any, appUrl = process.env.APP_URL || "https:
   // y la landing repetía la misma imagen en todas las secciones.
   const deDropi: string[] = Array.isArray(m.imageUrls) ? m.imageUrls.map(String) : [];
   const todas = [absoluta(String(p?.imageUrl || ""), appUrl), ...propias.map((u) => absoluta(u, appUrl)), ...deWoo.map((u) => absoluta(u, appUrl)), ...deDropi.map((u) => absoluta(u, appUrl))].filter(Boolean);
-  return [...new Set(todas)].filter((u) => ES_IMAGEN.test(u)).slice(0, max);
+  return [...new Set(todas)].filter(esImagen).slice(0, max);
 }
 
 /** El video principal (el que manda el vendedor) y los demás. */

@@ -14,6 +14,12 @@
  *   · el timer: apagable por landing (design.estiloExtras.timer === false).
  *   · el descuento de la IA: sigue PROHIBIDO (solo el ahorro de los dos
  *     precios reales).
+ *
+ * 23-10-2026, el dueño: "corrige los datos inventados (4.8, envío gratis por
+ * defecto, 50% DTO, contador falso)". Los dispositivos quedan, pero SOLO con
+ * su dato real: contador con fecha de fin (ofertaHasta), "Envío incluido"
+ * sin "a todo el país*" ni letra chica, sin estrellas, sin stock, sin
+ * "Oferta especial" ni "Precio de lanzamiento" sin precio anterior.
  */
 import { describe, expect, it } from "vitest";
 import { renderizarEstilo, estiloDesdeFila, ESTILOS } from "../renderer-estilo";
@@ -66,15 +72,51 @@ describe("el renderer-estilo (variantes reales del dueño, 03-10)", () => {
     expect(html).not.toContain("gratis");
   });
 
-  it("el timer sigue siendo dispositivo del diseño (encendido por defecto, funciona por landing)", () => {
-    const html = renderizarEstilo(fila(), { host: "", accion: "/pedir" });
-    expect(html).toContain('class="timer"');
-    expect(html).toContain("La oferta termina en");
-    expect(html).toMatch(/Date\.now\(\)\+7200\*1000/);
-    // apagable
-    const off = renderizarEstilo(fila({ estiloExtras: { timer: false } }), { accion: "/pedir" });
-    expect(off).not.toContain('class="timer"');
-    expect(off).not.toContain('id="th"');
+  // 23-10-2026 (el dueño): "corrige el contador falso". Antes el timer salía
+  // siempre y reiniciaba 2 h por visitante (localStorage): una oferta que
+  // nunca terminaba. Ahora solo con la fecha de fin REAL que carga el dueño.
+  it("el contador solo sale con una fecha de fin real, la misma para todos", () => {
+    const sinFecha = renderizarEstilo(fila(), { host: "", accion: "/pedir" });
+    expect(sinFecha).not.toContain('class="timer"');
+    expect(sinFecha).not.toContain("localStorage.setItem");
+
+    const fin = new Date(Date.now() + 3 * 86_400_000).toISOString();
+    const conFecha = renderizarEstilo(fila({ estiloExtras: { ofertaHasta: fin } }), { accion: "/pedir" });
+    expect(conFecha).toContain('class="timer"');
+    expect(conFecha).toContain(`var fin=${Date.parse(fin)}`);
+
+    const vencida = renderizarEstilo(fila({ estiloExtras: { ofertaHasta: "2020-01-01T00:00:00Z" } }), { accion: "/pedir" });
+    expect(vencida).not.toContain('class="timer"');
+
+    const apagada = renderizarEstilo(fila({ estiloExtras: { ofertaHasta: fin, timer: false } }), { accion: "/pedir" });
+    expect(apagada).not.toContain('class="timer"');
+  });
+
+  it("sin reseñas reales no hay estrellas, ni 4.8, ni calificación para Google", () => {
+    for (const style of ESTILOS) {
+      const html = renderizarEstilo(fila({ style }), { accion: "/pedir" });
+      expect(html, style).not.toContain("★");
+      expect(html, style).not.toMatch(/4\.8/);
+      expect(html, style).not.toContain("AggregateRating");
+      expect(html, style).not.toContain("verificados");
+    }
+  });
+
+  it("sin precio anterior real no hay 'Oferta especial' ni 'Precio de lanzamiento'", () => {
+    const html = renderizarEstilo(fila(), { accion: "/pedir" });
+    expect(html).not.toContain("Oferta especial");
+    expect(html).not.toContain("Precio de lanzamiento");
+    const conAntes = renderizarEstilo(fila({}, { precioAntes: 149900 }), { accion: "/pedir" });
+    expect(conAntes).toContain("Antes:");
+  });
+
+  it("sin garantía cargada no se promete 'Garantía del negocio' ni 'Satisfacción garantizada'", () => {
+    for (const modelo of ["fisico", "digital", "servicio"]) {
+      const html = renderizarEstilo(fila({}, { modelo }), { accion: "/pedir" });
+      expect(html, modelo).not.toContain("Garantía del negocio");
+      expect(html, modelo).not.toContain("Satisfacción garantizada");
+      expect(html, modelo).not.toContain("cambia tu cita cuando quieras");
+    }
   });
 
   it("la garantía default NO promete plazo; la del dueño manda", () => {
@@ -98,21 +140,32 @@ describe("el renderer-estilo (variantes reales del dueño, 03-10)", () => {
     expect(html).toContain("Ahorras");
   });
 
-  it("envío: sin condiciones reales NO promete gratis (ni el announce ni el chip)", () => {
-    const sinCondiciones = renderizarEstilo(fila(), { accion: "/pedir" });
-    expect(sinCondiciones).not.toMatch(/[Gg]rátis/);
-    expect(sinCondiciones).toContain("Envío nacional");
+  it("envío: sin condiciones reales NO promete gratis; con 'incluido' dice eso y nada más", () => {
+    for (const style of ESTILOS) {
+      const sinCondiciones = renderizarEstilo(fila({ style }), { accion: "/pedir" });
+      expect(sinCondiciones, style).not.toMatch(/[Gg]r[aá]tis/);
+      expect(sinCondiciones, style).not.toMatch(/ENVÍO INCLUIDO|Envío incluido/);
+    }
 
-    const conIncluido = renderizarEstilo(fila({}, { envioReal: { larga: "Envío grátis a todo el país*", corta: "incluido" } }), { accion: "/pedir" });
-    expect(conIncluido).toContain("grátis");
-    expect(conIncluido).toContain("por tiempo limitado");
+    const conIncluido = renderizarEstilo(fila({}, { envioReal: { larga: "Envío incluido en el precio", corta: "incluido" } }), { accion: "/pedir" });
+    expect(conIncluido).toContain("Envío incluido");
+    // Lo que el dueño NO dijo no aparece: ni cobertura, ni letra chica.
+    expect(conIncluido).not.toMatch(/a todo el país\*|por tiempo limitado|zonas urbanas/);
+    expect(conIncluido).not.toContain("grátis");
   });
 
-  it("urgencia: topbar con countdown + stockbar + bundles 1x/2x/3x con ahorro real", () => {
+  it("urgencia: sin '50% DTO.', sin stock inventado; el ahorro sale de los dos precios reales", () => {
+    const sinAntes = renderizarEstilo(fila({ style: "urgencia" }), { accion: "/pedir" });
+    expect(sinAntes).not.toContain("DTO");
+    expect(sinAntes).not.toMatch(/Quedan \d+ unidades/);
+    expect(sinAntes).not.toContain("DEMANDA ALTA");
+    expect(sinAntes).not.toContain("¡Oferta exclusiva!");
+    expect(sinAntes).not.toContain('id="cd-min"');
+
     const html = renderizarEstilo(fila({ style: "urgencia" }, { precioAntes: 119900 }), { accion: "/pedir" });
     expect(html).toContain('data-style="urgencia"');
-    expect(html).toContain("chip-rojo");
-    expect(html).toContain("stockbar");
+    // 110.990 sobre 119.900: 7 % real, no un 50 % de cartel.
+    expect(html).toContain("7% MENOS QUE ANTES");
     // bundle 2x con la cifra real: 2x el precio del producto, tachado 2x precioAntes
     expect(html).toMatch(/MÁS POPULAR[^<]*AHORRA/);
     expect(html).toContain("bs-total");

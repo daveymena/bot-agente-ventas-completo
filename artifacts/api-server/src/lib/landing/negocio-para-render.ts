@@ -20,7 +20,8 @@ export async function negocioParaRender(tenantId: number, producto: any | null):
   const c = ctx?.condiciones ?? CONDICIONES_DE_RESPALDO;
 
   const confianza = modelo === "fisico"
-    ? [`🚚 ${fraseCostoEnvio(c)}`, `💵 ${frasePagoEnvio(c)}`, `⏱️ Llega en ${c.envio.plazo}`]
+    // Costo y plazo solo si el negocio los configuró: sin dato, no se afirman.
+    ? [c.envio.costo ? `🚚 ${fraseCostoEnvio(c)}` : "", `💵 ${frasePagoEnvio(c)}`, c.envio.plazo ? `⏱️ Llega en ${c.envio.plazo}` : ""].filter(Boolean)
     : modelo === "digital"
       ? ["⚡ Acceso apenas se confirma el pago", "💳 Pago seguro", "📱 Se ve desde el celular o el computador"]
       : modelo === "servicio"

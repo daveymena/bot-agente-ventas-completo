@@ -339,7 +339,8 @@ function despachoDe(
   return {
     plazo,
     cobertura: String(envio.cobertura || "").trim() || null,
-    costo: !costo || costo === "incluido" ? "Envío incluido en el precio" : `Envío: ${costo}`,
+    // Sin costo cargado no es "incluido": se dice que se confirma.
+    costo: !costo ? "Costo de envío por confirmar" : costo === "incluido" ? "Envío incluido en el precio" : `Envío: ${costo}`,
     pago: pago === "anticipado" ? "Se paga antes del despacho"
       : pago === "ambos" ? "Puede pagar antes o contraentrega, como prefiera"
         : "Paga contraentrega, cuando lo recibe",

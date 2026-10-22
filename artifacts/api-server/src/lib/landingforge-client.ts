@@ -123,9 +123,11 @@ export async function hechosParaLanding(tenantId: number | null | undefined, pro
   } catch { /* sin teléfono propio: el de la plataforma */ }
   return {
     marca: ctx.businessName || undefined,
-    cobertura: fisico ? [c.envio.cobertura, c.pais && /^co$/i.test(c.pais) ? "Colombia" : c.pais].filter(Boolean).join(", ") : ctx.cobertura || undefined,
+    // La cobertura solo si el negocio la dijo: el país solo no prueba que se
+    // envíe a todo el país.
+    cobertura: fisico ? (c.envio.cobertura ? [c.envio.cobertura, c.pais && /^co$/i.test(c.pais) ? "Colombia" : c.pais].filter(Boolean).join(", ") : undefined) : ctx.cobertura || undefined,
     entrega: fisico
-      ? { metodo: "envío a domicilio", plazo: c.envio.plazo }
+      ? { metodo: "envío a domicilio", plazo: c.envio.plazo || undefined }
       : ctx.entrega ? { metodo: ctx.entrega.metodo, plazo: ctx.entrega.plazo, detalle: ctx.entrega.detalle } : null,
     garantia,
     // "incluido" = el flete va en el precio: para el cliente, envío gratis.

@@ -118,18 +118,25 @@ export function sellosDelNegocio(c: { envio?: { pago?: string; costo?: string; p
   return out.slice(0, 4);
 }
 
-/** Cómo entrega y cobra ESTE negocio. Sale del perfil; lo de código es respaldo. */
+/**
+ * Cómo entrega y cobra ESTE negocio. Sale del perfil.
+ *
+ * Plazo, costo y cobertura son "" cuando el dueño no los dijo: un valor de
+ * relleno acá termina impreso como hecho en la landing, el creativo o la
+ * ficha (23-10-2026: "Envío gratis a todo el país" en un negocio que nunca
+ * configuró envío). Quien los muestre tiene que poder ver que faltan.
+ */
 export interface CondicionesDelNegocio {
   /** País del negocio (ISO-2 o nombre). Manda sobre la validación de zona. */
   pais: string;
   envio: {
-    /** "3 a 5 días hábiles" */
+    /** "3 a 5 días hábiles", o "" si no está configurado. */
     plazo: string;
     /** Cómo se paga lo que se despacha. */
     pago: PagoDeEnvio;
-    /** "incluido" o el texto que diga el dueño ("$12.000 a todo el país"). */
+    /** "incluido", el texto del dueño ("$12.000 a todo el país"), o "" si no está configurado. */
     costo: string;
-    /** Cobertura: "todo el país", "solo Bogotá"... */
+    /** Cobertura: "todo el país", "solo Bogotá"... o "" si no está configurada. */
     cobertura: string;
   };
   /** Cómo se agenda un servicio, si el dueño lo dijo. */
@@ -139,13 +146,14 @@ export interface CondicionesDelNegocio {
 }
 
 /**
- * Lo que valía para el dueño (17-08-2026: "las entregas son entre 3 a 5 días
- * siempre"). Sigue siendo el respaldo cuando el perfil no dice nada, para no
- * cambiarle el comportamiento al negocio que ya vende con esto.
+ * Cuando el perfil no dice nada: Colombia y contraentrega (el flujo de pedido
+ * que existe), pero SIN plazo, costo ni cobertura. Antes llevaba "3 a 5 días
+ * hábiles · incluido · todo el país" (lo que valía para el primer dueño) y
+ * eso salía como promesa en las landings y creativos de cualquier negocio.
  */
 export const CONDICIONES_DE_RESPALDO: CondicionesDelNegocio = {
   pais: "CO",
-  envio: { plazo: "3 a 5 días hábiles", pago: "contraentrega", costo: "incluido", cobertura: "todo el país" },
+  envio: { plazo: "", pago: "contraentrega", costo: "", cobertura: "" },
   fuente: "respaldo",
 };
 
@@ -194,15 +202,17 @@ export function condicionesDesdePerfil(perfil: any): CondicionesDelNegocio {
     : /anticip|adelant|antes|transfer|previo/.test(pagoTexto) ? "anticipado"
     : CONDICIONES_DE_RESPALDO.envio.pago;
   const costoTexto = String(envioRaw?.costo ?? "").trim();
-  const costo = !costoTexto || /gratis|incluid|sin costo/i.test(costoTexto) ? "incluido" : costoTexto;
+  // Vacío NO es "incluido": que el dueño no haya escrito el costo no quiere
+  // decir que el envío sea gratis.
+  const costo = !costoTexto ? "" : /gratis|incluid|sin costo/i.test(costoTexto) ? "incluido" : costoTexto;
 
   return {
     pais: pais || CONDICIONES_DE_RESPALDO.pais,
     envio: {
-      plazo: String(envioRaw?.plazo ?? "").trim() || CONDICIONES_DE_RESPALDO.envio.plazo,
+      plazo: String(envioRaw?.plazo ?? "").trim(),
       pago,
       costo,
-      cobertura: String(envioRaw?.cobertura ?? perfil?.cobertura ?? "").trim() || CONDICIONES_DE_RESPALDO.envio.cobertura,
+      cobertura: String(envioRaw?.cobertura ?? perfil?.cobertura ?? "").trim(),
     },
     agenda: String(perfil?.agenda ?? "").trim() || undefined,
     // Con solo el país cargado, el envío sigue siendo el relleno: no cuenta
@@ -221,6 +231,7 @@ export function frasePagoEnvio(c: CondicionesDelNegocio): string {
 }
 
 export function fraseCostoEnvio(c: CondicionesDelNegocio): string {
+  if (!c.envio.costo) return "Costo de envío por confirmar";
   return c.envio.costo === "incluido" ? "Envío incluido en el precio" : `Envío: ${c.envio.costo}`;
 }
 
@@ -236,23 +247,35 @@ export function fraseCostoEnvio(c: CondicionesDelNegocio): string {
  * costo ni plazo, y donde haga falta mencionarlos se dice que se confirman.
  */
 export function envioConfirmado(c: CondicionesDelNegocio): boolean {
-  return c.fuente !== "respaldo";
+  return c.fuente !== "respaldo" && (!!c.envio.plazo || !!c.envio.costo);
 }
 
-/** "Envío incluido en el precio. Llega en 3 a 5 días hábiles." — o null si el negocio no lo configuró. */
+/** El plazo, solo si el negocio lo configuró. */
+export function plazoConfirmado(c: CondicionesDelNegocio): string {
+  return c.fuente !== "respaldo" ? c.envio.plazo : "";
+}
+
+/** El costo ("incluido" o el texto del dueño), solo si el negocio lo configuró. */
+export function costoConfirmado(c: CondicionesDelNegocio): string {
+  return c.fuente !== "respaldo" ? c.envio.costo : "";
+}
+
+/** "Envío incluido en el precio. Llega en 3 a 5 días hábiles." — solo con lo que el negocio configuró, o null. */
 export function lineaDeEnvio(c: CondicionesDelNegocio): string | null {
-  return envioConfirmado(c) ? `${fraseCostoEnvio(c)}. Llega en ${c.envio.plazo}.` : null;
+  const partes = [costoConfirmado(c) ? fraseCostoEnvio(c) : "", plazoConfirmado(c) ? `Llega en ${c.envio.plazo}` : ""].filter(Boolean);
+  return partes.length ? `${partes.join(". ")}.` : null;
 }
 
 /** El plazo para nombrarlo en una frase ("llega en …"), sin inventarlo. */
 export function plazoDeEntrega(c: CondicionesDelNegocio): string {
-  return envioConfirmado(c) ? c.envio.plazo : "el tiempo que indique la transportadora (te lo confirmo con la guía)";
+  return plazoConfirmado(c) || "el tiempo que indique la transportadora (te lo confirmo con la guía)";
 }
 
 /** El costo para nombrarlo en una frase, sin inventarlo. */
 export function costoDeEnvioEnFrase(c: CondicionesDelNegocio): string {
-  if (!envioConfirmado(c)) return "costo del envío por confirmar";
-  return c.envio.costo === "incluido" ? "envío incluido" : `envío ${c.envio.costo}`;
+  const costo = costoConfirmado(c);
+  if (!costo) return "costo del envío por confirmar";
+  return costo === "incluido" ? "envío incluido" : `envío ${costo}`;
 }
 
 // ─── Qué hace el bot después del "sí", por modelo ────────────────────────────
