@@ -256,6 +256,16 @@ export class MessageHandler {
         lastMessageAt: dbNow()
       }).where(eq(conversations.id, convo.id));
 
+      // El cliente nos escribe el código de su pedido de la landing: se
+      // confirma acá y no se encola (ver lib/landing/verificacion-whatsapp.ts).
+      {
+        const { atenderCodigoDeVerificacion } = await import("../landing/verificacion-whatsapp");
+        const atendido = await atenderCodigoDeVerificacion({
+          tenantId: tenantIdNum, conversationId: convo.id, phone, pushName: params.pushName,
+          remoteJid: params.remoteJid, body: params.body, stage: convo.currentStage,
+        });
+        if (atendido) return;
+      }
 
       // 3. Encolar para procesamiento
       const queuedMessage = this.queue.enqueue({

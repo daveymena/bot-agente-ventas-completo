@@ -528,7 +528,8 @@ export function renderBloqueNegocio(ctx: BusinessContext): string {
   if (ctx.condiciones?.fuente === "perfil") {
     const c = ctx.condiciones;
     l.push(`• País: ${c.pais}`);
-    l.push(`• Lo que se despacha: ${c.envio.plazo}, ${c.envio.cobertura}. ${fraseCostoEnvio(c)}. ${frasePagoEnvio(c)}.`);
+    const plazoYCobertura = [c.envio.plazo, c.envio.cobertura].filter(Boolean).join(", ");
+    l.push(`• Lo que se despacha: ${plazoYCobertura ? `${plazoYCobertura}. ` : ""}${fraseCostoEnvio(c)}. ${frasePagoEnvio(c)}.`);
     if (c.agenda) l.push(`• Cómo se agenda un servicio: ${c.agenda}`);
   }
 

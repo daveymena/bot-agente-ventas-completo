@@ -28,6 +28,26 @@ describe("fotosDelProducto", () => {
   it("sin metadata ni imagen devuelve vacío", () => {
     expect(fotosDelProducto({ imageUrl: "", metadata: "no es json" }, "https://h")).toEqual([]);
   });
+
+  // 23-10-2026: los diseños "estilo" (CleanHome, Urgencia, Clínico, Pro) y los
+  // creativos salían con el recuadro de la foto vacío porque la foto principal
+  // venía de un CDN sin extensión y el filtro la descartaba.
+  it("la foto de un CDN sin extensión (Unsplash, Cloudinary, imgix) y .avif SÍ es foto", () => {
+    const p = {
+      imageUrl: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=900&auto=format&fit=crop",
+      metadata: { imagenes: ["https://res.cloudinary.com/demo/image/upload/f_auto,q_auto/mochila", "https://cdn.x.com/a.avif"] },
+    };
+    expect(fotosDelProducto(p, "https://h")).toEqual([
+      "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=900&auto=format&fit=crop",
+      "https://res.cloudinary.com/demo/image/upload/f_auto,q_auto/mochila",
+      "https://cdn.x.com/a.avif",
+    ]);
+  });
+
+  it("video, documento o enlace a un sitio de video NO es foto", () => {
+    const p = { imageUrl: null, metadata: { imagenes: ["https://youtu.be/abc", "https://www.youtube.com/watch?v=1", "https://x.com/ficha.pdf", "https://x.com/clip.webm", "https://x.com/ok.png"] } };
+    expect(fotosDelProducto(p, "https://h")).toEqual(["https://x.com/ok.png"]);
+  });
 });
 
 describe("videosDelProducto", () => {

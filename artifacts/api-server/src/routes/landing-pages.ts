@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { fotosDelProducto, fotosUnicasDelProducto, guardadorDeMetadata } from "../lib/fotos-de-producto";
 import { and, desc, eq } from "drizzle-orm";
-import { db, landingPages, products } from "@workspace/db";
+import { db, landingPages, products, tenants } from "@workspace/db";
 import type { TenantRequest } from "../lib/tenantManager";
 import { sendError } from "../lib/error-handler";
 import { ERROR_CODES } from "../lib/error-codes";
@@ -31,6 +31,39 @@ router.get("/", async (req: TenantRequest, res, next) => {
   } catch (e) { return next(e); }
 });
 
+/**
+ * Antifraude del formulario contraentrega, para TODAS las landings del
+ * negocio (`tenants.metadata.antifraude`, ver lib/landing/pedido-seguro.ts).
+ * Va antes de "/:id" para que "antifraude" no se lea como un id.
+ */
+async function metadataDelNegocio(tenantId: number): Promise<Record<string, any>> {
+  const [t] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+  const m: any = typeof t?.metadata === "string" ? JSON.parse(t.metadata || "{}") : t?.metadata;
+  return m && typeof m === "object" ? m : {};
+}
+
+router.get("/antifraude", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+    const { configAntifraude } = await import("../lib/landing/pedido-seguro");
+    return res.json(configAntifraude((await metadataDelNegocio(tenantId)).antifraude));
+  } catch (e) { return next(e); }
+});
+
+router.put("/antifraude", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+    const { configAntifraude } = await import("../lib/landing/pedido-seguro");
+    const antifraude = configAntifraude(req.body);
+    const meta = await metadataDelNegocio(tenantId);
+    await db.update(tenants).set({ metadata: { ...meta, antifraude } as any }).where(eq(tenants.id, tenantId));
+    logger.info({ tenantId, antifraude: { ...antifraude, telefonosBloqueados: antifraude.telefonosBloqueados.length, ipsBloqueadas: antifraude.ipsBloqueadas.length } }, "[LandingPages] Antifraude actualizado");
+    return res.json(antifraude);
+  } catch (e) { return next(e); }
+});
+
 router.get("/:id", async (req: TenantRequest, res, next) => {
   try {
     const tenantId = req.tenant?.id;
@@ -50,7 +83,13 @@ router.post("/", async (req: TenantRequest, res, next) => {
     const { name = "Nueva landing", productId = null, strategy = {}, sections = [], design = {}, source = {} } = req.body || {};
     if (!(await productBelongsToTenant(productId, tenantId))) return res.status(400).json({ error: "El producto no pertenece al tenant actual o no es válido" });
     const normalizedProductId = productId === null || productId === undefined || productId === "" ? null : Number(productId);
-    const [created] = await db.insert(landingPages).values({ tenantId, productId: normalizedProductId, name: String(name).slice(0, 200), slug: slugify(String(name)) + "-" + Date.now().toString(36), strategy, sections, design, source }).returning();
+    // Diseño premium sin IA: sin secciones, arranca con las de la ficha.
+    let seccionesIniciales = sections;
+    if ((design as any)?.renderer === "premium" && (!Array.isArray(sections) || !sections.length) && normalizedProductId) {
+      const [p] = await db.select().from(products).where(and(eq(products.id, normalizedProductId), eq(products.tenantId, tenantId))).limit(1);
+      if (p) seccionesIniciales = (await import("../lib/landing/renderer-premium")).seccionesInicialesPremium(p as any);
+    }
+    const [created] = await db.insert(landingPages).values({ tenantId, productId: normalizedProductId, name: String(name).slice(0, 200), slug: slugify(String(name)) + "-" + Date.now().toString(36), strategy, sections: seccionesIniciales, design, source }).returning();
     return res.status(201).json(created);
   } catch (e) { return next(e); }
 });
@@ -133,6 +172,11 @@ router.get("/:id/render", async (req: TenantRequest, res, next) => {
     // antes la preview llamaba al renderer con menos datos que la pública y
     // el dueño editaba una página distinta a la que veía el cliente.
     const porSecciones = await import("../lib/landing/html-por-secciones");
+    if (porSecciones.esPremium(row as any)) {
+      const html = await porSecciones.htmlPremium(row as any, await porSecciones.productoDeLanding(row as any));
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.send(html);
+    }
     if (porSecciones.esEstilo(row as any)) {
       const html = await porSecciones.htmlEstilo(row as any, await porSecciones.productoDeLanding(row as any));
       res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -216,6 +260,16 @@ router.post("/preview", async (req: TenantRequest, res, next) => {
     // (acción /preview/pedido: el geo de respaldo funciona y el POST real no
     // existe todavía, que es justo lo que se espera en una vista previa).
     const disenoBody = (req.body?.design && typeof req.body.design === "object") ? req.body.design : {};
+    if (disenoBody.renderer === "premium") {
+      // Misma función que la pública, con una fila de vista previa (slug "preview").
+      const { htmlPremium } = await import("../lib/landing/html-por-secciones");
+      const html = await htmlPremium({
+        id: 0, tenantId, slug: "preview", name: String(req.body?.name || "Vista previa"), productId: producto?.id ?? null,
+        sections: Array.isArray(req.body?.sections) ? req.body.sections : [], design: disenoBody,
+      }, producto);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      return res.send(html);
+    }
     if (disenoBody.renderer === "estilo") {
       const { renderizarLandingEstilo } = await import("../lib/landing/renderer-estilo");
       const html = await renderizarLandingEstilo({

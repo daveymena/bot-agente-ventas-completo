@@ -67,11 +67,6 @@ function num(v: unknown): number {
 
 const cop = (n: number): string => (n ? n.toLocaleString("es-CO") : "0");
 
-/** El TIMER del generador validado por el dueño (sus capturas del original):
- *  es un DISPOSITIVO DEL DISEñO ("la oferta de hoy"), no un hecho del
- *  producto: por eso vive como constante del renderer y no lo escribe la IA.
- *  Quitarlo por landing = design.estiloExtras.timer === false. */
-const OFERTA_SEGUNDOS = 2 * 60 * 60;
 
 // ══ Las mejoras del review (04-10, lo pedido: "textos, ubicación y
 // precios") ════════════
@@ -113,8 +108,10 @@ export interface DatosEstilo {
   envioCorto?: string;
   /** La garantía SOLO si el dueño la cargó (metadata.garantia). */
   garantia?: string;
-  /** El timer del generador validado: encendido por defecto (dispositivo del diseño del dueño); design.estiloExtras.timer===false lo apaga por landing. */
+  /** design.estiloExtras.timer===false lo apaga por landing. Sin `ofertaHasta` no se muestra nunca. */
   timer?: boolean;
+  /** Fin REAL de la oferta (fecha ISO que carga el dueño en design.estiloExtras.ofertaHasta). */
+  ofertaHasta?: string | null;
   gallery?: string[];
   video?: string | null;
   headline?: string;
@@ -163,10 +160,8 @@ function productoSchema(p: DatosEstilo, host: string) {
       availability: "https://schema.org/InStock",
       url: `${host}/l/${p.slug}`,
     },
-    aggregateRating:
-      (p.testimonials || []).length >= 3
-        ? { "@type": "AggregateRating", ratingValue: "4.8", reviewCount: String((p.testimonials || []).length) }
-        : undefined,
+    // Sin aggregateRating: los testimonios no traen calificación, y un 4.8
+    // fijo para Google es una reseña inventada (23-10-2026).
   };
 }
 
@@ -222,6 +217,15 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
   const precio = num(p.price);
   const antes = num(p.oldPrice);
   const ahorro = precio && antes && antes > precio ? antes - precio : 0;
+  // El porcentaje solo con los DOS precios reales (nunca un "50% DTO." fijo).
+  const ahorroPct = ahorro ? Math.round((ahorro / antes) * 100) : 0;
+  // El contador solo con una fecha de fin REAL que cargó el dueño, y la misma
+  // para todos los visitantes. Antes reiniciaba 2 h por visitante: una
+  // "oferta que termina" que nunca terminaba.
+  const ofertaHasta = (() => {
+    const t = Date.parse(String(p.ofertaHasta || ""));
+    return Number.isFinite(t) && t > Date.now() ? t : 0;
+  })();
   const galeria = (p.gallery || []).filter(Boolean);
   const imagenes = [p.image, ...galeria].filter(Boolean) as string[];
   const wa = String(p.whatsapp || "").replace(/[^\d]/g, "");
@@ -240,10 +244,16 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
   // honestas cuando existen: la garantía del dueño (metadata.garantia) manda
   // sobre el default; el envío sale de las condiciones del negocio (si
   // declaró incluido, el chip es el del original; si no, el real).
+  //
+  // 23-10-2026 (el dueño): "corrige los datos inventados (4.8, envío gratis
+  // por defecto, 50% DTO, contador falso)". Los dispositivos se quedan, pero
+  // solo con su dato real: envío incluido si el negocio lo declaró (sin
+  // "a todo el país" ni letra chica que nadie escribió), contador solo con
+  // una fecha de fin real (ofertaHasta), sin estrellas ni stock.
   const envioIncluido = /incluid|gratis/i.test(String(p.envioCorto || "")) || /incluido|gratis/i.test(String(p.envio || ""));
-  const envioChip = envioIncluido ? "Envío grátis<br>a todo el país*" : String(p.envioCorto || p.envio || "Envío nacional").replace(/\s*\(.+\)$/, "").slice(0, 28);
+  const envioChip = envioIncluido ? "Envío<br>incluido" : String(p.envioCorto || p.envio || "Envío nacional").replace(/\s*\(.+\)$/, "").slice(0, 28);
   const envioLargo = esFisico
-    ? (envioIncluido ? "Envío grátis a todo el país*" : String(p.envio || "Envío nacional (se te confirma al pedir)"))
+    ? (envioIncluido ? "Envío incluido en el precio" : String(p.envio || "Envío nacional (se te confirma al pedir)"))
     : esServicio ? "Agenda tu cita hoy" : "Acceso inmediato";
 
   /**
@@ -272,7 +282,7 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
       })
     : esFisico
       ? ([
-          ["🚚", "Envío", envioIncluido ? "grátis incluido*" : "nacional"],
+          ["🚚", "Envío", envioIncluido ? "incluido" : "nacional"],
           ["💵", "Pago contra", "entrega"],
           // La garantía del proveedor puede ser UNA POLÍTICA LARGA (medido en
           // el AB Roller: "En caso de recibir el producto diferente..."). En
@@ -288,8 +298,8 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
         ] as Array<[string, string, string]>).slice(0, 4)
       : esServicio
         ? [
-            ["📅", "Agenda", "flexible"],
-            ["💼╝", "Atención", "personalizada"],
+            ["📅", "Se agenda", "por WhatsApp"],
+            ["💼", "Atención", "personalizada"],
             ...(String(p.garantia || "").trim() ? [["🛡️", String(p.garantia).trim(), ""]] : []),
             ["🔒", "Pago", "100% seguro"],
           ]
@@ -309,24 +319,27 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
   const garantiaCorta = garantiaLinea
     ? (garantiaLinea.length <= 40 ? garantiaLinea : cortoDeGarantia(garantiaLinea))
     : "";
+  // Sin garantía cargada no hay celda de garantía: "Garantía del negocio" o
+  // "Satisfacción garantizada" por defecto prometen algo que nadie ofreció.
+  const celdaGarantia: Array<[string, string, string]> = garantiaCorta ? [["🛡️", garantiaCorta, ""]] : [];
   const trustBottom = itemsConfianza.length >= 3
     ? itemsConfianza.slice(0, 3).map((txt) => ["✅", String(txt).trim(), ""] as [string, string, string])
     : esFisico
       ? [
-          ["🛡️", garantiaCorta || "Garantía del negocio", garantiaCorta ? "" : "consulta términos"],
-          ["💵", "Pago contra entrega", "en todo el país"],
-          ["🚚", envioIncluido ? "Envío grátis" : "Envío nacional", envioIncluido ? "a todo el país*" : "se confirma al pedir"],
+          ...celdaGarantia,
+          ["💵", "Pago contra entrega", "al recibir"],
+          ["🚚", envioIncluido ? "Envío incluido" : "Envío nacional", envioIncluido ? "en el precio" : "se confirma al pedir"],
         ]
       : esServicio
         ? [
-            ["🛡️", garantiaCorta || "Satisfacción garantizada", garantiaCorta ? "" : "según condiciones del negocio"],
+            ...celdaGarantia,
             ["🔒", "Pago seguro", "datos cifrados"],
-            ["📅", "Reserva flexible", "cambia tu cita cuando quieras"],
+            ["📅", "Se agenda", "por WhatsApp"],
           ]
         : [
-            ["🛡️", garantiaCorta || "Garantía del negocio", garantiaCorta ? "" : "consulta términos"],
+            ...celdaGarantia,
             ["🔒", "Pago seguro", "datos cifrados"],
-            ["⚡", "Entrega inmediata", "a tu correo o WhatsApp"],
+            ["⚡", "Acceso", "apenas se confirma el pago"],
           ];
 
   // Los bullets de la HERO cortos (2-6 palabras, como en el modelo validado):
@@ -398,7 +411,6 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
             <b>${esc(t.name || "")}</b>
             <i>${esc(t.city || "")}</i>
           </div>
-          <span class="stars" aria-label="5 de 5 estrellas">★★★★★</span>
         </div>
         <p>“${esc(t.text)}”</p>
       </article>`,
@@ -438,7 +450,7 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
             <input type="radio" name="cantidad" value="${n}"${n === 1 ? " checked" : ""}>
             <span class="dot"></span>
             <span class="info"><b>${n === 1 ? `1x ${esc(p.productName)}` : `${n}x ${esc(p.productName)}${n === 3 ? " (Combo)" : ""}`}</b><span>${n === 1 ? "Ideal para uso personal" : `${cop(porUnidad)} c/u — Ideal regalo`}</span></span>
-            <span class="pr"><b>$${cop(total)}</b>${tachado}<em>${n > 1 || envioIncluido ? "Envío Gratis" : ""}</em></span>
+            <span class="pr"><b>$${cop(total)}</b>${tachado}<em>${envioIncluido ? "Envío incluido" : ""}</em></span>
           </label>`;
   };
 
@@ -451,7 +463,7 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
             ${ribbon && n !== 1 ? `<span class="ribbon">${esc(ribbon)}</span>` : ""}
             <input type="radio" name="cantidad" value="${n}"${n === 1 ? " checked" : ""}>
             <span class="dot"></span>
-            <span class="info"><b>${n === 1 ? "1 unidad" : `${n} unidades`}</b><span>${cop(porUnidad)} c/u${esFisico && envioIncluido ? " · Envío gratis" : ""}</span></span>
+            <span class="info"><b>${n === 1 ? "1 unidad" : `${n} unidades`}</b><span>${cop(porUnidad)} c/u${esFisico && envioIncluido ? " · Envío incluido" : ""}</span></span>
             <span class="pr"><b>$${cop(total)}</b>${n > 1 && antes ? `<s>$${cop(antes * n)}</s>` : ""}</span>
           </label>`;
   };
@@ -534,10 +546,10 @@ export function renderizarEstilo(p: DatosEstilo, o: OpcionesRenderEstilo = {}): 
       const cards = lineas.length
         ? lineas.map((t) => {
             const [texto, nombre = ""] = t.split(/\s*\|\s*/, 2);
-            return `<article class="rev"><div class="who"><span class="av">${esc(nombre.trim().charAt(0).toUpperCase() || "?")}</span><div><b>${esc(nombre.trim())}</b></div><span class="stars">★★★★★</span></div><p>“${esc(texto.trim())}”</p></article>`;
+            return `<article class="rev"><div class="who"><span class="av">${esc(nombre.trim().charAt(0).toUpperCase() || "?")}</span><div><b>${esc(nombre.trim())}</b></div></div><p>“${esc(texto.trim())}”</p></article>`;
           }).join("")
         : testimonios;
-      return `<section><div class="wrap"><span class="kicker">Clientes reales</span><div class="rev-h"><h2 style="margin:0">${tit || "Lo que dicen nuestros clientes"}</h2><span class="st">★★★★★</span></div><p style="margin-top:8px;color:var(--mut);font-size:13.5px;font-weight:600">Comentarios de compradores verificados</p><div class="revs">${cards}</div>${ctaBtn}</div></section>`;
+      return `<section><div class="wrap"><span class="kicker">Clientes reales</span><div class="rev-h"><h2 style="margin:0">${tit || "Lo que dicen nuestros clientes"}</h2></div><div class="revs">${cards}</div>${ctaBtn}</div></section>`;
     }
 
     // faq → acordeón
@@ -1100,17 +1112,16 @@ footer .fine{margin-top:12px;font-size:10.5px;opacity:.7}
       <div><b>${esc(p.brand || p.productName)}</b><div class="tag">${esc(p.tagline || "")}</div></div>
     </a>
     ${style === "urgencia" ? "" : `<div class="top-sells">
-      <span>${esFisico ? "🚚" : "⚡"} ${esc(envioIncluido ? "Envío grátis*" : "Envío nacional")}</span>
+      <span>${esFisico ? "🚚" : "⚡"} ${esc(envioIncluido ? "Envío incluido" : "Envío nacional")}</span>
       <span>${esFisico ? "💵" : "🔒"} ${esFisico ? "Paga al recibir" : "Compra segura"}</span>
     </div>`}
-    <div class="rating-pill"><span class="st">★★★★★</span><b>4.8</b></div>
   </div>
 </header>
 ${
   style === "urgencia"
-    ? `<div class="announce"><span class="chip-rojo">${esc(p.announce || "¡Oferta exclusiva!")}</span> ${
-        esFisico ? "50% DTO. + ENVÍO GRATIS + PAGO CONTRAENTREGA" : esc(envioLargo)
-      } <span class="cd">⏱ <b id="cd-min">14</b>:<b id="cd-sec">59</b> min</span></div>`
+    ? `<div class="announce">${p.announce ? `<span class="chip-rojo">${esc(p.announce)}</span> ` : ""}${
+        esFisico ? ["PAGO CONTRAENTREGA", envioIncluido ? "ENVÍO INCLUIDO" : "", ahorroPct ? `${ahorroPct}% MENOS QUE ANTES` : ""].filter(Boolean).join(" + ") : esc(envioLargo)
+      }</div>`
     : p.announce
       ? `<div class="announce">${esc(p.announce)}</div>`
       : ""
@@ -1120,7 +1131,7 @@ ${
     <div class="hero-grid">
 
       <div class="hero-copy">
-        <span class="kicker">${esc(p.heroBadge || "Oferta especial")}</span>
+        ${p.heroBadge || ahorro ? `<span class="kicker">${esc(p.heroBadge || "Oferta")}</span>` : ""}
         <h1>${esc(p.headline || p.productName)}</h1>
         <p class="sub">${esc(p.subheadline || p.tagline)}</p>
       </div>
@@ -1142,7 +1153,7 @@ ${
       <div class="hero-form">
         <div class="hero-buy">
           <div class="pricebox">
-            ${antes ? `<div class="antes">Antes: <del>$${cop(antes)}</del></div>` : `<div class="antes">Precio de lanzamiento</div>`}
+            ${ahorro ? `<div class="antes">Antes: <del>$${cop(antes)}</del></div>` : ""}
             <div class="row">
               <div class="hoy"><span>Hoy:</span><strong>$${cop(precio)}</strong></div>
               ${ahorro ? `<div class="ahorra">Ahorras<b>$${cop(ahorro)}</b></div>` : ""}
@@ -1151,20 +1162,16 @@ ${
           </div>
 
           ${
-            p.timer === false
-              ? ""
-              : `<div class="timer" role="timer" aria-label="La oferta termina en">
+            ofertaHasta && p.timer !== false
+              ? `<div class="timer" role="timer" aria-label="La oferta termina en">
             <span class="lb">⏳ La oferta termina en</span>
             <span class="t">
-              <b id="th">02</b><i>:</i><b id="tm">00</b><i>:</i><b id="ts">00</b>
+              <b id="th">00</b><i>:</i><b id="tm">00</b><i>:</i><b id="ts">00</b>
             </span>
           </div>`
+              : ""
           }
 
-          ${style === "urgencia" ? `<div class="stockbar" id="stockbar">
-            <div class="row"><span>🔥 DEMANDA ALTA EN COLOMBIA</span><span class="q">¡Quedan 7 unidades!</span></div>
-            <div class="bar"><b style="width:88%"></b></div>
-          </div>` : ""}
 
           <div class="order" id="order-box">
             <div class="oh">
@@ -1237,7 +1244,6 @@ ${
       ? `<a class="fwa" href="${waLink}" target="_blank" rel="noopener"><span class="g">✆</span> ¿Tienes dudas? Escríbenos por WhatsApp</a>`
       : ""
   }
-  ${envioIncluido ? `<p class="fine">*Envío gratis a todo el país por tiempo limitado. Aplica a zonas urbanas.</p>` : ""}
   <p class="fine">Los precios pueden variar sin previo aviso. Imágenes referenciales del producto real.</p>
 </footer>
 
@@ -1257,17 +1263,17 @@ ${pixel ? `<script>!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n
   var G=${JSON.stringify(imagenes)};
 
   try{
-    var key='oferta:'+SLUG, fin=Number(localStorage.getItem(key)||0);
-    if(!fin||fin<Date.now()) fin=Date.now()+${OFERTA_SEGUNDOS}*1000, localStorage.setItem(key,fin);
+    var fin=${JSON.stringify(ofertaHasta)};
     var tick=function(){
-      var s=Math.max(0,Math.floor((fin-Date.now())/1000));
-      var h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;
       var H=document.getElementById('th'),M=document.getElementById('tm'),S=document.getElementById('ts');
-      if(!H)return;
+      if(!H||!fin)return;
+      var s=Math.max(0,Math.floor((fin-Date.now())/1000));
+      // Terminada la oferta, el contador se va: no se queda en 00:00:00 ni vuelve a empezar.
+      if(s===0){var box=H.closest('.timer');if(box)box.remove();return;}
+      var h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=s%60;
       H.textContent=String(h).padStart(2,'0');
       M.textContent=String(m).padStart(2,'0');
       S.textContent=String(ss).padStart(2,'0');
-      if(s===0){localStorage.removeItem(key);}
     };
     tick();setInterval(tick,1000);
   }catch(e){}
@@ -1583,6 +1589,7 @@ export function estiloDesdeFila(a: {
     envioCorto: a.envioReal?.corta,
     garantia: garantia ? String(garantia) : undefined,
     timer: ex.timer !== false,
+    ofertaHasta: typeof ex.ofertaHasta === "string" ? ex.ofertaHasta : null,
     image: fotos[0] || undefined,
     gallery: fotos.slice(1),
     video: a.video || null,
@@ -1595,7 +1602,7 @@ export function estiloDesdeFila(a: {
     useCases: Array.isArray(ex.useCases) ? ex.useCases.map(String).filter(Boolean) : [],
     useCasesTitle: typeof ex.useCasesTitle === "string" ? ex.useCasesTitle : undefined,
     comparison: con.length || sin.length ? { titulo: ex.comparison?.titulo, conProducto: con, sinProducto: sin } : null,
-    riskFree: garantia ? { title: typeof ex.riskFree?.title === "string" && ex.riskFree.title ? ex.riskFree.title : "Tu compra estí protegida", text: String(garantia) } : null,
+    riskFree: garantia ? { title: typeof ex.riskFree?.title === "string" && ex.riskFree.title ? ex.riskFree.title : "Tu compra está protegida", text: String(garantia) } : null,
     testimonials,
     faq,
     announce: typeof ex.announce === "string" ? ex.announce : undefined,
@@ -1662,8 +1669,11 @@ export async function renderizarLandingEstilo(a: {
       ? await fotosUnicasDelProducto(producto, producto?.id ? { guardar: guardadorDeMetadata(Number(producto.id)) } : undefined)
       : [];
   } catch {
-    fotos = producto ? [producto.imageUrl].filter(Boolean).map(String) : [];
+    fotos = [];
   }
+  // La foto principal que cargó el dueño nunca se pierde: si la lista quedó
+  // vacía (filtro, error de red), va la de la ficha.
+  if (!fotos.length && producto?.imageUrl) fotos = [String(producto.imageUrl)];
 
   let precioAntes = a.precioAntes ?? null;
   if (precioAntes == null && producto?.id) {

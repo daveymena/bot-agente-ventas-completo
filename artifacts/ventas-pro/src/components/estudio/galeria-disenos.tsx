@@ -23,6 +23,9 @@ export interface Diseno {
 }
 
 export const DISENOS: Diseno[] = [
+  // El diseño premium cambia solo según el producto: contraentrega para lo
+  // físico, pago en línea para lo digital y agenda para un servicio.
+  { id: "vp:premium", nombre: "Premium VentasPro", desc: "Todas las fotos, paquetes con precio por unidad y total con envío. Se adapta a físico, digital y servicio.", grupo: "Premium", color: "#14171C", design: { renderer: "premium" } },
   { id: "estilo:cleanhome", nombre: "CleanHome COD", desc: "Página de producto con formulario arriba a la derecha.", grupo: "Páginas de producto que venden", color: "#08783A", design: { renderer: "estilo", style: "cleanhome" } },
   { id: "estilo:urgencia", nombre: "Urgencia", desc: "Cuenta regresiva, stock y combos 2x / 3x.", grupo: "Páginas de producto que venden", color: "#E5342A", design: { renderer: "estilo", style: "urgencia" } },
   { id: "estilo:clinico", nombre: "Clínico", desc: "Azul marino, pasos y paquetes. Salud y ortopedia.", grupo: "Páginas de producto que venden", color: "#1E5BD7", design: { renderer: "estilo", style: "clinico" } },

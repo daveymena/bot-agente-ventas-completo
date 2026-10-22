@@ -23,13 +23,14 @@ describe("hechosParaLanding", () => {
     expect(h.garantia ?? null).toBeNull();
   });
 
-  it("físico: envío, pago y cobertura salen de las condiciones del negocio", async () => {
+  // 23-10-2026: el respaldo ya no trae "incluido · 3 a 5 días · todo el país".
+  // Sin perfil, Landing Forge no puede afirmar envío gratis, plazo ni cobertura.
+  it("físico sin envío configurado: contraentrega sí, pero NO envío gratis, plazo ni cobertura", async () => {
     const h = await hechosParaLanding(null, { kind: "physical" });
-    // Respaldo del dueño: flete incluido, contraentrega, todo el país.
-    expect(h.envioGratis).toBe(true);
+    expect(h.envioGratis).toBe(false);
     expect(h.pago).toBe("pago contra entrega");
-    expect(h.cobertura).toContain("Colombia");
-    expect(h.entrega?.plazo).toBeTruthy();
+    expect(h.cobertura).toBeUndefined();
+    expect(h.entrega?.plazo).toBeUndefined();
     expect(h.trato).toBe("tu");
   });
 

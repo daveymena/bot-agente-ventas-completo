@@ -10,7 +10,7 @@
 import { Router, type Request, type Response } from "express";
 import { fotosDelProducto, fotosUnicasDelProducto, guardadorDeMetadata } from "../lib/fotos-de-producto";
 import { and, eq } from "drizzle-orm";
-import { db, landingPages, products, coupons, pool } from "@workspace/db";
+import { db, landingPages, products, coupons, tenants, pool } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { tenantManager } from "../lib/tenantManager";
 import { getBusinessContext } from "../lib/business-context";
@@ -27,6 +27,28 @@ async function landingPorSlug(slug: string) {
     ? await db.select().from(products).where(and(eq(products.id, row.productId), eq(products.tenantId, row.tenantId))).limit(1)
     : [null];
   return { row, producto: producto || null };
+}
+
+/** Reglas antifraude del negocio (`tenants.metadata.antifraude`), sin normalizar. */
+async function antifraudeDelNegocio(tenantId: number): Promise<unknown> {
+  try {
+    const [t] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    const meta: any = typeof t?.metadata === "string" ? JSON.parse(t.metadata) : t?.metadata;
+    return meta?.antifraude ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** El WhatsApp del negocio al que el cliente escribe su código (solo dígitos). */
+async function whatsappDelNegocio(tenantId: number, producto: any): Promise<string> {
+  try {
+    const { negocioParaRender } = await import("../lib/landing/negocio-para-render");
+    const r: any = await negocioParaRender(tenantId, producto);
+    return String(r?.whatsapp || "").replace(/\D/g, "");
+  } catch {
+    return "";
+  }
 }
 
 export function urlPublicaDe(slug: string): string {
@@ -63,13 +85,24 @@ landingPublicaRouter.get("/l/:slug", async (req: Request, res: Response) => {
       const t = await tenantManager.getTenantById(tenantId);
       pixelId = new FacebookService(t || undefined).pixelId || null;
     } catch { pixelId = null; }
-    const medir = (html: string) => conMedicion(html, snippetDeMedicion({ slug: row.slug, pixelId, producto: producto as any }));
+    // Formulario seguro (lib/landing/formulario-extras.ts): trampa antirrobot,
+    // upsell/downsell y el paso de verificación, en cualquier motor.
+    const { extrasDelFormulario } = await import("../lib/landing/formulario-extras");
+    const { configPedido } = await import("../lib/landing/pedido-seguro");
+    const cfgPedido = configPedido(row.design);
+    const medir = (html: string) => conMedicion(extrasDelFormulario(html, cfgPedido), snippetDeMedicion({ slug: row.slug, pixelId, producto: producto as any }));
 
     // Vía ESTILO (lib/landing/renderer-estilo.ts): se recalcula de secciones +
     // design en CADA visita, antes del html guardado (que es solo snapshot) y
     // de la copia clonada. La variante (cod/premium/bold/dark) vive en
     // design.style; el píxel lo pone solo `medir` para no contarlo dos veces.
     const porSecciones = await import("../lib/landing/html-por-secciones");
+    if (porSecciones.esPremium(row as any)) {
+      const html = await porSecciones.htmlPremium(row as any, producto);
+      res.setHeader("Content-Type", "text/html; charset=utf-8");
+      res.setHeader("Cache-Control", "public, max-age=60");
+      return res.send(medir(html));
+    }
     if (porSecciones.esEstilo(row as any)) {
       const html = await porSecciones.htmlEstilo(row as any, producto);
       res.setHeader("Content-Type", "text/html; charset=utf-8");
@@ -209,7 +242,7 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
       const json = res.json.bind(res);
       (res as any).json = (body: any) => {
         if (body && typeof body === "object") {
-          if (body.ok && !body.repetido) void registrarEventoLanding(row.tenantId, row.slug, "pedido", body.registrado ? "registrado" : "sin registrar en Dropi/Woo");
+          if (body.ok && !body.repetido) void registrarEventoLanding(row.tenantId, row.slug, "pedido", body.verificar ? "esperando verificación por WhatsApp" : body.registrado ? "registrado" : "sin registrar en Dropi/Woo");
           else if (body.ok === false) void registrarEventoLanding(row.tenantId, row.slug, "rechazo", String(body.error || res.statusCode));
         }
         return json(body);
@@ -253,6 +286,25 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
     const zona = ds.verificarZona(datos, c.pais);
     if (!zona.ok) return res.status(400).json({ ok: false, error: `Revisá la ciudad y el departamento: ${zona.motivo}` });
 
+    // Antifraude (lib/landing/pedido-seguro.ts): reglas del dueño + campo trampa.
+    const seguro = await import("../lib/landing/pedido-seguro");
+    const ip = String(req.ip || "").replace(/^::ffff:/, "");
+    {
+      const cfgAf = seguro.configAntifraude(await antifraudeDelNegocio(row.tenantId));
+      const recientes = pool && (cfgAf.maxPedidosPorTelefono24h || cfgAf.maxPedidosPorIp24h)
+        ? await ds.pedidosRecientes(row.tenantId, datos.telefono, ip).catch(() => ({ telefono: 0, ip: 0 }))
+        : { telefono: 0, ip: 0 };
+      const v = seguro.evaluarAntifraude(cfgAf, {
+        telefono: datos.telefono, ip, ciudad: datos.ciudad,
+        pedidosTelefono24h: recientes.telefono, pedidosIp24h: recientes.ip, trampa: b.sitio_web,
+      });
+      if (!v.ok) {
+        logger.warn({ tenantId: row.tenantId, slug: row.slug, regla: v.regla }, "[LandingPublica] Pedido frenado por antifraude");
+        return res.status(400).json({ ok: false, error: v.alCliente, antifraude: v.regla });
+      }
+    }
+    const cfgPedido = seguro.configPedido(row.design);
+
     let cantidad = Math.max(1, Math.min(10, Number(b.cantidad) || 1));
     let detalleOpciones = Object.entries(opciones).map(([k, v]) => `${k}: ${v}`).join(" · ");
 
@@ -293,6 +345,22 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
       }
     }
 
+    // Upsell / downsell que aceptó en el formulario. El precio sale de la
+    // landing (lo definió el dueño), nunca de lo que mande el navegador.
+    const extra = seguro.extraElegido(cfgPedido, b.extra);
+    const conExtra = seguro.sumarExtraMismoProducto({ cantidad, total: unitPrice * cantidad }, extra, producto.id);
+    if (conExtra.sumado && extra) {
+      cantidad = conExtra.cantidad;
+      unitPrice = conExtra.total / cantidad;
+      detalleOpciones = [detalleOpciones, `${b.extra === "downsell" ? "Downsell" : "Upsell"}: ${extra.titulo} (+$${extra.precio.toLocaleString("es-CO")})`].filter(Boolean).join(" · ");
+    }
+    // Otro producto: va en su propio pedido (el despacho es de un producto por pedido).
+    let productoExtra: any = null;
+    if (extra && !conExtra.sumado && extra.productId) {
+      const [px] = await db.select().from(products).where(and(eq(products.id, extra.productId), eq(products.tenantId, row.tenantId))).limit(1);
+      if (px && modeloDelProducto(px as any) === "fisico") productoExtra = px;
+    }
+
     // ── El mismo cliente, el mismo producto, hace un momento: es el MISMO pedido ──
     // 19-09-2026: el dueño llenó el formulario una vez y le dio "Pedir" cinco
     // veces porque la página no contestaba nada; salieron los pedidos Woo
@@ -316,7 +384,9 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
       if (previos[0]) {
         const prev = previos[0];
         logger.info({ pedidoId: prev.id, wooOrderId: prev.woo_order_id }, "[LandingPublica] Pedido repetido en 10 min: se devuelve el existente");
-        return responderPedido(req, res, { ok: true, pedidoId: prev.id, registrado: !!prev.woo_order_id, wooOrderId: prev.woo_order_id ?? null, plazo: c.envio.plazo, repetido: true }, producto.name);
+        const verificar = prev.estado === "por_verificar" && prev.codigo_verificacion
+          ? { verificar: true, token: seguro.tokenDeVerificacion(prev.id, prev.codigo_verificacion) } : {};
+        return responderPedido(req, res, { ok: true, pedidoId: prev.id, registrado: !!prev.woo_order_id, wooOrderId: prev.woo_order_id ?? null, plazo: c.envio.plazo, repetido: true, ...verificar }, producto.name);
       }
     }
 
@@ -386,6 +456,39 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
         logger.warn({ err: e?.message }, "[LandingPublica] no se pudo asociar la transportadora elegida");
       }
     }
+    await ds.guardarIpDelPedido(pedido.id, ip).catch(() => {});
+
+    // El complemento de otro producto: mismos datos de envío, su propio pedido.
+    let pedidoExtra: any = null;
+    if (productoExtra && extra) {
+      pedidoExtra = await ds.abrirPedido({
+        tenantId: row.tenantId, conversationId: null, productId: productoExtra.id, productName: productoExtra.name,
+        unitPrice: extra.precio / extra.cantidad, quantity: extra.cantidad, telefono: datos.telefono,
+        metodoPago: c.envio.pago === "anticipado" ? "transferencia" : "contraentrega",
+      });
+      pedidoExtra = (await ds.guardarDatos(pedidoExtra.id, { ...datos, notas: [`${b.extra === "downsell" ? "Downsell" : "Upsell"} del pedido #${pedido.id}`, datos.notas].filter(Boolean).join(" · ") })) || pedidoExtra;
+      await ds.guardarIpDelPedido(pedidoExtra.id, ip).catch(() => {});
+    }
+
+    // Verificación por WhatsApp: el pedido espera a que el cliente nos escriba
+    // su código; recién ahí se despacha (lib/landing/verificacion-whatsapp.ts).
+    // Sin número de WhatsApp del negocio no hay a dónde escribir: se despacha
+    // como siempre.
+    const waNegocio = cfgPedido.verificarWhatsapp ? await whatsappDelNegocio(row.tenantId, producto) : "";
+    if (waNegocio) {
+      const codigo = seguro.generarCodigo();
+      await ds.ponerEnVerificacion(pedido.id, codigo);
+      if (pedidoExtra) await ds.ponerEnVerificacion(pedidoExtra.id, codigo);
+      return responderPedido(req, res, { ok: true, pedidoId: pedido.id, registrado: false, plazo: c.envio.plazo, verificar: true, token: seguro.tokenDeVerificacion(pedido.id, codigo) }, producto.name);
+    }
+
+    if (pedidoExtra) {
+      await ds.marcarEstado(pedidoExtra.id, "confirmado");
+      pedidoExtra.estado = "confirmado";
+      const rx = await ds.despacharPedido(pedidoExtra);
+      if (!rx.ok) logger.warn({ pedidoId: pedidoExtra.id, err: rx.error }, "[LandingPublica] el complemento del upsell no se pudo registrar");
+      detalleOpciones = [detalleOpciones, `+ pedido #${pedidoExtra.id}: ${pedidoExtra.productName} × ${pedidoExtra.quantity} (${rx.ok ? "registrado" : `sin registrar: ${rx.error}`})`].filter(Boolean).join(" · ");
+    }
     await ds.marcarEstado(pedido.id, "confirmado");
     pedido.estado = "confirmado";
     const r = await ds.despacharPedido(pedido);
@@ -430,11 +533,97 @@ landingPublicaRouter.post("/api/landing-publica/:slug/pedido", async (req: Reque
  */
 function responderPedido(req: Request, res: Response, datos: Record<string, any>, _nombreProducto: string) {
   const slug = String(req.params.slug || "");
-  const gracias = `/l/${encodeURIComponent(slug)}/gracias?pedido=${encodeURIComponent(String(datos.pedidoId ?? ""))}${datos.repetido ? "&repetido=1" : ""}`;
+  // Con verificación pendiente, la "siguiente pantalla" es la del código.
+  const gracias = datos.verificar
+    ? `/l/${encodeURIComponent(slug)}/verificar?pedido=${encodeURIComponent(String(datos.pedidoId ?? ""))}&k=${encodeURIComponent(String(datos.token || ""))}`
+    : `/l/${encodeURIComponent(slug)}/gracias?pedido=${encodeURIComponent(String(datos.pedidoId ?? ""))}${datos.repetido ? "&repetido=1" : ""}`;
+  delete datos.token;
   const quiereHtml = !req.is("application/json") && /text\/html/i.test(String(req.headers.accept || ""));
   if (quiereHtml) return res.redirect(303, gracias);
   return res.json({ ...datos, gracias });
 }
+
+/**
+ * El pedido que espera verificación, solo si `k` es el token de ESE pedido
+ * (ver tokenDeVerificacion). Sin token válido no se dice ni si existe.
+ */
+async function pedidoConToken(slug: string, pedidoId: number, k: string) {
+  if (!pool || !Number.isInteger(pedidoId) || pedidoId <= 0 || !k) return null;
+  const encontrada = await landingPorSlug(slug);
+  if (!encontrada) return null;
+  const { estadoDeVerificacion } = await import("../lib/dropshipping");
+  const { tokenDeVerificacion } = await import("../lib/landing/pedido-seguro");
+  const e = await estadoDeVerificacion(pedidoId);
+  if (!e || !e.codigo || e.tenantId !== encontrada.row.tenantId || tokenDeVerificacion(pedidoId, e.codigo) !== k) return null;
+  return { ...encontrada, estado: e.estado, codigo: e.codigo };
+}
+
+/** GET /api/landing-publica/:slug/pedido/:id/verificacion?k= → { estado } (la página pregunta cada pocos segundos). */
+landingPublicaRouter.get("/api/landing-publica/:slug/pedido/:id/verificacion", async (req: Request, res: Response) => {
+  try {
+    const p = await pedidoConToken(String(req.params.slug || ""), Number(req.params.id), String(req.query.k || ""));
+    res.setHeader("Cache-Control", "no-store");
+    if (!p) return res.status(404).json({ ok: false });
+    return res.json({ ok: true, verificado: p.estado !== "por_verificar" && p.estado !== "cancelado", estado: p.estado });
+  } catch {
+    return res.status(500).json({ ok: false });
+  }
+});
+
+/**
+ * GET /l/:slug/verificar?pedido=&k= — "falta un paso": el cliente toca el
+ * botón, se le abre WhatsApp con el código escrito y lo manda. La página
+ * pregunta el estado y, cuando el bot recibe el código, pasa sola a /gracias.
+ */
+landingPublicaRouter.get("/l/:slug/verificar", async (req: Request, res: Response) => {
+  const slug = String(req.params.slug || "");
+  const pedidoId = Number(req.query.pedido);
+  const k = String(req.query.k || "");
+  const p = await pedidoConToken(slug, pedidoId, k).catch(() => null);
+  const gracias = `/l/${encodeURIComponent(slug)}/gracias?pedido=${encodeURIComponent(String(pedidoId || ""))}`;
+  if (!p) return res.redirect(303, `/l/${encodeURIComponent(slug)}`);
+  if (p.estado !== "por_verificar") return res.redirect(303, gracias);
+  const { textoDeVerificacion, HORAS_PARA_VERIFICAR } = await import("../lib/landing/pedido-seguro");
+  const wa = await whatsappDelNegocio(p.row.tenantId, p.producto);
+  const enlace = `https://wa.me/${wa}?text=${encodeURIComponent(textoDeVerificacion(pedidoId, p.codigo, p.producto?.name || "mi pedido"))}`;
+  const esc = (v: any) => String(v ?? "").replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch] as string));
+  const estadoUrl = `/api/landing-publica/${encodeURIComponent(slug)}/pedido/${pedidoId}/verificacion?k=${encodeURIComponent(k)}`;
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
+  return res.send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Confirma tu pedido</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Poppins:wght@700;800&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:Inter,system-ui,sans-serif;background:#F7F7F7;color:#111;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+  .card{background:#fff;border:1px solid #E5E7EB;border-radius:20px;padding:36px 26px;max-width:480px;width:100%;text-align:center;box-shadow:0 20px 50px rgba(17,17,17,.10)}
+  .paso{display:inline-block;background:#FEF3C7;color:#92400E;font-weight:700;font-size:13px;border-radius:999px;padding:5px 12px;margin-bottom:14px}
+  h1{font-family:Poppins,sans-serif;font-size:26px;line-height:1.2;margin-bottom:10px}
+  p{color:#555B63;line-height:1.6;font-size:15.5px}
+  .codigo{font-family:Poppins,sans-serif;font-size:30px;font-weight:800;letter-spacing:.06em;margin:20px 0 6px;font-variant-numeric:tabular-nums}
+  .prod{font-weight:600;color:#111;margin-bottom:22px}
+  a.wa{display:flex;align-items:center;justify-content:center;gap:10px;background:#25D366;color:#fff;font-weight:700;font-size:17px;text-decoration:none;padding:17px 20px;border-radius:14px;min-height:56px}
+  a.wa:focus-visible{outline:3px solid #111;outline-offset:3px}
+  a.wa svg{width:24px;height:24px}
+  .espera{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:18px;font-size:14px;color:#555B63}
+  .punto{width:9px;height:9px;border-radius:50%;background:#25D366;animation:latido 1.4s ease-in-out infinite}
+  @keyframes latido{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
+  .ok .punto{animation:none;opacity:1}
+  .nota{font-size:13px;margin-top:20px}
+  @media (prefers-reduced-motion:reduce){.punto{animation:none;opacity:1}}
+</style></head>
+<body><main class="card">
+  <span class="paso">Falta un paso</span>
+  <h1>Confirma tu pedido por WhatsApp</h1>
+  <p>Envíanos este código desde tu WhatsApp y despachamos tu pedido.</p>
+  <div class="codigo" aria-label="Código ${esc(p.codigo)}">${esc(p.codigo)}</div>
+  <p class="prod">Pedido #${esc(pedidoId)}${p.producto ? ` · ${esc(p.producto.name)}` : ""}</p>
+  ${wa ? `<a class="wa" href="${esc(enlace)}" target="_blank" rel="noopener"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2zm5.3 14.1c-.2.6-1.3 1.2-1.8 1.2-.5.1-1 .2-3.3-.7-2.8-1.1-4.6-4-4.7-4.2-.1-.2-1.1-1.5-1.1-2.9s.7-2 1-2.3c.2-.3.5-.3.7-.3h.5c.2 0 .4 0 .6.5l.8 2c.1.2.1.4 0 .5l-.4.6c-.1.2-.3.3-.1.6.2.3.8 1.3 1.7 2.1 1.1 1 2.1 1.3 2.4 1.4.3.1.5.1.6-.1l.9-1.1c.2-.3.4-.2.7-.1l1.9.9c.3.1.5.2.5.3.1.2.1.7-.1 1.3z"/></svg>Enviar código por WhatsApp</a>` : ""}
+  <div class="espera" id="espera" role="status" aria-live="polite"><span class="punto"></span><span id="estado">Esperando tu mensaje…</span></div>
+  <p class="nota">El mensaje ya va escrito: solo tienes que tocar enviar. Tienes ${HORAS_PARA_VERIFICAR} horas para confirmarlo.</p>
+</main>
+<script>(function(){var u=${JSON.stringify(estadoUrl)},g=${JSON.stringify(gracias)},n=0,h=0,listo=false;function q(){clearTimeout(h);if(listo)return;n++;fetch(u,{cache:'no-store'}).then(function(r){return r.json()}).then(function(j){if(j&&j.verificado){listo=true;document.getElementById('espera').className='espera ok';document.getElementById('estado').textContent='¡Recibido! Tu pedido quedó confirmado.';setTimeout(function(){location.href=g},1200);return;}t()}).catch(t)}function t(){clearTimeout(h);h=setTimeout(q,n<60?4000:15000)}t();document.addEventListener('visibilitychange',function(){if(!document.hidden)q()});})();</script>
+</body></html>`);
+});
 
 /**
  * GET /l/:slug/gracias — la pantalla de felicitación después del pedido.

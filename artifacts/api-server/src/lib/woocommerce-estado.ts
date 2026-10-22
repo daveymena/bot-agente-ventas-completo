@@ -122,6 +122,7 @@ const ESTADO_LEGIBLE: Record<string, string> = {
   borrador: "tomando datos",
   completo: "datos completos, sin confirmar",
   por_confirmar: "esperando el sí del cliente",
+  por_verificar: "esperando que el cliente confirme por WhatsApp",
   confirmado: "confirmado, sin registrar en Woo",
   enviado: "registrado en WooCommerce",
   despachado: "en Dropi, el proveedor despacha",
