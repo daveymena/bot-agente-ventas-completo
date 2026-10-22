@@ -148,7 +148,9 @@ Hecho y probado (39 pruebas en verde):
 
 ### Runbook EasyPanel (no ejecutado aún)
 1. Mergear la rama a `para-subir` (EasyPanel despliega esa rama; el deploy se dispara una sola vez).
-2. Crear el servicio `bot-agenwhatsapp-meta-worker` con la misma imagen, variables del servicio principal más `META_ROLE=worker`, y comando `npx tsx artifacts/api-server/src/lib/meta/arranque-worker.ts` (o el bundle `dist/meta-worker.mjs` cuando exista). Sin dominio ni puerto público.
+2. Crear el servicio `bot-agenwhatsapp-meta-worker` con la misma imagen, variables del servicio principal más `META_ROLE=worker`, y comando `node dist/meta-worker.mjs` (el build de `artifacts/api-server/build.mjs` lo genera junto al servidor). Sin dominio ni puerto público. Sin `DATABASE_URL` el proceso sale con código 1 y un mensaje claro.
+   - Nota: en la máquina de desarrollo Windows, esbuild no puede escribir en `dist/` ("Access is denied"); el worker se escribe en memoria y se guarda con `fs`. El build de Linux de EasyPanel no tiene ese problema.
+   - Activar lecturas de reportes desde la tabla: `META_HISTORICO_DESDE_TABLA=true` en el servicio de la API (apagado por defecto).
 3. Verificar en logs: `meta-worker listo`, luego `insights programados`.
 4. El worker corre las migraciones de `meta_trabajos`, `meta_cuentas_cola` y `meta_insights_diarios` al arrancar.
 

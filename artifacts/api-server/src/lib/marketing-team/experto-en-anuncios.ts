@@ -113,7 +113,8 @@ export function loQueDebeDecir(modelo: "digital" | "fisico"): string[] {
 /** Lo que YA pasó en la cuenta: campaña por campaña, con su copy y sus números. */
 export async function benchmarksDeLaCuenta(fb: any, dias = 30): Promise<{ campanas: CampanaMedida[]; resumen: string; mejor: CampanaMedida | null; peor: CampanaMedida | null }> {
   const lista = await fb.listActiveCampaigns();
-  const metricas = lista.length ? await fb.getCampaignMetrics({ campaignIds: lista.map((c: any) => c.id), days: dias }) : null;
+  const pedir = fb.getCampaignMetricsHistoricos ?? fb.getCampaignMetrics;
+  const metricas = lista.length ? await pedir.call(fb, { campaignIds: lista.map((c: any) => c.id), days: dias }) : null;
   const campanas: CampanaMedida[] = [];
   for (const c of lista.slice(0, 12)) {
     const m = (metricas?.campaigns || []).find((x: any) => x.id === c.id);

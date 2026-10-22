@@ -2,7 +2,9 @@ import { logger } from "./logger";
 import { CAMPOS_WEBHOOK_PAGINA } from "./meta-campos-webhook";
 import { getAppUrl } from "./app-url";
 import { destinoWebDelProducto } from "./landing/destino-del-producto";
-import { db, products } from "@workspace/db";
+import { db, products, pool } from "@workspace/db";
+import { historicoDesdeTabla } from "./meta/metricas";
+import { sqlDesdePool } from "./meta/sql-pool";
 import { eq } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
 
@@ -1859,6 +1861,40 @@ Responde SOLO con este JSON exacto:
       { spend: 0, impressions: 0, clicks: 0, results: 0, costPerResult: 0 },
     );
     return { campaigns: rows, totals };
+  }
+
+  /**
+   * Métricas de varios días para REPORTES (diagnóstico, análisis de expertos).
+   *
+   * Lee de la tabla propia `meta_insights_diarios` cuando hay cobertura y la
+   * sincronización es reciente; si no, cae a la consulta en vivo. Las
+   * decisiones de presupuesto y pausa NO usan esta función: siguen en vivo.
+   * Apagado por defecto: se enciende con META_HISTORICO_DESDE_TABLA=true.
+   */
+  async getCampaignMetricsHistoricos(opts?: { campaignIds?: string[]; days?: number }): Promise<{
+    campaigns: any[];
+    totals: { spend: number; impressions: number; clicks: number; results: number; costPerResult: number };
+    fuente: "tabla" | "vivo";
+    actualizadoEn?: string;
+  } | null> {
+    const dias = Math.min(Math.max(opts?.days || 7, 1), 30);
+    const usarTabla = process.env.META_HISTORICO_DESDE_TABLA === "true" && pool && this.config.adAccountId;
+    if (usarTabla) {
+      try {
+        const cuenta = String(this.config.adAccountId).startsWith("act_") ? String(this.config.adAccountId) : `act_${this.config.adAccountId}`;
+        const sql = sqlDesdePool(pool as unknown as Parameters<typeof sqlDesdePool>[0]);
+        const h = await historicoDesdeTabla(sql, Number(this.tenant.id), cuenta, dias);
+        if (h) {
+          const ids = opts?.campaignIds;
+          const campaigns = ids?.length ? h.campaigns.filter((c) => ids.includes(c.id)) : h.campaigns;
+          return { campaigns, totals: h.totals, fuente: "tabla", actualizadoEn: h.actualizadoEn };
+        }
+      } catch (err: any) {
+        logger.warn({ err }, "[Facebook] histórico desde tabla falló, se usa Meta en vivo");
+      }
+    }
+    const vivo = await this.getCampaignMetrics({ campaignIds: opts?.campaignIds, days: dias });
+    return vivo ? { ...vivo, fuente: "vivo" } : null;
   }
 
   /**

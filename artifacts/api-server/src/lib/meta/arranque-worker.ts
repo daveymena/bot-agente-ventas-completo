@@ -53,7 +53,16 @@ async function programarHoy(): Promise<void> {
   }, INTERVALO_PROGRAMADOR_MS);
   reloj.unref?.();
 
-  const control = iniciarWorker({ sql, manejadores, registrar: log });
+  const control = iniciarWorker({
+    sql,
+    manejadores,
+    registrar: log,
+    alTokenInvalido: async (trabajo, error) => {
+      // El negocio tiene que reconectar su cuenta de Meta. Queda registrado;
+      // el aviso al dueño se conecta cuando exista el canal de notificaciones.
+      log("token_meta_invalido", { tenantId: trabajo.tenantId, cuenta: trabajo.cuenta, codigo: error.codigo });
+    },
+  });
   const apagar = () => { log("apagando meta-worker"); clearInterval(reloj); control.detener(); };
   process.on("SIGTERM", apagar);
   process.on("SIGINT", apagar);

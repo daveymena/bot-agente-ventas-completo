@@ -253,3 +253,112 @@ export async function programarSincronizacionDiaria(
   }
   return { encolados, repetidos };
 }
+
+export interface CampanaHistorica {
+  id: string;
+  name: string;
+  status: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  reach: number;
+  results: number;
+  costPerResult: number;
+}
+
+export interface HistoricoCampanas {
+  campaigns: CampanaHistorica[];
+  totals: { spend: number; impressions: number; clicks: number; results: number; costPerResult: number };
+  desde: string;
+  hasta: string;
+  actualizadoEn: string;
+}
+
+/** Edad máxima de la última sincronización para considerar la tabla vigente. */
+export const EDAD_MAXIMA_SYNC_MS = 36 * 60 * 60 * 1000;
+
+function sumarDias(fechaIso: string, dias: number): string {
+  const d = new Date(`${fechaIso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Métricas de los últimos N días COMPLETOS (hasta ayer), desde la tabla propia.
+ * Devuelve null si no hay cobertura: la tabla no tiene todos los días pedidos
+ * o la última sincronización es vieja. El llamador debe caer a Meta en vivo.
+ */
+export async function historicoDesdeTabla(
+  sql: Sql,
+  tenantId: number,
+  cuenta: string,
+  dias: number,
+  ahora: Date = new Date(),
+): Promise<HistoricoCampanas | null> {
+  const hoy = ahora.toISOString().slice(0, 10);
+  const hasta = sumarDias(hoy, -1);
+  const desde = sumarDias(hasta, -(dias - 1));
+
+  const { rows: cobertura } = await sql.query(
+    `SELECT count(DISTINCT fecha)::int AS dias, max(sincronizado_en) AS ultima
+       FROM meta_insights_diarios
+      WHERE tenant_id = $1 AND cuenta = $2 AND fecha BETWEEN $3 AND $4`,
+    [tenantId, cuenta, desde, hasta],
+  );
+  const diasCubiertos = Number(cobertura[0]?.dias) || 0;
+  const ultima = cobertura[0]?.ultima ? new Date(cobertura[0].ultima as string) : null;
+  if (diasCubiertos < dias || !ultima || ahora.getTime() - ultima.getTime() > EDAD_MAXIMA_SYNC_MS) return null;
+
+  const { rows } = await sql.query(
+    `SELECT campana_id,
+            max(campana_nombre) AS nombre,
+            sum(gasto)::float AS gasto,
+            sum(impresiones)::float AS impresiones,
+            sum(clics)::float AS clics,
+            sum(resultados)::float AS resultados
+       FROM meta_insights_diarios
+      WHERE tenant_id = $1 AND cuenta = $2 AND fecha BETWEEN $3 AND $4
+      GROUP BY campana_id
+      ORDER BY sum(gasto) DESC`,
+    [tenantId, cuenta, desde, hasta],
+  );
+
+  const campaigns: CampanaHistorica[] = rows.map((r) => {
+    const spend = Number(r.gasto) || 0;
+    const impressions = Number(r.impresiones) || 0;
+    const clicks = Number(r.clics) || 0;
+    const results = Number(r.resultados) || 0;
+    return {
+      id: String(r.campana_id),
+      name: (r.nombre as string | null) ?? String(r.campana_id),
+      status: "UNKNOWN",
+      spend,
+      impressions,
+      clicks,
+      ctr: impressions > 0 ? clicks / impressions : 0,
+      // El alcance diario no se puede sumar entre días: no hay alcance único.
+      reach: 0,
+      results,
+      costPerResult: results > 0 ? spend / results : 0,
+    };
+  });
+
+  const totales = campaigns.reduce(
+    (a, c) => ({
+      spend: a.spend + c.spend,
+      impressions: a.impressions + c.impressions,
+      clicks: a.clicks + c.clicks,
+      results: a.results + c.results,
+    }),
+    { spend: 0, impressions: 0, clicks: 0, results: 0 },
+  );
+
+  return {
+    campaigns,
+    totals: { ...totales, costPerResult: totales.results > 0 ? totales.spend / totales.results : 0 },
+    desde,
+    hasta,
+    actualizadoEn: ultima.toISOString(),
+  };
+}
