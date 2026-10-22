@@ -128,11 +128,46 @@ const TOOL_SCHEMAS: Record<string, object> = {
     additionalProperties: false,
   },
   landing_forge_pendientes: { type: "object", properties: {} },
-  landing_ver: { type: "object", properties: { id: { type: "number", description: "id de la landing (landing_listar)" } }, required: ["id"] },
+  landing_ver: { type: "object", properties: { id: { type: "number", description: "id de la landing (landing_listar)" }, mirar: { type: "boolean", description: "true = fotografiarla en un celular y recibir la crítica" }, objetivo: { type: "string" } }, required: ["id"] },
   creativo_listar: { type: "object", properties: { productId: { type: "number" } } },
   creativo_ver: { type: "object", properties: { id: { type: "string", description: "id del creativo (creativo_listar)" }, conVision: { type: "boolean" } }, required: ["id"] },
   creativo_maquetas: { type: "object", properties: {} },
   marca_kit_ver: { type: "object", properties: { productId: { type: "number", description: "para sugerir paletas desde su foto" } } },
+  // ── Atlas diseña (23-10-2026): operar creativos y landings ──────────────────
+  creativo_disenar: {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "Creativo a editar. Sin id se crea uno nuevo (requiere productId)" },
+      productId: { type: "number", description: "Producto, para un creativo nuevo" },
+      formato: { type: "string", enum: ["4:5", "1:1", "9:16", "1.91:1"] },
+      maqueta: { type: "string", description: "Partir de una maqueta (creativo_maquetas); sin ella, lienzo en blanco" },
+      nombre: { type: "string" },
+      operaciones: {
+        type: "array",
+        description: "Operaciones sobre capas: agregar, cambiar, borrar, duplicar, orden, alinear, fondo, formato",
+        items: { type: "object", properties: { op: { type: "string", enum: ["agregar", "cambiar", "borrar", "duplicar", "orden", "alinear", "fondo", "formato"] } }, required: ["op"] },
+      },
+      mirar: { type: "boolean", description: "true = renderizar y recibir la crítica" },
+      objetivo: { type: "string" },
+    },
+    required: ["operaciones"],
+    additionalProperties: false,
+  },
+  landing_disenar: {
+    type: "object",
+    properties: {
+      id: { type: "number", description: "Id de la landing EN BORRADOR" },
+      operaciones: {
+        type: "array",
+        description: "Operaciones: seccion_cambiar, seccion_agregar, seccion_mover, seccion_borrar, tema, diseno",
+        items: { type: "object", properties: { op: { type: "string", enum: ["seccion_cambiar", "seccion_agregar", "seccion_mover", "seccion_borrar", "tema", "diseno"] } }, required: ["op"] },
+      },
+      mirar: { type: "boolean" },
+      objetivo: { type: "string" },
+    },
+    required: ["id", "operaciones"],
+    additionalProperties: false,
+  },
   // ── Diagnóstico del vendedor de WhatsApp ────────────────────────────────────
   // Esquemas explícitos y no el genérico permisivo: son las herramientas que
   // Atlas tiene que poder llamar SOLO con lo que leyó del pedido, y el
@@ -1569,11 +1604,11 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // El Studio (14-10-2026): Atlas ve las landings y los creativos por dentro
     // y el kit de marca. El dock del Studio manda "[CONTEXTO DEL ESTUDIO]", así
     // que todo pedido hecho desde ahí cae en este grupo.
-    herramientas: ["landing_listar", "landing_forge_pendientes", "list_products", "landing_ver", "creativo_listar", "creativo_ver", "creativo_maquetas", "marca_kit_ver", "ver_imagen"],
+    herramientas: ["landing_listar", "landing_forge_pendientes", "list_products", "landing_ver", "landing_disenar", "creativo_listar", "creativo_ver", "creativo_disenar", "creativo_maquetas", "marca_kit_ver", "ver_imagen"],
   },
   {
     patron: /creativ|maqueta|kit de marca|\bmarca\b|paleta|logo|tipograf|historias?\b|reels?\b|9:16|4:5|banner|pieza/i,
-    herramientas: ["creativo_listar", "creativo_ver", "creativo_maquetas", "marca_kit_ver", "list_products", "ver_imagen"],
+    herramientas: ["creativo_listar", "creativo_ver", "creativo_disenar", "creativo_maquetas", "marca_kit_ver", "list_products", "ver_imagen"],
   },
   {
     patron: /contenido|publicacion|publicar|org[aá]nic|calendario|estrategia|agencia|redes|instagram|posteo|postear/i,

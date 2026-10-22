@@ -216,7 +216,6 @@ export async function candidatosDeVision(tenantId?: number | null): Promise<Arra
 }
 
 export async function describirImagen(imagen: Buffer, mime = "image/jpeg", pregunta?: string, tenantId?: number | null): Promise<string | null> {
-  const b64 = imagen.toString("base64");
   // El prompt le pide CAUTELA, no precisión. Un modelo de visión que afirma
   // montos y fechas es justo el que termina describiendo un Excel como "un
   // comprobante de transferencia con valor, fecha y banco" (caso real
@@ -230,6 +229,17 @@ export async function describirImagen(imagen: Buffer, mime = "image/jpeg", pregu
     + "NO afirmes montos, fechas, nombres de bancos ni números salvo que los leas con total claridad. "
     + "Si no estás seguro de qué es, decí 'no está claro'. No inventes nada que no se vea con claridad.";
 
+  return preguntarAVision(imagen, mime, instruccion, tenantId);
+}
+
+/**
+ * Le manda una imagen con una instrucción al primer modelo de visión que
+ * responda (los mismos candidatos y el mismo orden de siempre). La usan
+ * describirImagen (comprobantes) y el ojo de diseñador de Atlas
+ * (lib/estudio/ojo-de-disenador.ts), cada uno con su propia instrucción.
+ */
+export async function preguntarAVision(imagen: Buffer, mime: string, instruccion: string, tenantId?: number | null, maxTokens = 500): Promise<string | null> {
+  const b64 = imagen.toString("base64");
   const candidatos = await candidatosDeVision(tenantId);
   if (!candidatos.length) {
     // Un `return null` mudo acá es lo que dejó al bot ciego durante semanas
@@ -249,7 +259,7 @@ export async function describirImagen(imagen: Buffer, mime = "image/jpeg", pregu
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${cfg.apiKey}` },
         body: JSON.stringify(sanearParamsIA(modelo, {
           model: modelo,
-          max_tokens: 500,
+          max_tokens: maxTokens,
           ...opcionesDeVision(proveedor),
           messages: [{
             role: "user",

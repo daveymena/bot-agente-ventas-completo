@@ -5700,8 +5700,8 @@ ${explicarObjetivos()}` };
     name: "landing_ver",
     description:
       "Mira una landing POR DENTRO: sus bloques en orden (id, tipo, título, subtítulo, texto, botón, foto, si está oculto), el diseño (familia o modelo COD), el tema (color/letras/redondeo), el estado y la URL. " +
-      "Usala antes de cambiar algo puntual, para saber el id del bloque. LECTURA, no cambia nada.",
-    args: '{ "id": number (req) }',
+      "Usala antes de cambiar algo puntual, para saber el id del bloque. Con mirar:true la fotografía como se ve en un celular y te devuelve la crítica de un director de arte (nota 1-10 y cambios concretos), más las fotos del producto que puedes usar. LECTURA, no cambia nada.",
+    args: '{ "id": number (req), "mirar"?: boolean, "objetivo"?: string }',
     run: async (args, ctx) => {
       const id = num(args?.id ?? args?.landingId);
       if (!id) return { ok: false, summary: "Falta 'id' de la landing (landing_listar)." };
@@ -5713,14 +5713,22 @@ ${explicarObjetivos()}` };
       const d: any = l.design || {};
       const diseno = d.renderer === "estilo" ? `modelo COD "${d.style || "automático"}"` : d.familia ? `familia "${d.familia}"` : "automático";
       const htmlPropio = !!(l as any).html;
+      // Atlas diseña (23-10-2026): con `mirar`, la ve como el cliente en el celular.
+      const vista = args?.mirar
+        ? await (async () => { const { verLanding } = await import("./landing/atlas-diseno"); const r = await verLanding(ctx.tenantId, id, { mirar: true, objetivo: args?.objetivo }); return r.ok ? r : null; })()
+        : null;
+      const mirada = vista
+        ? `\nFotos permitidas: ${vista.fotos.join(" | ") || "(ninguna)"}` +
+          (vista.critica ? `\nCRÍTICA:\n${vista.critica}` : vista.mirado === false ? "\nNo pude fotografiarla (sin Chromium en el servidor)." : "\nNo hay modelo de visión con clave: no puedo mirarla.")
+        : "";
       return {
         ok: true,
         summary:
           `Landing [${l.id}] "${l.name}" · ${l.status === "published" ? `PUBLICADA ${l.publishedUrl}` : "borrador"} · producto ${l.productId ?? "—"} · diseño ${diseno}` +
           (d.retoque ? ` · tema ${JSON.stringify(d.retoque)}` : " · sin tema propio") +
           (htmlPropio ? "\n⚠️ Tiene HTML propio: los bloques no mandan en lo que se ve; se edita con landing_editar." : "") +
-          `\nBloques:\n${resumenDeBloques(l.sections)}`,
-        data: { id: l.id, nombre: l.name, estado: l.status, url: l.publishedUrl, productId: l.productId, design: d, sections: l.sections, htmlPropio },
+          `\nBloques:\n${resumenDeBloques(l.sections)}` + mirada,
+        data: { id: l.id, nombre: l.name, estado: l.status, url: l.publishedUrl, productId: l.productId, design: d, sections: l.sections, htmlPropio, critica: vista?.critica ?? null },
       };
     },
   },
@@ -5791,9 +5799,14 @@ ${explicarObjetivos()}` };
       const { juzgarCreativo } = await import("./creativos/juez");
       const v = await juzgarCreativo(c.escena, { tenantId: ctx.tenantId, conVision: !!args?.conVision });
       const base = (process.env.APP_URL || "").replace(/\/+$/, "");
+      // Para diseñar con creativo_disenar (23-10-2026): qué fotos se pueden usar y qué dice la ficha.
+      const ficha = c.productId ? await (await import("./creativos/datos")).datosDelProducto(ctx.tenantId, c.productId).catch(() => null) : null;
+      const paraDisenar = ficha
+        ? `\nFotos permitidas: ${ficha.datos.fotos.join(" | ") || "(ninguna)"}\nHechos: precio ${ficha.datos.precio || "no se muestra"} · sellos ${(ficha.datos.sellos || []).join(", ") || "-"} · beneficios ${(ficha.datos.beneficios || []).join("; ") || "-"}`
+        : "";
       return {
         ok: true,
-        summary: `Creativo [${c.id}] "${c.nombre}"${c.maqueta ? ` (maqueta ${c.maqueta})` : ""}${c.png ? ` · PNG ${base}${c.png}` : " · sin exportar"}\n${resumenDeCapas(c.escena)}\nRevisión: ${v.puntaje}/10 (${v.fuente})${v.problemas.length ? ` · ${v.problemas.join(" / ")}` : ""}`,
+        summary: `Creativo [${c.id}] "${c.nombre}"${c.maqueta ? ` (maqueta ${c.maqueta})` : ""}${c.png ? ` · PNG ${base}${c.png}` : " · sin exportar"}\n${resumenDeCapas(c.escena)}\nRevisión: ${v.puntaje}/10 (${v.fuente})${v.problemas.length ? ` · ${v.problemas.join(" / ")}` : ""}${paraDisenar}`,
         data: { creativo: c, revision: v },
       };
     },
@@ -5976,6 +5989,67 @@ ${explicarObjetivos()}` };
       if (!r.ok) return { ok: false, summary: r.error };
       const base = (process.env.APP_URL || "").replace(/\/+$/, "");
       return { ok: true, summary: `Creativo [${id}] actualizado (${r.creativo.escena.formato}).${r.creativo.png ? ` PNG: ${base}${r.creativo.png}` : " Sin PNG (exportalo desde Creativos)."}${r.avisos.length ? ` ⚠ ${r.avisos.join(" / ")}` : ""}`, data: { id, png: r.creativo.png } };
+    },
+  },
+  // ── Atlas DISEÑA (23-10-2026): manos y ojos sobre creativos y landings ──
+  // Antes solo elegía una maqueta o le pasaba una frase a otro modelo. Con
+  // estas cuatro opera capas y secciones exactas y mira el resultado.
+  {
+    name: "creativo_disenar",
+    description:
+      "DISEÑA un creativo con tus manos: operaciones exactas sobre sus capas (no elige plantilla: compone). Sin 'id' crea uno nuevo del producto, en blanco o sobre una 'maqueta' para partir de algo. " +
+      "Operaciones: {op:'agregar', capa:{tipo:'texto'|'imagen'|'forma'|'degradado', x,y,w,h, ...}, despuesDe?} · {op:'cambiar', capa:id|nombre, props:{...}} · {op:'borrar'|'duplicar', capa} · {op:'orden', capa, a:'frente'|'fondo'|'arriba'|'abajo'} · {op:'alinear', capas:[...], eje:'izquierda'|'centro'|'derecha'|'arriba'|'medio'|'abajo'} · {op:'fondo', color} · {op:'formato', formato}. " +
+      "Props de texto: texto, fuente (inter, poppins, montserrat, space-grotesk, anton, bebas, archivo-black, playfair, dm-serif…), tam (% del ancho), peso, color, alinear, vertical, interlineado, espaciado, mayus, fondo (cartel), relleno, radio, sombra, contorno. Imagen: src (SOLO fotos del producto, ver creativo_ver), ajuste cover|contain, focoX/focoY, radio (9999=círculo), sombra, brillo/contraste/saturacion. Forma: forma rect|circulo|pastilla|estallido, relleno, borde, radio. Degradado: desde, hasta, angulo. Todo en % del lienzo (0-100). " +
+      "Método: 1) creativo_ver; 2) decide UNA idea y un punto focal; 3) opera; 4) mirar:true; 5) corrige lo que diga la crítica hasta nota ≥8. Medidas que funcionan en 4:5: márgenes 6%, gancho tam 7-10 peso 800-900, apoyo tam 3.5-4.5, el producto ocupa 45-70% del lienzo, máximo 2 fuentes y 3 colores, contraste alto entre texto y fondo (cartel o degradado si la foto es clara). " +
+      "Sin cifras ni precios que no estén en la ficha: se rechazan. Queda guardado en /creativos y exporta el PNG. Lo que se rechaza vuelve con su motivo: corrígelo en la siguiente llamada.",
+    args: '{ "id"?: string, "productId"?: number (para uno nuevo), "formato"?: "4:5"|"1:1"|"9:16"|"1.91:1", "maqueta"?: string, "nombre"?: string, "operaciones": array (req), "mirar"?: boolean, "objetivo"?: string }',
+    run: async (args, ctx) => {
+      const { disenarCreativo } = await import("./creativos/atlas");
+      const r = await disenarCreativo(ctx.tenantId, {
+        id: args?.id ? String(args.id) : null, productId: num(args?.productId ?? args?.producto), formato: args?.formato, maqueta: args?.maqueta, nombre: args?.nombre,
+        operaciones: args?.operaciones ?? args?.ops ?? args?.cambios, mirar: !!args?.mirar, objetivo: args?.objetivo,
+      });
+      if (!r.ok) return { ok: false, summary: r.error };
+      const base = (process.env.APP_URL || "").replace(/\/+$/, "");
+      return {
+        ok: true,
+        summary: [
+          `Creativo [${r.creativo.id}] "${r.creativo.nombre}"${r.creativo.png ? ` · PNG ${base}${r.creativo.png}` : " (sin PNG)"}`,
+          r.aplicadas.length ? `Aplicado: ${r.aplicadas.join(" · ")}` : "No se aplicó nada.",
+          r.rechazadas.length ? `RECHAZADO (corrígelo): ${r.rechazadas.join(" · ")}` : "",
+          r.estructura,
+          r.avisos.length ? `Avisos: ${r.avisos.join(" / ")}` : "",
+          r.critica ? `CRÍTICA:\n${r.critica}` : r.mirado ? "No hay modelo de visión con clave: no pude mirarlo." : "",
+        ].filter(Boolean).join("\n"),
+        data: { id: r.creativo.id, png: r.creativo.png, aplicadas: r.aplicadas, rechazadas: r.rechazadas, critica: r.critica },
+      };
+    },
+  },
+  {
+    name: "landing_disenar",
+    description:
+      "DISEÑA una landing en BORRADOR con tus manos: operaciones exactas, sin pasar por otro modelo. " +
+      "Operaciones: {op:'seccion_cambiar', seccion:id|tipo, props:{title,subtitle,body,cta,image,images,hidden}} · {op:'seccion_agregar', tipo, despuesDe?, title, subtitle, body, cta, image} · {op:'seccion_mover', seccion, a:'arriba'|'abajo'|'inicio'|'final'|número} · {op:'seccion_borrar', seccion} · {op:'tema', acento:'#RRGGBB', titulos, texto, radio} · {op:'diseno', diseno:'premium-ventaspro'|'estilo:cleanhome|urgencia|clinico|pro'|familia v3}. " +
+      "En body, una línea por punto (beneficios) y 'pregunta | respuesta' por línea (faq). Testimonios y garantía NO se escriben: salen de la ficha del dueño. " +
+      "Método: landing_ver mirar:true → operar → mirar:true otra vez → corregir hasta nota ≥8. Titulares de 4-9 palabras que digan el beneficio; un solo botón principal; nada de cifras que no estén en la ficha (se rechazan). " +
+      "Solo en borradores: si está publicada, clónala con landing_clonar, diseña la copia y publícala con landing_publicar cuando el dueño apruebe.",
+    args: '{ "id": number (req), "operaciones": array (req), "mirar"?: boolean, "objetivo"?: string }',
+    run: async (args, ctx) => {
+      const id = num(args?.id ?? args?.landingId);
+      if (!id) return { ok: false, summary: "Falta 'id' de la landing." };
+      const { disenarLanding } = await import("./landing/atlas-diseno");
+      const r = await disenarLanding(ctx.tenantId, id, args?.operaciones ?? args?.ops ?? args?.cambios, { mirar: !!args?.mirar, objetivo: args?.objetivo });
+      if (!r.ok) return { ok: false, summary: r.error };
+      return {
+        ok: true,
+        summary: [
+          r.aplicadas.length ? `Landing [${id}] — aplicado: ${r.aplicadas.join(" · ")}. Ya se ve así en la vista previa.` : `Landing [${id}]: no se aplicó nada.`,
+          r.rechazadas.length ? `RECHAZADO (corrígelo): ${r.rechazadas.join(" · ")}` : "",
+          r.estructura,
+          r.critica ? `CRÍTICA:\n${r.critica}` : r.mirado ? "No hay modelo de visión con clave: no pude mirarla." : "",
+        ].filter(Boolean).join("\n"),
+        data: r,
+      };
     },
   },
   {
@@ -11057,6 +11131,10 @@ export const READ_ONLY_TOOLS = new Set([
   "creativo_maquetas", "creativo_listar", "marca_kit_ver",
   // Ver una landing o un creativo por dentro: lectura pura.
   "landing_ver", "creativo_ver",
+  // Atlas diseña (23-10-2026): diseñar toca solo borradores (creativos sin
+  // pautar; landing_disenar se niega en una publicada). Sin pedir permiso
+  // en cada vuelta: diseñar es iterar.
+  "creativo_disenar", "landing_disenar",
   "dropi_verificar_producto", "dropi_con_ordenes", "dropi_importar_lote_estado", "dropi_cotizar_envio",
   // Radar de ganadores + calculadora de rentabilidad + espía de tiendas +
   // estimación previa: las cuatro son lectura pura (cruzan datos y calculan,
@@ -11310,6 +11388,9 @@ const FAMILIAS: Array<{ cuando: RegExp; prefijos: string[] }> = [
   // Studio: creativos de anuncio y kit de marca (14-10-2026).
   { cuando: /creativ|maqueta|kit de marca|marca|paleta|logo|tipograf|historias?|reels?|9:16|4:5|1:1|banner|pieza/i,
     prefijos: ["creativo", "marca_kit", "landing_tema"] },
+  // Atlas diseña (23-10-2026): creativos y landings con manos y ojos.
+  { cuando: /dise[ñn]|creativ|maqueta|banner|bonit|fe[oa]|tipograf|letras?|capas?|titular|imagen (?:para|del|de) (?:el |un |la )?(?:anuncio|post)|p[aá]gina de venta|secci[oó]n|estudio/i,
+    prefijos: ["creativo_", "landing_ver", "landing_disenar", "landing_listar", "landing_clonar", "landing_publicar", "marca_kit"] },
   { cuando: /agente|prompt|personalidad|bot|conversaci[oó]n|chat|lead|cliente/i,
     prefijos: ["agent", "agente", "conversa", "lead", "whatsapp", "seguimiento", "followup"] },
   { cuando: /pago|cobr|nequi|transferen|suscripci|plan|factur/i, prefijos: ["payment", "pago", "subscription", "plan"] },

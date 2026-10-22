@@ -90,6 +90,101 @@ export async function crearCreativos(tenantId: number, a: {
   return { ok: true, creativos: salida, motor, descartados, recorte: d.recorteMotivo ? `sin recorte de fondo: ${d.recorteMotivo}` : Object.keys(d.datos.recortes || {}).length ? "producto recortado" : null, kit: d.kitDefinido };
 }
 
+// ─── Atlas diseña (23-10-2026): ver, operar capas y mirar el resultado ──────
+
+/** Lo que Atlas necesita para diseñar con las reglas del producto. */
+async function reglasDelProducto(tenantId: number, productId: number | null | undefined) {
+  const d = productId ? await datosDelProducto(tenantId, productId) : null;
+  const { inventaCifras } = await import("./datos");
+  return {
+    d,
+    reglas: {
+      fotosPermitidas: d?.datos.fotos || [],
+      inventaCifras: d ? (t: string) => inventaCifras(t, d) : undefined,
+    },
+  };
+}
+
+/** Exporta, y si se pide, le pasa el PNG al ojo de diseñador. */
+async function exportarYMirar(tenantId: number, c: Creativo, mirar: boolean, objetivo?: string): Promise<{ creativo: Creativo; critica: string | null; vision: boolean }> {
+  let creativo = c;
+  let png: Buffer | null = null;
+  try {
+    const { escenaAPng, exportarEscena } = await import("./render");
+    const ruta = await exportarEscena(tenantId, c.escena, c.nombre);
+    creativo = await guardarCreativo(tenantId, { ...c, png: ruta });
+    if (mirar) png = await escenaAPng(c.escena, { escala: 0.5 });
+  } catch { /* sin Chromium: queda guardado sin PNG */ }
+  if (!mirar || !png) return { creativo, critica: null, vision: !!png };
+  // Dos miradas sin pagar dos llamadas de visión: el juez del Studio
+  // (creativos/juez.ts) con sus reglas medibles, y la crítica visual con
+  // cambios concretos por id de capa.
+  const { juzgarCreativo } = await import("./juez");
+  const reglas = await juzgarCreativo(c.escena, { tenantId, conVision: false }).catch(() => null);
+  const { criticarDiseno } = await import("../estudio/ojo-de-disenador");
+  const { describirEscena } = await import("../estudio/operaciones-escena");
+  const vista = await criticarDiseno(png, { tipo: "creativo", formato: c.escena.formato, objetivo, estructura: describirEscena(c.escena) }, tenantId).catch(() => null);
+  const porReglas = reglas ? `Reglas del Studio: ${reglas.puntaje}/10${reglas.problemas.length ? ` · ${reglas.problemas.join(" / ")}` : ""}` : "";
+  const critica = [porReglas, vista].filter(Boolean).join("\n") || null;
+  return { creativo, critica, vision: true };
+}
+
+export async function verCreativo(tenantId: number, id: string, opts: { mirar?: boolean; objetivo?: string } = {}) {
+  const c = await leerCreativo(tenantId, id);
+  if (!c) return { ok: false as const, error: `No encontré el creativo ${id}.` };
+  const { describirEscena } = await import("../estudio/operaciones-escena");
+  const { d } = await reglasDelProducto(tenantId, c.productId);
+  const r = opts.mirar ? await exportarYMirar(tenantId, c, true, opts.objetivo) : { creativo: c, critica: null, vision: false };
+  return {
+    ok: true as const,
+    creativo: r.creativo,
+    estructura: describirEscena(c.escena),
+    fotos: d?.datos.fotos || [],
+    hechos: d ? { precio: d.datos.precio || null, sellos: d.datos.sellos || [], beneficios: d.datos.beneficios || [], acento: d.datos.acento } : null,
+    avisos: revisarEscena(c.escena).map((x) => x.texto),
+    critica: r.critica,
+    mirado: opts.mirar ? r.vision : undefined,
+  };
+}
+
+/**
+ * Atlas opera las capas de un creativo (o arma uno nuevo). Sin `id` crea
+ * uno: en blanco (para componer desde cero) o sobre una maqueta. Después de
+ * operar, el creativo queda "hecho a mano": editarCreativo ya no lo vuelve a
+ * diagramar con la maqueta y no pisa lo que Atlas compuso.
+ */
+export async function disenarCreativo(tenantId: number, a: {
+  id?: string | null; productId?: number | null; formato?: string | null; maqueta?: string | null; nombre?: string | null;
+  operaciones: unknown; mirar?: boolean; objetivo?: string;
+}) {
+  const { aplicarOperaciones, describirEscena } = await import("../estudio/operaciones-escena");
+  let c: Creativo | null = a.id ? await leerCreativo(tenantId, a.id) : null;
+  if (a.id && !c) return { ok: false as const, error: `No encontré el creativo ${a.id}.` };
+  const productId = c?.productId ?? (Number(a.productId) || null);
+  const { d, reglas } = await reglasDelProducto(tenantId, productId);
+  if (!c) {
+    if (!d) return { ok: false as const, error: "Para un creativo nuevo hace falta 'productId' (las fotos y los datos salen del producto)." };
+    const formato: Formato = esFormato(a.formato) ? a.formato : "4:5";
+    const base = a.maqueta && MAQUETAS.some((m) => m.id === a.maqueta)
+      ? normalizarEscena(maquetaPorId(a.maqueta).armar(d.datos, formato))
+      : normalizarEscena({ formato, fondo: "#ffffff", capas: [] });
+    c = await guardarCreativo(tenantId, { nombre: String(a.nombre || `${d.producto.name} · diseño de Atlas`).slice(0, 80), productId, maqueta: null, escena: base }, "atlas");
+  }
+  const r = aplicarOperaciones(c.escena, a.operaciones, reglas);
+  const guardado = await guardarCreativo(tenantId, { ...c, maqueta: null, escena: r.escena, png: null, ...(a.nombre ? { nombre: String(a.nombre).slice(0, 80) } : {}) }, "atlas");
+  const vista = await exportarYMirar(tenantId, guardado, !!a.mirar, a.objetivo);
+  return {
+    ok: true as const,
+    creativo: vista.creativo,
+    aplicadas: r.aplicadas,
+    rechazadas: r.rechazadas,
+    estructura: describirEscena(r.escena),
+    avisos: revisarEscena(r.escena).map((x) => x.texto),
+    critica: vista.critica,
+    mirado: a.mirar ? vista.vision : undefined,
+  };
+}
+
 export async function editarCreativo(tenantId: number, id: string, cambios: {
   gancho?: string | null; apoyo?: string | null; cta?: string | null; acento?: string | null; formato?: string | null; maqueta?: string | null; exportar?: boolean;
 }): Promise<{ ok: true; creativo: Creativo; avisos: string[] } | { ok: false; error: string }> {
