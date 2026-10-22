@@ -159,3 +159,8 @@ Hecho y probado (39 pruebas en verde):
 - Migrar las 73 llamadas directas restantes a la cola, por tandas.
 - Alertas por negocio cuando un token caiga (`requiere_reconexion`).
 - Pruebas de carga reales con cuentas de prueba de Meta.
+
+### Actualización de cierre (estado de conexión y códigos)
+- Estado de conexión por negocio (meta/estado-conexion.ts): token inválido → requiere_reconexion con código y mensaje; un trabajo exitoso lo devuelve a ok. El panel lo lee de meta_estado_conexion. 5 pruebas nuevas (48 en total en verde).
+- Códigos 4, 17, 32 y 613 confirmados como límites de uso en la documentación de Meta (developers.facebook.com, Rate Limits). Los códigos de la familia 80000 no tienen una tabla oficial clara en las fuentes consultadas; el código los trata como límites de uso (reintentables), que es la categoría correcta. Pendiente: confirmar en la documentación BUC.
+- Pendiente real: migrar las escrituras (crear, pausar, cambiar presupuesto) a la cola. Cambia respuestas síncronas de la interfaz y requiere pruebas por flujo; no se hizo a ciegas.

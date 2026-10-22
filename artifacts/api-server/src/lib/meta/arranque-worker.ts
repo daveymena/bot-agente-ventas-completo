@@ -12,6 +12,8 @@ import { iniciarWorker } from "./worker";
 import { crearClienteGraph } from "./graph";
 import { crearManejadorInsights, migrarMetricas, programarSincronizacionDiaria } from "./metricas";
 import { cuentasConectadas, tokenDeNegocio } from "./conexion";
+import { migrarEstadoConexion, marcarTokenInvalido, marcarConexionOk } from "./estado-conexion";
+import type { Manejador } from "./worker";
 import { META_API_VERSION } from "../meta-api-version";
 
 if (!pool) {
@@ -25,11 +27,21 @@ const graph = crearClienteGraph({ version: META_API_VERSION });
 const log = (mensaje: string, datos?: Record<string, unknown>) =>
   console.log(JSON.stringify({ t: new Date().toISOString(), mensaje, ...datos }));
 
+/** Un trabajo exitoso demuestra que el token del negocio sigue sirviendo. */
+function conSeguimientoDeConexion(m: Manejador): Manejador {
+  return async (trabajo) => {
+    await m(trabajo);
+    await marcarConexionOk(sql, trabajo.tenantId).catch(() => {});
+  };
+}
+
 const manejadores = {
   sonda: async () => {
     /* sin efecto: verifica que la cola y el worker arrancan */
   },
-  sincronizar_insights: crearManejadorInsights({ sql, graph, tokenDe: tokenDeNegocio }),
+  sincronizar_insights: conSeguimientoDeConexion(
+    crearManejadorInsights({ sql, graph, tokenDe: tokenDeNegocio }),
+  ),
 };
 
 const INTERVALO_PROGRAMADOR_MS = 10 * 60_000;
@@ -45,6 +57,7 @@ async function programarHoy(): Promise<void> {
 (async () => {
   await migrarCola(sql);
   await migrarMetricas(sql);
+  await migrarEstadoConexion(sql);
   log("meta-worker listo", { version: META_API_VERSION });
 
   await programarHoy().catch((e) => log("programador error", { mensaje: (e as Error).message }));
@@ -58,8 +71,9 @@ async function programarHoy(): Promise<void> {
     manejadores,
     registrar: log,
     alTokenInvalido: async (trabajo, error) => {
-      // El negocio tiene que reconectar su cuenta de Meta. Queda registrado;
-      // el aviso al dueño se conecta cuando exista el canal de notificaciones.
+      // Queda en estado requiere_reconexion (lo lee el panel). El aviso activo
+      // al dueño se conecta cuando exista el canal de notificaciones.
+      await marcarTokenInvalido(sql, trabajo.tenantId, error.codigo, error.message).catch(() => {});
       log("token_meta_invalido", { tenantId: trabajo.tenantId, cuenta: trabajo.cuenta, codigo: error.codigo });
     },
   });
