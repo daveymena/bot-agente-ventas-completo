@@ -1347,4 +1347,65 @@ router.get("/unsubscribe", async (req, res) => {
     </body></html>`);
 });
 
+// ── Eliminación de datos (requisito de Meta para apps con inicio de sesión) ──
+// Meta llama aquí con `signed_request`. Se verifica la firma con el App Secret,
+// se guarda la solicitud y se devuelve el enlace de confirmación.
+const TABLA_ELIMINACION_META = `CREATE TABLE IF NOT EXISTS meta_solicitudes_eliminacion (
+  codigo TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  estado TEXT NOT NULL DEFAULT 'recibida',
+  recibida_en TIMESTAMPTZ NOT NULL DEFAULT now()
+)`;
+
+router.post("/meta/eliminacion-datos", async (req, res) => {
+  const { verificarSignedRequest, codigoDeConfirmacion } = await import("../lib/meta/eliminacion-datos");
+  const { pool } = await import("@workspace/db");
+  const { logger } = await import("../lib/logger");
+  const resultado = verificarSignedRequest(String(req.body?.signed_request || ""), process.env.FB_APP_SECRET || "");
+  if (!resultado.ok) {
+    logger.warn({ motivo: resultado.motivo }, "[Meta] solicitud de eliminación rechazada");
+    return res.status(400).json({ error: "solicitud no válida" });
+  }
+  const codigo = codigoDeConfirmacion(resultado.userId);
+  try {
+    if (!pool) throw new Error("sin base de datos");
+    await pool.query(TABLA_ELIMINACION_META);
+    await pool.query(
+      `INSERT INTO meta_solicitudes_eliminacion (codigo, user_id) VALUES ($1, $2) ON CONFLICT (codigo) DO NOTHING`,
+      [codigo, resultado.userId],
+    );
+  } catch (e: any) {
+    logger.error({ err: e?.message }, "[Meta] no se pudo guardar la solicitud de eliminación");
+    return res.status(500).json({ error: "no se pudo registrar, intenta de nuevo" });
+  }
+  const base = (process.env.APP_URL || "").replace(/\/$/, "");
+  return res.json({
+    url: `${base}/api/public/eliminacion-datos?codigo=${codigo}`,
+    confirmation_code: codigo,
+  });
+});
+
+/** Página pública con las instrucciones y el estado de una solicitud. */
+router.get("/eliminacion-datos", async (req, res) => {
+  const { pool } = await import("@workspace/db");
+  const codigo = String(req.query.codigo || "").replace(/[^a-f0-9]/gi, "").slice(0, 32);
+  let estado = "";
+  if (codigo && pool) {
+    try {
+      const { rows } = await pool.query(`SELECT estado, recibida_en FROM meta_solicitudes_eliminacion WHERE codigo = $1`, [codigo]);
+      if (rows[0]) estado = `Solicitud ${codigo}: ${rows[0].estado}, recibida el ${new Date(rows[0].recibida_en).toLocaleDateString("es-CO")}.`;
+    } catch { /* sin tabla todavía: no hay solicitudes */ }
+  }
+  res.type("html").send(`<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Eliminación de datos · VentasPro</title>
+<style>body{font-family:system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 20px;color:#0f172a;line-height:1.6}h1{font-size:24px}</style></head><body>
+<h1>Eliminación de datos · VentasPro</h1>
+<p>Si usaste Facebook para conectar tu cuenta con VentasPro y quieres que borremos tus datos, hazlo así:</p>
+<ol><li>Escríbenos desde tu cuenta de VentasPro o escribe a soporte con el correo que usas para entrar.</li>
+<li>O bien, desconecta Facebook desde <strong>Integraciones</strong> dentro de la app: se borran los tokens guardados.</li>
+<li>Te enviaremos un código de confirmación. Puedes revisar el estado de tu solicitud con ese código.</li></ol>
+<p>Borramos los datos asociados a tu cuenta en un plazo máximo de 30 días. Más detalles en <a href="/privacidad">Política de privacidad</a>.</p>
+${estado ? `<p><strong>${estado.replace(/[<>&]/g, "")}</strong></p>` : ""}
+</body></html>`);
+});
+
 export default router;
