@@ -496,7 +496,10 @@ function renderFisico(cx: Contexto): string {
 
   const sFotos = seccion(cx, "gallery", "visual", "photo-band");
   const carac = (p.features || []).map(String).filter(Boolean);
-  const caracHtml = sBen && carac.length ? listaSeccion("Características", "", carac.slice(0, 8).map((x) => tituloYTexto(sinEmoji(x)))) : "";
+  // Características aparte solo si dicen algo que la banda no dijo ya.
+  const enLaBanda = bens.map(([t]) => t.toLowerCase());
+  const caracNuevas = carac.map((x) => sinEmoji(x)).filter((x) => !enLaBanda.some((t) => t.includes(x.toLowerCase()) || x.toLowerCase().includes(t)));
+  const caracHtml = sBen && caracNuevas.length ? listaSeccion("Características", "", caracNuevas.slice(0, 8).map((x) => tituloYTexto(x))) : "";
 
   const pasos = pasosSeccion("Así llega a tu casa", [
     ["Haces el pedido aquí", "Nombre, celular y dirección. Un minuto."],
@@ -505,6 +508,10 @@ function renderFisico(cx: Contexto): string {
   ]);
 
   const btnCierre = `<a class="btn" href="#pedido">${ICON.cash}<span>${esc(cta)}</span></a>`;
+  // FAQ y testimonios ANTES que el resto: si no, restoSecciones se queda
+  // con esas secciones y salen como lista suelta en vez de acordeón/tarjetas.
+  const faq = faqSeccion(cx);
+  const testis = testimoniosSeccion(cx);
   const otras = restoSecciones(cx, btnCierre);
 
   const etiquetaDepto = d.esColombia === false ? "Estado o provincia" : "Departamento";
@@ -531,7 +538,7 @@ ${wa ? `<div class="aviso">${ICON.wa}<span>Antes de despacharlo te escribimos po
 
   const cuerpo = `${franja(d)}${cabecera(d)}<main>
 <section class="w prod">${galeria(cx, nombre)}${compra}</section>
-${banda}${resto}${caracHtml}${fotosSeccion(cx, nombre, sFotos)}${testimoniosSeccion(cx)}${pasos}${otras}${faqSeccion(cx)}
+${banda}${resto}${caracHtml}${fotosSeccion(cx, nombre, sFotos)}${testis}${pasos}${otras}${faq}
 </main>${pie(d, d.envio.pago === "anticipado" ? "" : "Pago contra entrega")}${barra}${hoja}`;
 
   const scriptFisico = `<script>(function(){
@@ -588,6 +595,10 @@ function renderDigital(cx: Contexto): string {
   ]);
 
   const btnCierre = `<a class="btn" href="#comprar">${esc(cta)}</a>`;
+  // FAQ y testimonios ANTES que el resto: si no, restoSecciones se queda
+  // con esas secciones y salen como lista suelta en vez de acordeón/tarjetas.
+  const faq = faqSeccion(cx);
+  const testis = testimoniosSeccion(cx);
   const otras = restoSecciones(cx, btnCierre);
   const heroHtml = `<section class="w hero-dig"><div><h1 class="tt">${esc(titulo)}</h1>${resumen ? `<p class="resumen">${esc(resumen)}</p>` : ""}${precioHtml(d)}${puedeComprar ? `<a class="btn" id="principal" href="#comprar" style="max-width:420px;margin-top:14px">${esc(cta)}</a>` : ""}<span class="sello">${ICON.bolt}Acceso apenas se confirma el pago</span></div>${d.fotos[0] ? `<div class="img"><img src="${esc(d.fotos[0])}" alt="${esc(p.name)}" fetchpriority="high"></div>` : ""}</section>`;
   // La banda con fotos solo si hay fotos distintas para cada punto; con una
@@ -595,7 +606,7 @@ function renderDigital(cx: Contexto): string {
   const banda = "";
   const barra = !puedeComprar ? "" : `<div class="barra" id="barra"><div><small>Acceso inmediato</small><b>${Number(p.price) > 0 ? pesos(Number(p.price)) : ""}</b></div><a class="btn" href="#comprar">${esc(cta)}</a></div>`;
 
-  const cuerpo = `${franja(d)}${cabecera(d)}<main>${heroHtml}${incluye}${banda}${temario}${testimoniosSeccion(cx)}${otras}${comprar}${pasos}${faqSeccion(cx)}</main>${pie(d, "")}${barra}`;
+  const cuerpo = `${franja(d)}${cabecera(d)}<main>${heroHtml}${incluye}${banda}${temario}${testis}${otras}${comprar}${pasos}${faq}</main>${pie(d, "")}${barra}`;
   const script = cupon ? `<script>(function(){var f=document.querySelector('form[data-cupon]');if(!f)return;var s=document.querySelector('.cupon-estado');f.addEventListener('submit',function(e){e.preventDefault();var c=(f.code.value||'').trim();if(!c)return;s.textContent='Validando…';fetch(f.dataset.cupon,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:c})}).then(function(r){return r.json()}).then(function(j){if(j.ok&&j.links){var mp=document.querySelector('a[href*="mercadopago"],a[href*="mpago"]');if(mp&&j.links.mercadopago)mp.href=j.links.mercadopago;var pp=document.querySelector('a[href*="paypal"]');if(pp&&j.links.paypal)pp.href=j.links.paypal;s.textContent=j.mensaje||'Cupón aplicado'}else{s.textContent=j.motivo||j.error||'No se pudo aplicar'}}).catch(function(){s.textContent='No se pudo aplicar'})})})();</script>` : "";
   return documento(d, cuerpo, script);
 }
@@ -624,11 +635,15 @@ function renderServicio(cx: Contexto): string {
   const heroHtml = `<section class="w hero-dig"><div><h1 class="tt">${esc(titulo)}</h1>${resumen ? `<p class="resumen">${esc(resumen)}</p>` : ""}${precioHtml(d)}<div style="max-width:420px;margin-top:14px">${boton("principal")}</div><span class="sello">${ICON.cal}Te confirmamos la hora por el chat</span></div>${d.fotos[0] ? `<div class="img"><img src="${esc(d.fotos[0])}" alt="${esc(p.name)}" fetchpriority="high"></div>` : ""}</section>`;
   // Igual que en digital: "Qué incluye" ya los dice; sin banda repetida.
   const banda = "";
+  // FAQ y testimonios ANTES que el resto: si no, restoSecciones se queda
+  // con esas secciones y salen como lista suelta en vez de acordeón/tarjetas.
+  const faq = faqSeccion(cx);
+  const testis = testimoniosSeccion(cx);
   const otras = restoSecciones(cx, boton());
   const cierre = `<section class="w"><div class="cierre"><h2 class="tt">¿Agendamos?</h2><p>Escríbenos y te confirmamos el día y la hora.</p>${boton()}</div></section>`;
   const barra = `<div class="barra" id="barra"><div><small>Se agenda por WhatsApp</small><b>${Number(p.price) > 0 ? pesos(Number(p.price)) : ""}</b></div>${boton()}</div>`;
 
-  const cuerpo = `${franja(d)}${cabecera(d)}<main>${heroHtml}${incluye}${banda}${proceso}${testimoniosSeccion(cx)}${otras}${faqSeccion(cx)}${cierre}</main>${pie(d, "")}${barra}`;
+  const cuerpo = `${franja(d)}${cabecera(d)}<main>${heroHtml}${incluye}${banda}${proceso}${testis}${otras}${faq}${cierre}</main>${pie(d, "")}${barra}`;
   return documento(d, cuerpo, "");
 }
 

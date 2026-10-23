@@ -5603,6 +5603,120 @@ ${explicarObjetivos()}` };
       return { ok: true, summary: `Creativo [${id}] actualizado (${r.creativo.escena.formato}).${r.creativo.png ? ` PNG: ${base}${r.creativo.png}` : " Sin PNG (exportalo desde Creativos)."}${r.avisos.length ? ` ⚠ ${r.avisos.join(" / ")}` : ""}`, data: { id, png: r.creativo.png } };
     },
   },
+  // ── Atlas DISEÑA (23-10-2026): manos y ojos sobre creativos y landings ──
+  // Antes solo elegía una maqueta o le pasaba una frase a otro modelo. Con
+  // estas cuatro opera capas y secciones exactas y mira el resultado.
+  {
+    name: "creativo_ver",
+    description:
+      "Mira un creativo como diseñador: sus capas con id, posición y tamaño (% del lienzo), letra y colores; las FOTOS del producto que puedes usar; los HECHOS de la ficha (precio, sellos, beneficios); y con mirar:true lo renderiza y te devuelve la crítica de un director de arte (nota 1-10 y cambios concretos). " +
+      "Úsalo antes de diseñar y después de cada vuelta. LECTURA, no cambia nada.",
+    args: '{ "id": string (req), "mirar"?: boolean, "objetivo"?: string (ej. "frenar el scroll de mamás que viajan en moto") }',
+    run: async (args, ctx) => {
+      const id = String(args?.id || args?.creativoId || "").trim();
+      if (!id) return { ok: false, summary: "Falta 'id' del creativo (creativo_listar)." };
+      const { verCreativo } = await import("./creativos/atlas");
+      const r = await verCreativo(ctx.tenantId, id, { mirar: !!args?.mirar, objetivo: args?.objetivo });
+      if (!r.ok) return { ok: false, summary: r.error };
+      const base = (process.env.APP_URL || "").replace(/\/+$/, "");
+      return {
+        ok: true,
+        summary: [
+          `Creativo [${id}] "${r.creativo.nombre}"${r.creativo.png ? ` · PNG ${base}${r.creativo.png}` : ""}`,
+          r.estructura,
+          `Fotos permitidas: ${r.fotos.join(" | ") || "(ninguna)"}`,
+          r.hechos ? `Hechos: precio ${r.hechos.precio || "no se muestra"} · sellos ${r.hechos.sellos.join(", ") || "-"} · beneficios ${r.hechos.beneficios.join("; ") || "-"} · acento de marca ${r.hechos.acento}` : "",
+          r.avisos.length ? `Avisos: ${r.avisos.join(" / ")}` : "",
+          r.mirado === false ? "No pude renderizarlo (sin Chromium en el servidor)." : r.critica ? `CRÍTICA:\n${r.critica}` : args?.mirar ? "No hay modelo de visión con clave: no puedo mirarlo. Guíate por la estructura y los avisos." : "",
+        ].filter(Boolean).join("\n"),
+        data: r,
+      };
+    },
+  },
+  {
+    name: "creativo_disenar",
+    description:
+      "DISEÑA un creativo con tus manos: operaciones exactas sobre sus capas (no elige plantilla: compone). Sin 'id' crea uno nuevo del producto, en blanco o sobre una 'maqueta' para partir de algo. " +
+      "Operaciones: {op:'agregar', capa:{tipo:'texto'|'imagen'|'forma'|'degradado', x,y,w,h, ...}, despuesDe?} · {op:'cambiar', capa:id|nombre, props:{...}} · {op:'borrar'|'duplicar', capa} · {op:'orden', capa, a:'frente'|'fondo'|'arriba'|'abajo'} · {op:'alinear', capas:[...], eje:'izquierda'|'centro'|'derecha'|'arriba'|'medio'|'abajo'} · {op:'fondo', color} · {op:'formato', formato}. " +
+      "Props de texto: texto, fuente (inter, poppins, montserrat, space-grotesk, anton, bebas, archivo-black, playfair, dm-serif…), tam (% del ancho), peso, color, alinear, vertical, interlineado, espaciado, mayus, fondo (cartel), relleno, radio, sombra, contorno. Imagen: src (SOLO fotos del producto, ver creativo_ver), ajuste cover|contain, focoX/focoY, radio (9999=círculo), sombra, brillo/contraste/saturacion. Forma: forma rect|circulo|pastilla|estallido, relleno, borde, radio. Degradado: desde, hasta, angulo. Todo en % del lienzo (0-100). " +
+      "Método: 1) creativo_ver; 2) decide UNA idea y un punto focal; 3) opera; 4) mirar:true; 5) corrige lo que diga la crítica hasta nota ≥8. Medidas que funcionan en 4:5: márgenes 6%, gancho tam 7-10 peso 800-900, apoyo tam 3.5-4.5, el producto ocupa 45-70% del lienzo, máximo 2 fuentes y 3 colores, contraste alto entre texto y fondo (cartel o degradado si la foto es clara). " +
+      "Sin cifras ni precios que no estén en la ficha: se rechazan. Queda guardado en /creativos y exporta el PNG. Lo que se rechaza vuelve con su motivo: corrígelo en la siguiente llamada.",
+    args: '{ "id"?: string, "productId"?: number (para uno nuevo), "formato"?: "4:5"|"1:1"|"9:16"|"1.91:1", "maqueta"?: string, "nombre"?: string, "operaciones": array (req), "mirar"?: boolean, "objetivo"?: string }',
+    run: async (args, ctx) => {
+      const { disenarCreativo } = await import("./creativos/atlas");
+      const r = await disenarCreativo(ctx.tenantId, {
+        id: args?.id ? String(args.id) : null, productId: num(args?.productId ?? args?.producto), formato: args?.formato, maqueta: args?.maqueta, nombre: args?.nombre,
+        operaciones: args?.operaciones ?? args?.ops ?? args?.cambios, mirar: !!args?.mirar, objetivo: args?.objetivo,
+      });
+      if (!r.ok) return { ok: false, summary: r.error };
+      const base = (process.env.APP_URL || "").replace(/\/+$/, "");
+      return {
+        ok: true,
+        summary: [
+          `Creativo [${r.creativo.id}] "${r.creativo.nombre}"${r.creativo.png ? ` · PNG ${base}${r.creativo.png}` : " (sin PNG)"}`,
+          r.aplicadas.length ? `Aplicado: ${r.aplicadas.join(" · ")}` : "No se aplicó nada.",
+          r.rechazadas.length ? `RECHAZADO (corrígelo): ${r.rechazadas.join(" · ")}` : "",
+          r.estructura,
+          r.avisos.length ? `Avisos: ${r.avisos.join(" / ")}` : "",
+          r.critica ? `CRÍTICA:\n${r.critica}` : r.mirado ? "No hay modelo de visión con clave: no pude mirarlo." : "",
+        ].filter(Boolean).join("\n"),
+        data: { id: r.creativo.id, png: r.creativo.png, aplicadas: r.aplicadas, rechazadas: r.rechazadas, critica: r.critica },
+      };
+    },
+  },
+  {
+    name: "landing_ver",
+    description:
+      "Mira una landing como diseñador: el diseño y el tema, las secciones en orden con su id y textos, las fotos del producto que puedes usar y los hechos de la ficha. Con mirar:true la fotografía como se ve en un celular y te devuelve la crítica de un director de arte (nota 1-10 y cambios concretos). LECTURA, no cambia nada.",
+    args: '{ "id": number (req), "mirar"?: boolean, "objetivo"?: string }',
+    run: async (args, ctx) => {
+      const id = num(args?.id ?? args?.landingId);
+      if (!id) return { ok: false, summary: "Falta 'id' de la landing (landing_listar)." };
+      const { verLanding } = await import("./landing/atlas-diseno");
+      const r = await verLanding(ctx.tenantId, id, { mirar: !!args?.mirar, objetivo: args?.objetivo });
+      if (!r.ok) return { ok: false, summary: r.error };
+      return {
+        ok: true,
+        summary: [
+          `Landing [${id}] "${r.nombre}" (${r.estado === "published" ? "PUBLICADA: para rediseñarla, clónala y trabaja en la copia" : "borrador"})`,
+          r.noEditable ? `⚠ No se edita por secciones: ${r.noEditable}.` : "",
+          r.estructura,
+          `Tipos de sección que puedes agregar: ${r.tipos.filter((t) => t !== "testimonials" && t !== "guarantee").join(", ")}`,
+          `Fotos permitidas: ${r.fotos.join(" | ") || "(ninguna)"}`,
+          r.hechos ? `Hechos: ${r.hechos.producto} · precio ${r.hechos.precio || "-"} · sellos ${r.hechos.sellos.join(", ") || "-"} · beneficios ${r.hechos.beneficios.join("; ") || "-"}` : "",
+          r.mirado === false ? "No pude fotografiarla (sin Chromium en el servidor)." : r.critica ? `CRÍTICA:\n${r.critica}` : args?.mirar ? "No hay modelo de visión con clave: no puedo mirarla." : "",
+        ].filter(Boolean).join("\n"),
+        data: r,
+      };
+    },
+  },
+  {
+    name: "landing_disenar",
+    description:
+      "DISEÑA una landing en BORRADOR con tus manos: operaciones exactas, sin pasar por otro modelo. " +
+      "Operaciones: {op:'seccion_cambiar', seccion:id|tipo, props:{title,subtitle,body,cta,image,images,hidden}} · {op:'seccion_agregar', tipo, despuesDe?, title, subtitle, body, cta, image} · {op:'seccion_mover', seccion, a:'arriba'|'abajo'|'inicio'|'final'|número} · {op:'seccion_borrar', seccion} · {op:'tema', acento:'#RRGGBB', titulos, texto, radio} · {op:'diseno', diseno:'premium-ventaspro'|'estilo:cleanhome|urgencia|clinico|pro'|familia v3}. " +
+      "En body, una línea por punto (beneficios) y 'pregunta | respuesta' por línea (faq). Testimonios y garantía NO se escriben: salen de la ficha del dueño. " +
+      "Método: landing_ver mirar:true → operar → mirar:true otra vez → corregir hasta nota ≥8. Titulares de 4-9 palabras que digan el beneficio; un solo botón principal; nada de cifras que no estén en la ficha (se rechazan). " +
+      "Solo en borradores: si está publicada, clónala con landing_clonar, diseña la copia y publícala con landing_publicar cuando el dueño apruebe.",
+    args: '{ "id": number (req), "operaciones": array (req), "mirar"?: boolean, "objetivo"?: string }',
+    run: async (args, ctx) => {
+      const id = num(args?.id ?? args?.landingId);
+      if (!id) return { ok: false, summary: "Falta 'id' de la landing." };
+      const { disenarLanding } = await import("./landing/atlas-diseno");
+      const r = await disenarLanding(ctx.tenantId, id, args?.operaciones ?? args?.ops ?? args?.cambios, { mirar: !!args?.mirar, objetivo: args?.objetivo });
+      if (!r.ok) return { ok: false, summary: r.error };
+      return {
+        ok: true,
+        summary: [
+          r.aplicadas.length ? `Landing [${id}] — aplicado: ${r.aplicadas.join(" · ")}. Ya se ve así en la vista previa.` : `Landing [${id}]: no se aplicó nada.`,
+          r.rechazadas.length ? `RECHAZADO (corrígelo): ${r.rechazadas.join(" · ")}` : "",
+          r.estructura,
+          r.critica ? `CRÍTICA:\n${r.critica}` : r.mirado ? "No hay modelo de visión con clave: no pude mirarla." : "",
+        ].filter(Boolean).join("\n"),
+        data: r,
+      };
+    },
+  },
   {
     name: "landing_clonar",
     description:
@@ -10482,6 +10596,10 @@ export const READ_ONLY_TOOLS = new Set([
   "dropi_status", "dropi_margen", "dropi_pedidos", "dropi_buscar", "competencia_a_dropi", "video_anuncio_estado", "fabricante_ver", "dropi_search_products", "woocommerce_estado", "integraciones_estado", "producto_ficha_desde_imagenes_ver", "landing_listar",
   // Creativos: mirar maquetas y listar los guardados no cambia nada.
   "creativo_maquetas", "creativo_listar",
+  // Atlas diseña (23-10-2026): ver no cambia nada, y diseñar toca solo
+  // borradores (creativos sin pautar; landing_disenar se niega en una
+  // publicada). Sin pedir permiso en cada vuelta: diseñar es iterar.
+  "creativo_ver", "creativo_disenar", "landing_ver", "landing_disenar",
   "dropi_verificar_producto", "dropi_con_ordenes", "dropi_importar_lote_estado", "dropi_cotizar_envio",
   // Radar de ganadores + calculadora de rentabilidad + espía de tiendas +
   // estimación previa: las cuatro son lectura pura (cruzan datos y calculan,
@@ -10723,6 +10841,9 @@ const FAMILIAS: Array<{ cuando: RegExp; prefijos: string[] }> = [
   { cuando: /producto|precio|cat[aá]logo|curso|pack|stock|categor[ií]a|imagen/i,
     prefijos: ["product", "categor", "create_product", "update_product", "delete_product", "generate_image", "optimize_copy", "terabox"] },
   { cuando: /tienda|store|dominio|landi|landing|web|studio/i, prefijos: ["store", "domain", "landing"] },
+  // Atlas diseña (23-10-2026): creativos y landings con manos y ojos.
+  { cuando: /dise[ñn]|creativ|maqueta|banner|bonit|\bfe[oa]\b|tipograf|\bletras?\b|\bcapas?\b|titular|imagen (?:para|del|de) (?:el |un |la )?(?:anuncio|post)|p[aá]gina de venta|secci[oó]n|estudio/i,
+    prefijos: ["creativo_", "landing_ver", "landing_disenar", "landing_listar", "landing_clonar", "landing_publicar"] },
   { cuando: /agente|prompt|personalidad|bot|conversaci[oó]n|chat|lead|cliente/i,
     prefijos: ["agent", "agente", "conversa", "lead", "whatsapp", "seguimiento", "followup"] },
   { cuando: /pago|cobr|nequi|transferen|suscripci|plan|factur/i, prefijos: ["payment", "pago", "subscription", "plan"] },
