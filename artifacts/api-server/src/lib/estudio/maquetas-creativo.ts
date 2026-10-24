@@ -263,6 +263,29 @@ function premium(d: DatosCreativo, f: Formato, style: 'academia' | 'nocturno' | 
 }
 
 export const MAQUETAS: Maqueta[] = [
+  { id: 'lanzamiento-split', nombre: 'Lanzamiento split', descripcion: 'Composición asimétrica con bloque de oferta, ideal para estrenos y novedades.', ideal: '4:5', armar: (d, f) => {
+    const c = ctx(f), bg = '#101828', ink = '#f8fafc';
+    if (c.h) return escena(f, bg, horizontalBasico(c, d, { fondo: bg, tinta: ink, fotoAjuste: 'contain', boton: { oscuro: d.acento } }));
+    const story = f === '9:16', top = c.arriba + 3, photoY = story ? 33 : 35, photoH = story ? 31 : 35, offerY = story ? 71 : 76;
+    return escena(f, bg, [forma({ x:0,y:0,w:100,h:100,relleno:bg,nombre:'Fondo' }), forma({ x:5,y:top,w:90,h:offerY-top-2,relleno:'#19263a',radio:20,nombre:'Panel de lanzamiento' }),
+      t({ texto:d.marca || 'NUEVO',x:9,y:top+3,w:80,h:4,tam:2.3,peso:800,color:d.acento,nombre:'Etiqueta' }),
+      t({ texto:d.gancho,x:9,y:top+9,w:82,h:18,tam:ajustar(c,{texto:d.gancho,x:9,w:82,peso:900},8,4,17),peso:900,color:ink,nombre:'Gancho' }),
+      ...(d.apoyo ? [t({ texto:d.apoyo,x:9,y:top+27,w:82,h:8,tam:2.5,peso:500,color:'#cbd5e1',nombre:'Apoyo' })] : []),
+      forma({ x:10,y:photoY,w:80,h:photoH,relleno:'#ffffff',radio:18,nombre:'Marco de producto' }), img({ src:foto(d),x:13,y:photoY+2,w:74,h:photoH-4,ajuste:'contain',nombre:'Producto' }),
+      ...(d.precio ? [t({ texto:d.precio,x:8,y:offerY,w:38,h:10,tam:4.8,peso:900,color:ink,vertical:'center',nombre:'Precio' })] : []),
+      forma({ x:d.precio?50:8,y:offerY,w:d.precio?42:84,h:10,relleno:d.acento,forma:'pastilla',nombre:'CTA' }),t({ texto:d.cta,x:d.precio?50:8,y:offerY,w:d.precio?42:84,h:10,tam:2.7,peso:800,color:d.sobreAcento,alinear:'center',vertical:'center',nombre:'Texto CTA' })]);
+  } },
+  { id: 'podio-producto', nombre: 'Podio de producto', descripcion: 'Producto flotante en pedestal, con jerarquía limpia y foco en la marca.', ideal: '1:1', armar: (d, f) => {
+    const c=ctx(f), bg='#f3f0e9';
+    if(c.h) return escena(f,bg,horizontalBasico(c,d,{fondo:bg,tinta:'#20251f',fotoAjuste:'contain'}));
+    const story=f==='9:16', py=story?30:29, ph=story?39:43, oy=story?73:76;
+    return escena(f,bg,[forma({x:0,y:0,w:100,h:100,relleno:bg,nombre:'Fondo cálido'}),forma({x:7,y:8,w:86,h:ph+15,relleno:'#e5dfd2',forma:'circulo',nombre:'Halo suave'}),
+      t({texto:d.marca||'OBJETO DE DISEÑO',x:8,y:7,w:84,h:4,tam:2,peso:700,color:'#62665d',alinear:'center',nombre:'Marca'}),
+      t({texto:d.gancho,x:9,y:13,w:82,h:14,tam:ajustar(c,{texto:d.gancho,x:9,w:82,peso:800},7.4,3.6,13),peso:800,color:'#20251f',alinear:'center',fuente:'dm-serif',nombre:'Gancho'}),
+      forma({x:22,y:py+ph-6,w:56,h:8,relleno:'#c7b99f',nombre:'Podio'}),img({src:foto(d),x:17,y:py,w:66,h:ph,ajuste:'contain',sombra:true,nombre:'Producto en podio'}),
+      ...(d.precio?[t({texto:d.precio,x:8,y:oy,w:36,h:9,tam:4.4,peso:900,color:'#20251f',vertical:'center',nombre:'Precio'} )]:[]),
+      forma({x:d.precio?49:18,y:oy,w:d.precio?43:64,h:9,relleno:'#20251f',forma:'pastilla',nombre:'CTA'}),t({texto:d.cta,x:d.precio?49:18,y:oy,w:d.precio?43:64,h:9,tam:2.5,peso:700,color:'#ffffff',alinear:'center',vertical:'center',nombre:'Texto CTA'})]);
+  } },
   { id: 'academia-editorial', nombre: 'Academia editorial', descripcion: 'Portada de curso: tipografía editorial, papel cálido y producto protagonista.', ideal: '4:5', armar: (d, f) => premium(d, f, 'academia') },
   { id: 'digital-nocturno', nombre: 'Digital nocturno', descripcion: 'Tecnología, herramientas y packs con profundidad y contraste sobrio.', ideal: '4:5', armar: (d, f) => premium(d, f, 'nocturno') },
   { id: 'boutique-esencial', nombre: 'Boutique esencial', descripcion: 'Producto en una superficie limpia, precio claro y composición editorial.', ideal: '1:1', armar: (d, f) => premium(d, f, 'boutique') },

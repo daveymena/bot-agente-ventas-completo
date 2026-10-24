@@ -41,6 +41,8 @@ export const DISENOS: Diseno[] = [
     ["fitness", "Fitness", "#C8FF3D", "Energía y contraste."],
     ["suplemento", "Salud y suplementos", "#16A34A", "Confianza y claridad."],
     ["clinica", "Clínica", "#1D4ED8", "Profesional, de consultorio."],
+    ["creator", "Creator · digital", "#7047EB", "Cursos, ebooks y productos descargables."],
+    ["servicios-pro", "Servicios Pro", "#087F68", "Consultorías, servicios y reservas."],
     ["tecnologia", "Tecnología", "#5B4BE8", "Moderna, de producto tech."],
     ["electronica", "Electrónica", "#22D3EE", "Oscura con brillo."],
     ["oscura", "Oscura", "#00D3A7", "Fondo oscuro, acento neón."],
@@ -165,8 +167,8 @@ export function GaleriaDisenos({ productId, secciones, retoque, actual, landingA
                 <button key={m} onClick={() => setModoGrande(m)} aria-pressed={modoGrande === m} aria-label={m} className={`h-7 w-8 grid place-items-center rounded ${modoGrande === m ? "bg-muted" : ""}`}><I className="h-3.5 w-3.5" /></button>
               ))}
             </div>
-            <div className="ml-auto flex gap-2">
-              <Button size="sm" className="bg-violet-600 hover:bg-violet-700 text-white" onClick={() => { onUsar(grande); setGrande(null); }}>{landingAbierta ? "Aplicar a mi landing" : "Crear landing con este diseño"}</Button>
+            <div className="w-full sm:w-auto sm:ml-auto flex gap-2">
+              <Button size="sm" className="h-10 sm:h-9 flex-1 sm:flex-none bg-violet-600 hover:bg-violet-700 text-white" onClick={() => { onUsar(grande); setGrande(null); }}>{landingAbierta ? "Aplicar a mi landing" : "Crear landing con este diseño"}</Button>
               <Button size="sm" variant="ghost" onClick={() => setGrande(null)} aria-label="Cerrar"><X className="h-4 w-4" /></Button>
             </div>
           </div>

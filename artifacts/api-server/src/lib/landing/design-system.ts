@@ -53,12 +53,14 @@ export type FamiliaVisual =
   | "suplemento"
   | "gourmet"
   | "dropshipping"
-  | "clinica";
+  | "clinica"
+  | "creator"
+  | "servicios-pro";
 
 export const FAMILIAS: readonly FamiliaVisual[] = [
   "premium", "respuesta-directa", "minimal", "editorial", "ecommerce", "belleza",
   "fitness", "educacion", "tecnologia", "familiar", "creativa", "oscura", "launch",
-  "electronica", "suplemento", "gourmet", "dropshipping", "clinica",
+  "electronica", "suplemento", "gourmet", "dropshipping", "clinica", "creator", "servicios-pro",
 ] as const;
 
 /** Cómo se integran las fotos. Cambia la composición, no un filtro. */
@@ -145,7 +147,7 @@ export interface TokensDeDiseno {
 }
 
 /**
- * Las 13 familias.
+ * Las familias visuales disponibles.
  *
  * Cada una se escribió mirando qué la distingue COMPOSITIVAMENTE de las otras.
  * Si dos familias terminaran con el mismo ritmo, alineación y layouts, una de
@@ -570,6 +572,24 @@ export const TOKENS: Record<FamiliaVisual, TokensDeDiseno> = {
       faq: ["faq_accordion", "faq_cards"],
     },
   },
+  creator: {
+    familia: "creator", nombre: "Creator", cuando: "Cursos, ebooks y recursos digitales: portada editorial con módulos claros y entrega inmediata.",
+    tipografia: { display: "'Space Grotesk', system-ui, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.22, pesoDisplay: 800, espaciadoTitulo: "-0.04em", interlineado: 1.6 },
+    color: { fondo: "#F7F5FF", superficie: "#FFFFFF", texto: "#241A3D", textoSuave: "#6D6680", acento: "#7047EB", sobreAcento: "#FFFFFF", borde: "#E4DDF5" },
+    ritmo: { anchoContenido: "1120px", padSeccionY: "92px", padSeccionX: "28px", separacion: "24px" },
+    forma: { radio: "20px", sombra: "0 18px 48px rgba(54,36,105,.12)", borde: "1px solid #E4DDF5" },
+    alineacion: "izquierda", fondos: "degradado-sutil", imagen: "flotante", cta: "pastilla",
+    layoutsPreferidos: { hero: ["hero_product_focus", "hero_split"], benefits: ["benefits_icon_grid", "benefits_cards"], offer: ["offer_card", "offer_minimal"], testimonials: ["testimonial_quote", "testimonial_cards"], faq: ["faq_accordion", "faq_cards"] },
+  },
+  "servicios-pro": {
+    familia: "servicios-pro", nombre: "Servicios Pro", cuando: "Consultorías, servicios y reservas: confianza, proceso claro y agenda como acción principal.",
+    tipografia: { display: "'DM Sans', system-ui, sans-serif", texto: "'Inter', system-ui, sans-serif", escala: 1.12, pesoDisplay: 700, espaciadoTitulo: "-0.025em", interlineado: 1.8 },
+    color: { fondo: "#F5F8F7", superficie: "#FFFFFF", texto: "#18352E", textoSuave: "#64766F", acento: "#087F68", sobreAcento: "#FFFFFF", borde: "#D8E6E1" },
+    ritmo: { anchoContenido: "1040px", padSeccionY: "104px", padSeccionX: "36px", separacion: "32px" },
+    forma: { radio: "12px", sombra: "0 12px 34px rgba(24,53,46,.08)", borde: "1px solid #D8E6E1" },
+    alineacion: "alterno", fondos: "plano", imagen: "en-contexto", cta: "bloque",
+    layoutsPreferidos: { hero: ["hero_split", "hero_editorial"], benefits: ["benefits_split", "benefits_cards"], offer: ["offer_minimal", "offer_card"], testimonials: ["testimonial_large", "testimonial_quote"], faq: ["faq_minimal", "faq_accordion"] },
+  },
 };
 
 /** ¿Es una familia conocida? Sirve para no confiar en lo que mande el modelo. */
@@ -620,6 +640,8 @@ const SENALES: Array<{ familia: FamiliaVisual; palabras: string[] }> = [
   // tecnología (el dueño lo dijo el 18-09: la landing del curso de IA "se ve
   // muy femenina"; le correspondía la línea tecnológica, no la de formación).
   { familia: "tecnologia", palabras: ["software", "app", "saas", "plataforma", "automatizacion", "inteligencia artificial", "ia ", " ia", "chatgpt", "claude", "agentes", "bot", "api", "digital tool", "sistema", "programacion", "excel", "power bi", "python", "n8n", "web"] },
+  { familia: "creator", palabras: ["ebook", "e-book", "plantilla digital", "pack digital", "descargable", "guia digital", "curso online", "curso virtual", "infoproducto", "membresia"] },
+  { familia: "servicios-pro", palabras: ["consultoria", "asesoria", "servicio profesional", "agendar", "reserva", "sesion", "terapia", "abogado", "contador", "diseno web", "fotografia", "coaching"] },
   { familia: "educacion", palabras: ["curso", "clase", "taller", "masterclass", "capacitacion", "diplomado", "aprende", "aprender", "ensena", "tutorial", "academia", "leccion", "idioma", "ingles", "piano", "guitarra", "musica"] },
   { familia: "launch", palabras: ["lanzamiento", "launch", "startup", "preventa", "early access", "beta", "waitlist", "lista de espera"] },
   { familia: "familiar", palabras: ["hogar", "cocina", "familia", "bebe", "nino", "mascota", "casa", "limpieza", "organizador"] },

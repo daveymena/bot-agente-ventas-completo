@@ -111,6 +111,7 @@ export default function CreativosPage(props: PropsCreativos = {}) {
   const [guardadoJSON, setGuardadoJSON] = useState("");
   const [seleccion, setSeleccion] = useState<string | null>(null);
   const [panel, setPanel] = useState<"maquetas" | "capas" | "ia" | "editar">("maquetas");
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [zonaSegura, setZonaSegura] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [exportando, setExportando] = useState(false);
@@ -616,9 +617,9 @@ export default function CreativosPage(props: PropsCreativos = {}) {
                     onSeleccionar={(id) => { setSeleccion(id); }}
                     onEmpezarCambio={marcar}
                     onMover={(id, caja) => cambiarCapa(id, caja, false)}
-                    onDobleClic={(id) => { setSeleccion(id); setPanel((p) => (window.innerWidth < 1024 ? "editar" : p)); setTimeout(() => { textoRef.current?.focus(); textoRef.current?.select(); }, 60); }}
+                    onDobleClic={(id) => { setSeleccion(id); if (window.innerWidth < 1024) { setPanel("editar"); setMobilePanelOpen(true); } setTimeout(() => { textoRef.current?.focus(); textoRef.current?.select(); }, 60); }}
                     zonaSegura={zonaSegura}
-                    maxAlto={typeof window !== "undefined" ? Math.max(360, window.innerHeight - 230) : 700}
+                    maxAlto={typeof window !== "undefined" ? Math.max(280, window.innerHeight - (mobilePanelOpen ? 500 : 220)) : 700}
                   />
                 </div>
                 {png && (
@@ -643,15 +644,15 @@ export default function CreativosPage(props: PropsCreativos = {}) {
           <aside className={`hidden lg:block border-l overflow-y-auto ${props.incrustado ? "w-[260px] 2xl:w-[300px]" : "w-[300px]"}`}>{panelPropiedades}</aside>
 
           {/* Móvil: un panel debajo del lienzo, con pestañas */}
-          <div className="lg:hidden border-t flex flex-col min-h-0 max-h-[45vh]">
+          <div className={`lg:hidden border-t flex flex-col shrink-0 min-h-0 transition-[height] duration-200 ${mobilePanelOpen ? "h-[min(46dvh,420px)]" : "h-11"}`}>
             <div className="flex p-1 gap-1 shrink-0 border-b">
               {tabs.map((t) => (
-                <button key={t.id} onClick={() => setPanel(t.id)} aria-pressed={panel === t.id} className={`flex-1 h-9 rounded-md text-[11px] font-semibold inline-flex items-center justify-center gap-1 ${panel === t.id ? "bg-muted" : "text-muted-foreground"}`}>
+                <button key={t.id} onClick={() => { if (panel === t.id) setMobilePanelOpen((open) => !open); else { setPanel(t.id); setMobilePanelOpen(true); } }} aria-pressed={panel === t.id && mobilePanelOpen} className={`flex-1 h-9 rounded-md text-[11px] font-semibold inline-flex items-center justify-center gap-1 ${panel === t.id && mobilePanelOpen ? "bg-muted" : "text-muted-foreground"}`}>
                   <t.icono className="h-3.5 w-3.5" />{t.etiqueta}
                 </button>
               ))}
             </div>
-            <div className="flex-1 overflow-y-auto">{panel === "editar" ? panelPropiedades : panelIzquierdo}</div>
+            <div className={`flex-1 min-h-0 overflow-y-auto overscroll-contain ${mobilePanelOpen ? "" : "hidden"}`}>{panel === "editar" ? panelPropiedades : panelIzquierdo}</div>
           </div>
         </div>
       </div>

@@ -692,13 +692,41 @@ function instruccionDeFamilia(familia: string | null | undefined, semilla = 0): 
     hero_left: "todo alineado a la izquierda, foto a la derecha con fondo de tinte",
     hero_full_visual: "foto a sangre de fondo con el título encima y velo oscuro",
   };
+  const direccion: Record<string, string> = {
+    premium: "editorial de lujo: serif expresiva, mucho espacio negativo, detalles finos y producto tratado como pieza de galería",
+    "respuesta-directa": "conversión de alto impacto: titular contundente, oferta visible, pasos de lectura rápidos y contraste disciplinado",
+    minimal: "minimalismo de marca: una columna limpia, reglas finas, pocas piezas y tipografía precisa",
+    editorial: "revista contemporánea: tipografía serif, bloques narrativos, fotografía grande y composición asimétrica",
+    ecommerce: "tienda de producto cuidada: galería protagonista, compra clara, atributos y confianza en bloques compactos",
+    belleza: "beauty editorial: luz suave, aire, titular elegante, superficies cálidas y fotografía sensorial",
+    fitness: "rendimiento y energía: titulares compactos, ritmo diagonal, cifras solo si son reales y contraste deportivo",
+    educacion: "academia moderna: temario escaneable, progreso por módulos y mockup real del material sin interfaz inventada",
+    tecnologia: "producto digital tech: grilla precisa, tipografía geométrica, diagramas simples y foco en uso real",
+    familiar: "marca cercana para hogar: formas cálidas, lectura amable, escenas cotidianas y confianza",
+    creativa: "dirección gráfica atrevida: grilla expresiva, color controlado, titulares gráficos y formas con intención",
+    oscura: "producto premium oscuro: negro tinta, contraste legible, halo sutil y superficies profundas",
+    launch: "lanzamiento contemporáneo: una promesa, visual protagonista, fecha/condición solo si viene en los datos y ritmo de estreno",
+    electronica: "ficha tech inmersiva: producto grande, especificaciones ordenadas, acento luminoso y fondos oscuros",
+    suplemento: "bienestar informado: claridad, frescura, jerarquía limpia y sin promesas médicas no verificadas",
+    gourmet: "gastro editorial: fotografía apetitosa, tonos cálidos, serif medida y bloques breves",
+    dropshipping: "venta directa móvil: producto y CTA tempranos, condiciones reales a la vista y lectura por tarjetas",
+    clinica: "salud confiable: azul y verde, navegación sobria, textos claros, afirmaciones responsables y formulario simple",
+    creator: "creator premium para digital: portada/módulos en capas, lavanda y tinta, tipografía geométrica y entrega digital clara",
+    "servicios-pro": "servicio profesional: narrativa de confianza, proceso en pasos, prueba real y agenda/consulta como acción principal",
+  };
+  const artDirection = direccion[familia] || `${t.nombre}: conserva una identidad visual reconocible y distinta del resto de las familias`;
   return `\n\nESTILO VISUAL ELEGIDO (familia "${t.nombre}" — ${t.cuando}):${hero ? `\n- Apertura (hero): "${hero}" → ${heroTxt[hero] || hero}.` : ""}
+- Dirección de arte propia: ${artDirection}. Esta familia debe reconocerse por tipografía, composición, fotografía y ritmo, no solo por el color.
 - Tipografía: títulos en ${t.tipografia.display} (peso ${t.tipografia.pesoDisplay}, escala ${t.tipografia.escala}), cuerpo en ${t.tipografia.texto} con interlineado ${t.tipografia.interlineado}.
 - Paleta: fondo ${t.color.fondo}, superficies ${t.color.superficie}, texto ${t.color.texto}, texto suave ${t.color.textoSuave}, ACENTO (botones/destacados) ${t.color.acento}, borde ${t.color.borde}.
 - Ritmo: contenido de hasta ${t.ritmo.anchoContenido}, secciones con padding vertical ${t.ritmo.padSeccionY} y separación interna ${t.ritmo.separacion}.
 - Alineación general: ${t.alineacion}. Fondo: ${t.fondos}${t.fondos === "degradado-vivo" ? " → el hero y el bloque de precio llevan degradado lineal del acento (135deg, de la versión oscura del acento a la viva) con un brillo radial blanco al 20 %; el resto alterna blanco y el tinte suave del acento; tarjetas con fondo blanco al 70 % y borde blanco semitransparente (vidrio suave); botones con degradado del acento y sombra de color; TODO profesional: nada de degradados arcoíris ni más de 2 colores en un degradado" : ""}.
 - Imágenes: tratamiento "${t.imagen}". CTA: estilo "${t.cta}".
 - Bordes redondeados ${t.forma.radio}, sombra ${t.forma.sombra}.
+ - Variedad real: alterná los layouts preferidos de esta familia por bloque; evita repetir la misma cuadrícula de tarjetas en toda la página. Mantén una jerarquía tipográfica clara con tamaños fluidos y ancho de lectura cómodo.
+- Movimiento sutil: incorpora entrada progresiva al hacer scroll y microinteracciones de hover/focus en botones, tarjetas y galería. Respeta prefers-reduced-motion y deja la página completa si el movimiento está desactivado.
+- Adaptación móvil: una columna, titulares sin desborde, controles táctiles cómodos, CTA visible y sin desplazamiento horizontal.
+- Fidelidad: no inventes testimonios, garantías, cifras, interfaces de software ni condiciones comerciales. Los mockups solo pueden representar el material real descrito.
 Respetá este estilo en TODA la página: es lo que el admin eligió explícitamente. No lo mezcles con otra paleta.`;
 }
 
