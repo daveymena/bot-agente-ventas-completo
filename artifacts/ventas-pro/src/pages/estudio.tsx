@@ -22,7 +22,7 @@ type Espacio = "landings" | "disenos" | "creativos";
 
 const ESPACIOS: { id: Espacio; nombre: string; icono: any; ayuda: string }[] = [
   { id: "landings", nombre: "Landings", icono: LayoutTemplate, ayuda: "Editá tu página: bloques, textos, tema" },
-  { id: "disenos", nombre: "Diseños", icono: Palette, ayuda: "22 diseños en vivo con tu producto" },
+  { id: "disenos", nombre: "Diseños", icono: Palette, ayuda: `${DISENOS.length} diseños en vivo con tu producto` },
   { id: "creativos", nombre: "Creativos", icono: ImageIcon, ayuda: "Imágenes para tus anuncios" },
 ];
 
@@ -62,7 +62,7 @@ export default function EstudioPage() {
   const disenoActual = DISENOS.find((d) => d.id === plantillaActual)?.id ?? null;
 
   return (
-    <div className="h-[100dvh] flex flex-col bg-background text-foreground overflow-hidden">
+    <div className="h-[100dvh] flex flex-col bg-background text-foreground overflow-hidden pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       {/* Barra superior */}
       <header className="h-14 shrink-0 border-b flex items-center gap-2 px-2 sm:px-3 bg-background/95 backdrop-blur">
         <Link href="/" className="h-9 w-9 grid place-items-center rounded-lg hover:bg-muted text-muted-foreground" title="Volver al panel" aria-label="Volver al panel"><ArrowLeft className="h-4 w-4" /></Link>
@@ -76,8 +76,8 @@ export default function EstudioPage() {
         <nav className="flex items-center gap-1 overflow-x-auto" aria-label="Espacios del estudio">
           {ESPACIOS.map((e) => (
             <button key={e.id} onClick={() => setEspacio(e.id)} aria-pressed={espacio === e.id} title={e.ayuda}
-              className={`h-9 px-3 rounded-lg text-sm font-semibold inline-flex items-center gap-1.5 whitespace-nowrap transition ${espacio === e.id ? "bg-violet-600 text-white shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>
-              <e.icono className="h-4 w-4" /><span className="hidden sm:inline">{e.nombre}</span>
+              className={`h-9 px-2.5 sm:px-3 rounded-lg text-sm font-semibold inline-flex items-center gap-1.5 whitespace-nowrap transition ${espacio === e.id ? "bg-violet-600 text-white shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"}`}>
+              <e.icono className="h-4 w-4" /><span className={`${espacio === e.id ? "inline" : "hidden sm:inline"} text-[11px] sm:text-sm`}>{e.nombre}</span>
             </button>
           ))}
         </nav>
@@ -121,7 +121,7 @@ export default function EstudioPage() {
 
         {/* Atlas: acoplado en pantallas grandes, encima en las chicas. */}
         {atlasAbierto && (
-          <aside className="fixed inset-0 z-40 lg:static lg:z-auto lg:w-[380px] xl:w-[420px] lg:border-l flex flex-col min-h-0 bg-background">
+          <aside className="fixed inset-0 z-40 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] lg:static lg:z-auto lg:w-[380px] xl:w-[420px] lg:border-l flex flex-col min-h-0 bg-background">
             <AtlasDock contexto={contexto} onTurnoTerminado={alTerminarAtlas} onCerrar={() => setAtlasAbierto(false)} />
           </aside>
         )}

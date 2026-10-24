@@ -9,7 +9,7 @@ puros (sin node ni DOM). La app los importa con el alias `@estudio`
 | `fuentes.ts` | Las tipografías (Google Fonts, OFL) y parejas título/texto. |
 | `retoque.ts` | El **tema** de una landing (`design.retoque`): acento, letras, redondeo. |
 | `escena.ts` | El **creativo**: escena JSON (capas en % del lienzo) → HTML. Revisión antes de exportar. |
-| `maquetas-creativo.ts` | 10 maquetas que diagraman solas (apilan piezas según el largo del texto) en 4:5, 1:1, 9:16 y 1.91:1. |
+| `maquetas-creativo.ts` | 21 maquetas editables que diagraman solas en 4:5, 1:1, 9:16 y 1.91:1; incluye direcciones para lanzamientos, productos digitales y producto en podio. |
 
 ## Regla: un solo dibujante
 

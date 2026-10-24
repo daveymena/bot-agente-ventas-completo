@@ -40,7 +40,7 @@ type Msg = { role: "user" | "assistant"; content: string; loading?: boolean };
 type Familia =
   | "premium" | "respuesta-directa" | "minimal" | "editorial" | "ecommerce" | "belleza"
   | "fitness" | "educacion" | "tecnologia" | "familiar" | "creativa" | "oscura" | "launch"
-  | "electronica" | "suplemento" | "gourmet" | "dropshipping" | "clinica";
+  | "electronica" | "suplemento" | "gourmet" | "dropshipping" | "clinica" | "creator" | "servicios-pro";
 
 const FAMILIAS: { value: Familia; label: string; color: string }[] = [
   { value: "premium", label: "Premium", color: "#8C7A5B" },
@@ -61,6 +61,8 @@ const FAMILIAS: { value: Familia; label: string; color: string }[] = [
   { value: "gourmet", label: "Gourmet", color: "#7C3F1D" },
   { value: "dropshipping", label: "Dropshipping directo", color: "#4F46E5" },
   { value: "clinica", label: "Clínica PostureFit", color: "#1D4ED8" },
+  { value: "creator", label: "Creator", color: "#7047EB" },
+  { value: "servicios-pro", label: "Servicios Pro", color: "#087F68" },
 ];
 
 const SALUDO = `Soy **Atlas Landing**, el diseñador de páginas de venta de VentasPro 
@@ -745,7 +747,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
       <div className="flex flex-col flex-1 min-h-0">
         <div className="shrink-0 border-b bg-background">
           {/* Fila principal: logo + producto + landing + generar + iconos de acción */}
-          <div className="flex items-center gap-2 px-3 pt-2">
+          <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 px-3 pt-2">
             <div className={`items-center gap-2 shrink-0 ${props.incrustado ? "hidden" : "flex"}`}>
               <div className="p-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20">
                 <LayoutTemplate className="h-4 w-4 text-violet-500" />
@@ -753,22 +755,24 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
               <span className="text-sm font-bold hidden sm:block">Atlas Landing</span>
               <Badge variant="secondary" className="text-[10px] hidden sm:flex">IA</Badge>
             </div>
+            <div className="grid grid-cols-2 gap-2 w-full min-w-0 sm:flex sm:w-auto sm:flex-1">
             <select value={productId} onChange={e => setProductId(e.target.value ? Number(e.target.value) : "")}
-              className="h-8 rounded-md border bg-background px-2 text-xs min-w-0 flex-1 sm:flex-none sm:w-[170px]"
+              className="h-10 sm:h-8 rounded-lg sm:rounded-md border bg-background px-2.5 text-xs min-w-0 w-full sm:flex-1 sm:w-[170px]"
               title={productsErr ? "No se pudieron cargar los productos. Tocá para reintentar." : undefined}>
               <option value="">{productsErr ? "Error al cargar productos…" : "Producto..."}</option>
               {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
             <select value={landingId || ""} onChange={e => e.target.value && cargarLanding(Number(e.target.value))}
-              className="h-8 rounded-md border bg-background px-2 text-xs min-w-0 flex-1 sm:flex-none sm:w-[150px]">
+              className="h-10 sm:h-8 rounded-lg sm:rounded-md border bg-background px-2.5 text-xs min-w-0 w-full sm:flex-1 sm:w-[150px]">
               <option value="">Nueva landing...</option>
               {landings.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
+            </div>
             <Button size="sm" disabled={busy || !productId} onClick={() => {
                 if (!productId) return;
                 void enviar("Genera una landing page para este producto", { nueva: true });
               }}
-              className="bg-violet-600 hover:bg-violet-700 text-white h-8 px-3 text-xs shrink-0">
+              className="bg-violet-600 hover:bg-violet-700 text-white h-10 sm:h-8 px-3 text-xs flex-1 sm:flex-none">
               {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : <Wand2 className="h-3.5 w-3.5 mr-1" />}
               Generar
             </Button>

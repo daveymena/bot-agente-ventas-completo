@@ -10,8 +10,8 @@ import { describe, it, expect } from "vitest";
 import { FAMILIAS, TOKENS, tokensDe, esFamilia, elegirFamilia, layoutDe } from "../design-system";
 
 describe("las familias son de verdad distintas", () => {
-  it("están las 18 y cada una se declara a sí misma", () => {
-    expect(FAMILIAS).toHaveLength(18);
+  it("están las 20 y cada una se declara a sí misma", () => {
+    expect(FAMILIAS).toHaveLength(20);
     for (const f of FAMILIAS) expect(TOKENS[f].familia).toBe(f);
   });
 
@@ -95,6 +95,8 @@ describe("elegir el estilo solo (Sorpréndeme)", () => {
     [{ nombre: "Serum facial con vitamina C" }, "belleza"],
     [{ nombre: "Rutina de entrenamiento en casa" }, "fitness"],
     [{ nombre: "Curso de piano desde cero" }, "educacion"],
+    [{ nombre: "Ebook de productividad descargable" }, "creator"],
+    [{ nombre: "Consultoría de marca por sesión" }, "servicios-pro"],
     [{ categoria: "Software", nombre: "Plataforma de automatización" }, "tecnologia"],
     [{ nombre: "Organizador de cocina" }, "familiar"],
   ])("lee el rubro: %o", (pistas, esperada) => {

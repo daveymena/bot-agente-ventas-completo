@@ -700,7 +700,7 @@ ${urlSegura(p?.imageUrl) ? `<meta property="og:image" content="${esc(urlSegura(p
 <meta name="color-scheme" content="${t.fondos === "oscuro" ? "dark" : "light"}">
 <style>${css(t)}${CSS_MARCO}</style>
 </head>
-<body>
+<body class="familia-${t.familia}" data-familia="${t.familia}">
 ${cabecera}
 ${cuerpo}
 ${cierreHtml}

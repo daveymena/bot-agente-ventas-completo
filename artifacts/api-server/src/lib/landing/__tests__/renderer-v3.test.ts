@@ -38,6 +38,20 @@ describe("renderer-v3", () => {
     expect(html).toContain('action="/api/landing-publica/demo/pedido"');
   });
 
+  it("carga la tipografía de cada familia y ofrece movimiento accesible al desplazarse", () => {
+    const html = renderizarLanding({
+      nombre: "Demo",
+      familia: "creator",
+      producto: product,
+      negocio: { nombre: "Tienda Demo", modelo: "digital" },
+      secciones: sections,
+    });
+    expect(html).toContain("fonts.googleapis.com/css2?family=");
+    expect(html).toContain("font-size:clamp(");
+    expect(html).toContain("animation-timeline:view()");
+    expect(html).toContain("prefers-reduced-motion:no-preference");
+  });
+
   it("convierte las opciones reales del producto en campos de checkout", () => {
     const html = renderizarLanding({
       nombre: "Demo",
