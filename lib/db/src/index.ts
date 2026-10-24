@@ -285,7 +285,7 @@ async function initDb() {
     pool = new Pool({
       connectionString: dbUrl,
       ssl: dbUrl.includes("sslmode=disable") ? false : { rejectUnauthorized: false },
-      max: 20, min: 5, idleTimeoutMillis: 30000,
+      max: Math.min(100, Math.max(2, Math.floor(Number(process.env.DB_POOL_MAX) || 20))), min: 0, idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000, statement_timeout: 10000, query_timeout: 10000,
     });
     db = drizzle(pool, { schema: pgSchema });

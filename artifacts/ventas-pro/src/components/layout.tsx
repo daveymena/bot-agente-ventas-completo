@@ -1,3 +1,4 @@
+import { navigationGroups, navigationGroup } from "@/lib/navigation-groups";
 import { IconoDelMenu } from "@/components/icono-del-menu";
 import { AvisoAppAndroid } from "@/components/app-android";
 import { Link, useLocation } from "wouter";
@@ -44,7 +45,7 @@ export function AppSidebar() {
   const [location] = useLocation();
 
   const { data: wsStatus } = useGetWhatsAppStatus({
-    query: { refetchInterval: 5000, queryKey: getGetWhatsAppStatusQueryKey() }
+    query: { refetchInterval: 30000, staleTime: 15000, refetchIntervalInBackground: false, queryKey: getGetWhatsAppStatusQueryKey() }
   });
 
   const { saasStatus } = useSaasStatus();
@@ -96,16 +97,17 @@ export function AppSidebar() {
           <img src="/logo-sidebar.svg" alt="VentasPro" className="h-10 w-auto transition-all duration-300 group-hover:brightness-110" />
         </Link>
         {isPremium && (
-          <UiBadge className="ml-2 bg-gradient-to-r from-amber-400 to-orange-600 border-none text-[10px] font-black tracking-tighter animate-pulse shadow-[0_0_15px_rgba(245,158,11,0.5)]">
+          <UiBadge className="ml-2 bg-sidebar-accent text-sidebar-foreground border-sidebar-border text-[10px] font-semibold">
             PREMIUM
           </UiBadge>
         )}
       </SidebarHeader>
       <SidebarContent className="px-3 py-3 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.25)_transparent] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-white/25 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent">
-        <SidebarGroup>
+        {navigationGroups.map(group => <SidebarGroup key={group}>
+          <h2 className="px-3 pb-2 pt-3 text-xs font-semibold text-sidebar-foreground/60">{group}</h2>
           <SidebarGroupContent>
             <SidebarMenu className="gap-1">
-              {allNavItems.map((item) => {
+              {allNavItems.filter(item => navigationGroup(item.href) === group).map((item) => {
                 const isActive = location === item.href;
                 const linkClassName = "flex items-center gap-3 px-3 w-full";
                 const linkContent = (
@@ -123,7 +125,7 @@ export function AppSidebar() {
                       className={`group flex items-center h-10 rounded-lg transition-colors ${isActive ? 'bg-sidebar-primary text-white font-medium' : 'text-sidebar-foreground font-medium hover:text-white hover:bg-sidebar-accent'}`}
                     >
                       {(item as any).external ? (
-                        <a href={(item as any).external} target="_blank" rel="noopener noreferrer" className={linkClassName}>{linkContent}</a>
+                        <a href={typeof (item as any).external === "string" ? (item as any).external : item.href} target="_blank" rel="noopener noreferrer" className={linkClassName}>{linkContent}</a>
                       ) : (
                         <Link href={item.href} className={linkClassName}>{linkContent}</Link>
                       )}
@@ -133,7 +135,7 @@ export function AppSidebar() {
               })}
             </SidebarMenu>
           </SidebarGroupContent>
-        </SidebarGroup>
+        </SidebarGroup>)}
       </SidebarContent>
       <div className="mt-auto px-3 py-3 space-y-2 relative z-10">
         <button onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/auth"; }} className="flex w-full items-center gap-3 text-sm font-medium px-4 py-2.5 rounded-xl bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20 transition-all mb-2">

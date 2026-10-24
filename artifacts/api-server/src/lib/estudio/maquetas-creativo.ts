@@ -218,7 +218,45 @@ const botonCentrado = (c: Ctx, d: DatosCreativo, invertido = false, oscuro?: str
 
 // ── Las maquetas ────────────────────────────────────────────────────────────
 
+/** Art-directed, bounded composition: one headline, one image, one offer.
+ * Fixed areas per format keep text away from the image even with long titles. */
+function premium(d: DatosCreativo, f: Formato, style: 'academia' | 'nocturno' | 'boutique'): Escena {
+  const c = ctx(f), dark = style === 'nocturno';
+  const bg = dark ? '#0b1220' : style === 'academia' ? '#f5f2eb' : '#f4f7f3';
+  const ink = dark ? '#f8fafc' : '#15283d';
+  const muted = dark ? '#a6b6cc' : '#53647b';
+  const paper = dark ? '#192942' : '#ffffff';
+  const font = style === 'academia' ? 'playfair' : style === 'boutique' ? 'dm-serif' : 'inter';
+  const story = f === '9:16';
+  const x = 7, w = c.h ? 43 : 86;
+  const headY = c.arriba + (c.h ? 3 : 4);
+  const headH = c.h ? 28 : story ? 12 : 20;
+  const text = { texto: d.gancho, x, w, fuente: font, peso: 800, color: ink, nombre: 'Gancho' };
+  const bottomY = c.abajo - (c.h ? 14 : story ? 6 : 9);
+  const photoY = c.h ? 8 : headY + headH + 3;
+  const photoEnd = c.h ? 92 : bottomY - 3;
+  const capas: Capa[] = [
+    forma({ x: 0, y: 0, w: 100, h: 100, relleno: bg, nombre: 'Fondo' }),
+    forma({ x: 7, y: c.arriba, w: 7, h: .35, relleno: d.acento, nombre: 'Acento editorial' }),
+    ...(d.marca ? [t({ texto: d.marca, x: 17, y: c.arriba - .5, w: 76, h: 3, tam: c.h ? 1.6 : 2.2, peso: 600, color: muted, nombre: 'Marca' })] : []),
+    t({ ...text, y: headY, h: headH, tam: ajustar(c, text, c.h ? 5 : 7.6, 2.4, headH - 1), interlineado: 1.08 }),
+    forma({ x: c.h ? 55 : 7, y: photoY, w: c.h ? 38 : 86, h: photoEnd - photoY, relleno: paper, radio: 26, nombre: 'Superficie de producto' }),
+    img({ src: foto(d), x: c.h ? 57 : 10, y: photoY + 1.5, w: c.h ? 34 : 80, h: photoEnd - photoY - 3, ajuste: 'contain', radio: 16, nombre: 'Foto principal' }),
+  ];
+  if (c.h && d.apoyo) capas.push(t({ texto: d.apoyo, x, y: headY + headH + 3, w, h: 17, tam: ajustar(c, { texto: d.apoyo, x, w, peso: 500 }, 2.1, 1.5, 16), peso: 500, color: muted, nombre: 'Apoyo' }));
+  const buttonX = d.precio ? (c.h ? 27 : 50) : x;
+  const buttonW = c.h ? (d.precio ? 23 : 38) : (d.precio ? 43 : 86);
+  const buttonH = c.abajo - bottomY;
+  if (d.precio) capas.push(t({ texto: d.precio, x, y: bottomY, w: c.h ? 19 : 39, h: buttonH, tam: ajustar(c, { texto: d.precio, x, w: c.h ? 19 : 39, peso: 800 }, c.h ? 3.2 : 5.4, 2, buttonH), color: ink, vertical: 'center', nombre: 'Precio' }));
+  capas.push(forma({ x: buttonX, y: bottomY, w: buttonW, h: buttonH, relleno: d.acento, radio: 16, nombre: 'Botón' }),
+    t({ texto: d.cta, x: buttonX + 2, y: bottomY, w: buttonW - 4, h: buttonH, tam: ajustar(c, { texto: d.cta, x: buttonX + 2, w: buttonW - 4, peso: 700 }, c.h ? 2.1 : 3.2, 1.6, buttonH - 1), peso: 700, color: d.sobreAcento, alinear: 'center', vertical: 'center', nombre: 'Texto del botón' }));
+  return escena(f, bg, capas);
+}
+
 export const MAQUETAS: Maqueta[] = [
+  { id: 'academia-editorial', nombre: 'Academia editorial', descripcion: 'Portada de curso: tipografía editorial, papel cálido y producto protagonista.', ideal: '4:5', armar: (d, f) => premium(d, f, 'academia') },
+  { id: 'digital-nocturno', nombre: 'Digital nocturno', descripcion: 'Tecnología, herramientas y packs con profundidad y contraste sobrio.', ideal: '4:5', armar: (d, f) => premium(d, f, 'nocturno') },
+  { id: 'boutique-esencial', nombre: 'Boutique esencial', descripcion: 'Producto en una superficie limpia, precio claro y composición editorial.', ideal: '1:1', armar: (d, f) => premium(d, f, 'boutique') },
   {
     id: "impacto",
     nombre: "Impacto a sangre",

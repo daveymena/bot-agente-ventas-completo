@@ -4,6 +4,13 @@
  */
 
 import { EventEmitter } from 'events';
+import { randomUUID } from 'node:crypto';
+
+export interface QueueStore {
+  load(): Promise<QueuedMessage[]>;
+  save(messages: QueuedMessage[]): Promise<void>;
+  cleanup(before: Date): Promise<void>;
+}
 
 export interface QueuedMessage {
   id: string;
@@ -65,12 +72,62 @@ export type MessageQueueEvent =
   | 'queue:drained';
 
 /**
- * Cola de mensajes en memoria con eventos
- * En producción esto podría usar Redis o similar
+ * Cola con eventos y outbox PostgreSQL en producción.
+ * Un solo runtime posee las sesiones; la concurrencia es por conversación.
  */
 export class MessageQueue extends EventEmitter {
   private queue: QueuedMessage[] = [];
-  private processing = false;
+  private byId = new Map<string, QueuedMessage>();
+  private bySource = new Map<string, QueuedMessage>();
+  private tenantTurns = new Map<string, number>();
+  private turn = 0;
+  private store?: QueueStore;
+  private dirty = new Map<string, QueuedMessage>();
+  private flushing?: Promise<void>;
+  private persistenceError = false;
+
+  /** Called before importing app.ts: no sockets or consumers exist yet. */
+  async attachStore(store: QueueStore): Promise<void> {
+    if (this.queue.length) throw new Error('Attach queue persistence before accepting messages');
+    const restored = await store.load();
+    this.store = store;
+    for (const message of restored) {
+      message.timestamp = new Date(message.timestamp);
+      message.createdAt = new Date(message.createdAt);
+      message.processing = false; // previous process no longer owns the work
+      this.queue.push(message);
+      this.byId.set(message.id, message);
+      if (message.messageId) this.bySource.set(JSON.stringify([message.tenantId, message.messageId]), message);
+    }
+  }
+
+  private changed(message: QueuedMessage): void {
+    if (!this.store) return;
+    // Snapshot: later mutations must not change an in-flight database write.
+    this.dirty.set(message.id, JSON.parse(JSON.stringify(message)));
+    void this.flush().catch(() => { /* retained in dirty; next loop retries */ });
+  }
+
+  /** Durable barrier before generating/sending and acknowledging completion. */
+  async flush(): Promise<void> {
+    if (!this.store) return;
+    if (this.flushing) {
+      await this.flushing;
+      if (this.dirty.size) return this.flush();
+      return;
+    }
+    this.flushing = (async () => {
+      while (this.dirty.size) {
+        const batch = [...this.dirty.values()].slice(0, 500);
+        await this.store!.save(batch);
+        for (const m of batch) if (this.dirty.get(m.id) === m) this.dirty.delete(m.id);
+      }
+      this.persistenceError = false;
+    })();
+    try { await this.flushing; }
+    catch (error) { this.persistenceError = true; throw error; }
+    finally { this.flushing = undefined; }
+  }
   private maxRetries = 3;
 
   constructor() {
@@ -82,15 +139,21 @@ export class MessageQueue extends EventEmitter {
    * Encola un nuevo mensaje recibido
    */
   enqueue(message: Omit<QueuedMessage, 'id' | 'processed' | 'retryCount' | 'createdAt'>): QueuedMessage {
+    const sourceKey = JSON.stringify([message.tenantId, message.messageId]);
+    const duplicate = message.messageId ? this.bySource.get(sourceKey) : undefined;
+    if (duplicate) return duplicate;
     const queuedMessage: QueuedMessage = {
       ...message,
-      id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      id: `msg_${randomUUID()}`,
       processed: false,
       retryCount: 0,
       createdAt: new Date(),
     };
 
     this.queue.push(queuedMessage);
+    this.byId.set(queuedMessage.id, queuedMessage);
+    if (message.messageId) this.bySource.set(sourceKey, queuedMessage);
+    this.changed(queuedMessage);
     this.emit('message:received', queuedMessage);
     
     return queuedMessage;
@@ -101,7 +164,7 @@ export class MessageQueue extends EventEmitter {
    */
   dequeue(admitir?: (m: QueuedMessage) => boolean): QueuedMessage | null {
     const ahora = Date.now();
-    const pending = this.queue.find(m =>
+    const eligible = (m: QueuedMessage) =>
       !m.processed &&
       !m.processing &&
       m.retryCount < this.maxRetries &&
@@ -109,10 +172,17 @@ export class MessageQueue extends EventEmitter {
       (!m.noAntesDe || m.noAntesDe <= ahora) &&
       // El orquestador salta las conversaciones que ya se están atendiendo:
       // dos respuestas en paralelo al mismo cliente se pisarían.
-      (!admitir || admitir(m))
-    );
+      (!admitir || admitir(m));
+    // Rotate businesses; a burst from one tenant must not starve its neighbors.
+    let pending: QueuedMessage | undefined;
+    let earliest = Infinity;
+    for (const m of this.queue) {
+      const served = this.tenantTurns.get(m.tenantId) || 0;
+      if (served < earliest && eligible(m)) { pending = m; earliest = served; }
+    }
     if (pending) {
       pending.processing = true;
+      this.tenantTurns.set(pending.tenantId, ++this.turn);
     }
     return pending || null;
   }
@@ -133,8 +203,8 @@ export class MessageQueue extends EventEmitter {
    * volver a pedírsela al agente (que la guardaría de nuevo en la base).
    */
   guardarPartes(messageId: string, parts: unknown[]): void {
-    const msg = this.queue.find(m => m.id === messageId);
-    if (msg) msg.parts = parts;
+    const msg = this.byId.get(messageId);
+    if (msg) { msg.parts = parts; this.changed(msg); }
   }
 
   /**
@@ -146,10 +216,11 @@ export class MessageQueue extends EventEmitter {
    * mensaje del cliente por nada.
    */
   posponer(messageId: string, ms: number): void {
-    const msg = this.queue.find(m => m.id === messageId);
+    const msg = this.byId.get(messageId);
     if (msg) {
       msg.noAntesDe = Date.now() + ms;
       msg.processing = false;
+      this.changed(msg);
     }
   }
 
@@ -157,9 +228,11 @@ export class MessageQueue extends EventEmitter {
    * Marca un mensaje como procesado
    */
   markProcessed(messageId: string): void {
-    const msg = this.queue.find(m => m.id === messageId);
+    const msg = this.byId.get(messageId);
     if (msg) {
       msg.processed = true;
+      msg.processing = false;
+      this.changed(msg);
       this.emit('message:processed', msg);
     }
   }
@@ -168,10 +241,12 @@ export class MessageQueue extends EventEmitter {
    * Marca un mensaje como fallido e incrementa reintentos
    */
   markFailed(messageId: string): void {
-    const msg = this.queue.find(m => m.id === messageId);
+    const msg = this.byId.get(messageId);
     if (msg) {
       msg.retryCount++;
       msg.processing = false;
+      msg.noAntesDe = Date.now() + Math.min(60_000, 1000 * 2 ** msg.retryCount);
+      this.changed(msg);
       if (msg.retryCount >= this.maxRetries) {
         this.emit('message:failed', msg);
       }
@@ -184,6 +259,12 @@ export class MessageQueue extends EventEmitter {
   getStats() {
     return {
       total: this.queue.length,
+      persistence: this.store ? 'postgres' : 'memory',
+      persistenceHealthy: !this.persistenceError,
+      unflushed: this.dirty.size,
+      active: this.queue.filter(m => m.processing && !m.processed).length,
+      oldestPendingMs: this.queue.reduce((oldest, m) => !m.processed && m.retryCount < this.maxRetries
+        ? Math.max(oldest, Date.now() - m.createdAt.getTime()) : oldest, 0),
       pending: this.queue.filter(m => !m.processed && m.retryCount < this.maxRetries).length,
       processed: this.queue.filter(m => m.processed).length,
       failed: this.queue.filter(m => m.retryCount >= this.maxRetries).length,
@@ -197,7 +278,15 @@ export class MessageQueue extends EventEmitter {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     // Los que agotaron los reintentos tampoco se vuelven a tocar nunca: sin
     // esto se acumulaban en memoria para siempre.
-    this.queue = this.queue.filter(m => (!m.processed && m.retryCount < this.maxRetries) || m.createdAt > oneHourAgo);
+    this.queue = this.queue.filter(m => {
+      const keep = (!m.processed && m.retryCount < this.maxRetries) || m.createdAt > oneHourAgo || this.dirty.has(m.id);
+      if (!keep) {
+        this.byId.delete(m.id);
+        if (m.messageId) this.bySource.delete(JSON.stringify([m.tenantId, m.messageId]));
+      }
+      return keep;
+    });
+    if (this.store) void this.flush().then(() => this.store!.cleanup(oneHourAgo)).catch(() => {});
   }
 }
 
@@ -211,7 +300,7 @@ export function getMessageQueue(): MessageQueue {
     // Limpieza automática cada 10 minutos
     setInterval(() => {
       messageQueueInstance?.cleanup();
-    }, 10 * 60 * 1000);
+    }, 10 * 60 * 1000).unref();
   }
   return messageQueueInstance;
 }

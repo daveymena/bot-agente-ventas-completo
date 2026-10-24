@@ -21,6 +21,8 @@ loadDotenv({ path: path.resolve(__dirname, "../../../.env") });
 // sí respeta el orden de ejecución real, así que corre después de cargar
 // el .env.
 async function start() {
+  const { initializeMessagePersistence } = await import("./lib/message-queue/postgres-store");
+  await initializeMessagePersistence();
   const { default: app } = await import("./app");
   const { logger } = await import("./lib/logger");
   const { runAutoMigrations } = await import("./lib/autoMigrate");

@@ -587,6 +587,11 @@ export class TenantManager {
   /**
    * Gets default tenant for single-tenant mode
    */
+  /** Synchronous factory lookup; never substitute the platform owner's identity. */
+  getCachedTenantById(id: number): TenantContext | undefined {
+    return this.tenantCache.get(`id:${id}`);
+  }
+
   getDefaultTenant(): TenantContext {
     return DEFAULT_TENANT;
   }

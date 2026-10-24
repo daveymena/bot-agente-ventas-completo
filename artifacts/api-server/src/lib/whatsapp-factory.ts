@@ -101,6 +101,9 @@ function instalarSalidaSegura(instance: WhatsAppByTenant, tenantId: number): voi
 export function getWhatsAppForTenant(tenantId?: number, tenantCtx?: TenantContext): WhatsAppByTenant {
   const tid = tenantId ?? tenantCtx?.id ?? tenantManager.getDefaultTenant().id;
 
+  if (!Number.isSafeInteger(tid) || tid <= 0 || (tenantCtx && tenantCtx.id !== tid)) {
+    throw new Error("Contexto de WhatsApp no corresponde al negocio solicitado");
+  }
   let instance = instances.get(tid);
   if (instance) {
     // La instancia ya existía (ej. se creó en el auto-start con datos
@@ -116,13 +119,19 @@ export function getWhatsAppForTenant(tenantId?: number, tenantCtx?: TenantContex
     mkdirSync(dir, { recursive: true });
   }
 
-  const tenant = tenantCtx ?? tenantManager.getDefaultTenant();
+  const tenant = tenantCtx ?? tenantManager.getCachedTenantById(tid);
+  if (!tenant) throw new Error(`Cargar el contexto del negocio ${tid} antes de crear su sesión de WhatsApp`);
   instance = new WhatsAppByTenant(tenant, dir);
 
   instances.set(tid, instance);
   instalarSalidaSegura(instance, tid);
   logger.info({ tenantId: tid, authDir: dir }, "[WhatsApp-Factory] Instancia creada");
   return instance;
+}
+
+/** Read-only status must not allocate sockets or tenant credentials. */
+export function peekWhatsAppForTenant(tenantId: number): WhatsAppByTenant | undefined {
+  return instances.get(tenantId);
 }
 
 /**

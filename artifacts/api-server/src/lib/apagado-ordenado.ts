@@ -55,6 +55,10 @@ let yaApagando = false;
 const TOPE_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS || 8000);
 
 async function cerrarWhatsApp(): Promise<void> {
+  const { getAgentOrchestrator } = await import("./services/agent-orchestrator");
+  getAgentOrchestrator().stopProcessing();
+  const { getMessageQueue } = await import("./message-queue");
+  await getMessageQueue().flush().catch(err => logger.error({ err }, "[Apagado] Outbox pendiente"));
   // Import dinámico: si el módulo de WhatsApp falla al cargar, el apagado
   // igual tiene que seguir y salir. No se puede bloquear el cierre por esto.
   const { listWhatsAppInstances, disposeWhatsAppForTenant } = await import("./whatsapp-factory");

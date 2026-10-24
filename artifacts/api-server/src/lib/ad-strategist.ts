@@ -1209,7 +1209,7 @@ export class AdStrategist {
     if (!imageUrl && String(product.kind || "") !== "physical") {
       const appUrl = getAppUrl();
       if (/^https:\/\//i.test(appUrl)) {
-        const generatedPath = await generateProductImage({ id: product.id, name: product.name, description: product.description });
+        const generatedPath = await generateProductImage({ id: product.id, name: product.name, description: product.description, kind: product.kind });
         if (generatedPath) {
           imageUrl = `${appUrl.replace(/\/+$/, "")}/${generatedPath.replace(/^\/+/, "")}`;
           hasRealProductImage = true;

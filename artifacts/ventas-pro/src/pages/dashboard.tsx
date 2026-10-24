@@ -41,20 +41,20 @@ function MetricCard({ title, value, icon: Icon, description, className = "" }: {
 }
 
 export default function Dashboard() {
-  const { data: summary, isLoading: loadingSummary } = useGetDashboardSummary({
-    query: { queryKey: getGetDashboardSummaryQueryKey(), refetchInterval: 3000 }
+  const { data: summary, isLoading: loadingSummary, isError: summaryError, refetch: refreshSummary } = useGetDashboardSummary({
+    query: { queryKey: getGetDashboardSummaryQueryKey(), refetchInterval: 30000, staleTime: 15000, refetchIntervalInBackground: false }
   });
 
   const { data: activity, isLoading: loadingActivity } = useGetRecentActivity({
-    query: { queryKey: getGetRecentActivityQueryKey(), refetchInterval: 3000 }
+    query: { queryKey: getGetRecentActivityQueryKey(), refetchInterval: 30000, staleTime: 15000, refetchIntervalInBackground: false }
   });
 
   const { data: funnel, isLoading: loadingFunnel } = useGetFunnel({
-    query: { queryKey: getGetFunnelQueryKey(), refetchInterval: 5000 }
+    query: { queryKey: getGetFunnelQueryKey(), refetchInterval: 60000, staleTime: 30000, refetchIntervalInBackground: false }
   });
 
   const { data: timeline, isLoading: loadingTimeline } = useGetMessagesTimeline({
-    query: { queryKey: getGetMessagesTimelineQueryKey(), refetchInterval: 5000 }
+    query: { queryKey: getGetMessagesTimelineQueryKey(), refetchInterval: 60000, staleTime: 30000, refetchIntervalInBackground: false }
   });
 
   useAutoTour(HELP_GUIDE);
@@ -77,14 +77,14 @@ const itemVariants = {
         <motion.div variants={itemVariants}><SaasStatusBanner /></motion.div>
         
         {/* Hero Section */}
-        <motion.div variants={itemVariants} className="flex flex-col md:flex-row gap-4 md:items-center justify-between glass-panel p-4 md:p-5 rounded-xl shadow-md border-0">
+        <motion.div variants={itemVariants} className="flex flex-col md:flex-row gap-4 md:items-center justify-between bg-card p-5 md:p-6 rounded-2xl border border-border shadow-sm">
           <div>
             {/* En 1360x768 el encabezado + esta tarjeta se comían 250px antes
                 del primer número: título, ayuda y estado de WhatsApp en una
                 sola fila, sin subtítulo que repita lo obvio. */}
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2" data-tour="dashboard-whatsapp-status">
               <div className="flex items-start gap-1.5">
-                <h1 className="text-xl font-semibold tracking-tight">Hola, bienvenido de nuevo</h1>
+                <h1 className="text-xl font-semibold tracking-tight">Tu operación, en un vistazo</h1>
                 <HelpTourButton guide={HELP_GUIDE} />
               </div>
               {summary?.whatsappConnected ? (
@@ -119,6 +119,25 @@ const itemVariants = {
           </div>
         </motion.div>
 
+        {summaryError && <div role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm">No pudimos actualizar tus métricas. Intenta de nuevo.</p>
+          <Button variant="outline" onClick={() => refreshSummary()}>Reintentar</Button>
+        </div>}
+        <section aria-label="Siguiente acción" className="grid gap-3 sm:grid-cols-3">
+          <Link href="/conversations" className="rounded-2xl border bg-card p-5 hover:border-primary/40 transition-colors">
+            <MessageSquare className="mb-3 h-5 w-5 text-primary" /><h2 className="font-semibold">Atender conversaciones</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{summary ? `${summary.activeConversations ?? 0} conversaciones activas` : 'Abre tu bandeja de clientes'}</p>
+          </Link>
+          <Link href="/facebook" className="rounded-2xl border bg-card p-5 hover:border-primary/40 transition-colors">
+            <Zap className="mb-3 h-5 w-5 text-primary" /><h2 className="font-semibold">Preparar una campaña</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Producto, objetivo y presupuesto. Revisa antes de publicar.</p>
+          </Link>
+          <Link href={summary?.whatsappConnected ? "/probar-vendedor" : "/whatsapp"} className="rounded-2xl border bg-card p-5 hover:border-primary/40 transition-colors">
+            <Bot className="mb-3 h-5 w-5 text-primary" /><h2 className="font-semibold">{summary?.whatsappConnected ? 'Probar tu vendedor' : 'Revisar WhatsApp'}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">{summary?.whatsappConnected ? 'Simula una compra y ajusta sus respuestas.' : 'Verifica la conexión antes de atraer clientes.'}</p>
+          </Link>
+        </section>
+
         {/* Mobile Dashboard */}
         <motion.div variants={itemVariants}>
           <MobileDashboard summary={summary ?? undefined} />
@@ -136,15 +155,15 @@ const itemVariants = {
               value={`$${(summary?.totalRevenue ?? 0).toLocaleString()}`}
               icon={DollarSign}
               description="Basado en tratos ganados"
-              className="glass-card border-0"
+              className="bg-card border-border shadow-sm"
             />
-            <MetricCard title="Total Prospectos" value={summary?.totalLeads ?? 0} icon={Users} className="glass-card border-0" />
-            <MetricCard title="Conversaciones Activas" value={summary?.activeConversations ?? 0} icon={MessageSquare} className="glass-card border-0" />
+            <MetricCard title="Total Prospectos" value={summary?.totalLeads ?? 0} icon={Users} className="bg-card border-border shadow-sm" />
+            <MetricCard title="Conversaciones Activas" value={summary?.activeConversations ?? 0} icon={MessageSquare} className="bg-card border-border shadow-sm" />
             <MetricCard
               title="Tratos Ganados"
               value={summary?.closedDeals ?? 0}
               icon={CheckCircle}
-              className="glass-card border-0"
+              className="bg-card border-border shadow-sm"
             />
           </motion.div>
         ) : null}
@@ -156,7 +175,7 @@ const itemVariants = {
           </motion.div>
         ) : summary ? (
           <motion.div variants={itemVariants} className="grid gap-4 md:grid-cols-3">
-            <Card className="glass-panel">
+            <Card className="bg-card border-border shadow-sm">
               <CardContent className="p-4 flex items-center gap-4">
                 <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary">
                   <Percent className="h-6 w-6" />
@@ -167,7 +186,7 @@ const itemVariants = {
                 </div>
               </CardContent>
             </Card>
-            <Card className="glass-panel">
+            <Card className="bg-card border-border shadow-sm">
               <CardContent className="p-4 flex items-center gap-4">
                 <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center text-accent">
                   <Clock className="h-6 w-6" />
@@ -178,7 +197,7 @@ const itemVariants = {
                 </div>
               </CardContent>
             </Card>
-            <Card className="glass-panel">
+            <Card className="bg-card border-border shadow-sm">
               <CardContent className="p-4 flex items-center gap-4">
                 <div className="w-12 h-12 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500">
                   <Activity className="h-6 w-6" />

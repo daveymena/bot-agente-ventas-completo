@@ -44,7 +44,7 @@ export class AgentOrchestrator {
    * esperaba la suma de todos. Dentro de una misma conversación sigue siendo
    * de a uno (ver `enCurso`).
    */
-  private readonly maxEnParalelo = Math.max(1, Number(process.env.AGENT_CONCURRENCIA) || 4);
+  private readonly maxEnParalelo = Math.min(128, Math.max(1, Math.floor(Number(process.env.AGENT_CONCURRENCIA) || 4)));
   private activos = 0;
   /** Conversaciones que se están atendiendo ahora mismo. */
   private enCurso = new Set<string>();
@@ -185,16 +185,27 @@ export class AgentOrchestrator {
   private async runProcessingLoop(): Promise<void> {
     if (!this.processing) return;
 
+    try { await this.queue.flush(); }
+    catch (error) {
+      logger.error({ error }, "[AgentOrchestrator] Outbox no durable: se pausa el consumo");
+      this.intervalId = setTimeout(() => this.runProcessingLoop(), 5000);
+      return;
+    }
+    if (!this.processing) return;
+
     // Se llenan los lugares libres con conversaciones que NO se estén
     // atendiendo ya. Cada una corre por su cuenta; el bucle no las espera.
     while (this.activos < this.maxEnParalelo) {
-      const message = this.queue.dequeue((m) => !this.enCurso.has(AgentOrchestrator.claveDe(m)));
+      const message = this.queue.dequeue((m) => !this.enCurso.has(AgentOrchestrator.claveDe(m)) && this.configs.get(m.tenantId)?.enabled !== false);
       if (!message) break;
       const clave = AgentOrchestrator.claveDe(message);
       this.activos++;
       this.enCurso.add(clave);
       this.processMessage(message)
-        .catch((error) => logger.error({ error }, '[AgentOrchestrator] Loop error'))
+        .catch((error) => {
+          this.queue.markFailed(message.id);
+          logger.error({ error }, '[AgentOrchestrator] Loop error');
+        })
         .finally(() => {
           this.activos--;
           this.enCurso.delete(clave);
@@ -215,6 +226,7 @@ export class AgentOrchestrator {
     const tenantIdNum = Number(message.tenantId);
     if (!Number.isFinite(tenantIdNum)) {
       logger.warn(`[AgentOrchestrator] tenantId inválido: "${message.tenantId}"`);
+      this.queue.markFailed(message.id);
       return;
     }
 
@@ -271,7 +283,7 @@ export class AgentOrchestrator {
       // recalcula si el mensaje viene sin ella (colas viejas, otros canales).
       const phone = message.phone || message.from.split('@')[0];
       const convo = message.conversationId
-        ? await this.getConversationById(message.conversationId)
+        ? await this.getConversationById(message.conversationId, tenantIdNum)
         : await this.getOrCreateConversation(message.tenantId, phone);
       
       if (!convo) {
@@ -360,6 +372,8 @@ export class AgentOrchestrator {
         logger.info({ queueId: message.id }, '[AgentOrchestrator] Reenviando respuesta ya redactada');
       }
 
+      await this.queue.flush();
+
       // ── Enviar ──────────────────────────────────────────────────────────
       const pushName = convo.contactName || phone;
       await enviarPartsAlCliente(tenantIdNum, phone, pushName, partes, message.from);
@@ -371,6 +385,7 @@ export class AgentOrchestrator {
       // la IA, el agente se veía a sí mismo repitiéndose turno tras turno.
       // Marcar como procesado solo si se envió respuesta exitosamente
       for (const recibido of agrupados) this.queue.markProcessed(recibido.id);
+      await this.queue.flush();
 
       logger.info({
         queueId: message.id,
@@ -440,10 +455,10 @@ export class AgentOrchestrator {
    */
   /** La conversación exacta que resolvió el MessageHandler, por id. */
   private async getConversationById(
-    id: number,
+    id: number, tenantId: number,
   ): Promise<{ id: number; currentStage: string | null; contactName: string; contactPhone: string } | null> {
     try {
-      const [row] = await db.select().from(conversations).where(eq(conversations.id, id)).limit(1);
+      const [row] = await db.select().from(conversations).where(and(eq(conversations.id, id), eq(conversations.tenantId, tenantId))).limit(1);
       return row ?? null;
     } catch (e: any) {
       logger.error({ err: e?.message, conversationId: id }, "[AgentOrchestrator] No se pudo leer la conversación");
@@ -496,6 +511,7 @@ export class AgentOrchestrator {
    * Detiene el procesamiento
    */
   stopProcessing(): void {
+    this.processing = false;
     if (this.intervalId) {
       clearTimeout(this.intervalId as any);
       this.intervalId = undefined;
@@ -511,6 +527,8 @@ export class AgentOrchestrator {
     return {
       queue: this.queue.getStats(),
       processing: this.processing,
+      active: this.activos,
+      concurrency: this.maxEnParalelo,
       configuredTenants: Array.from(this.configs.entries()).map(([id, cfg]) => ({
         tenantId: id,
         enabled: cfg.enabled,

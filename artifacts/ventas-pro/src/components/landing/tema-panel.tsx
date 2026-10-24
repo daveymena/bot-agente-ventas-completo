@@ -9,7 +9,7 @@
 import { Button } from "@/components/ui/button";
 import { Loader2, RotateCcw, Save } from "lucide-react";
 import { PAREJAS, FUENTES, fuentePorId, enlaceDeFuentes } from "@estudio/fuentes";
-import { normalizarHex, type Retoque } from "@estudio/retoque";
+import { normalizarHex, TEMAS_ESTUDIO, type Retoque } from "@estudio/retoque";
 import { useEffect } from "react";
 
 const MUESTRAS = ["#111827", "#4F46E5", "#2563EB", "#0E9F8A", "#16A34A", "#E5342A", "#F97316", "#DB2777", "#8C7A5B", "#7C3AED"];
@@ -43,6 +43,13 @@ export function TemaPanel({ retoque, onCambiar, onGuardar, guardando, hayCambios
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="flex-1 overflow-y-auto p-3 space-y-4">
+        <section>
+          <h3 className="text-xs font-semibold mb-2">Dirección de arte</h3>
+          <div className="space-y-2">{TEMAS_ESTUDIO.map(tema => <button key={tema.id} aria-pressed={retoque.estilo === tema.id} onClick={() => onCambiar({ ...tema.retoque })} className={`w-full rounded-xl border p-3 text-left hover:border-primary ${retoque.estilo === tema.id ? 'ring-2 ring-primary' : ''}`}>
+            <div className="h-12 rounded-lg mb-2 flex items-center gap-2 px-3" style={{ background: tema.fondo }}><span className="text-xl font-bold" style={{ color: tema.retoque.acento }}>Aa</span><span className="ml-auto h-4 w-10 rounded-full" style={{ background: tema.retoque.acento }} /></div>
+            <span className="block text-xs font-semibold">{tema.nombre}</span><span className="block text-[10px] text-muted-foreground mt-1">{tema.descripcion}</span>
+          </button>)}</div>
+        </section>
         <section>
           <p className="text-[11px] font-semibold uppercase text-muted-foreground mb-1.5">Color de la marca</p>
           <p className="text-[10px] text-muted-foreground mb-2">Botones, precios y detalles. El texto encima se ajusta solo para que se lea.</p>
@@ -87,7 +94,7 @@ export function TemaPanel({ retoque, onCambiar, onGuardar, guardando, hayCambios
         </section>
       </div>
       <div className="px-3 py-2 border-t bg-muted/10 shrink-0 flex gap-2">
-        <Button size="sm" variant="ghost" className="h-8 text-xs" disabled={!retoque.acento && !retoque.titulos && retoque.radio == null} onClick={() => onCambiar({})}>
+        <Button size="sm" variant="ghost" className="h-8 text-xs" disabled={!retoque.estilo && !retoque.acento && !retoque.titulos && retoque.radio == null} onClick={() => onCambiar({})}>
           <RotateCcw className="h-3 w-3 mr-1" /> Quitar tema
         </Button>
         <Button size="sm" className="h-8 text-xs flex-1 bg-violet-600 hover:bg-violet-700 text-white" disabled={!hayCambios || guardando} onClick={onGuardar}>
