@@ -70,6 +70,22 @@ describe("la voz es la del agente que atiende", () => {
     expect(prompt).toMatch(/confirmá siempre la ciudad de entrega/);
   });
 
+  test("el estilo de WhatsApp responde directo, breve y con emojis medidos", async () => {
+    const { t, max } = await negocioConDosAgentes();
+    const voz = await cargarVozDelNegocio(t.id, max);
+    const guion = guionDelNegocio({ catalogo: [CORRECTOR], negocio: { nombre: "T" }, medios: [] });
+    const prompt = construirPromptDeSistema({ voz, estado: estadoInicial(1), catalogo: [CORRECTOR], guion, nombrePorProducto: () => "x" });
+    const texto = prompt.replace(/\s+/g, " ");
+    expect(texto).toMatch(/pregunta simple en 1 o 2 frases/i);
+    expect(texto).toMatch(/Contesta PRIMERO lo que preguntó/i);
+    expect(texto).toMatch(/Los emojis no son obligatorios/i);
+    expect(texto).toMatch(/sin evasivas/i);
+    expect(texto).toMatch(/no significa complacerlo inventando datos/i);
+    expect(texto).toMatch(/NO aplanes, elimines ni reescribas las tarjetas estructuradas/i);
+    expect(texto).toMatch(/formato, separadores y emojis/i);
+    expect(prompt).not.toMatch(/Mensajes de 2 a 4 frases/);
+  });
+
   test("la plantilla larga del motor viejo NO se mete en el prompt del v2", async () => {
     const { t, max } = await negocioConDosAgentes();
     const voz = await cargarVozDelNegocio(t.id, max);
