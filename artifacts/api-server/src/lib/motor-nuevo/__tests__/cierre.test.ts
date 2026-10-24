@@ -122,7 +122,8 @@ describe("el cierre, con todas sus variantes", () => {
     assert.equal(tarjetas[0].seccion, "precio");
     assert.equal(tarjetas[1].seccion, "pago");
     // La traza deja constancia de que el primer intento de pago fue rechazado.
-    assert.match(r.traza[0].resultado, /todavía no le dijiste cuánto cuesta/i);
+    const intentoDePago = r.traza.find((t) => t.herramienta === "mostrar" && (t.args as any)?.seccion === "pago");
+    assert.match(intentoDePago?.resultado || "", /todavía no le dijiste cuánto cuesta/i);
     assert.equal(r.estado.etapa, "cierre");
   });
 

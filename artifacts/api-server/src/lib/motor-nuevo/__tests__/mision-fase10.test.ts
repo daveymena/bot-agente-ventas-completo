@@ -158,7 +158,8 @@ describe("CAMBIOS (13-17)", () => {
       { toolCalls: [{ id: "b", name: "mostrar", arguments: '{"productoId":1,"seccion":"precio"}' }, { id: "c", name: "mostrar", arguments: '{"productoId":1,"seccion":"pago"}' }] },
       { content: "Va precio y pago 👇" },
     ]), "cómo pago el piano?");
-    expect(r.traza[0].resultado).toMatch(/cuánto cuesta/i);
+    const intentoDePago = r.traza.find((t) => t.herramienta === "mostrar" && (t.args as any)?.seccion === "pago");
+    expect(intentoDePago?.resultado).toMatch(/cuánto cuesta/i);
     expect(tarjetas(r).length).toBe(2);
   });
   test("15 pago→producto vuelve sin perder pago previo", async () => {
