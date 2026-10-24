@@ -129,7 +129,7 @@ export function AppSidebar() {
   const { state: sidebarState, toggleSidebar } = useSidebar();
 
   const { data: wsStatus } = useGetWhatsAppStatus({
-    query: { refetchInterval: 5000, queryKey: getGetWhatsAppStatusQueryKey() }
+    query: { refetchInterval: 30000, staleTime: 15000, refetchIntervalInBackground: false, queryKey: getGetWhatsAppStatusQueryKey() }
   });
 
   const { saasStatus } = useSaasStatus();
@@ -306,7 +306,7 @@ export function Layout({ children, chatCompleto = false }: { children: React.Rea
   const isAdmin = !!sessionTenant?.isAdmin;
   const grupos = useGruposDeNavegacion(isAdmin, sessionTenant?.slug);
   const { data: wsStatus } = useGetWhatsAppStatus({
-    query: { refetchInterval: 5000, queryKey: getGetWhatsAppStatusQueryKey() }
+    query: { refetchInterval: 30000, staleTime: 15000, refetchIntervalInBackground: false, queryKey: getGetWhatsAppStatusQueryKey() }
   });
   const conectado = wsStatus?.state === "connected";
 

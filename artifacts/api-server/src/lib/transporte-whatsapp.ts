@@ -6,7 +6,7 @@
  * funciones. Mientras WHATSAPP_CLOUD_ENABLED esté apagado, el comportamiento
  * es idéntico al de siempre (Baileys).
  */
-import { getWhatsAppForTenant } from "./whatsapp-factory";
+import { getWhatsAppForTenant, peekWhatsAppForTenant } from "./whatsapp-factory";
 import {
   cloudApiHabilitada,
   cloudApiTenantId,
@@ -23,7 +23,7 @@ export function transporteEnUso(tenantId: number): "cloud" | "baileys" {
 /** ¿El transporte de ese tenant está listo para mandar mensajes? */
 export function transporteConectado(tenantId: number): boolean {
   if (transporteEnUso(tenantId) === "cloud") return cloudApiHabilitada();
-  return getWhatsAppForTenant(tenantId).isConnected();
+  return peekWhatsAppForTenant(tenantId)?.isConnected() ?? false;
 }
 
 /** Envía las partes del agente por el transporte correcto del tenant. */

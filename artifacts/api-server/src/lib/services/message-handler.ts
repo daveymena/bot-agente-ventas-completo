@@ -288,6 +288,7 @@ export class MessageHandler {
         queueId: queuedMessage.id,
         conversationId: convo.id,
       }, '[MessageHandler] Message received and queued');
+      await this.queue.flush();
 
     } catch (error) {
       logger.error({

@@ -1,3 +1,4 @@
+import { CampaignWorkbench, type CampaignBrief } from "@/components/marketing/campaign-workbench";
 import { useState, useEffect } from "react";
 import { SecretInput } from "@/components/ui/secret-input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -148,7 +149,7 @@ interface DraftAd {
   createdAt: string;
 }
 
-type Tab = "config" | "ads" | "messenger" | "comments" | "channels" | "drafts";
+type Tab = "agent" | "config" | "ads" | "messenger" | "comments" | "channels" | "drafts";
 
 interface AgentLog {
   id: number;
@@ -520,17 +521,19 @@ export default function FacebookAdsPage() {
   // reales del producto y guarda el borrador PAUSADO. No publica ni gasta.
   // Si algo se niega (producto ambiguo, margen negativo), vuelve el motivo en
   // palabras del negocio y NO se inventa nada.
-  const generarCampanaUnClic = async () => {
-    if (!selectedProduct) return;
+  const generarCampanaUnClic = async (brief?: CampaignBrief) => {
+    const product = brief?.product || selectedProduct;
+    if (!product) return;
     try {
       setGenerandoCampana(true);
       setCampanaResult(null);
       const res = await apiRequest("/campana/generar", {
         method: "POST",
         body: JSON.stringify({
-          producto: selectedProduct.name,
-          dailyBudget: budget,
-          objetivo: objetivoCampana,
+          producto: product.name,
+          dailyBudget: brief?.budget ?? budget,
+          objetivo: brief?.objetivo ?? objetivoCampana,
+          subirAMeta: false,
         }),
       });
       setCampanaResult(res);
@@ -833,14 +836,14 @@ export default function FacebookAdsPage() {
 
   return (
     <Layout>
-      <div className="space-y-6 p-6">
+      <div className="space-y-6 p-0 sm:p-2">
         <div className="flex items-center justify-between">
           <div className="min-w-0">
             <div className="flex items-start gap-1.5">
-              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight break-words min-w-0">Facebook Multi-Canal</h1>
+              <h1 className="text-2xl sm:text-3xl font-bold tracking-tight break-words min-w-0">Centro de crecimiento</h1>
               <HelpTourButton guide={HELP_GUIDE} />
             </div>
-            <p className="text-muted-foreground">Conecta todos los canales de Facebook: Ads, Messenger y Comentarios</p>
+            <p className="text-muted-foreground">Campañas, creativos y conversaciones, en un mismo lugar.</p>
           </div>
         </div>
 
@@ -1045,6 +1048,8 @@ export default function FacebookAdsPage() {
 
             {tab === "ads" && connected && (
               <div className="grid grid-cols-1 gap-6">
+                <CampaignWorkbench products={products} busy={generandoCampana} result={campanaResult} onGenerate={generarCampanaUnClic} onDrafts={() => selectTab("drafts")} />
+                <details className="rounded-xl border p-4"><summary className="cursor-pointer text-sm font-medium">Configuración manual y segmentación avanzada</summary><div className="mt-4 space-y-6">
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2"><Package className="h-5 w-5" /> Productos</CardTitle>
@@ -1145,7 +1150,7 @@ export default function FacebookAdsPage() {
                               <option value="reconocimiento">Reconocimiento</option>
                             </select>
                           </div>
-                          <Button variant="secondary" onClick={generarCampanaUnClic} disabled={generandoCampana || !selectedProduct} className="w-full">
+                          <Button variant="secondary" onClick={() => generarCampanaUnClic()} disabled={generandoCampana || !selectedProduct} className="w-full">
                             {generandoCampana ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Target className="mr-2 h-4 w-4" />}
                             {generandoCampana ? "Generando (busca, investiga y escribe)..." : `Generar campaña para ${selectedProduct.name}`}
                           </Button>
@@ -1220,6 +1225,7 @@ export default function FacebookAdsPage() {
                     Sincronizar catálogo
                   </Button>
                 </div>
+                </div></details>
               </div>
             )}
 

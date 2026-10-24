@@ -1,3 +1,4 @@
+import { promptDeProducto } from "./estudio/direccion-imagen";
 /**
  * Genera una foto de producto con IA cuando no hay ninguna real cargada, en
  * vez de caer directo al cartel de texto placeholder.
@@ -23,14 +24,8 @@ import { saveProductImage, saveProductImageVariant } from "./image-store";
 import { logger } from "./logger";
 import { db, settings as settingsTable } from "@workspace/db";
 
-type ProductLite = { id: number; name: string | null; description: string | null };
+type ProductLite = { id: number; name: string | null; description: string | null; kind?: string | null };
 
-const VARIANT_STYLES = [
-  // Variante 1: Mockup 3D (dispositivos) de alta conversión para productos digitales
-  "High quality 3D mockup showing this digital product displayed simultaneously on a modern MacBook Pro, an iPad Pro, and an iPhone. Professional lighting, premium digital product presentation, high contrast.",
-  // Variante 2: User Generated Content (UGC) / Realismo imperfecto para generar confianza
-  "User Generated Content (UGC) style lifestyle photo. Someone holding or using the product naturally at home or office. Shot on iPhone style, natural imperfect lighting, highly authentic, no studio perfection.",
-];
 
 /**
  * Construye una URL de Pollinations.ai para generar una imagen de producto.
@@ -56,16 +51,7 @@ function buildPollinationsUrl(prompt: string, seed: number): string {
   return `https://image.pollinations.ai/prompt/${encoded}?width=1080&height=1080&seed=${seed}&nologo=true&model=flux&enhance=true`;
 }
 
-function buildPrompt(product: ProductLite, variantIndex: number): string {
-  const name = (product.name || "").trim();
-  const description = (product.description || "").trim().slice(0, 200);
-  return (
-    `Professional marketing product photo for a digital course/product called "${name}". ` +
-    (description ? `What it's about: ${description}. ` : "") +
-    VARIANT_STYLES[variantIndex] +
-    " Realistic photography style, no text overlays, no watermarks, no logos, suitable for a Facebook/Instagram ad."
-  );
-}
+const buildPrompt = promptDeProducto;
 
 async function generateOneImage(prompt: string, productId: number, seed?: number): Promise<string | null> {
   if (process.env.AI_INTEGRATIONS_OPENAI_API_KEY) {

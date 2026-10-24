@@ -1180,7 +1180,7 @@ Responde SOLO con este JSON exacto:
       // regenerarla en cada anuncio.
       if (!creativeImageUrl) {
         const { generateProductImage } = await import("./ai-product-image");
-        const generatedPath = await generateProductImage({ id: product.id, name: product.name, description: product.description });
+        const generatedPath = await generateProductImage({ id: product.id, name: product.name, description: product.description, kind: product.kind });
         if (generatedPath) {
           const absolute = absoluteImageUrl(generatedPath);
           if (absolute) {

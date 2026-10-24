@@ -49,21 +49,24 @@ import { getImageStoreDir } from "./lib/image-store";
     // credenciales de pago/Facebook reales) -- se busca el tenant 1 real en
     // la BD para que la instancia auto-iniciada tenga su brandName/agentPrompt
     // reales desde el arranque, no el placeholder.
-    const realTenant = await tenantManager.getTenantById(1);
-    const defaultTenant = realTenant ?? tenantManager.getDefaultTenant();
-
-    // Si no hay tenant resuelto (BD vacía o schema viejo), no intentar
-    // arrancar WhatsApp -- antes esto lanzaba un TypeError inesperado
-    // ("Cannot read properties of undefined (reading 'id')") que rompía el
-    // arranque del servidor en loop.
-    if (!defaultTenant?.id) {
-      logger.warn("[WhatsApp] No hay tenant disponible, omitiendo auto-start del bot");
-      return;
-    }
-
-    const mgr = getWhatsAppForTenant(defaultTenant.id, defaultTenant);
-    await mgr.start();
-    logger.info({ tenantId: defaultTenant.id }, "[WhatsApp] Instancia auto-iniciada");
+    const { tenantAuthDir } = await import("./lib/whatsapp-factory");
+    const { restaurarSesiones } = await import("./lib/restaurar-sesiones");
+    const { transporteEnUso } = await import("./lib/transporte-whatsapp");
+    const owner = Number(process.env.PLATFORM_TENANT_ID || 1);
+    const authRoot = path.dirname(tenantAuthDir(owner));
+    const saved = existsSync(authRoot) ? readdirSync(authRoot)
+      .filter(name => /^tenant-\d+$/.test(name))
+      .map(name => Number(name.slice(7)))
+      .filter(id => existsSync(path.join(tenantAuthDir(id), "creds.json"))) : [];
+    await restaurarSesiones([owner, ...saved].filter(id => transporteEnUso(id) === "baileys"), {
+      concurrency: Number(process.env.WA_STARTUP_CONCURRENCY || 4),
+      load: id => tenantManager.getTenantById(id),
+      start: async (id, tenant) => {
+        await getWhatsAppForTenant(id, tenant).start();
+        logger.info({ tenantId: id }, "[WhatsApp] Sesión restaurada");
+      },
+      onError: (id, err) => logger.error({ tenantId: id, err }, "[WhatsApp] No se pudo restaurar la sesión"),
+    });
   } catch (err) {
     logger.error({ err }, "[WhatsApp] Failed to auto-start bot on boot");
   }

@@ -22,6 +22,7 @@
 import { enlaceDeFuentes, esFuenteValida, pilaDe } from "./fuentes";
 
 export interface Retoque {
+  estilo?: "academia" | "nocturno" | "boutique" | null;
   /** Color de botones, precios y detalles. #RRGGBB. */
   acento?: string | null;
   /** Fuente de titulares (id de FUENTES). */
@@ -53,6 +54,7 @@ export function normalizarRetoque(entrada: unknown): Retoque | null {
   if (!entrada || typeof entrada !== "object") return null;
   const e = entrada as Record<string, unknown>;
   const out: Retoque = {};
+  if (["academia", "nocturno", "boutique"].includes(String(e.estilo))) out.estilo = e.estilo as Retoque["estilo"];
   const acento = normalizarHex(e.acento);
   if (acento) out.acento = acento;
   if (esFuenteValida(e.titulos)) out.titulos = e.titulos;
@@ -93,7 +95,7 @@ export function cssDeRetoque(r: Retoque | null | undefined): string {
   if (vars.length) reglas.unshift(`:root{${vars.join(";")}}`);
   if (t.texto) reglas.push(`body,input,select,textarea,button{font-family:${pilaDe(t.texto)}!important}`);
   if (t.titulos) reglas.push(`h1,h2,h3,.brand,.hero-price,.offer-price{font-family:${pilaDe(t.titulos)}!important}`);
-  return reglas.join("");
+  return cssEstilo(t.estilo) + reglas.join("");
 }
 
 /**
@@ -125,4 +127,32 @@ export function admiteRetoque(row: { source?: unknown; design?: unknown; html?: 
   // `html` propio escrito por el modelo no tiene variables conocidas.
   if (d?.renderer === "estilo") return true;
   return !row.html;
+}
+
+/** Complete art directions; the owner can still edit each color/font afterward. */
+export const TEMAS_ESTUDIO: { id: NonNullable<Retoque['estilo']>; nombre: string; descripcion: string; fondo: string; retoque: Retoque }[] = [
+  { id: 'academia', nombre: 'Academia editorial', descripcion: 'Cursos y colecciones · papel, azul y tipografía editorial', fondo: '#f5f2eb', retoque: { estilo: 'academia', acento: '#244bd8', titulos: 'playfair', texto: 'inter', radio: 18 } },
+  { id: 'nocturno', nombre: 'Digital nocturno', descripcion: 'Tecnología y herramientas · tinta oscura y azul eléctrico', fondo: '#0b1220', retoque: { estilo: 'nocturno', acento: '#60a5fa', titulos: 'inter', texto: 'inter', radio: 24 } },
+  { id: 'boutique', nombre: 'Boutique esencial', descripcion: 'Productos y servicios · marfil, verde y espacios amplios', fondo: '#fafaf7', retoque: { estilo: 'boutique', acento: '#16634e', titulos: 'dm-serif', texto: 'inter', radio: 12 } },
+];
+
+function cssEstilo(estilo: Retoque['estilo']): string {
+  if (!estilo) return '';
+  const palettes = {
+    academia: { bg: '#f5f2eb', surface: '#fffdf8', ink: '#17243d', muted: '#536079', line: '#deddd8' },
+    nocturno: { bg: '#0b1220', surface: '#152137', ink: '#f1f5f9', muted: '#a6b6cc', line: '#30415b' },
+    boutique: { bg: '#fafaf7', surface: '#ffffff', ink: '#19342c', muted: '#52675e', line: '#dce4dd' },
+  };
+  const p = palettes[estilo];
+  return `:root{--bg:${p.bg};--surface:${p.surface};--card:${p.surface};--text:${p.ink};--ink:${p.ink};--muted:${p.muted};--mut:${p.muted};--line:${p.line}}
+body{background:var(--bg);color:${p.ink}}h1,h2,h3{text-wrap:balance}p{overflow-wrap:anywhere}
+.hero,.hero--stack,.hero--edito{background:var(--bg);color:${p.ink}}
+.hero h1{letter-spacing:-.045em;line-height:1.04;color:${p.ink};background:none;-webkit-text-fill-color:currentColor}
+.hero .lead,.hero .sub{max-width:48ch;line-height:1.7;color:${p.muted}}
+.hero-media img{object-fit:contain;background:${p.surface};padding:clamp(12px,3vw,30px);box-shadow:0 24px 70px -35px #101b3650;animation:none}
+.bento-card,.offer-main,.offer-side,.checkout,.faq details{background:${p.surface};color:${p.ink};border:1px solid ${p.line};box-shadow:none}
+.btn,.cta{min-height:48px;letter-spacing:0;font-weight:700}
+.sec{padding-block:clamp(48px,7vw,96px)}.head{max-width:760px}
+@media(max-width:820px){.hero-media{order:0}.hero{padding-top:28px;gap:24px}.hero h1{font-size:clamp(2rem,9vw,3rem)}.hero-media img{max-height:380px}.sticky{bottom:calc(12px + env(safe-area-inset-bottom))}}
+@media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important;transition:none!important}}`;
 }
