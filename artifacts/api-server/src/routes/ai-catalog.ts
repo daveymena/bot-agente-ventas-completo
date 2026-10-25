@@ -417,23 +417,16 @@ router.post("/test", async (req: TenantRequest, res, next) => {
     const { proveedor, model } = req.body || {};
     const { getProviderConfig, createAIClient } = await import("@workspace/integrations-openai-ai-server");
 
+    const tenantId = req.tenant?.id;
     const guardadas = await leerClavesGuardadas();
-    const base = getProviderConfig(proveedor);
-    const guardada = guardadas[proveedor];
-    if (!base && !guardada?.apiKey) {
-      return res.json({ ok: false, error: "Ese proveedor no tiene clave configurada" });
-    }
-
+    const { clavesDelTenant, configDelTenant } = await import("../lib/ai-keys-tenant");
+    const propias = tenantId ? await clavesDelTenant(tenantId) : {};
+    const resuelta = tenantId ? await configDelTenant(tenantId, proveedor, propias) : null;
+    const base = resuelta?.config || getProviderConfig(proveedor);
+    if (!base?.apiKey) return res.json({ ok: false, error: "Ese proveedor no tiene clave configurada" });
     const cfg = {
-      baseUrl: base?.baseUrl || "",
-      // La guardada viene cifrada en la base: hay que descifrarla para usarla.
-      apiKey: (guardada?.apiKey ? descifrar(guardada.apiKey) : null) || base?.apiKey || "",
-      model: model || guardada?.model || base?.model || "",
-      // Se perdían acá. Hay proveedores que NO responden sin sus cabeceras
-      // propias -- Copilot exige Editor-Version y Copilot-Integration-Id --,
-      // así que el probador los daba por rotos por una cabecera que el
-      // proveedor sí traía y esta función tiraba a la basura.
-      defaultHeaders: base?.defaultHeaders,
+      ...base,
+      model: model || (resuelta?.propia ? propias[proveedor]?.model : guardadas[proveedor]?.model) || base.model || "",
     };
     if (!cfg.baseUrl) return res.json({ ok: false, error: "No se pudo resolver la URL del proveedor" });
 
@@ -471,14 +464,14 @@ router.post("/test", async (req: TenantRequest, res, next) => {
       };
       let r: any;
       try {
-        r = await client.chat.completions.create(params);
+        r = await client.chat.completions.create(params, { timeout: 15_000, maxRetries: 0 });
       } catch (e: any) {
         // GPT-5+/Luna rechazan `max_tokens`: reintenta con `max_completion_tokens`
         // antes de darlo por roto (era el "400" que veía el admin con clave válida).
         if (/max_tokens/i.test(String(e?.message || "")) && !("max_completion_tokens" in params)) {
           delete params.max_tokens;
           params.max_completion_tokens = 2000;
-          r = await client.chat.completions.create(params);
+          r = await client.chat.completions.create(params, { timeout: 15_000, maxRetries: 0 });
         } else {
           throw e;
         }

@@ -185,10 +185,15 @@ export default function ProbarVendedorPage() {
 
   return (
     <Layout chatCompleto>
-      <div className="flex flex-1 min-h-0 gap-6">
+      <div className="vp-test-workspace flex flex-1 min-h-0 flex-col gap-3">
+        <div className="vp-test-intro flex shrink-0 items-center justify-between gap-3 px-3 pt-3 md:px-0 md:pt-0">
+          <div><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-indigo-600">Laboratorio de conversación</p><h1 className="text-lg font-semibold tracking-tight text-slate-900 md:text-2xl">Así responderá tu vendedor</h1></div>
+          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-[11px] font-medium text-emerald-800">Prueba privada</span>
+        </div>
+        <div className="flex flex-1 min-h-0 gap-5">
         {/* ── El chat ─────────────────────────────────────────────── */}
-        <section className="flex flex-1 min-w-0 min-h-0 flex-col overflow-hidden bg-[#efeae2] md:rounded-2xl md:border md:border-slate-200 md:shadow-sm">
-          <header className="flex items-center gap-3 bg-[#075e54] px-3 py-2.5 text-white">
+        <section className="flex flex-1 min-w-0 min-h-0 flex-col vp-conversation-surface overflow-hidden bg-[#f2f5f4] md:rounded-3xl md:border md:border-slate-200 md:shadow-sm">
+          <header className="flex items-center gap-3 bg-[#123f38] px-4 py-3 text-white">
             <button onClick={() => setLocation("/agents")} className="md:hidden p-1 -ml-1" aria-label="Volver"><ArrowLeft className="h-5 w-5" /></button>
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/20 font-semibold">
               {(sabe?.agente?.nombre || "V").charAt(0).toUpperCase()}
@@ -209,13 +214,13 @@ export default function ProbarVendedorPage() {
           >
           <div ref={contenidoRef} className="space-y-2">
             {mensajes.length === 0 && (
-              <div className="mx-auto mt-6 max-w-sm rounded-xl bg-white/90 p-4 text-center shadow-sm">
+              <div className="mx-auto my-6 max-w-md rounded-3xl border border-slate-200/80 bg-white p-5 text-center shadow-sm md:my-10 md:p-7">
                 <Wand2 className="mx-auto mb-2 h-6 w-6 text-indigo-600" />
                 <p className="text-sm font-semibold text-slate-800">Háblale como si fueras un cliente</p>
                 <p className="mt-1 text-xs text-slate-500">Si algo sale mal, toca <b>Corregir</b> debajo de la respuesta. Se aplica desde el siguiente mensaje, también en WhatsApp.</p>
-                <div className="mt-3 flex flex-wrap justify-center gap-2">
+                <div className="mt-4 grid grid-cols-2 gap-2">
                   {SUGERENCIAS.map((s) => (
-                    <button key={s} onClick={() => enviar(s)} className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700 hover:bg-slate-50">{s}</button>
+                    <button key={s} onClick={() => enviar(s)} className="min-h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 hover:border-indigo-300 hover:bg-indigo-50">{s}</button>
                   ))}
                 </div>
               </div>
@@ -270,7 +275,7 @@ export default function ProbarVendedorPage() {
           </div>
           </div>
 
-          <form onSubmit={(e) => { e.preventDefault(); enviar(texto); }} className="flex items-end gap-2 bg-[#f0f2f5] px-2 py-2">
+          <form onSubmit={(e) => { e.preventDefault(); enviar(texto); }} className="flex items-end gap-2 border-t border-slate-200/70 bg-white/95 px-3 py-3">
             <Textarea
               value={texto}
               onChange={(e) => setTexto(e.target.value)}
@@ -286,7 +291,8 @@ export default function ProbarVendedorPage() {
         </section>
 
         {/* ── Lo que ya sabe (escritorio) ─────────────────────────── */}
-        <aside className="hidden lg:flex w-80 shrink-0 flex-col min-h-0">{panelSabe}</aside>
+        <aside className="hidden lg:flex w-[300px] xl:w-[340px] shrink-0 flex-col min-h-0">{panelSabe}</aside>
+        </div>
       </div>
 
       <Sheet open={verSabe} onOpenChange={setVerSabe}>

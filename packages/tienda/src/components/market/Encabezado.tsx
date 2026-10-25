@@ -107,8 +107,8 @@ export default function Encabezado({
     .map((dep) => ({ dep, cats: categorias.filter((c) => departamentoDe(c.tipo) === dep) }))
     .filter((g) => g.cats.length > 0);
   const envio = hayFisicos
-    ? { Icono: Truck, titulo: 'Envío a todo el país', bajada: 'Pago contra entrega' }
-    : { Icono: Zap, titulo: 'Entrega inmediata', bajada: 'Productos digitales' };
+    ? { Icono: Truck, titulo: 'Entrega a domicilio', bajada: 'Consulta cobertura y condiciones' }
+    : { Icono: Zap, titulo: 'Explora el catálogo', bajada: 'Conoce qué incluye cada oferta' };
   const contenedor = 'mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8';
   const enlaceNav = 'flex h-full items-center px-4 text-[13px] font-semibold text-[var(--tech-tinta)] transition-colors hover:text-[var(--tech-violeta)]';
 

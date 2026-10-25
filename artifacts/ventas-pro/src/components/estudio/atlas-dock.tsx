@@ -16,6 +16,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { promptDelEstudio } from "@/lib/prompt-estudio";
 import { Button } from "@/components/ui/button";
 import { Loader2, Send, Square, Sparkles, X, RotateCcw } from "lucide-react";
 
@@ -87,7 +88,7 @@ export function AtlasDock({ contexto, leerContexto, onTurnoTerminado, onCerrar, 
   }, []);
   useEffect(() => { fin.current?.scrollIntoView({ behavior: "smooth" }); }, [msgs, progreso]);
 
-  const enviar = async (pedido: string) => {
+  const enviar = async (pedido: string, respuestaAlPlan = false) => {
     const limpio = pedido.trim();
     if (!limpio || ocupado) return;
     setTexto("");
@@ -113,7 +114,7 @@ export function AtlasDock({ contexto, leerContexto, onTurnoTerminado, onCerrar, 
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: `${contextoComoTexto(ctxAhora)}\n\n${limpio}`, history: historial, sessionId: SESION, stream: true }),
+        body: JSON.stringify({ prompt: promptDelEstudio(contextoComoTexto(ctxAhora), limpio, respuestaAlPlan), history: historial, sessionId: SESION, stream: true }),
         signal: ctl.signal,
       });
       if (!r.ok) throw new Error(`Atlas respondió ${r.status}`);
@@ -206,8 +207,8 @@ export function AtlasDock({ contexto, leerContexto, onTurnoTerminado, onCerrar, 
       <div className="shrink-0 space-y-2 border-t bg-background p-3">
         {esperaSi && !ocupado && (
           <div className="flex gap-1.5">
-            <Button size="sm" className="h-8 flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs" onClick={() => void enviar("Sí, hacelo")}>Sí, hacelo</Button>
-            <Button size="sm" variant="outline" className="h-8 flex-1 text-xs" onClick={() => void enviar("No, dejalo así")}>No</Button>
+            <Button size="sm" className="h-8 flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs" onClick={() => void enviar("Sí, hacelo", true)}>Sí, hacelo</Button>
+            <Button size="sm" variant="outline" className="h-8 flex-1 text-xs" onClick={() => void enviar("No, dejalo así", true)}>No</Button>
           </div>
         )}
         <form className="flex gap-1.5 items-end" onSubmit={(e) => { e.preventDefault(); void enviar(texto); }}>

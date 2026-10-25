@@ -8,8 +8,10 @@ import { useParams } from 'react-router-dom';
 import PublicLayout from '../components/PublicLayout';
 import Shop from './Shop';
 import PaginaDeServicios, { type NegocioPublico, type ServicioPublico } from './PaginaDeServicios';
+import PaginaDigital from './PaginaDigital';
+import { tipoDeOferta } from '../lib/experiencia-de-compra';
 
-type Respuesta = { store: NegocioPublico & { presentacion?: 'tienda' | 'servicios' }; products: Array<ServicioPublico & { linea?: string }> };
+type Respuesta = { store: NegocioPublico & { presentacion?: 'tienda' | 'servicios' | 'digital' }; products: Array<ServicioPublico & { linea?: string; kind?: string; category?: string }> };
 
 const InicioDelNegocio = () => {
   const { slug } = useParams();
@@ -30,9 +32,11 @@ const InicioDelNegocio = () => {
   if (!listo) return <div className="min-h-screen" />;
 
   if (datos?.store?.presentacion === 'servicios') {
-    const servicios = datos.products.filter((p) => !p.linea || p.linea === 'servicio');
-    return <PaginaDeServicios negocio={datos.store} servicios={servicios.length ? servicios : datos.products} />;
+    const servicios = datos.products.filter((p) => tipoDeOferta(p) === 'service');
+    return <PaginaDeServicios negocio={datos.store} servicios={servicios} />;
   }
+
+  if (datos?.store?.presentacion === 'digital') return <PublicLayout><PaginaDigital negocio={datos.store} productos={datos.products} /></PublicLayout>;
 
   return (
     <PublicLayout>

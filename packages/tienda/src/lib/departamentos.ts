@@ -17,7 +17,7 @@ export type Departamento = 'fisico' | 'digital' | 'servicio';
 
 export const DEPARTAMENTOS: Record<Departamento, { nombre: string; corto: string; bajada: string }> = {
   fisico: { nombre: 'Productos físicos', corto: 'Productos', bajada: 'Te llegan a la puerta de tu casa.' },
-  digital: { nombre: 'Cursos y digitales', corto: 'Cursos y digitales', bajada: 'Acceso inmediato después del pago.' },
+  digital: { nombre: 'Cursos y digitales', corto: 'Cursos y digitales', bajada: 'Contenido, recursos y acceso digital.' },
   servicio: { nombre: 'Servicios', corto: 'Servicios', bajada: 'Agenda por WhatsApp.' },
 };
 

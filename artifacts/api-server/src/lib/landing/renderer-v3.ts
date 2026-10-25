@@ -228,6 +228,11 @@ export function cssBase(familia: string): string {
 @supports (animation-timeline:view()){@media(prefers-reduced-motion:no-preference){.sec,.trust,.cierre,.checkout{animation:sectionReveal linear both;animation-timeline:view();animation-range:entry 0% entry 30%}@keyframes sectionReveal{from{opacity:.72;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}}}
 @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.btn{transition:none}.hero-media img{animation:none}}
 ${cssFamilia(familia)}
+/* Shared reading and touch rules preserve each family's composition. */
+h1,h2,h3{text-wrap:balance}p,li{text-wrap:pretty}.btn:focus-visible,summary:focus-visible{outline:3px solid var(--accent);outline-offset:4px}.btn{touch-action:manipulation}
+@media(max-width:480px){.shell{padding-inline:20px}.hero h1{overflow-wrap:anywhere}.actions .btn{min-width:min(100%,180px)}.top__in{gap:10px}.top .btn{font-size:.78rem;min-height:42px;padding:10px 14px}.faq{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.hero-media{animation:none!important;translate:none!important}}
+
 `.trim();
 }
 
@@ -885,6 +890,14 @@ const CSS_CLINICA = `
 
 const CSS_CREATOR = `
 /*f:creator*/
+.hero{position:relative;isolation:isolate;column-gap:clamp(32px,7vw,100px)}
+.hero-copy{position:relative;z-index:2}.hero .eyebrow{display:inline-flex;padding:9px 14px;border:1px solid var(--line);border-radius:99px;background:#fff;font-size:.65rem}
+.hero .lead{max-width:42ch;font-size:clamp(1.05rem,1.6vw,1.3rem)}
+.hero-media{padding:clamp(12px,2.5vw,30px);background:color-mix(in srgb,var(--accent) 8%,#fff);border:1px solid color-mix(in srgb,var(--accent) 16%,#fff);border-radius:32px 32px 8px 32px;transform:rotate(2deg)}
+.hero-media img{transform:rotate(-2deg);object-fit:contain;max-height:560px}
+.sec .head{display:grid;gap:8px}.head h2{max-width:19ch;text-wrap:balance}.bento{grid-template-columns:repeat(3,minmax(0,1fr))}.bento-card{min-height:210px;display:flex;flex-direction:column;justify-content:flex-end}.bento-card:first-child{grid-column:span 2;background:color-mix(in srgb,var(--accent) 8%,#fff)}
+.gallery{grid-template-columns:1.4fr 1fr;grid-auto-rows:260px}.gallery img{box-shadow:0 12px 30px #241a3d0a}
+@media(max-width:820px){.hero{padding-top:28px;min-height:auto}.hero h1{max-width:15ch}.hero-media{transform:none;padding:14px;margin:4px 0 0}.hero-media img{transform:none;max-height:390px}.bento{grid-template-columns:1fr}.bento-card:first-child{grid-column:auto}.bento-card{min-height:150px}.gallery{grid-template-columns:1fr 1fr;grid-auto-rows:170px}}
 .hero{background:radial-gradient(ellipse at 82% 18%,color-mix(in srgb,var(--accent) 17%,transparent),transparent 42%),linear-gradient(145deg,#F7F5FF,#fff 68%);overflow:hidden}
 .hero h1{max-width:12ch;letter-spacing:-.055em;text-wrap:balance}
 .hero-media{filter:drop-shadow(0 28px 32px color-mix(in srgb,var(--accent) 20%,transparent))}
@@ -895,12 +908,20 @@ const CSS_CREATOR = `
 .offer-main h2,.offer-main .lead,.offer-price{color:#fff}
 .btn{border-radius:999px;min-height:56px;font-weight:800}
 .btn--primary{box-shadow:0 12px 28px color-mix(in srgb,var(--accent) 28%,transparent)}
-@media(prefers-reduced-motion:no-preference){.hero-media:before{animation:creatorGlow 8s ease-in-out infinite alternate}.hero-media img{animation:creatorFloat 7s ease-in-out infinite}.bento-card:nth-child(2){transition-delay:.05s}.bento-card:nth-child(3){transition-delay:.1s}@keyframes creatorGlow{from{opacity:.65;transform:scale(.96)}to{opacity:1;transform:scale(1.04)}}@keyframes creatorFloat{0%,100%{transform:translateY(0) rotate(-.4deg)}50%{transform:translateY(-9px) rotate(.4deg)}}}
+@media(prefers-reduced-motion:no-preference){.hero-media{animation:creatorEnter .7s cubic-bezier(.2,.7,.2,1) both}@keyframes creatorEnter{from{opacity:0;translate:0 18px}to{opacity:1;translate:0 0}}.bento-card:nth-child(2){transition-delay:.05s}.bento-card:nth-child(3){transition-delay:.1s}@keyframes creatorGlow{from{opacity:.65;transform:scale(.96)}to{opacity:1;transform:scale(1.04)}}@keyframes creatorFloat{0%,100%{transform:translateY(0) rotate(-.4deg)}50%{transform:translateY(-9px) rotate(.4deg)}}}
 @media(prefers-reduced-motion:reduce){.hero-media:before,.hero-media img{animation:none}}
 `;
 
 const CSS_SERVICIOS_PRO = `
 /*f:servicios-pro*/
+.top__in{padding-block:18px}.brand{letter-spacing:-.035em;font-weight:850}
+.hero{position:relative;border-bottom:1px solid var(--line);padding-bottom:72px;column-gap:clamp(36px,7vw,110px)}
+.hero .eyebrow{display:flex;align-items:center;gap:12px}.hero .eyebrow:before{content:"";width:32px;height:2px;background:var(--accent)}
+.hero .lead{max-width:44ch}.hero-media{padding:0 0 22px 22px;border-left:1px solid var(--line);border-bottom:1px solid var(--line)}
+.hero-media img{aspect-ratio:4/5;object-fit:cover;max-height:580px}.trust{background:var(--surface);border-radius:0;gap:0}.trust span{flex:1;justify-content:center;border-radius:0;background:none;border:0;border-right:1px solid var(--line)}
+.bento-card{box-shadow:none;border-radius:0!important;border-width:1px 0 0!important;background:transparent!important}.bento-card .num{font-size:1.1rem;letter-spacing:-.02em}.feature-row{gap:clamp(30px,7vw,100px)}
+.faq{grid-template-columns:1fr;max-width:900px}.faq details{border-radius:0!important;border-width:0 0 1px!important;background:transparent!important;padding:22px 0}.faq summary{font-size:1.05rem}
+@media(max-width:820px){.hero{padding-bottom:36px;min-height:auto}.hero-media{padding:0 0 12px 12px}.hero-media img{max-height:420px;aspect-ratio:5/4}.trust span{flex-basis:50%;padding:12px 6px;font-size:.75rem}.top__in{padding-block:12px}}
 .hero{background:linear-gradient(110deg,color-mix(in srgb,var(--accent) 7%,var(--bg)),var(--bg) 58%);min-height:560px}
 .hero h1{max-width:11ch;letter-spacing:-.045em;text-wrap:balance}
 .hero-media img{border-radius:12px 48px 12px 48px;box-shadow:0 26px 60px rgba(24,53,46,.14)}

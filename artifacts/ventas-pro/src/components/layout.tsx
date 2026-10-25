@@ -324,7 +324,7 @@ export function Layout({ children, chatCompleto = false }: { children: React.Rea
 
   return (
     <SidebarProvider>
-      <div className="flex h-screen w-full bg-background relative overflow-x-hidden text-foreground">
+      <div className="flex h-[100dvh] w-full bg-background relative overflow-x-hidden text-foreground">
         {!isMobile && <AppSidebar />}
         <div className="flex flex-1 flex-col w-full min-w-0 relative z-10">
           <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-border bg-background/80 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/60 sm:px-5">

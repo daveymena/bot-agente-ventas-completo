@@ -1813,6 +1813,7 @@ export const TOOLS: ToolDef[] = [
         summary: `Productos: ${prods.length} en total — ${activos} ACTIVOS y ${inactivos} inactivos (usá estos tres números tal cual; no los deduzcas ni los restes) · ${noImg} sin imagen, ${sinVideo} sin video de muestra · Categorías: ${cats.length} · Agentes: ${ags.length} · Tienda pública: ${publicStoreUrl ? `activa en ${publicStoreUrl}` : "sin slug, no accesible"} (fila en tabla stores: ${stors.length})`,
         data: {
           products: prods.length, activeProducts: activos, inactiveProducts: inactivos,
+          physicalProducts: prods.filter((p: any) => p.kind === "physical").length, digitalProducts: prods.filter((p: any) => p.kind === "digital").length,
           productsWithoutImage: noImg, productsWithoutVideo: sinVideo, categories: cats.length,
           agents: ags.length, stores: stors.length, publicStoreUrl,
           businessName: tenantRow?.brandName,
@@ -9454,7 +9455,7 @@ ${r.texto}`, data: r.grupos };
       "⚠️ Va por propose_action: cambia lo que el bot le dice a TODOS los clientes. " +
       "Un dato inventado acá se convierte en una promesa falsa repetida en cada conversación. " +
       "Mostrá primero el estado con agente_inspectar ANTES de proponer cambios.",
-    args: '{ "descripcion"?: string, "nicho"?: string, "cobertura"?: string, "horario"?: string, "entrega"?: { "metodo": string, "plazo": string, "detalle"?: string }, "garantia"?: { "dias": number, "descripcion"?: string }, "acceso"?: { "tipo": string, "descripcion"?: string }, "noPuede"?: string[], "loQueDebeSaber"?: string[], "tono"?: string, "modoCatalogo"?: "digital" | "fisico" | "mixto" (qué ve el agente en el catálogo: "digital" y "fisico" ESCONDEN el otro tipo de producto; "mixto" muestra todo), "pais"?: string (ISO-2, ej "CO", "MX"), "envio"?: { "plazo"?: string, "pago"?: "contraentrega"|"anticipado"|"ambos", "costo"?: string ("incluido" o el valor), "cobertura"?: string } (cómo despacha y cobra lo FÍSICO este negocio; sin esto el bot usa 3-5 días/contraentrega/envío incluido, que son las condiciones del dueño de la plataforma, no las del negocio), "agenda"?: string (cómo se agenda un servicio), "presentacion"?: "tienda"|"servicios", "credenciales"?: string[] (solo reales), "direccion"?: string, "modalidad"?: string }',
+    args: '{ "descripcion"?: string, "nicho"?: string, "cobertura"?: string, "horario"?: string, "entrega"?: { "metodo": string, "plazo": string, "detalle"?: string }, "garantia"?: { "dias": number, "descripcion"?: string }, "acceso"?: { "tipo": string, "descripcion"?: string }, "noPuede"?: string[], "loQueDebeSaber"?: string[], "tono"?: string, "modoCatalogo"?: "digital" | "fisico" | "mixto" (qué ve el agente en el catálogo: "digital" y "fisico" ESCONDEN el otro tipo de producto; "mixto" muestra todo), "pais"?: string (ISO-2, ej "CO", "MX"), "envio"?: { "plazo"?: string, "pago"?: "contraentrega"|"anticipado"|"ambos", "costo"?: string ("incluido" o el valor), "cobertura"?: string } (cómo despacha y cobra lo FÍSICO este negocio; sin esto el bot usa 3-5 días/contraentrega/envío incluido, que son las condiciones del dueño de la plataforma, no las del negocio), "agenda"?: string (cómo se agenda un servicio), "presentacion"?: "tienda"|"servicios"|"digital", "credenciales"?: string[] (solo reales), "direccion"?: string, "modalidad"?: string }',
     run: async (args, ctx) => {
       const [t] = await db.select().from(tenants).where(eq(tenants.id, ctx.tenantId)).limit(1);
       if (!t) return { ok: false, summary: "No se encontró el negocio." };
@@ -9489,7 +9490,7 @@ ${r.texto}`, data: r.grupos };
       // Página pública de servicios (ver presentacion-del-negocio.ts).
       if (args.presentacion !== undefined) {
         const p = String(args.presentacion).toLowerCase();
-        if (p === "tienda" || p === "servicios") cambios.presentacion = p;
+        if (p === "tienda" || p === "servicios" || p === "digital") cambios.presentacion = p;
       }
       if (args.credenciales !== undefined) cambios.credenciales = (Array.isArray(args.credenciales) ? args.credenciales : [args.credenciales]).map((c: unknown) => String(c).trim()).filter(Boolean).slice(0, 8);
       if (args.direccion !== undefined) cambios.direccion = String(args.direccion).trim();

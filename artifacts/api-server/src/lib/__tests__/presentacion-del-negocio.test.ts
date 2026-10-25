@@ -19,6 +19,14 @@ describe("cómo se presenta el negocio", () => {
   it("sin productos activos es tienda (no se adivina)", () => {
     expect(presentacionDelNegocio(null, [])).toBe("tienda");
   });
+
+  it("un catálogo exclusivamente digital tiene portada propia, sin convertir los mixtos", () => {
+    expect(presentacionDelNegocio({}, ["digital", "digital"])).toBe("digital");
+    expect(presentacionDelNegocio({}, ["digital", "servicio"])).toBe("tienda");
+    expect(presentacionDelNegocio({}, ["dropshipping", "digital"])).toBe("tienda");
+    expect(presentacionDelNegocio({ presentacion: "tienda" }, ["digital"])).toBe("tienda");
+    expect(presentacionDelNegocio({ presentacion: "digital" }, ["fisico"])).toBe("digital");
+  });
 });
 
 describe("lo que se publica del perfil", () => {

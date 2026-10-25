@@ -305,7 +305,7 @@ export function AIProviders() {
       <div>
         <h3 className="text-sm font-semibold mb-1">🆓 Proveedores gratuitos</h3>
         <p className="text-xs text-muted-foreground mb-3">
-          Funcionan sin pagar. Si un modelo agota su cuota, el sistema rota solo al siguiente.
+          Tienen planes o cupos gratuitos según el proveedor. Atlas intenta los respaldos configurados y compatibles que estén disponibles.
         </p>
         <div className="grid gap-3 lg:grid-cols-2">{gratis.map(tarjeta)}</div>
       </div>
@@ -314,7 +314,7 @@ export function AIProviders() {
         <div>
           <h3 className="text-sm font-semibold mb-1">💳 Proveedores de pago</h3>
           <p className="text-xs text-muted-foreground mb-3">
-            Opcionales: mejor rendimiento y sin límites de cuota. Solo se usan si pones su clave.
+            Opcionales: requieren clave, saldo y límites suficientes en la cuenta del proveedor. Tener una clave guardada no confirma disponibilidad.
           </p>
           <div className="grid gap-3 lg:grid-cols-2">{pago.map(tarjeta)}</div>
         </div>

@@ -19,6 +19,7 @@ export interface ServicioPublico {
   name: string;
   description: string;
   price: string;
+  currency?: string | null;
   image: string | null;
 }
 
@@ -39,9 +40,9 @@ export interface NegocioPublico {
   };
 }
 
-const formatearPrecio = (v: string) => {
+const formatearPrecio = (v: string, currency = "COP") => {
   const n = Number(v);
-  return n > 0 ? `Desde ${n.toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 })}` : 'Valor según tu caso';
+  return n > 0 ? `Desde ${n.toLocaleString('es-CO', { style: 'currency', currency: /^[A-Z]{3}$/.test(currency) ? currency : "COP", maximumFractionDigits: 0 })}` : 'Valor según lo que necesitas';
 };
 
 const resumen = (t: string, max = 170) => {
@@ -57,14 +58,14 @@ const PaginaDeServicios = ({ negocio, servicios }: { negocio: NegocioPublico; se
   const [form, setForm] = useState({ nombre: '', celular: '', servicio: '', caso: '', horario: '' });
   const listo = form.nombre.trim() && form.celular.trim() && form.caso.trim();
 
-  // La consulta llega por WhatsApp, donde el agente del negocio la califica
+  // La solicitud llega por WhatsApp, donde el agente del negocio la califica
   // (qué pasó, urgencia, ciudad) y propone la cita.
   const mensaje = useMemo(() => [
-    `Hola, quiero agendar una consulta.`,
+    `Hola, quiero consultar un servicio y conocer su disponibilidad.`,
     `Nombre: ${form.nombre.trim()}`,
     `Celular: ${form.celular.trim()}`,
     form.servicio ? `Servicio: ${form.servicio}` : '',
-    `Mi caso: ${form.caso.trim()}`,
+    `Lo que necesito: ${form.caso.trim()}`,
     form.horario.trim() ? `Horario que me sirve: ${form.horario.trim()}` : '',
   ].filter(Boolean).join('\n'), [form]);
 
@@ -92,7 +93,7 @@ const PaginaDeServicios = ({ negocio, servicios }: { negocio: NegocioPublico; se
             <span className="truncate text-lg font-bold text-slate-900">{negocio.name}</span>
           </div>
           <button onClick={() => irAConsulta()} className="shrink-0 rounded-full px-5 py-2.5 text-sm font-semibold text-white shadow-sm" style={{ background: color }}>
-            Agendar consulta
+            Solicitar consulta
           </button>
         </div>
       </header>
@@ -105,7 +106,7 @@ const PaginaDeServicios = ({ negocio, servicios }: { negocio: NegocioPublico; se
           {perfil.modalidad ? <p className="mt-3 text-sm font-medium text-white/70">{perfil.modalidad}</p> : null}
           <div className="mt-8 flex flex-wrap gap-3">
             <button onClick={() => irAConsulta()} className="rounded-full bg-white px-6 py-3 font-semibold shadow" style={{ color }}>
-              <CalendarCheck className="mr-2 inline h-5 w-5" />Agendar una consulta
+              <CalendarCheck className="mr-2 inline h-5 w-5" />Solicitar una consulta
             </button>
             {wa ? (
               <a href={`https://wa.me/${wa}`} target="_blank" rel="noopener noreferrer" className="rounded-full border border-white/40 px-6 py-3 font-semibold text-white hover:bg-white/10">
@@ -123,9 +124,10 @@ const PaginaDeServicios = ({ negocio, servicios }: { negocio: NegocioPublico; se
           <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {servicios.map((s) => (
               <article key={s.id} className="flex flex-col rounded-2xl border border-slate-200 p-6 transition hover:shadow-md">
+                {s.image && <img src={s.image} alt={s.name} loading="lazy" className="mb-5 aspect-[16/10] w-full rounded-xl bg-slate-50 object-cover" />}
                 <h3 className="text-lg font-semibold text-slate-900">{s.name}</h3>
                 {s.description ? <p className="mt-2 flex-1 text-sm leading-relaxed text-slate-600">{resumen(s.description)}</p> : <div className="flex-1" />}
-                <p className="mt-4 text-sm font-semibold" style={{ color }}>{formatearPrecio(s.price)}</p>
+                <p className="mt-4 text-sm font-semibold" style={{ color }}>{formatearPrecio(s.price, s.currency || "COP")}</p>
                 <button onClick={() => irAConsulta(s.name)} className="mt-4 rounded-full border px-4 py-2 text-sm font-semibold hover:bg-slate-50" style={{ borderColor: color, color }}>
                   Consultar por este servicio
                 </button>
@@ -157,7 +159,7 @@ const PaginaDeServicios = ({ negocio, servicios }: { negocio: NegocioPublico; se
         <h2 className="text-2xl font-bold text-slate-900 md:text-3xl">Cómo trabajamos</h2>
         <ol className="mt-8 grid gap-5 md:grid-cols-3">
           {[
-            ['Cuéntanos tu caso', 'Nos escribes o llenas el formulario con lo que necesitas.'],
+            ['Cuéntanos lo que necesitas', 'Nos escribes o llenas el formulario con lo que necesitas.'],
             ['Te orientamos', 'Revisamos tu situación y te explicamos las opciones y cómo seguir.'],
             ['Te acompañamos', 'Si decides avanzar, te acompañamos en cada paso del proceso.'],
           ].map(([t, d], i) => (
@@ -174,21 +176,21 @@ const PaginaDeServicios = ({ negocio, servicios }: { negocio: NegocioPublico; se
       <section id="consulta" className="bg-slate-50">
         <div className="mx-auto grid max-w-6xl gap-10 px-4 py-16 md:grid-cols-2">
           <div>
-            <h2 className="text-2xl font-bold text-slate-900 md:text-3xl">Agenda tu consulta</h2>
-            <p className="mt-3 text-slate-600">Cuéntanos brevemente tu caso y te respondemos por WhatsApp para coordinar el día y la hora.</p>
+            <h2 className="text-2xl font-bold text-slate-900 md:text-3xl">Solicita información</h2>
+            <p className="mt-3 text-slate-600">Cuéntanos brevemente lo que necesitas y te respondemos por WhatsApp para confirmar el alcance, el presupuesto y la disponibilidad.</p>
             {perfil.agenda ? <p className="mt-3 text-sm text-slate-500">{perfil.agenda}</p> : null}
             <p className="mt-6 text-xs text-slate-400">Tus datos solo los ve el equipo de {negocio.name} y se usan para responder tu consulta.</p>
           </div>
           <form onSubmit={pedirConsulta} className="space-y-4 rounded-2xl bg-white p-6 shadow-sm">
-            <input required value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre y apellido" className="w-full rounded-lg border border-slate-200 px-4 py-3" />
-            <input required value={form.celular} onChange={(e) => setForm({ ...form, celular: e.target.value })} placeholder="Celular" inputMode="tel" className="w-full rounded-lg border border-slate-200 px-4 py-3" />
+            <input aria-label="Nombre y apellido" autoComplete="name" required value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Nombre y apellido" className="w-full rounded-lg border border-slate-200 px-4 py-3" />
+            <input aria-label="Celular de contacto" autoComplete="tel" required value={form.celular} onChange={(e) => setForm({ ...form, celular: e.target.value })} placeholder="Celular" inputMode="tel" className="w-full rounded-lg border border-slate-200 px-4 py-3" />
             {servicios.length > 0 && (
-              <select value={form.servicio} onChange={(e) => setForm({ ...form, servicio: e.target.value })} className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-700">
+              <select aria-label="Servicio de interés" value={form.servicio} onChange={(e) => setForm({ ...form, servicio: e.target.value })} className="w-full rounded-lg border border-slate-200 px-4 py-3 text-slate-700">
                 <option value="">¿Sobre qué es tu consulta? (opcional)</option>
                 {servicios.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
               </select>
             )}
-            <textarea required value={form.caso} onChange={(e) => setForm({ ...form, caso: e.target.value })} placeholder="Cuéntanos brevemente tu caso" rows={4} className="w-full rounded-lg border border-slate-200 px-4 py-3" />
+            <textarea aria-label="Qué necesitas" required value={form.caso} onChange={(e) => setForm({ ...form, caso: e.target.value })} placeholder="Cuéntanos brevemente lo que necesitas" rows={4} className="w-full rounded-lg border border-slate-200 px-4 py-3" />
             <input value={form.horario} onChange={(e) => setForm({ ...form, horario: e.target.value })} placeholder="¿Qué días u horas te sirven? (opcional)" className="w-full rounded-lg border border-slate-200 px-4 py-3" />
             {wa ? (
               <button type="submit" disabled={!listo} className="w-full rounded-full px-6 py-3 font-semibold text-white disabled:opacity-50" style={{ background: color }}>

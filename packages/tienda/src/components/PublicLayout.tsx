@@ -69,8 +69,8 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => {
         if (Array.isArray(d?.products)) {
           const porCategoria: Record<string, CategoriaDelMenu> = {};
           for (const p of d.products as any[]) {
-            const k = p.kind || p.type;
-            const tipo = k === 'physical' ? 'physical' : (k === 'servicio' || k === 'service') ? 'servicio' : 'digital';
+            const k = p.linea || p.kind || p.type;
+            const tipo = k === 'physical' || k === 'fisico' || k === 'dropshipping' ? 'physical' : (k === 'servicio' || k === 'service') ? 'service' : 'digital';
             const nombre = p.category || 'General';
             const key = `${nombre}__${tipo}`;
             if (!porCategoria[key]) porCategoria[key] = { key, name: nombre, count: 0, tipo };

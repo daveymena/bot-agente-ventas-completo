@@ -63,19 +63,21 @@ export const SIGUIENTES: Record<SiguientePasoId, Omit<SiguientePaso, "porque">> 
 
 export async function diagnosticoDelNegocio(ctx: OperatorContext): Promise<Diagnostico> {
   const [prod, wa, fb, camp, dash] = await Promise.all([
-    leer("list_products", ctx),
+    leer("analyze_system", ctx),
     leer("whatsapp_status", ctx),
     leer("fb_status", ctx),
     leer("fb_list_campaigns", ctx),
     leer("dashboard_summary", ctx),
   ]);
 
-  // list_products devuelve data.products o un arreglo; se toleran las dos.
-  const lista: any[] = Array.isArray(prod?.data) ? prod.data : Array.isArray(prod?.data?.products) ? prod.data.products : Array.isArray(prod?.data?.items) ? prod.data.items : [];
-  // list_products devuelve `hasImage` y `kind`; se toleran también las filas crudas.
-  const fisicos = lista.filter((p) => /physical|fisico|físico/i.test(String(p?.kind || ""))).length;
-  const sinFoto = lista.filter((p) => (typeof p?.hasImage === "boolean" ? !p.hasImage : !p?.imageUrl && !p?.image)).length;
-  const productos = { total: lista.length, fisicos, digitales: lista.length - fisicos, sinFoto };
+  // El resumen agrega TODO el catálogo del tenant. Una página de 50 filas
+  // no puede usarse como conteo (142 observados en la pantalla real).
+  const productos = {
+    total: Number(prod?.data?.products) || 0,
+    fisicos: Number(prod?.data?.physicalProducts) || 0,
+    digitales: Number(prod?.data?.digitalProducts) || 0,
+    sinFoto: Number(prod?.data?.productsWithoutImage) || 0,
+  };
 
   const whatsappConectado = wa ? String(wa.data?.state || "") === "connected" : null;
   const facebookConectado = fb ? Boolean(fb.data?.ok) : null;

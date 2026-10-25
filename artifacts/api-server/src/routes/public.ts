@@ -217,6 +217,7 @@ router.get("/product/:slug/:productId", async (req, res, next) => {
         video: videosDelProducto(p).principal,
         category: p.category ?? "General",
         kind: p.kind,
+        linea: lineaDeProducto(p),
         sku: p.sku,
         features: p.features,
         opciones: p.opciones,

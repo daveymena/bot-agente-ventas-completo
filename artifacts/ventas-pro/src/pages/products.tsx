@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
+import { monedaDelCatalogo } from "@/lib/moneda-producto";
 import { 
   useListProducts, getListProductsQueryKey,
   useCreateProduct,
@@ -629,9 +630,11 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
   const queryClient = useQueryClient();
   const createProduct = useCreateProduct();
   const updateProduct = useUpdateProduct();
+  const { data: catalogo } = useListProducts({ query: { queryKey: getListProductsQueryKey() } });
+  const monedaInicial = monedaDelCatalogo(Array.isArray(catalogo) ? catalogo : [], initialData?.currency);
 
   const [formData, setFormData] = useState({
-    name: "", description: "", price: "0", currency: "MXN", sku: "", categoryId: "none", 
+    name: "", description: "", price: "0", currency: monedaInicial, sku: "", categoryId: "none",
     kind: "digital" as ProductKind, imageUrl: "", highlight: "", isActive: true, features: [] as string[],
     paymentLink: "", deliveryLink: ""
   });
@@ -754,7 +757,7 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
         name: product.name || "",
         description: product.description || "",
         price: product.price ? product.price.toString() : "0",
-        currency: product.currency || "MXN",
+        currency: product.currency || monedaInicial,
         sku: product.sku || "",
         categoryId: product.categoryId ? product.categoryId.toString() : "none",
         kind: product.kind || "digital",
@@ -784,7 +787,7 @@ function ProductModal({ mode, product, categories, initialData, children, open: 
         name: initialData?.name || "",
         description: initialData?.description || "",
         price: initialData?.price || "0",
-        currency: "MXN",
+        currency: monedaInicial,
         sku: "",
         categoryId: "none",
         kind: initialData?.kind || "digital",
