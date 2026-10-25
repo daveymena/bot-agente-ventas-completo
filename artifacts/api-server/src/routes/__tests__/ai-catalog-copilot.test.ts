@@ -12,12 +12,37 @@ async function llamar(method:string,path:string,body:any={}) {
   const capa=(router as any).stack.find((s:any)=>s.route?.path===path && s.route.methods[method]);
   let status=200;let data:any;
   const res:any={status(n:number){status=n;return this;},json(d:any){data=d;return this;}};
-  await capa.route.stack[0].handle({tenant:{id:1,isAdmin:true},params:{proveedor:'github'},body},res,(e:any)=>{if(e)throw e;});
+  await capa.route.stack[0].handle({tenant:{id:1,isAdmin:true},params:{proveedor:body.proveedor || 'github'},body},res,(e:any)=>{if(e)throw e;});
   return {status,data};
 }
 beforeEach(async()=>{await db.delete(settings);});
-afterEach(()=>{vi.unstubAllEnvs();vi.clearAllMocks();});
+afterEach(()=>{vi.unstubAllEnvs();vi.unstubAllGlobals();vi.clearAllMocks();});
 describe('catálogo de configuración de GitHub',()=>{
+  it('el frontend reutiliza la conexión de Atlas cuando falla la renovación local',async()=>{
+    await db.insert(settings).values({githubToken:'oauth-guardado-prueba'});
+    vi.mocked(getCopilotSessionToken).mockResolvedValue(null);
+    vi.stubEnv('ATLAS_OPENCODE_HOST','https://atlas.test');vi.stubEnv('ATLAS_OPENCODE_USER','user-test');vi.stubEnv('ATLAS_OPENCODE_PASS','secret-test');
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({connected:['github-copilot'],all:[{id:'github-copilot',models:{'modelo-atlas':{}}}]})}));
+    const {data}=await llamar('get','/models/:proveedor',{proveedor:'github_copilot_internal'});
+    expect(data).toMatchObject({origen:'atlas',modelos:['modelo-atlas']});
+    expect(data.aviso).toContain('no hace falta reemplazar el token');
+    const [fila]=await db.select().from(settings).limit(1);
+    expect(fila.githubToken).toBe('oauth-guardado-prueba');
+  });
+  it('la respuesta GET y PATCH conserva los indicadores del token sin devolver el secreto',async()=>{
+    await db.insert(settings).values({githubToken:'oauth-secreto-prueba',copilotSessionToken:'sesion-secreta-prueba',copilotSessionExpiresAt:'2000-01-01'});
+    for(const method of ['get','patch']) {
+      const capa=(settingsRouter as any).stack.find((s:any)=>s.route?.path==='/' && s.route.methods[method]);
+      let respuesta:any;
+      await capa.route.stack.at(-1).handle({tenant:{id:1,isAdmin:true},body:{businessName:'Prueba'}},{json(d:any){respuesta=d;return this;},status(){return this;}},(e:any)=>{if(e)throw e;});
+      expect(respuesta.hasGithubToken).toBe(true);
+      expect(respuesta.hasCopilotSessionToken).toBe(true);
+      expect(JSON.stringify(respuesta)).not.toContain('oauth-secreto-prueba');
+      expect(JSON.stringify(respuesta)).not.toContain('sesion-secreta-prueba');
+    }
+    const [fila]=await db.select().from(settings).limit(1);
+    expect(fila.githubToken).toBe('oauth-secreto-prueba');
+  });
   it('probar usa la cuenta recién conectada, no un token antiguo del entorno',async()=>{
     await db.insert(settings).values({aiProvider:'github_copilot_internal',githubModel:'modelo-elegido',githubToken:'oauth-nuevo-prueba'});
     vi.stubEnv('GITHUB_COPILOT_TOKEN','oauth-viejo-prueba');

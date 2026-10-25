@@ -300,6 +300,9 @@ export interface Settings {
   escalationKeywords?: unknown | null;
   aiProvider?: string | null;
   githubToken?: string | null;
+  hasGithubToken?: boolean;
+  hasCopilotSessionToken?: boolean;
+  hasNvidiaApiKey?: boolean;
   githubModel?: string | null;
   ollamaUrl?: string | null;
   ollamaModel?: string | null;

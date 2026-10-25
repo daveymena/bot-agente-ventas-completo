@@ -18,7 +18,7 @@ import { logger } from "../lib/logger";
 import { cifrar, descifrar, cargarClavesEnEntorno, leerBusinessConfig } from "../lib/ai-keys";
 import { sincronizarProveedorConOpencode, sincronizarTodasLasClavesConOpencode } from "../lib/opencode-provider-sync";
 import type { TenantRequest } from "../lib/tenantManager";
-import { GITHUB_MODELS_RETIRADO, modelosDeCopilot } from '../lib/copilot-modelos';
+import { GITHUB_MODELS_RETIRADO, modelosDeCopilot, modelosCopilotEnAtlas, tokensCopilotGuardados, sesionCopilotGuardada } from '../lib/copilot-modelos';
 
 const router = Router();
 
@@ -119,7 +119,7 @@ router.get("/catalog", async (req: TenantRequest, res, next) => {
     }
 
     const catalogo = PROVEEDORES.map((p) => {
-      const enEntorno = !!process.env[p.envKey] || (p.id === 'github_copilot_internal' && !!(fila?.githubToken || process.env.GITHUB_TOKEN));
+      const enEntorno = !!process.env[p.envKey] || (p.id === 'github_copilot_internal' && tokensCopilotGuardados(fila, process.env).length > 0);
       const guardada = guardadas[p.id];
       return {
         ...p,
@@ -227,10 +227,15 @@ router.get("/models/:proveedor", async (req: TenantRequest, res, next) => {
       if (!esDuenoDelSistema(req)) return res.status(403).json({ modelos: [], error: 'La conexión de Copilot la administra el dueño de la plataforma.' });
       const [fila] = await db.select().from(settings).limit(1);
       const base = getProviderConfig(proveedor);
-      const token = fila?.githubToken || base?.apiKey;
-      if (!token) return res.json({ modelos: [], error: 'Conecta GitHub Copilot mediante el código de dispositivo.' });
-      const modelos = await modelosDeCopilot(token, base?.defaultHeaders);
-      return res.json({ modelos, total: modelos.length, consultado: 'https://api.githubcopilot.com', aviso: modelos.length ? 'Catálogo de la cuenta; prueba el modelo antes de usarlo.' : 'La cuenta no ofrece modelos de chat con selección manual para esta conexión. Revisa tu plan y las políticas en GitHub.' });
+      let modelos: string[];
+      let origen = 'copilot';
+      try { modelos = await modelosDeCopilot(tokensCopilotGuardados(fila, process.env), base?.defaultHeaders); }
+      catch (e) {
+        const deAtlas = await modelosCopilotEnAtlas();
+        if (deAtlas === null) throw e;
+        modelos = deAtlas; origen = 'atlas';
+      }
+      return res.json({ modelos, total: modelos.length, origen, consultado: origen === 'atlas' ? 'Conexión de Copilot en Atlas' : 'https://api.githubcopilot.com', aviso: origen === 'atlas' ? 'Atlas reconoce la conexión de Copilot ya autenticada. Guarda el modelo y pruébalo en Atlas; no hace falta reemplazar el token.' : modelos.length ? 'Catálogo de la cuenta; prueba el modelo antes de usarlo.' : 'La cuenta no ofrece modelos de chat con selección manual para esta conexión. Revisa tu plan y las políticas en GitHub.' });
     }
     const guardadas = await leerClavesGuardadas();
     const base = getProviderConfig(proveedor);
@@ -446,7 +451,10 @@ router.post("/test", async (req: TenantRequest, res, next) => {
       const [fila] = await db.select().from(settings).limit(1);
       if (fila?.githubToken) base = getProviderConfigConClave(proveedor, fila.githubToken, fila.githubModel || undefined);
     }
-    if (!base?.apiKey) return res.json({ ok: false, error: "Ese proveedor no tiene clave configurada" });
+    if (!base?.apiKey) {
+      if (proveedor === 'github_copilot_internal' && esDuenoDelSistema(req) && await modelosCopilotEnAtlas() !== null) return res.json({ ok: false, requiereAtlas: true, error: 'Copilot está autenticado en Atlas. Prueba allí el modelo; esta prueba local no dispone de esa sesión.' });
+      return res.json({ ok: false, error: "Ese proveedor no tiene clave configurada" });
+    }
     const cfg = {
       ...base,
       model: model || (resuelta?.propia ? propias[proveedor]?.model : guardadas[proveedor]?.model) || base.model || "",
@@ -462,13 +470,16 @@ router.post("/test", async (req: TenantRequest, res, next) => {
     // no. Un probador que no puede dar OK nunca es peor que no tenerlo:
     // muestra roto algo que funciona.
     if (cfg.baseUrl === "https://api.githubcopilot.com") {
-      const { getCopilotSessionToken } = await import("../lib/copilot");
-      const sesion = await getCopilotSessionToken(cfg.apiKey);
+      const [fila] = esDuenoDelSistema(req) ? await db.select().from(settings).limit(1) : [];
+      const tokens = esDuenoDelSistema(req) ? tokensCopilotGuardados(fila, process.env) : [cfg.apiKey];
+      const sesion = await sesionCopilotGuardada(tokens);
       if (!sesion) {
+        const deAtlas = esDuenoDelSistema(req) ? await modelosCopilotEnAtlas() : null;
         return res.json({
           ok: false,
           modelo: cfg.model,
-          error: "GitHub no aceptó el token para Copilot. Volvé a conectar la cuenta desde Configuración (autenticación por código de dispositivo).",
+          requiereAtlas: deAtlas !== null,
+          error: deAtlas !== null ? 'Copilot está autenticado en Atlas. Guarda el modelo y pruébalo allí; no es necesario reemplazar el token.' : 'No se pudo renovar la sesión local. El token guardado se conserva; vuelve a probar antes de autorizar de nuevo.',
         });
       }
       cfg.apiKey = sesion.token;

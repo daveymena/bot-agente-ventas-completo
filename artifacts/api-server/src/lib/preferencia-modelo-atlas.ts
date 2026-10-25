@@ -11,6 +11,5 @@ export function preferenciaModeloAtlas(fila: { aiProvider?: string | null; githu
 
 /** Copilot usa el OAuth existente de OpenCode, no la ruta directa de API keys. */
 export function copilotElegido(fila: { aiProvider?: string | null; githubToken?: string | null } | null | undefined, entorno: Record<string, string | undefined>) {
-  return fila?.aiProvider === 'github_copilot_internal' && Boolean(entorno.ATLAS_OPENCODE_HOST) &&
-    Boolean(fila.githubToken || entorno.GITHUB_COPILOT_TOKEN || entorno.GITHUB_TOKEN || entorno.COPILOT_TOKENS);
+  return fila?.aiProvider === 'github_copilot_internal' && Boolean(entorno.ATLAS_OPENCODE_HOST);
 }

@@ -13,6 +13,7 @@ import { costTracker } from "../lib/cost-tracker";
 import { logger } from "../lib/logger";
 import { requirePlatformOwner, esDuenoDeLaPlataforma } from "../middleware/requirePlatformOwner";
 import { esValorEnmascarado, enmascararSecreto } from "../lib/secretos";
+import { tokensCopilotGuardados } from '../lib/copilot-modelos';
 
 const router: IRouter = Router();
 
@@ -381,7 +382,7 @@ function serialize(row: typeof settings.$inferSelect) {
     // había aplicado el mismo criterio. Se enmascaran igual, y los flags
     // dicen si hay algo cargado sin revelar qué.
     githubToken: enmascarar(row.githubToken),
-    hasGithubToken: !!row.githubToken,
+    hasGithubToken: tokensCopilotGuardados(row, process.env).length > 0,
     githubModel: row.githubModel,
     copilotSessionToken: enmascarar(row.copilotSessionToken),
     hasCopilotSessionToken: !!row.copilotSessionToken,

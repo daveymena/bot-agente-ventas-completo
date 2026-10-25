@@ -29,3 +29,13 @@ La corrección de tipos introducida en el selector se revisó antes de publicar.
 - Disponibilidad por plan y cliente de Copilot: https://docs.github.com/en/copilot/reference/ai-models/supported-models
 
 Se reutiliza la integración interna de Copilot que ya tiene esta aplicación. La documentación oficial confirma que Copilot y GitHub Models son servicios distintos; no garantiza que todos los modelos de Copilot sean invocables desde esta integración.
+
+## Seguimiento: token existente invisible en el frontend
+
+Inspección autenticada: la pantalla publicada del commit 86074b2 mostraba Copilot sin conexión, ofrecía generar otro código y la consulta local de modelos no conseguía renovar la sesión. No se generó un código, reemplazó un token ni guardó un cambio de proveedor. Se observó además que el proveedor global Groq se representaba como OpenCode en el selector histórico, porque faltaba esa opción.
+
+Causa comprobada: serialize(settings) añadía hasGithubToken/hasCopilotSessionToken, pero GetSettingsResponse y UpdateSettingsResponse de Zod no incluían esos campos y los eliminaban. La UI interpretaba los indicadores ausentes como falta de autenticación. Se corrige el contrato OpenAPI y sus indicadores generados; se limita la actualización generada a Settings, preservando contratos ajenos ante una versión distinta de Orval instalada.
+
+El panel ahora conserva el estado de token guardado al recargar y distingue token persistente de sesión corta. Abrir la configuración de Copilot no selecciona otro proveedor; guardar y usar Copilot es una acción explícita limitada al modelo/proveedor. El token existente se mantiene. La consulta considera las credenciales ya configuradas y, si falla la renovación local, consulta los modelos de la conexión autenticada de Copilot en Atlas. Solo se acepta ese catálogo si OpenCode declara la conexión, no por la mera presencia de modelos estáticos. Si el OAuth vive allí, la prueba local lo explica y enlaza a Atlas en vez de exigir reautenticación.
+
+Regresiones: 49 pruebas aprobadas en cinco archivos, incluidas respuestas GET/PATCH reales que conservan indicadores y ocultan secretos, persistencia con sesión vencida, credenciales alternativas existentes y catálogo autenticado de Atlas. Frontend/backend compilan. Las nuevas vistas deben comprobarse tras desplegar; la inspección de producción anterior no acredita estos últimos cambios. No se cambió el proveedor, token ni cuenta del usuario en producción.

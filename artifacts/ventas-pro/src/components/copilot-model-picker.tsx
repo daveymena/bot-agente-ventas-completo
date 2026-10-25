@@ -32,6 +32,6 @@ export function CopilotModelPicker({ value, onChange, onGuardar, guardando }: {
     <p className="text-xs leading-relaxed text-muted-foreground">Conecta tu cuenta arriba y consulta su catálogo. La lista depende de tu plan y políticas; aparecer en ella no garantiza saldo ni respuesta. Prueba el modelo antes de guardar.</p>
     {error && <p role="alert" className="text-xs text-destructive">{error}</p>}
     {aviso && <p role="status" className="text-xs text-muted-foreground">{aviso}</p>}
-    <Button type="button" onClick={onGuardar} disabled={guardando || !value.trim()} className="min-h-11 w-full sm:w-auto">{guardando ? 'Guardando…' : 'Guardar configuración'}</Button>
+    <Button type="button" onClick={onGuardar} disabled={guardando || !value.trim()} className="min-h-11 w-full sm:w-auto">{guardando ? 'Guardando…' : 'Guardar y usar Copilot'}</Button>
   </div>;
 }
