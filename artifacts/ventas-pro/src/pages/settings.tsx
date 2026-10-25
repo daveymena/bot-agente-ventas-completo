@@ -22,6 +22,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Save, X, Plus, Settings as SettingsIcon, ShieldCheck, Terminal, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { AIProviders } from "@/components/ai-providers";
+import { CopilotModelPicker } from '@/components/copilot-model-picker';
 import { TwoFactorSettings } from "@/components/two-factor-settings";
 import { HelpTourButton } from "@/components/HelpTourButton";
 import { useAutoTour } from "@/hooks/use-auto-tour";
@@ -397,7 +398,7 @@ export default function Settings() {
                     >
                       <option value="opencode">OpenCode Zen (Gratis, con rotación de modelos)</option>
                       <option value="mimo">Xiaomi MiMo (requiere MIMO_API_KEY)</option>
-                      <option value="github_copilot_internal">GitHub Copilot Internal (VS Code Flow)</option>
+                      <option value="github_copilot_internal">GitHub Copilot · conectar cuenta y elegir modelo</option>
                       <option value="nvidia">NVIDIA NIM (High Performance)</option>
                       <option value="ollama_local">Ollama (Local)</option>
                       <option value="ollama_cloud">Ollama Cloud (Pro)</option>
@@ -496,8 +497,9 @@ export default function Settings() {
                     })()}
                   </div>
                   {/* Configuración GitHub Copilot */}
-                  {(formData.aiProvider === "github" || formData.aiProvider === "github_copilot_internal") && (
-                    <div className="space-y-6 animate-in fade-in slide-in-from-left-4">
+                  {formData.aiProvider === 'github' && <Button type="button" variant="outline" className="min-h-11" onClick={() => setFormData(prev => ({ ...prev, aiProvider: 'github_copilot_internal' }))}>Cambiar a GitHub Copilot</Button>}
+                  {formData.aiProvider === "github_copilot_internal" && (
+                    <div id="conexion-copilot" className="space-y-6 scroll-mt-24 animate-in fade-in slide-in-from-left-4">
                       {/* ⚠️ ACA HABIA UNA CAJA PARA PEGAR UN TOKEN A MANO, Y SE SACO.
                           
                           No estaba rota: estaba pidiendo algo que NO PUEDE
@@ -712,17 +714,9 @@ export default function Settings() {
                       </div>
 
 
-                      <div className="space-y-2">
-                        <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">
-                          {formData.aiProvider === "github_copilot_internal" ? "Modelo de Copilot" : "Modelo de GitHub"}
-                        </Label>
+                      <div className="space-y-3">
+                        <CopilotModelPicker value={formData.githubModel} onChange={githubModel => setFormData(prev => ({ ...prev, githubModel }))} onGuardar={handleSubmit} guardando={updateSettings.isPending} />
                         <div className="flex gap-2">
-                          <Input
-                            value={formData.githubModel}
-                            onChange={e => setFormData({...formData, githubModel: e.target.value})}
-                            placeholder={formData.aiProvider === "github_copilot_internal" ? "gpt-4o" : "gpt-5.6-luna"}
-                            className="bg-muted/30 font-mono"
-                          />
                           {/* Autenticarse NO garantiza que el modelo responda: el
                               token puede estar bien y el modelo no existir o no
                               estar habilitado en esa cuenta. Este botón hace una
@@ -732,7 +726,7 @@ export default function Settings() {
                           <Button
                             type="button"
                             variant="outline"
-                            disabled={probandoModelo}
+                            disabled={probandoModelo || !formData.githubModel.trim()}
                             onClick={async () => {
                               setProbandoModelo(true);
                               try {
@@ -915,7 +909,10 @@ export default function Settings() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="pb-8">
-                <AIProviders />
+                <AIProviders onConfigurarCopilot={() => {
+                  setFormData(prev => ({ ...prev, aiProvider: 'github_copilot_internal' }));
+                  requestAnimationFrame(() => document.getElementById('conexion-copilot')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+                }} />
               </CardContent>
             </Card>
 

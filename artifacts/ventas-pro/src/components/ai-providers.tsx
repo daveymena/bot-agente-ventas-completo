@@ -28,6 +28,7 @@ interface Proveedor {
   origenClave: "entorno" | "guardada" | null;
   modeloElegido: string | null;
   modelos: Modelo[];
+  retirado?: boolean;
 }
 
 const ESPECIALIDAD: Record<string, { txt: string; cls: string }> = {
@@ -45,7 +46,7 @@ const ESTADO: Record<string, { txt: string; cls: string }> = {
   vacio: { txt: "⚫ no usable", cls: "text-muted-foreground line-through" },
 };
 
-export function AIProviders() {
+export function AIProviders({ onConfigurarCopilot }: { onConfigurarCopilot?: () => void } = {}) {
   const [provs, setProvs] = useState<Proveedor[]>([]);
   const [cargando, setCargando] = useState(true);
   const [claves, setClaves] = useState<Record<string, string>>({});
@@ -174,7 +175,11 @@ export function AIProviders() {
   const gratis = provs.filter((p) => p.gratis);
   const pago = provs.filter((p) => !p.gratis);
 
-  const tarjeta = (p: Proveedor) => (
+  const tarjeta = (p: Proveedor) => p.retirado || p.id === 'github' ? (
+    <Card key={p.id}><CardHeader><CardTitle className="text-sm">GitHub Models · retirado</CardTitle><p className="text-xs leading-relaxed text-muted-foreground">GitHub cerró este servicio el 30 de julio de 2026. Guardar otra clave no lo reactiva. GitHub Copilot se conecta por separado.</p></CardHeader><CardContent><a href="https://docs.github.com/en/github-models" target="_blank" rel="noreferrer" className="text-xs text-primary underline">Ver aviso de GitHub</a></CardContent></Card>
+  ) : p.id === 'github_copilot_internal' ? (
+    <Card key={p.id}><CardHeader><CardTitle className="text-sm">GitHub Copilot {activa === p.id ? '· seleccionado para Atlas' : ''}</CardTitle><p className="text-xs text-muted-foreground">{p.modeloElegido ? `Modelo guardado: ${p.modeloElegido}` : 'Configura la conexión y el modelo en el panel de Copilot.'}</p></CardHeader><CardContent><Button type="button" variant="outline" className="min-h-11" onClick={onConfigurarCopilot}>Configurar conexión y modelo</Button></CardContent></Card>
+  ) : (
     <Card key={p.id} className="overflow-hidden">
       <CardHeader className="pb-3">
         <CardTitle className="text-sm flex items-center justify-between gap-2 flex-wrap">

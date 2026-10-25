@@ -515,7 +515,7 @@ function hayClavePropia(providerID: string): boolean {
   // -- y el admin, que acaba de vincular su cuenta, seguía sin verlo aparecer
   // en ningún turno.
   if (/copilot/i.test(providerID)) {
-    return !!(process.env.COPILOT_TOKENS || process.env.GITHUB_COPILOT_TOKEN);
+    return !!(process.env.COPILOT_TOKENS || process.env.GITHUB_COPILOT_TOKEN || process.env.GITHUB_TOKEN);
   }
   const envKey = ENV_POR_PROVEEDOR[providerID];
   return !!(envKey && process.env[envKey]);
@@ -557,7 +557,13 @@ async function candidatosDelTurno(tenantId: number) {
 }
 
 async function directoParaTenant(tenantId: number): Promise<boolean> {
-  return process.env.ATLAS_DIRECTO === "true" && (await candidatosDelTurno(tenantId)).length > 0;
+  if (process.env.ATLAS_DIRECTO !== 'true') return false;
+  try {
+    const [fila] = await db.select().from(settings).limit(1);
+    const { copilotElegido } = await import('../lib/preferencia-modelo-atlas');
+    if (copilotElegido(fila, process.env)) return false;
+  } catch { /* El diagnóstico de candidatos conserva los respaldos existentes. */ }
+  return (await candidatosDelTurno(tenantId)).length > 0;
 }
 
 async function iaActivaDelPanel(): Promise<{ providerID: string; modelID: string } | null> {
@@ -566,10 +572,11 @@ async function iaActivaDelPanel(): Promise<{ providerID: string; modelID: string
     const activa = fila?.aiProvider;
     if (!activa) return null;
     const { leerBusinessConfig } = await import("../lib/ai-keys");
-    const modelo = leerBusinessConfig(fila!.businessConfig).aiProviders?.[activa]?.model;
-    if (!modelo) return null;
+    const { preferenciaModeloAtlas } = await import('../lib/preferencia-modelo-atlas');
+    const preferencia = preferenciaModeloAtlas(fila, leerBusinessConfig(fila!.businessConfig).aiProviders);
+    if (!preferencia) return null;
     const { ID_HACIA_OPENCODE } = await import("../lib/opencode-provider-sync");
-    return { providerID: ID_HACIA_OPENCODE[activa] || activa, modelID: modelo };
+    return { ...preferencia, providerID: ID_HACIA_OPENCODE[activa] || preferencia.providerID };
   } catch {
     return null;
   }

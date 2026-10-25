@@ -200,6 +200,7 @@ export async function cargarClavesEnEntorno(): Promise<number> {
     // mientras que el de Copilot es el que el admin acaba de autorizar a mano.
     if ((row as any).githubToken) {
       process.env.GITHUB_TOKEN = String((row as any).githubToken);
+      if (row.aiProvider === 'github_copilot_internal' && row.githubModel) process.env.GITHUB_MODEL = row.githubModel;
       logger.info("[AIKeys] token de GitHub tomado de la conexión de Copilot");
 
       // Y se le pasa a OpenCode, que es de donde Atlas saca sus modelos.

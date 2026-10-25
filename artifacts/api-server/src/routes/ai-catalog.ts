@@ -18,6 +18,7 @@ import { logger } from "../lib/logger";
 import { cifrar, descifrar, cargarClavesEnEntorno, leerBusinessConfig } from "../lib/ai-keys";
 import { sincronizarProveedorConOpencode, sincronizarTodasLasClavesConOpencode } from "../lib/opencode-provider-sync";
 import type { TenantRequest } from "../lib/tenantManager";
+import { GITHUB_MODELS_RETIRADO, modelosDeCopilot } from '../lib/copilot-modelos';
 
 const router = Router();
 
@@ -36,7 +37,8 @@ export const PROVEEDORES = [
   // se agota corta hasta que rota la ventana, así que sirve de respaldo y no
   // como proveedor principal.
   { id: "ollama_cloud", nombre: "Ollama Cloud", gratis: true, envKey: "OLLAMA_CLOUD_API_KEY", alta: "https://ollama.com/settings/keys", nota: "Modelos grandes · cuota diaria gratis · el catálogo rota" },
-  { id: "github", nombre: "GitHub Models", gratis: true, envKey: "GITHUB_TOKEN", alta: "https://github.com/settings/tokens", nota: "Modelos de Azure con token de GitHub" },
+  { id: "github", nombre: "GitHub Models (retirado)", gratis: true, envKey: "GITHUB_TOKEN", alta: "https://docs.github.com/en/github-models", nota: GITHUB_MODELS_RETIRADO },
+  { id: "github_copilot_internal", nombre: "GitHub Copilot", gratis: false, envKey: "GITHUB_COPILOT_TOKEN", alta: "https://github.com/settings/copilot", nota: "Conecta tu cuenta por código de dispositivo. Los modelos dependen de tu plan y políticas." },
   { id: "mimo", nombre: "Xiaomi MiMo", gratis: false, envKey: "MIMO_API_KEY", alta: "https://platform.xiaomimimo.com/#/console/api-keys", nota: "De pago · 1M de contexto · fuerte en código" },
   { id: "openai", nombre: "OpenAI (ChatGPT)", gratis: false, envKey: "OPENAI_API_KEY", alta: "https://platform.openai.com/api-keys", nota: "GPT · también genera imágenes con DALL·E" },
   { id: "anthropic", nombre: "Anthropic (Claude)", gratis: false, envKey: "ANTHROPIC_API_KEY", alta: "https://console.anthropic.com/settings/keys", nota: "Claude · fuerte razonando y en código" },
@@ -95,6 +97,7 @@ function esDuenoDelSistema(req: TenantRequest): boolean {
 router.get("/catalog", async (req: TenantRequest, res, next) => {
   try {
     const globales = await leerClavesGuardadas();
+    const [fila] = await db.select().from(settings).limit(1);
 
     // Un cliente ve LO SUYO, no lo del sistema. Si no ve lo suyo, la pantalla
     // le miente dos veces: le muestra como propia una clave que no es y le
@@ -116,10 +119,11 @@ router.get("/catalog", async (req: TenantRequest, res, next) => {
     }
 
     const catalogo = PROVEEDORES.map((p) => {
-      const enEntorno = !!process.env[p.envKey];
+      const enEntorno = !!process.env[p.envKey] || (p.id === 'github_copilot_internal' && !!(fila?.githubToken || process.env.GITHUB_TOKEN));
       const guardada = guardadas[p.id];
       return {
         ...p,
+        retirado: p.id === 'github',
         // Nunca se devuelve la clave, solo si existe y de dónde sale.
         tieneClave: enEntorno || !!guardada?.apiKey,
         // "guardada" tiene prioridad en el chequeo: cargarClavesEnEntorno()
@@ -130,7 +134,7 @@ router.get("/catalog", async (req: TenantRequest, res, next) => {
         // después de guardar la suya propia, que es justamente la que se está
         // usando de verdad.
         origenClave: guardada?.apiKey ? "guardada" : enEntorno ? "entorno" : null,
-        modeloElegido: guardada?.model || null,
+        modeloElegido: (p.id === 'github_copilot_internal' ? fila?.githubModel : guardada?.model) || null,
         modelos: (porProveedor.get(p.id) || []).map((m) => ({
           id: m.modelo,
           especialidad: m.especialidad,
@@ -145,10 +149,9 @@ router.get("/catalog", async (req: TenantRequest, res, next) => {
 
     // Qué IA está ACTIVA para Atlas hoy: el admin la cambia con el botón de
     // la tarjeta (PUT /api/ai/active) y el agente la lee en agent.ts.
-    const [fila] = await db.select().from(settings).limit(1);
     const activa = fila?.aiProvider || null;
     const activaModelo = activa
-      ? leerBusinessConfig(fila!.businessConfig).aiProviders?.[activa]?.model || null
+      ? (activa === 'github_copilot_internal' ? fila?.githubModel : leerBusinessConfig(fila!.businessConfig).aiProviders?.[activa]?.model) || null
       : null;
 
     return res.json({ proveedores: catalogo, activa, activaModelo });
@@ -213,12 +216,22 @@ async function motivoDeModeloRoto(proveedor: string, apiKey: string | null, mode
  */
 router.get("/models/:proveedor", async (req: TenantRequest, res, next) => {
   try {
-    const proveedor = req.params.proveedor;
+    const proveedor = String(req.params.proveedor);
+    if (proveedor === 'github') return res.status(410).json({ modelos: [], error: GITHUB_MODELS_RETIRADO });
     if (!PROVEEDORES.some((p) => p.id === proveedor)) {
       return res.status(400).json({ error: "Proveedor desconocido" });
     }
 
     const { getProviderConfig } = await import("@workspace/integrations-openai-ai-server");
+    if (proveedor === 'github_copilot_internal') {
+      if (!esDuenoDelSistema(req)) return res.status(403).json({ modelos: [], error: 'La conexión de Copilot la administra el dueño de la plataforma.' });
+      const [fila] = await db.select().from(settings).limit(1);
+      const base = getProviderConfig(proveedor);
+      const token = fila?.githubToken || base?.apiKey;
+      if (!token) return res.json({ modelos: [], error: 'Conecta GitHub Copilot mediante el código de dispositivo.' });
+      const modelos = await modelosDeCopilot(token, base?.defaultHeaders);
+      return res.json({ modelos, total: modelos.length, consultado: 'https://api.githubcopilot.com', aviso: modelos.length ? 'Catálogo de la cuenta; prueba el modelo antes de usarlo.' : 'La cuenta no ofrece modelos de chat con selección manual para esta conexión. Revisa tu plan y las políticas en GitHub.' });
+    }
     const guardadas = await leerClavesGuardadas();
     const base = getProviderConfig(proveedor);
     const guardada = guardadas[proveedor];
@@ -268,6 +281,8 @@ router.get("/models/:proveedor", async (req: TenantRequest, res, next) => {
 router.put("/provider", async (req: TenantRequest, res, next) => {
   try {
     const { proveedor, model } = req.body || {};
+    if (proveedor === 'github') return res.status(410).json({ error: GITHUB_MODELS_RETIRADO });
+    if (proveedor === 'github_copilot_internal') return res.status(400).json({ error: 'Configura Copilot en Conexión de GitHub Copilot mediante el código de dispositivo; guarda el modelo desde ese panel.' });
     // Vacío o enmascarado ("••••abcd") NO es una clave nueva: no se toca la
     // guardada. Antes el vacío la BORRABA y la máscara se cifraba como si
     // fuera la clave real. Para borrarla hay que pedirlo: { borrarClave: true }.
@@ -369,6 +384,7 @@ router.put("/provider", async (req: TenantRequest, res, next) => {
 router.put("/active", async (req: TenantRequest, res, next) => {
   try {
     const { proveedor } = req.body || {};
+    if (proveedor === 'github') return res.status(410).json({ error: GITHUB_MODELS_RETIRADO });
     if (!proveedor || !PROVEEDORES.some((p) => p.id === proveedor)) {
       return res.status(400).json({ error: "Proveedor desconocido" });
     }
@@ -384,8 +400,8 @@ router.put("/active", async (req: TenantRequest, res, next) => {
     // Se avisa si va a caer al respaldo (sin clave, el agente rota a DeepSeek).
     const cfg = leerBusinessConfig(row.businessConfig).aiProviders || {};
     const meta = PROVEEDORES.find((p) => p.id === proveedor)!;
-    const tieneClave = !!process.env[meta.envKey] || !!cfg[proveedor]?.apiKey;
-    const modelo = cfg[proveedor]?.model || null;
+    const tieneClave = !!process.env[meta.envKey] || !!cfg[proveedor]?.apiKey || (proveedor === 'github_copilot_internal' && !!(row.githubToken || process.env.GITHUB_TOKEN));
+    const modelo = (proveedor === 'github_copilot_internal' ? row.githubModel : cfg[proveedor]?.model) || null;
     logger.info({ proveedor, modelo, tieneClave }, "[AICatalog] IA activa de Atlas cambiada");
     return res.json({ ok: true, activa: proveedor, modelo, tieneClave });
   } catch (e) {
@@ -415,14 +431,21 @@ router.post("/sync-opencode", async (_req: TenantRequest, res, next) => {
 router.post("/test", async (req: TenantRequest, res, next) => {
   try {
     const { proveedor, model } = req.body || {};
-    const { getProviderConfig, createAIClient } = await import("@workspace/integrations-openai-ai-server");
+    if (proveedor === 'github') return res.status(410).json({ ok: false, error: GITHUB_MODELS_RETIRADO });
+    const { getProviderConfig, getProviderConfigConClave, createAIClient } = await import("@workspace/integrations-openai-ai-server");
 
     const tenantId = req.tenant?.id;
     const guardadas = await leerClavesGuardadas();
     const { clavesDelTenant, configDelTenant } = await import("../lib/ai-keys-tenant");
     const propias = tenantId ? await clavesDelTenant(tenantId) : {};
     const resuelta = tenantId ? await configDelTenant(tenantId, proveedor, propias) : null;
-    const base = resuelta?.config || getProviderConfig(proveedor);
+    let base = resuelta?.config || getProviderConfig(proveedor);
+    // La prueba y el catálogo deben usar la misma cuenta recién conectada,
+    // aunque el entorno conserve un token de Copilot anterior.
+    if (proveedor === 'github_copilot_internal' && esDuenoDelSistema(req)) {
+      const [fila] = await db.select().from(settings).limit(1);
+      if (fila?.githubToken) base = getProviderConfigConClave(proveedor, fila.githubToken, fila.githubModel || undefined);
+    }
     if (!base?.apiKey) return res.json({ ok: false, error: "Ese proveedor no tiene clave configurada" });
     const cfg = {
       ...base,
