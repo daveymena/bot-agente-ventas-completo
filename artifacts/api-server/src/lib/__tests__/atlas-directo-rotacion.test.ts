@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-  apartarPor, candidatosDirectos, correrTurnoDirectoConRotacion, proveedorApartado,
+  apartarPor, apartarProveedor, candidatosDirectos, correrTurnoDirectoConRotacion, proveedorApartado,
   type OpcionesDeTurnoDirecto, type ResultadoDirecto,
 } from "../atlas-directo";
 
@@ -36,6 +36,46 @@ describe("candidatosDirectos", () => {
   it("una IA del panel sin clave no entra", () => {
     const c = candidatosDirectos({ proveedor: "openai", modelo: "x", baseUrl: "u", apiKey: "" }, env, 0);
     expect(c[0].proveedor).toBe("ollama_cloud");
+  });
+});
+
+describe("proveedores compatibles no seleccionados", () => {
+  it("incluye respaldos configurados sin exigir clave DeepSeek ni Ollama", () => {
+    const c = candidatosDirectos(null, {}, 0, [
+      { proveedor: "groq", modelo: "modelo-configurado", baseUrl: "https://api.groq.com/openai/v1", apiKey: "test" },
+      { proveedor: "anthropic", modelo: "incompatible", baseUrl: "https://example.test", apiKey: "test" },
+    ]);
+    expect(c.map(x => x.proveedor)).toEqual(["groq"]);
+    expect(c[0].baseUrl).toBe("https://api.groq.com/openai/v1/chat/completions");
+  });
+  it("la clave propia de respaldo gana a la global del mismo proveedor", () => {
+    const c = candidatosDirectos(null, { DEEPSEEK_API_KEY: "global-test" }, 0, [
+      { proveedor: "deepseek", modelo: "propio", apiKey: "tenant-test", baseUrl: "https://api.deepseek.com", alcance: "tenant:2:deepseek" },
+    ]);
+    expect(c).toHaveLength(1);
+    expect(c[0].apiKey).toBe("tenant-test");
+  });
+  it("el saldo agotado de un tenant no aparta la clave propia de otro", () => {
+    apartarProveedor("tenant:11:groq", 10000, "sin saldo", 0);
+    const propio = (id: number) => ({ proveedor: "groq", modelo: "configurado", apiKey: "test", baseUrl: "https://api.groq.com/openai/v1", alcance: `tenant:${id}:groq` });
+    expect(candidatosDirectos(null, {}, 1, [propio(11)])).toHaveLength(0);
+    expect(candidatosDirectos(null, {}, 1, [propio(12)])).toHaveLength(1);
+  });
+  it("DeepSeek sin saldo pasa a un proveedor configurado que no es el activo", async () => {
+    const candidatos = candidatosDirectos({ proveedor: "deepseek", alcance: "test:deepseek-sin-saldo", modelo: "seleccionado", baseUrl: "https://api.deepseek.com", apiKey: "test" }, {}, 0, [
+      { proveedor: "deepseek", modelo: "duplicado", baseUrl: "https://api.deepseek.com", apiKey: "test" },
+      { proveedor: "mistral", modelo: "configurado", baseUrl: "https://api.mistral.ai/v1", apiKey: "test" },
+    ]);
+    expect(candidatos.map(x => x.proveedor)).toEqual(["deepseek", "mistral"]);
+    const llamados: string[] = [];
+    const r = await correrTurnoDirectoConRotacion(base, candidatos, async o => {
+      llamados.push(o.proveedor!);
+      return o.proveedor === "deepseek"
+        ? { texto: "", error: "sin saldo", status: 402, vueltas: 0, herramientasUsadas: [], ms: 1 }
+        : { texto: "Respuesta de respaldo", vueltas: 1, herramientasUsadas: [], ms: 1 };
+    });
+    expect(llamados).toEqual(["deepseek", "mistral"]);
+    expect(r.proveedor).toBe("mistral");
   });
 });
 

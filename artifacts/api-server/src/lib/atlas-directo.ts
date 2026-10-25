@@ -350,7 +350,7 @@ export async function correrTurnoDirecto(o: OpcionesDeTurnoDirecto): Promise<Res
  * estaba muerta y el big-pickle de respaldo es lento. Con Ollama Pro el
  * turno va directo a ollama.com/v1 sin intermediarios ni cola global.
  */
-export interface ConfigDirecta { apiKey: string; baseUrl: string; modelo: string; proveedor: string }
+export interface ConfigDirecta { apiKey: string; baseUrl: string; modelo: string; proveedor: string; alcance?: string }
 
 /**
  * El fetch de más abajo manda POST a `baseUrl` tal cual. DeepSeek trae el
@@ -431,20 +431,28 @@ export function apartarProveedor(proveedor: string, ms: number, motivo: string, 
 }
 
 /** Proveedores del panel que hablan el formato de OpenAI con tool-calling. */
-const DIRECTO_COMPATIBLE = new Set(["openai", "deepseek", "ollama_cloud", "opencode_go", "groq", "openrouter", "mistral", "cerebras"]);
+export const DIRECTO_COMPATIBLE = new Set(["openai", "deepseek", "ollama_cloud", "opencode_go", "groq", "openrouter", "mistral", "cerebras"]);
 
 /**
  * Candidatos en orden: la IA que el admin eligió en el panel, después los
  * fijos del entorno. `activa` la resuelve quien llama (lee la base).
  */
 export function candidatosDirectos(
-  activa: { proveedor: string; modelo?: string; baseUrl: string; apiKey: string } | null,
+  activa: { proveedor: string; modelo?: string; baseUrl: string; apiKey: string; alcance?: string } | null,
   env: NodeJS.ProcessEnv = process.env,
   ahora = Date.now(),
+  alternativos: Array<{ proveedor: string; modelo?: string; baseUrl: string; apiKey: string; alcance?: string }> = [],
 ): ConfigDirecta[] {
   const out: ConfigDirecta[] = [];
   if (activa && activa.apiKey && DIRECTO_COMPATIBLE.has(activa.proveedor)) {
-    out.push({ apiKey: activa.apiKey, baseUrl: endpointChat(activa.baseUrl), modelo: activa.modelo || "", proveedor: activa.proveedor });
+    out.push({ apiKey: activa.apiKey, baseUrl: endpointChat(activa.baseUrl), modelo: activa.modelo || "", proveedor: activa.proveedor, alcance: activa.alcance });
+  }
+  // El panel permite configurar más de una IA. Las no seleccionadas también
+  // deben participar del respaldo, usando el mismo adaptador compatible.
+  for (const c of alternativos) {
+    if (c.apiKey && c.modelo && DIRECTO_COMPATIBLE.has(c.proveedor)) {
+      out.push({ ...c, modelo: c.modelo, baseUrl: endpointChat(c.baseUrl) });
+    }
   }
   if (env.OLLAMA_CLOUD_API_KEY) {
     out.push({
@@ -463,7 +471,7 @@ export function candidatosDirectos(
     });
   }
   const vistos = new Set<string>();
-  return out.filter((c) => c.modelo && !vistos.has(c.proveedor) && (vistos.add(c.proveedor), true) && !proveedorApartado(c.proveedor, ahora));
+  return out.filter((c) => c.modelo && !vistos.has(c.proveedor) && (vistos.add(c.proveedor), true) && !proveedorApartado(c.alcance || c.proveedor, ahora));
 }
 
 /**
@@ -483,7 +491,7 @@ export async function correrTurnoDirectoConRotacion(
     const sinHacerNada = !r.texto && r.herramientasUsadas.length === 0;
     if (!r.error || !sinHacerNada || r.error === "detenido" || o.cancelSignal?.aborted) return ultimo;
     const ms = apartarPor(r.status, r.detalle) || (r.status ? 0 : 60_000);
-    apartarProveedor(c.proveedor, ms, r.error);
+    apartarProveedor(c.alcance || c.proveedor, ms, r.error);
     logger.warn({ proveedor: c.proveedor, modelo: c.modelo, status: r.status, apartadoMin: Math.round(ms / 60_000) }, "[AtlasDirecto] el modelo no atendió: se prueba el siguiente");
   }
   return ultimo;

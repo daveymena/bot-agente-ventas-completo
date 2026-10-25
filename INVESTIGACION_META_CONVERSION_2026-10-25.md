@@ -47,3 +47,11 @@ Evaluación: no declarar ganador por CTR o mensajes. Revisar origen por anuncio,
 ## Validación y límites
 
 Se añadieron pruebas de economía, casos por modelo, falta de ficha, riesgos de proveedor, comparación de campañas y errores de API. Compilación y resultados de pruebas se reportan al entregar el cambio. No se ejecutaron campañas, no se gastó presupuesto y no se demostró rentabilidad en producción. Quedan por verificar con acceso operativo: catálogo actual, pagos atribuidos, devoluciones/entregas, señales de Meta, prueba móvil del cierre y campañas controladas aprobadas.
+
+## Continuidad de Atlas al agotarse un proveedor
+
+El camino directo probaba solo la IA seleccionada y los respaldos de entorno Ollama/DeepSeek. Ahora incorpora los demás proveedores del adaptador directo ya soportados que tengan configuración utilizable, usando el modelo guardado y la resolución de claves del tenant. No se añade compatibilidad nueva para todos los proveedores del catálogo. Se conserva ATLAS_DIRECTO=true como activación; ya no exige específicamente una clave de Ollama o DeepSeek si hay otro candidato configurado.
+
+Las claves propias de respaldo tienen prioridad sobre la global del mismo proveedor. El enfriamiento de claves propias se separa por tenant y proveedor para que agotar una no aparte la de otro negocio. No se repite automáticamente un turno que ya emitió texto o usó herramientas. Las pruebas simulan 402/429 y verifican selección y aislamiento; no prueban saldo, disponibilidad ni tool-calling real de los proveedores desplegados.
+
+Prueba de navegador pendiente: Google regresó al formulario de acceso sin sesión válida. La vigencia del estado OAuth en el código es 10 minutos; el acceso demoró más, por lo que expiración es una hipótesis, no causa confirmada por logs de producción. No se alteraron los controles de autenticación.
