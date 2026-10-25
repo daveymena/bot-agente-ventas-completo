@@ -32,7 +32,7 @@ Fecha: 25 de octubre de 2026. Entornos distintos: navegador autenticado contra p
 
 ## Resultado de pruebas
 
-Primera batería: 389 archivos; 4.659 aprobadas, 39 fallidas y 12 omitidas (4.710 en total). Segunda batería después de correcciones/diseño: 391 archivos; 4.680 aprobadas, 27 fallidas y 12 omitidas (4.719). Regresiones focalizadas de confirmación, conteo, moneda, avisos y memoria: 45 pruebas aprobadas. Frontend y backend compilan; persisten avisos de sourcemaps y casos duplicados en proveedores.
+Primera batería: 389 archivos; 4.659 aprobadas, 39 fallidas y 12 omitidas (4.710 en total). Segunda batería después de correcciones/diseño: 391 archivos; 4.680 aprobadas, 27 fallidas y 12 omitidas (4.719). Tercera batería tras adaptar la tienda: 392 archivos; 4.684 aprobadas, 27 fallidas y 12 omitidas (4.723). El número de fallos no aumentó respecto de la segunda ejecución. Regresiones focalizadas de confirmación, conteo, moneda, avisos y memoria: 45 pruebas aprobadas. Frontend y backend compilan; persisten avisos de sourcemaps y casos duplicados en proveedores.
 
 El chequeo completo de tipos no está aprobado: hay errores y referencias a declaraciones faltantes tanto en API como frontend. Compilar con Vite/esbuild no equivale a pasar TypeScript. Vitest informa un recurso que demora el cierre pese a completar los casos.
 
@@ -59,3 +59,7 @@ Se comprobó el viewport móvil del visor de landing. El panel administrativo co
 - La tienda vacía o con error ya no rellena la vitrina con productos de demostración guardados en el navegador. No se migró ni modificó ningún catálogo de producción.
 - Servicios: fotos reales si existen, moneda de cada oferta y campos accesibles; digitales: búsqueda y categorías conectadas también al buscador del encabezado. El diseño usa rejillas responsive y controles táctiles. No se ha validado visualmente esta nueva portada en un navegador de móvil/escritorio ni desplegado.
 - Pruebas focalizadas de presentación, clasificación, carrito, confirmaciones, catálogo y avisos: 32 aprobadas en 5 archivos. Tienda y backend compilan. TypeScript de la tienda conserva errores del editor y otros módulos; no se declara aprobado el chequeo general.
+
+## Publicación del código
+
+Bloque de 40 archivos subido a la rama del PR 20 mediante el commit 56b740887171db553420b753be508c1ec4f9d651. Se verificaron los hashes de los archivos contra GitHub. El PR sigue en borrador y no se desplegó. La presentación PPTX del usuario y los respaldos generados por pruebas quedan fuera de este commit.
