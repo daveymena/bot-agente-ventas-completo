@@ -2,7 +2,7 @@ import { eq, and, gte, lte, desc, asc, sql, count, inArray } from "drizzle-orm";
 import { db, conversations, messages, leads, products, activityEvents, payments } from "@workspace/db";
 import { logger } from "./logger";
 import { tenantManager, type TenantContext } from "./tenantManager";
-import { getWhatsAppForTenant } from "./whatsapp-factory";
+import { peekWhatsAppForTenant } from "./whatsapp-factory";
 
 // Mismo default que config/g4f.config.ts, y por el mismo motivo: `github`
 // está apagado (connection error) y `opencode_zen` no es un id de proveedor
@@ -383,7 +383,7 @@ export class AnalyticsEngine {
       // nunca se inicia), así que este número era SIEMPRE 0 sin importar el
       // estado real del negocio -- getWhatsAppForTenant(this.tenant.id) es la
       // instancia real que efectivamente conecta.
-      const systemUptime = getWhatsAppForTenant(this.tenant.id).isConnected() ? 100 : 0;
+      const systemUptime = peekWhatsAppForTenant(this.tenant.id)?.isConnected() ? 100 : 0;
       const errorRate = 0; // not tracked -- no error event log exists to compute this from
 
       return {
@@ -678,7 +678,7 @@ export class AnalyticsEngine {
       // Real WhatsApp health: actual connection state + real message counts (24h).
       // Mismo fix que arriba: usar la instancia real del tenant, no el
       // singleton standalone que nunca conecta.
-      const waConnected = getWhatsAppForTenant(this.tenant.id).isConnected();
+      const waConnected = peekWhatsAppForTenant(this.tenant.id)?.isConnected() ?? false;
       const [sentCount] = await db
         .select({ count: sql<number>`count(*)` })
         .from(messages)

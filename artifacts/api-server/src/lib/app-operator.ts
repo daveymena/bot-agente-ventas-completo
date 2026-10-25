@@ -4339,8 +4339,8 @@ ${explicarObjetivos()}` };
       // con el tenant real de esta conversación (no el proxy de compatibilidad
       // en whatsapp-singleton.ts, que cae al tenant por defecto) es la fuente
       // correcta -- mismo patrón que ya se aplicó en routes/dashboard.ts.
-      const { getWhatsAppForTenant } = await import("./whatsapp-factory");
-      const s = getWhatsAppForTenant(ctx.tenantId).getStatus();
+      const { peekWhatsAppForTenant } = await import("./whatsapp-factory");
+      const s = peekWhatsAppForTenant(ctx.tenantId)?.getStatus();
       return {
         ok: true,
         summary: s?.state === "connected"
@@ -4386,8 +4386,8 @@ ${explicarObjetivos()}` };
 
       // ── WhatsApp ────────────────────────────────────────────────────────
       try {
-        const { getWhatsAppForTenant } = await import("./whatsapp-factory");
-        const s = getWhatsAppForTenant(ctx.tenantId).getStatus();
+        const { peekWhatsAppForTenant } = await import("./whatsapp-factory");
+        const s = peekWhatsAppForTenant(ctx.tenantId)?.getStatus();
         if (s?.state === "connected") sanos.push(`WhatsApp conectado — ${s.phone}`);
         else fallas.push({
           pieza: "WhatsApp",

@@ -29,8 +29,8 @@ const healthHandler = async (req: any, res: any) => {
     // que avise cuando el bot se cae, que es cuando se pierden ventas.
     let whatsapp: { conectado: boolean; estado: string } | null = null;
     try {
-      const { getWhatsAppForTenant } = require("./lib/whatsapp-factory");
-      const s = getWhatsAppForTenant(1)?.getStatus?.();
+      const { peekWhatsAppForTenant } = require("./lib/whatsapp-factory");
+      const s = peekWhatsAppForTenant(1)?.getStatus?.();
       whatsapp = { conectado: s?.state === "connected", estado: String(s?.state || "desconocido") };
     } catch {
       /* si no se puede leer, se omite; el estado se refleja abajo en `problemas` */
