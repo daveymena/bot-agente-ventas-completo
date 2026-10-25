@@ -385,11 +385,19 @@ export default function CreativosPage(props: PropsCreativos = {}) {
     <>
       {panel === "maquetas" && (
         <div className="p-3 space-y-3">
+          <div className="rounded-xl border bg-muted/30 p-3 space-y-2">
+            <p className="text-xs font-semibold">Empezá en 3 pasos</p>
+            <div className="grid grid-cols-3 gap-2 text-[10px] leading-tight text-muted-foreground">
+              <p><span className="mr-1 inline-grid h-4 w-4 place-items-center rounded-full bg-violet-600 text-white">1</span>Elegí producto</p>
+              <p><span className="mr-1 inline-grid h-4 w-4 place-items-center rounded-full bg-violet-600 text-white">2</span>Tocá un diseño</p>
+              <p><span className="mr-1 inline-grid h-4 w-4 place-items-center rounded-full bg-violet-600 text-white">3</span>Editá y exportá</p>
+            </div>
+          </div>
           {!datos ? (
-            <p className="text-xs text-muted-foreground">{cargandoDatos ? "Leyendo foto, precio y condiciones del producto…" : "Elegí un producto arriba: las maquetas se arman con su foto, su precio y las condiciones reales de tu negocio."}</p>
+            <p className="text-xs text-muted-foreground">{cargandoDatos ? "Leyendo foto, precio y condiciones del producto…" : "Elegí un producto arriba. La vista previa usa su foto, precio y condiciones reales."}</p>
           ) : (
             <>
-              <p className="text-[11px] text-muted-foreground">Ya armadas con tus datos reales. Tocá una para editarla.</p>
+              <p className="text-[11px] text-muted-foreground">Elegí una vista previa para abrirla en el lienzo y ajustar texto, foto o colores.</p>
               <div className="grid grid-cols-2 gap-2">
                 {galeria.map(({ m, escena: e }) => (
                   <div key={m.id} className="space-y-1">

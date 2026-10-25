@@ -16,6 +16,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Loader2, Send, Square, Sparkles, X, RotateCcw } from "lucide-react";
 
@@ -42,8 +43,8 @@ const SUGERENCIAS: Record<ContextoEstudio["espacio"], string[]> = {
     "Creá una landing nueva para este producto",
   ],
   creativos: [
+    "Prepará un anuncio para Meta: revisá el producto, proponé el copy y decime qué creativo mostraría antes de publicarlo",
     "Creá 3 creativos 4:5 para este producto con ganchos distintos",
-    "Hacé versiones 9:16 para historias",
     "Proponé ganchos para mamás",
   ],
 };
@@ -157,7 +158,7 @@ export function AtlasDock({ contexto, onTurnoTerminado, onCerrar }: { contexto: 
       <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
         {msgs.length === 0 && (
           <div className="space-y-3 pt-2">
-            <p className="text-sm text-muted-foreground">Pedime lo que quieras sobre tus landings y creativos. Uso tus productos reales y aplico los cambios; lo que cambia algo te lo confirmo antes.</p>
+            <p className="text-sm text-muted-foreground">Puedo preparar anuncios con los datos reales del producto y enseñarte el resultado disponible antes de guardar o publicar. Las campañas de Meta requieren tu confirmación.</p>
             <div className="space-y-1.5">
               {SUGERENCIAS[contexto.espacio].map((s) => (
                 <button key={s} onClick={() => void enviar(s)} disabled={ocupado} className="w-full text-left text-xs rounded-lg border px-3 py-2 hover:border-violet-500 hover:bg-violet-50/60 dark:hover:bg-violet-950/30">{s}</button>
@@ -170,7 +171,10 @@ export function AtlasDock({ contexto, onTurnoTerminado, onCerrar }: { contexto: 
             <div className={`max-w-[92%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed ${m.role === "user" ? "bg-violet-600 text-white rounded-br-sm" : "bg-muted rounded-bl-sm"}`}>
               {m.role === "assistant" ? (
                 <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 [&_a]:text-violet-600 [&_a]:underline">
-                  <ReactMarkdown components={{ a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer">{children}</a> }}>{m.content}</ReactMarkdown>
+                  <ReactMarkdown components={{
+                    a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
+                    img: ({ src, alt }) => <img src={src} alt={alt || "Vista previa del creativo"} loading="lazy" className="my-2 max-h-72 w-auto rounded-xl border bg-white object-contain" />,
+                  }}>{m.content}</ReactMarkdown>
                 </div>
               ) : m.content}
             </div>
@@ -183,6 +187,9 @@ export function AtlasDock({ contexto, onTurnoTerminado, onCerrar }: { contexto: 
       </div>
 
       <div className="border-t p-2 shrink-0 space-y-2">
+        {contexto.espacio === "creativos" && (
+          <Link href={typeof contexto.producto?.id === "number" ? `/creativos?producto=${contexto.producto.id}` : "/creativos"} className="block rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-center text-xs font-semibold text-violet-800 hover:bg-violet-100 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-200">Abrir vista previa y editor visual ↗</Link>
+        )}
         {esperaSi && !ocupado && (
           <div className="flex gap-1.5">
             <Button size="sm" className="h-8 flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs" onClick={() => void enviar("Sí, hacelo")}>Sí, hacelo</Button>
