@@ -128,6 +128,61 @@ const TOOL_SCHEMAS: Record<string, object> = {
     additionalProperties: false,
   },
   landing_forge_pendientes: { type: "object", properties: {} },
+  // ── Atlas diseña (23-10-2026): ver y operar creativos y landings ────────────
+  creativo_ver: {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "Id del creativo (creativo_listar)" },
+      mirar: { type: "boolean", description: "true = renderizarlo y recibir la crítica del director de arte" },
+      objetivo: { type: "string", description: "Qué tiene que lograr el anuncio, en una frase" },
+    },
+    required: ["id"],
+    additionalProperties: false,
+  },
+  creativo_disenar: {
+    type: "object",
+    properties: {
+      id: { type: "string", description: "Creativo a editar. Sin id se crea uno nuevo (requiere productId)" },
+      productId: { type: "number", description: "Producto, para un creativo nuevo" },
+      formato: { type: "string", enum: ["4:5", "1:1", "9:16", "1.91:1"] },
+      maqueta: { type: "string", description: "Partir de una maqueta (creativo_maquetas); sin ella, lienzo en blanco" },
+      nombre: { type: "string" },
+      operaciones: {
+        type: "array",
+        description: "Operaciones sobre capas: agregar, cambiar, borrar, duplicar, orden, alinear, fondo, formato",
+        items: { type: "object", properties: { op: { type: "string", enum: ["agregar", "cambiar", "borrar", "duplicar", "orden", "alinear", "fondo", "formato"] } }, required: ["op"] },
+      },
+      mirar: { type: "boolean", description: "true = renderizar y recibir la crítica" },
+      objetivo: { type: "string" },
+    },
+    required: ["operaciones"],
+    additionalProperties: false,
+  },
+  landing_ver: {
+    type: "object",
+    properties: {
+      id: { type: "number", description: "Id de la landing (landing_listar)" },
+      mirar: { type: "boolean", description: "true = fotografiarla en un celular y recibir la crítica" },
+      objetivo: { type: "string" },
+    },
+    required: ["id"],
+    additionalProperties: false,
+  },
+  landing_disenar: {
+    type: "object",
+    properties: {
+      id: { type: "number", description: "Id de la landing EN BORRADOR" },
+      operaciones: {
+        type: "array",
+        description: "Operaciones: seccion_cambiar, seccion_agregar, seccion_mover, seccion_borrar, tema, diseno",
+        items: { type: "object", properties: { op: { type: "string", enum: ["seccion_cambiar", "seccion_agregar", "seccion_mover", "seccion_borrar", "tema", "diseno"] } }, required: ["op"] },
+      },
+      mirar: { type: "boolean" },
+      objetivo: { type: "string" },
+    },
+    required: ["id", "operaciones"],
+    additionalProperties: false,
+  },
   // ── Diagnóstico del vendedor de WhatsApp ────────────────────────────────────
   // Esquemas explícitos y no el genérico permisivo: son las herramientas que
   // Atlas tiene que poder llamar SOLO con lo que leyó del pedido, y el
@@ -1495,7 +1550,17 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // "no tengo una consulta que devuelva la lista de landings" teniéndola.
     // El patrón tolera "landipage"/"landing page"/"lp"/"Landing Studio".
     patron: /landi|landing|\bl\/|p[aá]gina de venta|\blp\b|studio/i,
-    herramientas: ["landing_listar", "landing_forge_pendientes", "list_products"],
+    herramientas: ["landing_listar", "landing_forge_pendientes", "list_products", "landing_ver", "landing_disenar"],
+  },
+  {
+    // ── Atlas diseña (23-10-2026) ─────────────────────────────────────────
+    // Ver y operar creativos y landings con sus manos, y mirar el resultado.
+    // Palabras de DISEÑO ("hazlo más bonito", "cambia la letra", "la imagen
+    // del anuncio"), no cualquier mención de "anuncio" o "foto": esas viajan
+    // en los pedidos de pauta y cuatro esquemas más los pasaban del tope por
+    // minuto de Groq (el-filtro-tiene-que-filtrar.test.ts).
+    patron: /dise[ñn]|creativ|maqueta|banner|bonit|\bfe[oa]\b|tipograf|\bletras?\b|\bcapas?\b|titular|imagen (?:para|del|de) (?:el |un |la )?(?:anuncio|post)|landi|landing|p[aá]gina de venta|secci[oó]n|estudio|studio/i,
+    herramientas: ["creativo_listar", "creativo_maquetas", "creativo_ver", "creativo_disenar", "landing_listar", "landing_ver", "landing_disenar", "list_products"],
   },
   {
     patron: /contenido|publicacion|publicar|org[aá]nic|calendario|estrategia|agencia|redes|instagram|posteo|postear/i,

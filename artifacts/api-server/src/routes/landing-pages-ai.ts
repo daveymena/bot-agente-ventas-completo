@@ -147,12 +147,14 @@ export function normalizeSections(input: unknown, product: any, casillas: Casill
     let body = s.body ? aTextoPlano(s.body) : relleno.body;
     if (casilla.type === "logistics" && esFisico) {
       const c = condiciones ?? CONDICIONES_DE_RESPALDO;
+      // Lo que el negocio no configuró no se escribe (ver CONDICIONES_DE_RESPALDO).
+      const llega = [c.envio.plazo && `Llega en ${c.envio.plazo}`, c.envio.cobertura].filter(Boolean).join(", ");
       body = [
         `${fraseCostoEnvio(c)}.`,
         `${frasePagoEnvio(c)}.`,
-        `Llega en ${c.envio.plazo}, ${c.envio.cobertura}.`,
+        llega ? `${llega}.` : "",
         "Antes de despachar te confirmamos los datos de envío por WhatsApp.",
-      ].join("\n");
+      ].filter(Boolean).join("\n");
     }
     return {
       // El id sale de la casilla, no del modelo: el editor los usa como clave y

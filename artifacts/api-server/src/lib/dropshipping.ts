@@ -20,12 +20,14 @@
  *
  * Estados: borrador → completo (faltan 0 datos) → por_confirmar (se mostró el
  * resumen) → confirmado (el cliente dijo que sí) → enviado (orden en Woo).
+ * Desde la landing con verificación: completo → por_verificar (espera que el
+ * cliente nos escriba su código por WhatsApp) → confirmado.
  */
 import { db, pool, products } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "./logger";
 import { notasParaElProveedor } from "./dropi-directo";
-import { CONDICIONES_DE_RESPALDO, esColombia, envioConfirmado, plazoDeEntrega, costoDeEnvioEnFrase, type CondicionesDelNegocio } from "./modelo-de-negocio";
+import { CONDICIONES_DE_RESPALDO, esColombia, envioConfirmado, plazoDeEntrega, costoDeEnvioEnFrase, plazoConfirmado, costoConfirmado, type CondicionesDelNegocio } from "./modelo-de-negocio";
 
 /** Los datos mínimos para que una transportadora entregue en Colombia. */
 export interface DatosDeEnvio {
@@ -167,16 +169,18 @@ export function contextoDeDropshipping(c: CondicionesDelNegocio = CONDICIONES_DE
   // Sin envío configurado NO se le da al modelo un plazo ni un costo para
   // repetir "con seguridad" (09-10-2026: era el relleno y el dueño lo vio
   // como mentira). Ver envioConfirmado.
-  const confirmado = envioConfirmado(c);
-  const costo = !confirmado
+  // Cada dato por su lado: un negocio puede haber cargado el plazo y no el costo.
+  const plazo = plazoConfirmado(c);
+  const costoNegocio = costoConfirmado(c);
+  const costo = !costoNegocio
     ? "• El COSTO del envío NO está configurado: no digas que es gratis ni que va incluido. Si pregunta, dile que se lo confirmas al tomar el pedido."
-    : c.envio.costo === "incluido"
+    : costoNegocio === "incluido"
       ? "• El envío va INCLUIDO en el precio: no se cobra aparte ni se cotiza por ciudad."
-      : `• Costo de envío: ${c.envio.costo}. Dilo tal cual; no lo estimes por ciudad.`;
+      : `• Costo de envío: ${costoNegocio}. Dilo tal cual; no lo estimes por ciudad.`;
   return [
     "🚚 PRODUCTO FÍSICO — ENTREGA A DOMICILIO",
-    confirmado
-      ? `• Tiempo de entrega: ${c.envio.plazo}, cobertura: ${c.envio.cobertura}.
+    plazo
+      ? `• Tiempo de entrega: ${plazo}${c.envio.cobertura ? `, cobertura: ${c.envio.cobertura}` : ""}.
   Es un dato confirmado por el negocio: dilo con seguridad y NUNCA lo cambies según la ciudad ni lo estimes.`
       : "• El TIEMPO de entrega NO está configurado: no prometas días. Si pregunta, depende de la transportadora y se lo confirmas con la guía.",
     costo,
@@ -185,7 +189,7 @@ export function contextoDeDropshipping(c: CondicionesDelNegocio = CONDICIONES_DE
     `• Para despacharlo necesitas: nombre completo, celular, dirección con barrio, ciudad, ${esColombia(c.pais) ? "departamento" : "estado o provincia"} y un punto de referencia.`,
     "  Cuando el cliente quiera comprar, pídeselos TODOS JUNTOS en una lista numerada (el sistema te dice cuáles faltan).",
     "  Después se verifican, se le muestra el resumen y se registra SOLO cuando él confirma con un sí.",
-    confirmado
+    plazo
       ? "• Nunca inventes número de guía ni fecha exacta de llegada: solo el rango de arriba."
       : "• Nunca inventes número de guía ni fecha de llegada.",
     "• Nunca digas que el pedido quedó registrado si el sistema no te lo confirma abajo.",
@@ -298,9 +302,11 @@ export function confirmacionDelPedido(p: PedidoDropshipping, c: CondicionesDelNe
     `💵 ${p.metodoPago === "contraentrega" ? "Pagas contraentrega, cuando lo recibes" : "Pago ya acordado"}`,
     `🏠 ${p.direccion}${p.barrio ? `, barrio ${p.barrio}` : ""}`,
     `🏙️ ${p.ciudad}${p.departamento ? `, ${p.departamento}` : ""}`,
-    envioConfirmado(c)
-      ? `🚚 ${c.envio.costo === "incluido" ? "Envío incluido" : `Envío ${c.envio.costo}`} · llega en ${c.envio.plazo}`
-      : `🚚 Te comparto la guía apenas la transportadora la genere`,
+    (() => {
+      const costo = costoConfirmado(c), plazo = plazoConfirmado(c);
+      const partes = [costo ? (costo === "incluido" ? "Envío incluido" : `Envío ${costo}`) : "", plazo ? `llega en ${plazo}` : ""].filter(Boolean);
+      return partes.length ? `🚚 ${partes.join(" · ")}` : `🚚 Te comparto la guía apenas la transportadora la genere`;
+    })(),
   ].join("\n");
 }
 
@@ -520,7 +526,7 @@ export async function pedidoEnCurso(conversationId: number): Promise<PedidoDrops
 /** Cambia el estado del pedido (por_confirmar / confirmado / cancelado). */
 export async function marcarEstado(
   pedidoId: number,
-  estado: "borrador" | "completo" | "por_confirmar" | "confirmado" | "cancelado",
+  estado: "borrador" | "completo" | "por_confirmar" | "por_verificar" | "confirmado" | "cancelado",
 ): Promise<void> {
   await pool.query(`UPDATE dropshipping_orders SET estado = $2, updated_at = now() WHERE id = $1`, [pedidoId, estado]);
   logger.info({ pedidoId, estado }, "[Dropshipping] Estado del pedido");
@@ -627,6 +633,82 @@ export async function guardarTransportadoraDelPedido(
     [pedidoId, nombre || null, t?.id != null ? Number(t.id) : null],
   );
   if (nombre) logger.info({ pedidoId, transportadora: nombre, transportadoraId: t?.id ?? null }, "[Dropshipping] Transportadora elegida");
+}
+
+// ─── Formulario contraentrega seguro (lib/landing/pedido-seguro.ts) ─────────
+
+/** IP desde la que se llenó el formulario: es lo que cuenta el antifraude. */
+export async function guardarIpDelPedido(pedidoId: number, ip: string): Promise<void> {
+  const limpia = String(ip || "").replace(/^::ffff:/, "").slice(0, 64);
+  if (!limpia) return;
+  await pool.query(`UPDATE dropshipping_orders SET ip = $2 WHERE id = $1`, [pedidoId, limpia]);
+}
+
+/** Pedidos de las últimas 24 h del mismo celular y de la misma IP (sin contar cancelados). */
+export async function pedidosRecientes(tenantId: number, telefono: string, ip: string): Promise<{ telefono: number; ip: number }> {
+  const tel = String(telefono || "").replace(/\D/g, "").slice(-10);
+  const ipLimpia = String(ip || "").replace(/^::ffff:/, "");
+  const { rows } = await pool.query(
+    `SELECT
+       COUNT(*) FILTER (WHERE $2 <> '' AND RIGHT(regexp_replace(COALESCE(telefono, ''), '\\D', '', 'g'), 10) = $2) AS por_telefono,
+       COUNT(*) FILTER (WHERE $3 <> '' AND ip = $3) AS por_ip
+     FROM dropshipping_orders
+     WHERE tenant_id = $1 AND created_at > now() - interval '24 hours' AND estado <> 'cancelado'`,
+    [tenantId, tel, ipLimpia],
+  );
+  return { telefono: Number(rows[0]?.por_telefono || 0), ip: Number(rows[0]?.por_ip || 0) };
+}
+
+/** El pedido queda esperando que el cliente nos escriba `codigo` por WhatsApp. */
+export async function ponerEnVerificacion(pedidoId: number, codigo: string): Promise<void> {
+  await pool.query(
+    `UPDATE dropshipping_orders SET estado = 'por_verificar', codigo_verificacion = $2, updated_at = now() WHERE id = $1`,
+    [pedidoId, codigo],
+  );
+  logger.info({ pedidoId }, "[Dropshipping] Pedido esperando verificación por WhatsApp");
+}
+
+/**
+ * Los pedidos que esperan ESE código, dentro de la ventana para verificar.
+ * Pueden ser dos: el principal y el complemento del upsell (otro producto va
+ * en su propio pedido y comparte el código).
+ */
+export async function pedidosPorVerificar(tenantId: number, codigo: string, horas: number): Promise<PedidoDropshipping[]> {
+  const { rows } = await pool.query(
+    `SELECT * FROM dropshipping_orders
+     WHERE tenant_id = $1 AND codigo_verificacion = $2 AND estado = 'por_verificar'
+       AND created_at > now() - ($3 || ' hours')::interval
+     ORDER BY id ASC LIMIT 5`,
+    [tenantId, codigo, String(horas)],
+  );
+  return rows.map(aPedido);
+}
+
+/** Estado y código de un pedido, para la página que espera la verificación. */
+export async function estadoDeVerificacion(pedidoId: number): Promise<{ estado: string; codigo: string | null; tenantId: number } | null> {
+  const { rows } = await pool.query(`SELECT estado, codigo_verificacion, tenant_id FROM dropshipping_orders WHERE id = $1`, [pedidoId]);
+  return rows[0] ? { estado: rows[0].estado, codigo: rows[0].codigo_verificacion ?? null, tenantId: rows[0].tenant_id } : null;
+}
+
+/**
+ * El cliente escribió su código: el pedido queda confirmado y atado a la
+ * conversación. El celular que vale es el que escribió (existe y es suyo);
+ * si en el formulario puso otro, el escrito queda en las notas.
+ */
+export async function marcarVerificado(pedidoId: number, conversationId: number, telefonoQueEscribio: string): Promise<PedidoDropshipping | null> {
+  const { rows } = await pool.query(
+    `UPDATE dropshipping_orders
+       SET estado = 'confirmado', verificado_at = now(), conversation_id = $2,
+           notas = CASE WHEN RIGHT(regexp_replace(COALESCE(telefono, ''), '\\D', '', 'g'), 10) <> RIGHT($3, 10)
+                        THEN concat_ws(' · ', notas, 'Celular del formulario: ' || telefono) ELSE notas END,
+           telefono = $3, updated_at = now()
+     WHERE id = $1 AND estado = 'por_verificar'
+     RETURNING *`,
+    [pedidoId, conversationId, String(telefonoQueEscribio || "").replace(/\D/g, "")],
+  );
+  if (!rows[0]) return null;
+  logger.info({ pedidoId, conversationId }, "[Dropshipping] Pedido verificado por WhatsApp");
+  return aPedido(rows[0]);
 }
 
 // ─── Despacho a WooCommerce ──────────────────────────────────────────────────

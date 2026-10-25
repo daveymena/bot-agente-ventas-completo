@@ -1313,14 +1313,22 @@ router.post("/chat", async (req, res) => {
     // Retrocompatible: sin `plantilla` sigue mandando el campo `familia`.
     const plantillaParam = typeof plantilla === "string" ? plantilla.trim() : "";
     const esEstilo = plantillaParam === "estilo" || plantillaParam.startsWith("estilo:");
+    // Diseño premium (lib/landing/renderer-premium.ts): la IA escribe las
+    // secciones como siempre y la página la dibuja el renderer premium.
+    const esPremiumVp = plantillaParam === "vp:premium";
     const estiloPedido = esEstilo ? (plantillaParam === "estilo" ? null : plantillaParam.slice("estilo:".length)) : null;
     // Familia visual (estilo): la que manda el cliente ahora, o la guardada.
-    const familiaElegida = esEstilo
+    const familiaElegida = esEstilo || esPremiumVp
       ? null
       : plantillaParam
         ? plantillaParam
         : ((familia ?? (disenoGuardado as any)?.familia ?? null) as string | null);
     const designGuardado: any = { ...disenoFinal, ...(familiaElegida ? { familia: familiaElegida } : {}) };
+    if (esPremiumVp) {
+      delete designGuardado.familia;
+      delete designGuardado.style;
+      designGuardado.renderer = "premium";
+    }
     if (esEstilo) {
       delete designGuardado.familia;
       designGuardado.renderer = "estilo";

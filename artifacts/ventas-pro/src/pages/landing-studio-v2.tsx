@@ -10,6 +10,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import ReactMarkdown from "react-markdown";
 import { BloquesEditor, type Seccion } from "@/components/landing/bloques-editor";
 import { TemaPanel } from "@/components/landing/tema-panel";
+import { PedidoPanel } from "@/components/landing/pedido-panel";
 import { conectarEdicion, etiquetar, marcarSeleccion, type CampoEditable } from "@/components/landing/puente-edicion";
 import { aplicarRetoque, normalizarRetoque, type Retoque } from "@estudio/retoque";
 import { Link } from "wouter";
@@ -82,7 +83,10 @@ Creo paginas de ventas profesionales con frameworks de alta conversion (AIDA, PA
  * dueño el 03-10), cualquier otro valor = una familia v3. El prefijo "estilo:"
  * evita la colisión con la familia "premium".
  */
-type Plantilla = "" | Familia | "estilo" | `estilo:${string}`;
+type Plantilla = "" | Familia | "estilo" | `estilo:${string}` | "vp:premium";
+
+/** El diseño premium (renderer-premium): físico, digital o servicio según el producto. */
+const PREMIUM: Plantilla = "vp:premium";
 
 const VARIANTES_ESTILO: { value: Plantilla; label: string }[] = [
   { value: "estilo", label: "Modelo COD — que la IA elija el modelo" },
@@ -95,6 +99,7 @@ const VARIANTES_ESTILO: { value: Plantilla; label: string }[] = [
 const COLOR_ESTILO: Record<string, string> = { cleanhome: "#08783A", urgencia: "#E5342A", clinico: "#1E5BD7", pro: "#0E9F8A" };
 
 function plantillaDeDesign(d: any): Plantilla {
+  if (d?.renderer === "premium") return PREMIUM;
   if (d?.renderer === "estilo") {
     const s = String(d.style || "");
     if (s && ["cleanhome", "urgencia", "clinico", "pro"].includes(s)) return (`estilo:${s}` as Plantilla);
@@ -106,7 +111,7 @@ function plantillaDeDesign(d: any): Plantilla {
   return "";
 }
 
-const soloFamilia = (v?: string | null): string => (v && !v.startsWith("estilo") ? v : "");
+const soloFamilia = (v?: string | null): string => (v && !v.startsWith("estilo") && !v.startsWith("vp:") ? v : "");
 
 /**
  * Acá había un panel "Diseño (tú decides)" (fondo, botones, color) que solo
@@ -181,7 +186,7 @@ export default function LandingStudioV2(props: PropsLandingStudio = {}) {
    */
   const [panelMovil, setPanelMovil] = useState<"chat" | "preview">("chat");
   // Chat (pedirle cambios al modelo) o Bloques (tocar la landing con las manos).
-  const [modoPanel, setModoPanel] = useState<"chat" | "bloques" | "tema">("chat");
+  const [modoPanel, setModoPanel] = useState<"chat" | "bloques" | "tema" | "pedido">("chat");
   const [msgs, setMsgs] = useState<Msg[]>([{ role: "assistant", content: SALUDO }]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -493,6 +498,7 @@ export default function LandingStudioV2(props: PropsLandingStudio = {}) {
     if (!p || p.n === ultimoPedido.current) return;
     ultimoPedido.current = p.n;
     if (landingId) { void cambiarPlantilla(p.plantilla as Plantilla); toast.success("Diseño aplicado: tus textos quedan igual."); }
+    else if (typeof productId === "number" && p.plantilla === PREMIUM) { setPlantilla(PREMIUM); void crearPremium(productId); }
     else if (typeof productId === "number") { setPlantilla(p.plantilla as Plantilla); void enviar("Genera una landing page para este producto", { nueva: true }); }
     else toast.info("Elegí un producto para crear la landing.");
   }, [props.pedidoDiseno]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -647,6 +653,27 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
     } catch (e: any) { toast.error(`No se pudo clonar: ${e.message}`); }
   }, [landingId, clonarProducto, cargarPreview]);
 
+  // Diseño premium: se crea al instante con los datos de la ficha, sin IA
+  // (el servidor arma las secciones de arranque). Después se mejora con el
+  // chat o a mano en Bloques.
+  const crearPremium = useCallback(async (pid: number) => {
+    const prod = products.find((x) => x.id === pid);
+    try {
+      const nueva = await apiFetch<any>(`/api/landing-pages`, {
+        method: "POST",
+        body: JSON.stringify({ name: prod?.name || "Nueva landing", productId: pid, design: { renderer: "premium" } }),
+      });
+      setLandings(ls => [nueva, ...ls]);
+      setUrlPublica(null);
+      setLandingId(nueva.id);
+      setPlantilla(PREMIUM);
+      setDisenoActual(nueva.design || { renderer: "premium" });
+      await cargarPreview(nueva.id, "");
+      toast.success("Página creada con el diseño premium (borrador).");
+      setMsgs(m => [...m, { role: "assistant", content: `**Listo.** Armé **"${nueva.name}"** con el diseño premium y los datos reales del producto. Puedes cambiar textos en Bloques o pedirme ajustes aquí.` }]);
+    } catch (e: any) { toast.error(`No se pudo crear la página: ${e.message}`); }
+  }, [products, cargarPreview]);
+
   // Clonar una landing REAL desde una URL (HTML + CSS), y adaptarla al producto.
   const [urlAbierto, setUrlAbierto] = useState(false);
   const [urlClonar, setUrlClonar] = useState("");
@@ -718,14 +745,17 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
     if (!p || !landingId) return;
     const previo = { ...(disenoActual || {}) };
     const esEstilo = p === "estilo" || p.startsWith("estilo:");
-    const design = esEstilo
-      ? { ...previo, familia: null, renderer: "estilo", style: p === "estilo" ? null : p.slice(7) }
-      : { ...previo, renderer: null, style: null, familia: p };
+    const esPremium = p === PREMIUM;
+    const design = esPremium
+      ? { ...previo, familia: null, style: null, renderer: "premium" }
+      : esEstilo
+        ? { ...previo, familia: null, renderer: "estilo", style: p === "estilo" ? null : p.slice(7) }
+        : { ...previo, renderer: null, style: null, familia: p };
     try {
       await apiFetch(`/api/landing-pages/${landingId}`, { method: "PATCH", body: JSON.stringify({ design }) });
       setLandings(ls => ls.map(x => x.id === landingId ? { ...x, design } : x));
       setDisenoActual(design);
-      await cargarPreview(landingId, esEstilo ? "" : p);
+      await cargarPreview(landingId, esEstilo || esPremium ? "" : p);
     } catch (e: any) { toast.error(`No se pudo cambiar el estilo: ${e.message}`); }
   }, [landingId, disenoActual, cargarPreview]);
 
@@ -770,6 +800,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
             </div>
             <Button size="sm" disabled={busy || !productId} onClick={() => {
                 if (!productId) return;
+                if (plantilla === PREMIUM) { void crearPremium(productId as number); return; }
                 void enviar("Genera una landing page para este producto", { nueva: true });
               }}
               className="bg-violet-600 hover:bg-violet-700 text-white h-10 sm:h-8 px-3 text-xs flex-1 sm:flex-none">
@@ -950,6 +981,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                 }} disabled={busy || previewBusy}
                 className="h-7 flex-1 rounded-md border bg-background px-2 text-xs" title="Manda en Generar y en la publicada: cada modelo es una maquetación distinta">
                 <option value="">✨ Automático (según el producto)</option>
+                <option value={PREMIUM}>Premium VentasPro (físico, digital o servicio)</option>
                 <optgroup label="Modelos COD (product page validada)">
                   {VARIANTES_ESTILO.map(v => <option key={v.value} value={v.value}>{v.label}</option>)}
                 </optgroup>
@@ -959,7 +991,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
               </select>
             </div>
             <div className="flex shrink-0 border-b bg-muted/20 p-1 gap-1">
-              {([["chat", props.incrustado ? "✨ Generar" : "💬 Chat"], ["bloques", "🧱 Bloques"], ["tema", "🎨 Tema"]] as const).map(([valor, etiqueta]) => (
+              {([["chat", props.incrustado ? "✨ Generar" : "💬 Chat"], ["bloques", "🧱 Bloques"], ["tema", "🎨 Tema"], ["pedido", "🛒 Pedido"]] as const).map(([valor, etiqueta]) => (
                 <button key={valor} onClick={() => setModoPanel(valor)} aria-pressed={modoPanel === valor}
                   className={`flex-1 h-7 rounded-md text-[11px] font-semibold transition-colors ${modoPanel === valor ? "bg-background shadow-sm" : "text-muted-foreground"}`}>
                   {etiqueta}
@@ -1012,6 +1044,19 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                   sugeridos={colorProducto ? [colorProducto] : []}
                 />
               ) : <div className="p-4 text-xs text-muted-foreground">Generá o elegí una landing para cambiarle el tema.</div>
+            ) : modoPanel === "pedido" ? (
+              landingId ? (
+                <PedidoPanel
+                  landingId={landingId}
+                  design={disenoActual}
+                  productos={products}
+                  productoDeLanding={landingActual?.productId ?? null}
+                  onGuardado={(design) => {
+                    setDisenoActual(design);
+                    setLandings((ls) => ls.map((x) => (x.id === landingId ? { ...x, design } : x)));
+                  }}
+                />
+              ) : <div className="p-4 text-xs text-muted-foreground">Generá o elegí una landing para configurar su formulario de pedido.</div>
             ) : (<>
             <ScrollArea className="flex-1 px-3 py-3">
               <div className="space-y-3">

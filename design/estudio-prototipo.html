@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Estudio VentasPro</title>
+<!--
+  Prototipo navegable del Estudio nuevo (23-10-2026): inicio, crear en 3
+  pasos y un solo editor para landings y creativos. Datos de ejemplo.
+  Identidad: Inter + índigo/slate ("Calm Sales OS", CLAUDE.md).
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --tinta:#0F172A; --texto:#334155; --suave:#64748B; --linea:#E2E8F0; --fondo:#F8FAFC; --papel:#FFFFFF;
+  --indigo:#4F46E5; --indigo-hondo:#4338CA; --indigo-claro:#EEF2FF; --verde:#059669; --verde-claro:#ECFDF5; --ambar:#B45309; --ambar-claro:#FFFBEB;
+  --r:12px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font-family:Inter,system-ui,sans-serif;color:var(--texto);background:var(--fondo);font-size:14.5px;line-height:1.5}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--indigo);outline-offset:2px;border-radius:8px}
+h1,h2,h3{color:var(--tinta);letter-spacing:-.015em;margin:0}
+.vista{display:none;min-height:100%}
+.vista.activa{display:flex;flex-direction:column}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+
+/* Barra superior común */
+.barra{height:56px;flex:none;background:var(--papel);border-bottom:1px solid var(--linea);display:flex;align-items:center;gap:10px;padding:0 14px}
+.icono-btn{width:36px;height:36px;border-radius:9px;border:0;background:transparent;display:grid;place-items:center;color:var(--suave)}
+.icono-btn:hover{background:var(--fondo);color:var(--tinta)}
+.icono-btn svg{width:18px;height:18px}
+.titulo-app{font-weight:700;color:var(--tinta);font-size:15px}
+.migas{color:var(--suave);font-size:13.5px;display:flex;gap:6px;align-items:center;min-width:0}
+.migas b{color:var(--tinta);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.der{margin-left:auto;display:flex;gap:8px;align-items:center}
+.btn{height:36px;padding:0 14px;border-radius:9px;border:1px solid var(--linea);background:var(--papel);font-weight:600;font-size:14px;display:inline-flex;align-items:center;gap:7px;color:var(--tinta);white-space:nowrap}
+.btn:hover{background:var(--fondo)}
+.btn svg{width:16px;height:16px}
+.btn.primario{background:var(--indigo);border-color:var(--indigo);color:#fff}
+.btn.primario:hover{background:var(--indigo-hondo)}
+.btn.grande{height:44px;padding:0 18px;font-size:15px}
+.chip{display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 9px;border-radius:999px;font-size:12.5px;font-weight:600;background:var(--fondo);color:var(--texto);border:1px solid var(--linea)}
+.chip.verde{background:var(--verde-claro);color:var(--verde);border-color:#A7F3D0}
+.chip.ambar{background:var(--ambar-claro);color:var(--ambar);border-color:#FDE68A}
+.chip.indigo{background:var(--indigo-claro);color:var(--indigo);border-color:#C7D2FE}
+
+/* ── INICIO ─────────────────────────────────────────────── */
+.inicio{max-width:1080px;width:100%;margin:0 auto;padding:36px 20px 60px}
+.inicio h1{font-size:28px;font-weight:800}
+.inicio .sub{color:var(--suave);margin:6px 0 24px}
+.crear{display:grid;gap:14px;grid-template-columns:1fr}
+.opcion{display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:center;text-align:left;background:var(--papel);border:1px solid var(--linea);border-radius:16px;padding:18px;transition:border-color .15s,box-shadow .15s}
+.opcion:hover{border-color:#A5B4FC;box-shadow:0 8px 24px -16px rgba(79,70,229,.5)}
+.opcion .ic{width:48px;height:48px;border-radius:12px;display:grid;place-items:center;background:var(--indigo-claro);color:var(--indigo)}
+.opcion .ic svg{width:24px;height:24px}
+.opcion b{display:block;font-size:16.5px;color:var(--tinta)}
+.opcion span{color:var(--suave)}
+.opcion .flecha{width:20px;height:20px;color:var(--suave)}
+.pedir{margin-top:14px;background:var(--papel);border:1px solid var(--linea);border-radius:16px;padding:14px;display:flex;gap:10px;align-items:center}
+.pedir .ic{width:36px;height:36px;border-radius:10px;background:linear-gradient(135deg,#6366F1,#4F46E5);color:#fff;display:grid;place-items:center;flex:none}
+.pedir .ic svg{width:18px;height:18px}
+.pedir input{flex:1;min-width:0;border:0;outline:0;font-size:15px;background:transparent;color:var(--tinta)}
+.sugerencias{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.sugerencias button{border:1px solid var(--linea);background:var(--papel);border-radius:999px;padding:6px 12px;font-size:13px;color:var(--texto)}
+.sugerencias button:hover{border-color:#A5B4FC;color:var(--indigo)}
+.cab-sec{display:flex;align-items:center;justify-content:space-between;margin:40px 0 14px;gap:10px;flex-wrap:wrap}
+.cab-sec h2{font-size:18px}
+.filtros{display:flex;gap:4px;background:#EEF2F6;border-radius:10px;padding:3px}
+.filtros button{border:0;background:transparent;border-radius:8px;padding:6px 12px;font-weight:600;font-size:13px;color:var(--suave)}
+.filtros button[aria-pressed="true"]{background:var(--papel);color:var(--tinta);box-shadow:0 1px 2px rgba(15,23,42,.08)}
+.trabajos{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(220px,1fr))}
+.trabajo{background:var(--papel);border:1px solid var(--linea);border-radius:14px;overflow:hidden;text-align:left;padding:0}
+.trabajo:hover{border-color:#A5B4FC}
+.miniatura{aspect-ratio:4/3;background:#F1F5F9;position:relative;overflow:hidden}
+.miniatura img{width:100%;height:100%;object-fit:cover}
+.miniatura .tipo{position:absolute;left:10px;top:10px}
+.trabajo .info{padding:12px 14px}
+.trabajo b{display:block;color:var(--tinta);font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.trabajo .meta{display:flex;justify-content:space-between;align-items:center;margin-top:6px;color:var(--suave);font-size:12.5px;gap:8px}
+@media (min-width:760px){.crear{grid-template-columns:1fr 1fr}}
+
+/* ── CREAR ──────────────────────────────────────────────── */
+.crear-wrap{max-width:960px;width:100%;margin:0 auto;padding:28px 20px 60px}
+.pasos{display:flex;gap:8px;margin:0 0 26px;padding:0;list-style:none;counter-reset:n}
+.pasos li{counter-increment:n;flex:1;display:flex;flex-direction:column;gap:8px;font-size:13px;font-weight:600;color:var(--suave)}
+.pasos li::before{content:"";height:4px;border-radius:4px;background:var(--linea)}
+.pasos li.hecho::before,.pasos li.actual::before{background:var(--indigo)}
+.pasos li.actual{color:var(--tinta)}
+.paso{display:none}.paso.activo{display:block}
+.paso h1{font-size:24px;font-weight:800}
+.paso .sub{color:var(--suave);margin:6px 0 20px}
+.productos{display:grid;gap:10px}
+.producto{display:grid;grid-template-columns:56px 1fr auto;gap:14px;align-items:center;background:var(--papel);border:1.5px solid var(--linea);border-radius:14px;padding:10px 14px 10px 10px;text-align:left}
+.producto img{width:56px;height:56px;border-radius:10px;object-fit:cover;background:#F1F5F9}
+.producto b{color:var(--tinta);display:block}
+.producto small{color:var(--suave)}
+.producto[aria-pressed="true"]{border-color:var(--indigo);box-shadow:0 0 0 3px var(--indigo-claro)}
+.metodos{display:grid;gap:12px;grid-template-columns:1fr}
+.metodo{background:var(--papel);border:1.5px solid var(--linea);border-radius:14px;padding:16px;text-align:left;display:grid;gap:6px}
+.metodo .ic{width:40px;height:40px;border-radius:10px;background:var(--fondo);display:grid;place-items:center;color:var(--tinta)}
+.metodo .ic svg{width:20px;height:20px}
+.metodo b{color:var(--tinta);font-size:15.5px}
+.metodo span{color:var(--suave)}
+.metodo .rec{justify-self:start}
+.metodo[aria-pressed="true"]{border-color:var(--indigo);box-shadow:0 0 0 3px var(--indigo-claro)}
+@media (min-width:760px){.metodos{grid-template-columns:1fr 1fr}}
+.galeria{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(200px,1fr))}
+.maqueta{background:var(--papel);border:1.5px solid var(--linea);border-radius:14px;padding:10px;text-align:left}
+.maqueta[aria-pressed="true"]{border-color:var(--indigo);box-shadow:0 0 0 3px var(--indigo-claro)}
+.maqueta svg{width:100%;height:auto;border-radius:8px;display:block}
+.maqueta b{display:block;color:var(--tinta);margin-top:10px}
+.maqueta small{color:var(--suave)}
+.acciones-paso{display:flex;justify-content:space-between;margin-top:26px;gap:10px}
+.aviso-tipo{display:flex;gap:10px;align-items:center;background:var(--indigo-claro);color:#3730A3;border-radius:12px;padding:10px 14px;margin-bottom:18px;font-size:14px}
+
+/* ── EDITOR ─────────────────────────────────────────────── */
+#editor{height:100dvh}
+.guardado{font-size:12.5px;color:var(--suave);display:inline-flex;gap:6px;align-items:center}
+.guardado i{width:7px;height:7px;border-radius:50%;background:var(--verde)}
+.dispositivo{display:flex;background:#EEF2F6;border-radius:9px;padding:3px}
+.dispositivo button{border:0;background:transparent;width:34px;height:30px;border-radius:7px;display:grid;place-items:center;color:var(--suave)}
+.dispositivo button[aria-pressed="true"]{background:var(--papel);color:var(--tinta);box-shadow:0 1px 2px rgba(15,23,42,.1)}
+.dispositivo svg{width:16px;height:16px}
+.cuerpo{flex:1;min-height:0;display:grid;grid-template-columns:1fr}
+.panel{background:var(--papel);min-height:0;overflow:auto}
+.panel-cab{position:sticky;top:0;background:var(--papel);padding:14px 14px 10px;border-bottom:1px solid var(--linea);z-index:2}
+.panel-cab h2{font-size:13px;color:var(--suave);font-weight:600}
+.secciones{list-style:none;margin:0;padding:8px}
+.secciones li{display:flex;align-items:center;gap:8px;padding:8px 8px;border-radius:9px;cursor:pointer;color:var(--tinta);font-weight:500}
+.secciones li:hover{background:var(--fondo)}
+.secciones li[aria-selected="true"]{background:var(--indigo-claro);color:var(--indigo-hondo)}
+.secciones .asa{color:#CBD5E1;width:14px;height:14px;flex:none}
+.secciones .ojo{margin-left:auto;opacity:0;width:28px;height:28px}
+.secciones li:hover .ojo,.secciones li[aria-selected="true"] .ojo{opacity:1}
+.secciones li.oculta span{color:#94A3B8;text-decoration:line-through}
+.agregar{margin:4px 8px 14px;width:calc(100% - 16px);justify-content:center;border-style:dashed;color:var(--suave)}
+.lienzo{background:#EEF2F6;min-height:0;display:flex;flex-direction:column;align-items:center;overflow:auto;padding:22px}
+.marco{background:#fff;border-radius:14px;box-shadow:0 24px 60px -30px rgba(15,23,42,.45),0 0 0 1px rgba(15,23,42,.06);overflow:hidden;transition:width .25s ease;height:100%;min-height:560px;width:100%;max-width:1180px}
+.marco.movil{width:390px;border-radius:28px;border:8px solid #0F172A}
+.marco iframe{width:100%;height:100%;border:0;display:block}
+.inspector .pestanas{display:flex;gap:2px;padding:0 10px;border-bottom:1px solid var(--linea);position:sticky;top:0;background:var(--papel);z-index:2}
+.inspector .pestanas button{border:0;background:transparent;padding:12px 10px;font-weight:600;font-size:13.5px;color:var(--suave);border-bottom:2px solid transparent;margin-bottom:-1px}
+.inspector .pestanas button[aria-selected="true"]{color:var(--tinta);border-color:var(--indigo)}
+.grupo{padding:16px 14px;border-bottom:1px solid var(--linea);display:grid;gap:12px}
+.grupo h3{font-size:14px}
+.grupo p.ayuda{margin:-6px 0 0;color:var(--suave);font-size:13px}
+.campo label{display:block;font-size:12.5px;font-weight:600;color:var(--texto);margin-bottom:5px}
+.campo input,.campo textarea,.campo select{width:100%;border:1px solid var(--linea);border-radius:9px;padding:9px 10px;font-size:14px;background:#fff;color:var(--tinta)}
+.campo textarea{resize:vertical;min-height:72px}
+.campo .dato{display:flex;align-items:center;justify-content:space-between;gap:8px;border:1px dashed var(--linea);border-radius:9px;padding:9px 10px;background:var(--fondo)}
+.campo .dato small{color:var(--suave)}
+.ia-linea{display:flex;gap:8px}
+.ia-linea .btn{flex:1;justify-content:center;height:34px;font-size:13px}
+.colores{display:flex;gap:8px;flex-wrap:wrap}
+.colores button{width:30px;height:30px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px var(--linea)}
+.colores button[aria-pressed="true"]{box-shadow:0 0 0 2px var(--tinta)}
+.interruptor{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.interruptor span{font-weight:500;color:var(--tinta)}
+.interruptor small{display:block;color:var(--suave);font-weight:400}
+.switch{position:relative;width:40px;height:24px;flex:none;border-radius:999px;background:#CBD5E1;border:0;transition:background .15s}
+.switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.switch[aria-checked="true"]{background:var(--indigo)}
+.switch[aria-checked="true"]::after{transform:translateX(16px)}
+
+/* Asistente: IA + Atlas en un solo lugar */
+.asistente-btn{position:fixed;right:18px;bottom:18px;z-index:30;height:46px;padding:0 18px;border-radius:999px;border:0;background:var(--tinta);color:#fff;font-weight:600;display:inline-flex;gap:8px;align-items:center;box-shadow:0 14px 34px -12px rgba(15,23,42,.6)}
+.asistente-btn svg{width:18px;height:18px}
+.asistente{position:fixed;right:18px;bottom:76px;z-index:31;width:min(380px,calc(100vw - 36px));background:var(--papel);border:1px solid var(--linea);border-radius:16px;box-shadow:0 30px 60px -24px rgba(15,23,42,.45);display:none;flex-direction:column;max-height:70vh}
+.asistente.abierto{display:flex;animation:aparece .18s ease}
+@keyframes aparece{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.asistente header{padding:14px 16px;border-bottom:1px solid var(--linea);display:flex;justify-content:space-between;align-items:center}
+.asistente header b{color:var(--tinta)}
+.asistente header small{display:block;color:var(--suave)}
+.asistente .hilo{padding:14px 16px;overflow:auto;display:grid;gap:10px}
+.burbuja{background:var(--fondo);border-radius:12px;padding:10px 12px;font-size:14px}
+.burbuja.yo{background:var(--indigo);color:#fff;justify-self:end}
+.asistente .sugerencias{padding:0 16px}
+.asistente form{display:flex;gap:8px;padding:12px 16px 16px}
+.asistente form input{flex:1;min-width:0;border:1px solid var(--linea);border-radius:10px;padding:10px 12px;font-size:14px}
+
+/* Publicar */
+dialog{border:0;border-radius:18px;padding:0;width:min(520px,calc(100vw - 24px));box-shadow:0 30px 80px -20px rgba(15,23,42,.5)}
+dialog::backdrop{background:rgba(15,23,42,.45)}
+.dlg{padding:22px}
+.dlg h2{font-size:20px}
+.dlg .sub{color:var(--suave);margin:6px 0 16px}
+.revision{list-style:none;margin:0 0 18px;padding:0;display:grid;gap:8px}
+.revision li{display:grid;grid-template-columns:22px 1fr auto;gap:10px;align-items:start;padding:10px 12px;border:1px solid var(--linea);border-radius:10px}
+.revision svg{width:20px;height:20px}
+.revision .ok{color:var(--verde)}.revision .falta{color:var(--ambar)}
+.revision b{color:var(--tinta);font-weight:600}
+.revision small{display:block;color:var(--suave)}
+.revision a{font-size:13px;font-weight:600;color:var(--indigo);text-decoration:none;white-space:nowrap}
+.url{display:flex;gap:8px;align-items:center;background:var(--fondo);border:1px solid var(--linea);border-radius:10px;padding:9px 12px;margin-bottom:18px;font-size:13.5px;color:var(--tinta)}
+.url span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pie-dlg{display:flex;justify-content:flex-end;gap:8px}
+
+/* Creativo (mismo editor, otro lienzo) */
+.lienzo-creativo{width:min(420px,100%);aspect-ratio:4/5;background:#18222B;border-radius:12px;position:relative;overflow:hidden;box-shadow:0 24px 60px -30px rgba(15,23,42,.45)}
+.lienzo-creativo img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.92}
+.capa{position:absolute;outline:2px dashed transparent;outline-offset:3px;border-radius:4px;cursor:pointer}
+.capa:hover{outline-color:rgba(99,102,241,.6)}
+.capa.sel{outline:2px solid #6366F1}
+.cap-titulo{left:7%;top:7%;right:30%;color:#fff;font-weight:800;font-size:clamp(22px,6vw,34px);line-height:1.02;letter-spacing:-.02em}
+.cap-precio{left:7%;bottom:9%;background:#FFC928;color:#18222B;font-weight:800;padding:8px 14px;border-radius:10px;font-size:clamp(16px,4vw,22px)}
+.cap-sello{right:6%;bottom:9%;background:rgba(255,255,255,.92);color:#18222B;font-weight:700;font-size:13px;padding:7px 11px;border-radius:999px}
+.zona{position:absolute;inset:14% 6% 35% 6%;border:1.5px dashed rgba(255,255,255,.35);border-radius:6px;pointer-events:none;display:none}
+.lienzo-creativo.zonas .zona{display:block}
+.formatos{display:flex;gap:6px;margin-top:14px;flex-wrap:wrap;justify-content:center}
+
+@media (min-width:1024px){
+  .cuerpo{grid-template-columns:240px 1fr 320px}
+  .panel.secciones-panel{border-right:1px solid var(--linea)}
+  .panel.inspector{border-left:1px solid var(--linea)}
+  .solo-movil{display:none!important}
+}
+@media (max-width:1023px){
+  .panel.secciones-panel,.panel.inspector{display:none}
+  .cuerpo.ver-secciones .panel.secciones-panel,.cuerpo.ver-inspector .panel.inspector{display:block;position:fixed;left:0;right:0;bottom:64px;max-height:62vh;z-index:20;border-radius:18px 18px 0 0;box-shadow:0 -20px 50px -20px rgba(15,23,42,.4)}
+  .lienzo{padding:12px 0 90px}
+  .marco{border-radius:0;min-height:0}
+  .marco.movil{width:100%;border:0;border-radius:0}
+  .solo-escritorio{display:none!important}
+  .asistente-btn{display:none}
+  .barra-movil{position:fixed;left:0;right:0;bottom:0;z-index:25;height:64px;background:var(--papel);border-top:1px solid var(--linea);display:grid;grid-template-columns:repeat(4,1fr);padding-bottom:env(safe-area-inset-bottom,0px)}
+  .barra-movil button{border:0;background:transparent;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11.5px;font-weight:600;color:var(--suave)}
+  .barra-movil button[aria-pressed="true"]{color:var(--indigo)}
+  .barra-movil svg{width:20px;height:20px}
+  .asistente{right:0;left:0;bottom:64px;width:100%;border-radius:18px 18px 0 0}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<!-- Íconos (lucide, MIT), para reutilizar -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-atras" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-flecha" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-pagina" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 8h8M8 12h8M8 16h5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-imagen" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="9" cy="10" r="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M21 16l-5-5-8 8" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-chispa" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" fill="currentColor"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z" fill="currentColor"/></symbol>
+  <symbol id="i-plantilla" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 9h18M9 9v12" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-enlace" viewBox="0 0 24 24"><path d="M10 14a5 5 0 0 0 7 0l3-3a5 5 0 0 0-7-7l-1 1M14 10a5 5 0 0 0-7 0l-3 3a5 5 0 0 0 7 7l1-1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-lapiz" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-movil" viewBox="0 0 24 24"><rect x="7" y="2.5" width="10" height="19" rx="2" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-pc" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 20h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-deshacer" viewBox="0 0 24 24"><path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-ojo" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-asa" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.6" fill="currentColor"/><circle cx="15" cy="6" r="1.6" fill="currentColor"/><circle cx="9" cy="12" r="1.6" fill="currentColor"/><circle cx="15" cy="12" r="1.6" fill="currentColor"/><circle cx="9" cy="18" r="1.6" fill="currentColor"/><circle cx="15" cy="18" r="1.6" fill="currentColor"/></symbol>
+  <symbol id="i-mas" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M8 12.5l2.7 2.7L16 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-alerta" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 7.5v5.5M12 16.5v.01" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></symbol>
+  <symbol id="i-capas" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5z M3 13l9 5 9-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></symbol>
+  <symbol id="i-ajustes" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="10" cy="17" r="2" fill="none" stroke="currentColor" stroke-width="2"/></symbol>
+  <symbol id="i-cohete" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5M5 20h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-cerrar" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+</svg>
+
+<!-- ═══════════════ INICIO ═══════════════ -->
+<section class="vista activa" id="inicio" aria-label="Inicio del Estudio">
+  <div class="barra">
+    <button class="icono-btn" aria-label="Volver al panel"><svg><use href="#i-atras"/></svg></button>
+    <span class="titulo-app">Estudio</span>
+  </div>
+  <div class="inicio">
+    <h1>¿Qué quieres crear?</h1>
+    <p class="sub">Todo lo que haces aquí usa los datos reales de tu producto: precio, fotos y cómo entregas.</p>
+    <div class="crear">
+      <button class="opcion" data-ir="crear" data-que="landing">
+        <span class="ic"><svg><use href="#i-pagina"/></svg></span>
+        <span><b>Página de venta</b><span>La página a la que llega quien toca tu anuncio.</span></span>
+        <svg class="flecha"><use href="#i-flecha"/></svg>
+      </button>
+      <button class="opcion" data-ir="creativo">
+        <span class="ic"><svg><use href="#i-imagen"/></svg></span>
+        <span><b>Imagen para anuncio</b><span>Para Facebook e Instagram, en todos los formatos.</span></span>
+        <svg class="flecha"><use href="#i-flecha"/></svg>
+      </button>
+    </div>
+    <label class="pedir">
+      <span class="ic"><svg><use href="#i-chispa"/></svg></span>
+      <span class="sr">Pídeselo a Atlas</span>
+      <input placeholder="O pídeselo a Atlas: «una página para la mochila que se sienta urgente»">
+      <button class="btn primario" type="button" data-ir="editor">Crear</button>
+    </label>
+    <div class="sugerencias">
+      <button data-ir="editor">Página para el producto más vendido</button>
+      <button data-ir="creativo">3 imágenes para la campaña de esta semana</button>
+      <button data-ir="editor">Copiar el estilo de una página que me gusta</button>
+    </div>
+
+    <div class="cab-sec">
+      <h2>Tus trabajos</h2>
+      <div class="filtros" role="group" aria-label="Filtrar trabajos">
+        <button aria-pressed="true" data-filtro="todo">Todo</button>
+        <button aria-pressed="false" data-filtro="landing">Páginas</button>
+        <button aria-pressed="false" data-filtro="creativo">Imágenes</button>
+      </div>
+    </div>
+    <div class="trabajos" id="trabajos"></div>
+  </div>
+</section>
+
+<!-- ═══════════════ CREAR (3 pasos) ═══════════════ -->
+<section class="vista" id="crear" aria-label="Crear una página de venta">
+  <div class="barra">
+    <button class="icono-btn" aria-label="Volver al inicio" data-ir="inicio"><svg><use href="#i-atras"/></svg></button>
+    <span class="titulo-app">Nueva página de venta</span>
+  </div>
+  <div class="crear-wrap">
+    <ol class="pasos" id="pasos"><li class="actual">Producto</li><li>Cómo empezar</li><li>Diseño</li></ol>
+
+    <div class="paso activo" data-paso="1">
+      <h1>¿Qué vas a vender?</h1>
+      <p class="sub">El tipo de producto decide el cierre: formulario contraentrega, pago en línea o agendar por WhatsApp.</p>
+      <div class="productos" id="productos"></div>
+    </div>
+
+    <div class="paso" data-paso="2">
+      <h1>¿Cómo quieres empezar?</h1>
+      <p class="sub">Puedes cambiar cualquier cosa después en el editor.</p>
+      <div class="metodos">
+        <button class="metodo" aria-pressed="true" data-metodo="ia"><span class="ic"><svg><use href="#i-chispa"/></svg></span><b>Que la IA la arme</b><span>Escribe los textos con tus datos y elige el diseño que mejor le va a tu producto.</span><span class="chip indigo rec">Recomendado</span></button>
+        <button class="metodo" aria-pressed="false" data-metodo="maqueta"><span class="ic"><svg><use href="#i-plantilla"/></svg></span><b>Elegir un diseño</b><span>Ves las maquetas con tu producto adentro y eliges una.</span></button>
+        <button class="metodo" aria-pressed="false" data-metodo="url"><span class="ic"><svg><use href="#i-enlace"/></svg></span><b>Copiar el estilo de una página</b><span>Pegas el enlace de una página que te gusta; queda con tu producto y tu marca.</span></button>
+        <button class="metodo" aria-pressed="false" data-metodo="blanco"><span class="ic"><svg><use href="#i-lapiz"/></svg></span><b>Desde cero</b><span>Una página vacía y la biblioteca de secciones.</span></button>
+      </div>
+    </div>
+
+    <div class="paso" data-paso="3">
+      <h1>Elige un diseño</h1>
+      <p class="sub">Cada uno es una forma distinta de vender. Los textos y el color se ajustan después.</p>
+      <div class="aviso-tipo" id="avisoTipo"></div>
+      <div class="galeria" id="galeria"></div>
+    </div>
+
+    <div class="acciones-paso">
+      <button class="btn grande" id="pasoAtras">Atrás</button>
+      <button class="btn grande primario" id="pasoSigue">Continuar</button>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════ EDITOR ═══════════════ -->
+<section class="vista" id="editor" aria-label="Editor">
+  <div class="barra">
+    <button class="icono-btn" aria-label="Volver al inicio" data-ir="inicio"><svg><use href="#i-atras"/></svg></button>
+    <div class="migas"><span class="solo-escritorio" id="migaTipo">Páginas</span><span class="solo-escritorio">/</span><b id="nombreTrabajo">Mochila antirrobo</b></div>
+    <span class="guardado solo-escritorio"><i></i>Guardado</span>
+    <div class="der">
+      <button class="icono-btn solo-escritorio" aria-label="Deshacer" title="Deshacer (Ctrl+Z)"><svg><use href="#i-deshacer"/></svg></button>
+      <div class="dispositivo solo-escritorio" role="group" aria-label="Vista">
+        <button aria-pressed="true" data-disp="movil" aria-label="Celular"><svg><use href="#i-movil"/></svg></button>
+        <button aria-pressed="false" data-disp="pc" aria-label="Computador"><svg><use href="#i-pc"/></svg></button>
+      </div>
+      <button class="btn solo-escritorio">Vista previa</button>
+      <button class="btn primario" id="publicar"><svg><use href="#i-cohete"/></svg>Publicar</button>
+    </div>
+  </div>
+
+  <div class="cuerpo" id="cuerpo">
+    <aside class="panel secciones-panel" aria-label="Secciones">
+      <div class="panel-cab"><h2 id="tituloSecciones">Secciones de la página</h2></div>
+      <ul class="secciones" id="secciones" role="listbox" aria-label="Secciones"></ul>
+      <button class="btn agregar" id="agregar"><svg><use href="#i-mas"/></svg>Agregar sección</button>
+    </aside>
+
+    <main class="lienzo" id="lienzo">
+      <div class="marco movil" id="marco"><iframe id="pagina" title="Vista de la página" src="landing-cod-premium.html"></iframe></div>
+    </main>
+
+    <aside class="panel inspector" aria-label="Ajustes">
+      <div class="pestanas" role="tablist">
+        <button role="tab" aria-selected="true" data-pes="contenido">Contenido</button>
+        <button role="tab" aria-selected="false" data-pes="diseno">Diseño</button>
+        <button role="tab" aria-selected="false" data-pes="venta" id="pesVenta">Venta</button>
+      </div>
+      <div data-panel="contenido" id="panelContenido"></div>
+      <div data-panel="diseno" hidden>
+        <div class="grupo"><h3>Color de la marca</h3><p class="ayuda">Botones, precios y detalles. El texto encima se ajusta solo para que se lea.</p>
+          <div class="colores" role="group" aria-label="Color">
+            <button aria-pressed="true" style="background:#FFC928" aria-label="Amarillo señal"></button><button aria-pressed="false" style="background:#4F46E5" aria-label="Índigo"></button><button aria-pressed="false" style="background:#059669" aria-label="Verde"></button><button aria-pressed="false" style="background:#E11D48" aria-label="Rojo"></button><button aria-pressed="false" style="background:#0F172A" aria-label="Negro"></button>
+          </div></div>
+        <div class="grupo"><h3>Letra</h3><div class="campo"><select aria-label="Letra"><option>Archivo (fuerte, urbana)</option><option>Fraunces + Inter (elegante)</option><option>DM Sans (amable)</option></select></div></div>
+        <div class="grupo"><h3>Diseño de la página</h3><p class="ayuda">Cambia la estructura sin perder tus textos.</p><button class="btn" data-ir="crear" data-paso-directo="3">Ver otros diseños</button></div>
+      </div>
+      <div data-panel="venta" hidden>
+        <div class="grupo"><h3>Cómo se cierra la venta</h3>
+          <div class="campo"><div class="dato"><span>Formulario contraentrega</span><small>según el producto</small></div></div></div>
+        <div class="grupo">
+          <div class="interruptor"><span>Confirmar por WhatsApp<small>El cliente nos envía un código antes de despachar.</small></span><button class="switch" role="switch" aria-checked="true" aria-label="Confirmar por WhatsApp"></button></div>
+          <div class="interruptor"><span>Oferta extra<small>"Lleva otra unidad por $30.000"</small></span><button class="switch" role="switch" aria-checked="false" aria-label="Oferta extra"></button></div>
+          <div class="interruptor"><span>Paquetes 1 y 2 unidades<small>Precio por unidad visible</small></span><button class="switch" role="switch" aria-checked="true" aria-label="Paquetes"></button></div>
+        </div>
+        <div class="grupo"><h3>Medición</h3><div class="campo"><div class="dato"><span>Píxel de Meta</span><span class="chip verde">Conectado</span></div></div></div>
+      </div>
+    </aside>
+  </div>
+
+  <nav class="barra-movil solo-movil" aria-label="Herramientas">
+    <button data-hoja="secciones" aria-pressed="false"><svg><use href="#i-capas"/></svg>Secciones</button>
+    <button data-hoja="inspector" aria-pressed="false"><svg><use href="#i-ajustes"/></svg>Editar</button>
+    <button data-hoja="asistente" aria-pressed="false"><svg><use href="#i-chispa"/></svg>Asistente</button>
+    <button data-hoja="vista" aria-pressed="false"><svg><use href="#i-ojo"/></svg>Ver</button>
+  </nav>
+
+  <button class="asistente-btn" id="asistenteBtn" aria-expanded="false"><svg><use href="#i-chispa"/></svg>Asistente</button>
+  <div class="asistente" id="asistente" role="dialog" aria-label="Asistente">
+    <header><div><b>Asistente</b><small>IA y Atlas en un solo lugar. Ve lo que tienes abierto.</small></div><button class="icono-btn" id="cerrarAsistente" aria-label="Cerrar"><svg><use href="#i-cerrar"/></svg></button></header>
+    <div class="hilo" id="hilo"><div class="burbuja">Estás editando <b>Portada</b>. Puedo reescribirla, cambiar el diseño entero o revisar si la página está lista para el anuncio.</div></div>
+    <div class="sugerencias" id="sugAsistente">
+      <button>Hazla más urgente</button><button>Revisa si está lista</button><button>Haz 3 imágenes con esta página</button>
+    </div>
+    <form id="formAsistente"><input placeholder="Escribe lo que quieres cambiar" aria-label="Mensaje al asistente"><button class="btn primario">Enviar</button></form>
+  </div>
+
+  <dialog id="dlgPublicar" aria-labelledby="tPublicar">
+    <div class="dlg">
+      <h2 id="tPublicar">Antes de publicar</h2>
+      <p class="sub">Revisamos lo que el anuncio necesita para no perder pedidos.</p>
+      <ul class="revision">
+        <li><svg class="ok"><use href="#i-check"/></svg><span><b>Precio y paquetes</b><small>Salen de la ficha del producto.</small></span><span></span></li>
+        <li><svg class="ok"><use href="#i-check"/></svg><span><b>Fotos</b><small>3 fotos, una con la mochila en la mano.</small></span><span></span></li>
+        <li><svg class="ok"><use href="#i-check"/></svg><span><b>WhatsApp conectado</b><small>Para recibir los códigos de confirmación.</small></span><span></span></li>
+        <li><svg class="falta"><use href="#i-alerta"/></svg><span><b>Política de cambio</b><small>No está cargada: la sección se oculta hasta que la escribas.</small></span><a href="#" onclick="return false">Agregarla</a></li>
+      </ul>
+      <div class="url"><span>ventasproia.com/l/mochila-antirrobo</span><button class="btn">Copiar</button></div>
+      <div class="pie-dlg"><button class="btn" id="cancelarPublicar">Seguir editando</button><button class="btn primario" id="confirmarPublicar"><svg><use href="#i-cohete"/></svg>Publicar página</button></div>
+    </div>
+  </dialog>
+</section>
+
+<script>
+(function(){
+  var $=function(s,c){return (c||document).querySelector(s)}, $$=function(s,c){return [].slice.call((c||document).querySelectorAll(s))};
+  var FOTO="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=500&auto=format&fit=crop";
+  var FOTO2="https://images.unsplash.com/photo-1581605405669-fcdf81165afa?w=500&auto=format&fit=crop";
+
+  // Datos de ejemplo
+  var trabajos=[
+    {tipo:"landing",nombre:"Mochila antirrobo",estado:["verde","Publicada"],cuando:"Hoy",foto:FOTO},
+    {tipo:"creativo",nombre:"Mochila · lo que el ladrón no ve",estado:["ambar","Borrador"],cuando:"Ayer",foto:FOTO2},
+    {tipo:"landing",nombre:"Curso de IA para negocios",estado:["verde","Publicada"],cuando:"Hace 3 días",foto:"https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=500&auto=format&fit=crop"},
+    {tipo:"landing",nombre:"Asesoría de marca personal",estado:["ambar","Borrador"],cuando:"Hace 1 semana",foto:"https://images.unsplash.com/photo-1556761175-5973dc0f32e7?w=500&auto=format&fit=crop"}
+  ];
+  var productos=[
+    {nombre:"Mochila antirrobo USB",tipo:"fisico",detalle:"$89.900 · Dropi",foto:FOTO},
+    {nombre:"Curso de IA para negocios",tipo:"digital",detalle:"$60.000 · acceso inmediato",foto:"https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=200&auto=format&fit=crop"},
+    {nombre:"Asesoría de marca personal",tipo:"servicio",detalle:"Desde $250.000 · agenda",foto:"https://images.unsplash.com/photo-1556761175-5973dc0f32e7?w=200&auto=format&fit=crop"}
+  ];
+  var TIPOS={fisico:["Físico","Formulario contraentrega"],digital:["Digital","Pago en línea y entrega inmediata"],servicio:["Servicio","Agenda por WhatsApp"]};
+  var maquetas={
+    fisico:[["Product page contraentrega","Foto, precio y pedido arriba. Para tráfico frío.","#18222B","#FFC928"],["Urgencia","Paquetes y tiempo limitado real.","#7F1D1D","#FCA5A5"],["Clínico","Para salud y ortopedia: confianza y pasos.","#1E3A8A","#BFDBFE"],["Premium","Precio alto, mucho aire y detalle.","#3F3A33","#E7DCC8"]],
+    digital:[["Curso con temario","Qué aprendes, módulo por módulo.","#1E1B4B","#C7D2FE"],["Video de venta","Video arriba, precio y pago debajo.","#0F172A","#99F6E4"],["Ebook","Portada grande y capítulos.","#422006","#FDE68A"]],
+    servicio:[["Agenda directa","Qué incluye y botón para agendar.","#064E3B","#A7F3D0"],["Casos y proceso","Cómo trabajas, paso por paso.","#1F2937","#E5E7EB"],["Consultorio","Profesional y sobrio.","#1E3A8A","#DBEAFE"]]
+  };
+  var secciones=[["portada","Portada"],["compra","Precio y pedido"],["oculto","Lo que el ladrón no ve"],["escala","Medidas"],["pasos","Así llega a tu casa"],["preguntas","Antes de pedir"]];
+  var tipoElegido="fisico", paso=1;
+
+  // ── Navegación entre vistas ──
+  function ir(v){ $$(".vista").forEach(function(s){s.classList.toggle("activa",s.id===v)}); window.scrollTo(0,0); }
+  document.addEventListener("click",function(e){
+    var b=e.target.closest("[data-ir]"); if(!b)return;
+    var v=b.dataset.ir;
+    if(v==="creativo"){ abrirEditor("creativo"); return; }
+    if(v==="editor"){ abrirEditor("landing"); return; }
+    if(v==="crear"){ irPaso(+(b.dataset.pasoDirecto||1)); }
+    ir(v);
+  });
+
+  // ── Inicio ──
+  function pintarTrabajos(f){
+    $("#trabajos").innerHTML=trabajos.filter(function(t){return f==="todo"||t.tipo===f}).map(function(t){
+      return '<button class="trabajo" data-ir="'+(t.tipo==="creativo"?"creativo":"editor")+'"><div class="miniatura"><img src="'+t.foto+'" alt="" loading="lazy"><span class="chip tipo">'+(t.tipo==="landing"?"Página":"Imagen")+'</span></div><div class="info"><b>'+t.nombre+'</b><div class="meta"><span class="chip '+t.estado[0]+'">'+t.estado[1]+'</span><span>'+t.cuando+'</span></div></div></button>';
+    }).join("");
+  }
+  pintarTrabajos("todo");
+  $$(".filtros button").forEach(function(b){b.onclick=function(){$$(".filtros button").forEach(function(x){x.setAttribute("aria-pressed",x===b)});pintarTrabajos(b.dataset.filtro)}});
+
+  // ── Crear ──
+  $("#productos").innerHTML=productos.map(function(p,i){
+    return '<button class="producto" aria-pressed="'+(i===0)+'" data-tipo="'+p.tipo+'"><img src="'+p.foto+'" alt=""><span><b>'+p.nombre+'</b><small>'+p.detalle+'</small></span><span class="chip">'+TIPOS[p.tipo][0]+'</span></button>';
+  }).join("");
+  $$(".producto").forEach(function(b){b.onclick=function(){$$(".producto").forEach(function(x){x.setAttribute("aria-pressed",x===b)});tipoElegido=b.dataset.tipo}});
+  $$(".metodo").forEach(function(b){b.onclick=function(){$$(".metodo").forEach(function(x){x.setAttribute("aria-pressed",x===b)})}});
+
+  function miniWire(fondo,acento){ // boceto de la estructura, no una captura falsa
+    return '<svg viewBox="0 0 200 150" aria-hidden="true"><rect width="200" height="150" fill="#F1F5F9"/><rect x="0" y="0" width="200" height="10" fill="'+fondo+'"/><rect x="12" y="20" width="84" height="70" rx="6" fill="'+acento+'"/><rect x="106" y="22" width="80" height="9" rx="3" fill="'+fondo+'"/><rect x="106" y="36" width="56" height="7" rx="3" fill="#CBD5E1"/><rect x="106" y="50" width="80" height="14" rx="4" fill="#fff" stroke="#CBD5E1"/><rect x="106" y="68" width="80" height="14" rx="4" fill="#fff" stroke="#CBD5E1"/><rect x="106" y="88" width="80" height="12" rx="4" fill="'+fondo+'"/><rect x="0" y="108" width="200" height="42" fill="'+fondo+'"/><rect x="12" y="118" width="96" height="8" rx="3" fill="'+acento+'"/><rect x="12" y="131" width="60" height="5" rx="2" fill="#94A3B8"/></svg>';
+  }
+  function pintarGaleria(){
+    var t=TIPOS[tipoElegido];
+    $("#avisoTipo").innerHTML='<svg width="18" height="18"><use href="#i-check"/></svg><span>Producto <b>'+t[0].toLowerCase()+'</b>: estos diseños cierran con <b>'+t[1].toLowerCase()+'</b>.</span>';
+    $("#galeria").innerHTML=maquetas[tipoElegido].map(function(m,i){
+      return '<button class="maqueta" aria-pressed="'+(i===0)+'">'+miniWire(m[2],m[3])+'<b>'+m[0]+'</b><small>'+m[1]+'</small></button>';
+    }).join("");
+    $$(".maqueta").forEach(function(b){b.onclick=function(){$$(".maqueta").forEach(function(x){x.setAttribute("aria-pressed",x===b)})}});
+  }
+  function irPaso(n){
+    paso=n; $$(".paso").forEach(function(p){p.classList.toggle("activo",+p.dataset.paso===n)});
+    $$("#pasos li").forEach(function(li,i){li.className=i+1<n?"hecho":i+1===n?"actual":""});
+    $("#pasoAtras").textContent=n===1?"Cancelar":"Atrás";
+    $("#pasoSigue").textContent=n===3?"Crear página":"Continuar";
+    if(n===3)pintarGaleria();
+  }
+  $("#pasoAtras").onclick=function(){ if(paso===1)ir("inicio"); else irPaso(paso-1) };
+  $("#pasoSigue").onclick=function(){
+    if(paso===2){ var m=$(".metodo[aria-pressed=true]").dataset.metodo; if(m==="ia"||m==="blanco"||m==="url"){abrirEditor("landing");return} }
+    if(paso===3){abrirEditor("landing");return}
+    irPaso(paso+1);
+  };
+
+  // ── Editor (el mismo para páginas e imágenes) ──
+  var marco=$("#marco"), lienzo=$("#lienzo");
+  var htmlLienzoLanding=lienzo.innerHTML;
+  var CAPAS=[["titulo","Título"],["precio","Precio"],["sello","Sello: pagas al recibir"],["foto","Foto del producto"]];
+  function abrirEditor(modo){
+    ir("editor");
+    var esImg=modo==="creativo";
+    $("#nombreTrabajo").textContent=esImg?"Mochila · lo que el ladrón no ve":"Mochila antirrobo";
+    $("#tituloSecciones").textContent=esImg?"Capas de la imagen":"Secciones de la página";
+    $("#migaTipo").textContent=esImg?"Imágenes":"Páginas";
+    $("#agregar").innerHTML='<svg><use href="#i-mas"/></svg>'+(esImg?"Agregar capa":"Agregar sección");
+    $("#pesVenta").hidden=esImg; $(".dispositivo").style.visibility=esImg?"hidden":"visible";
+    var lista=esImg?CAPAS:secciones;
+    $("#secciones").innerHTML=lista.map(function(s,i){return '<li role="option" data-id="'+s[0]+'" aria-selected="'+(i===0)+'"><svg class="asa"><use href="#i-asa"/></svg><span>'+s[1]+'</span><button class="icono-btn ojo" aria-label="Ocultar '+s[1]+'"><svg><use href="#i-ojo"/></svg></button></li>'}).join("");
+    if(esImg){
+      lienzo.innerHTML='<div class="lienzo-creativo zonas" id="lc"><img src="https://images.unsplash.com/photo-1553062407-98eeb64c6a62?w=900&auto=format&fit=crop" alt=""><div class="zona"></div><div class="capa cap-titulo sel" data-id="titulo">Lo que el ladrón no ve</div><div class="capa cap-precio" data-id="precio">$89.900</div><div class="capa cap-sello" data-id="sello">Pagas al recibir</div></div><div class="formatos"><button class="btn">4:5 Feed</button><button class="btn">1:1</button><button class="btn">9:16 Historias</button><button class="btn">Zona segura de Meta</button></div>';
+      $$(".capa").forEach(function(c){c.onclick=function(){seleccionar(c.dataset.id)}});
+    } else { lienzo.innerHTML=htmlLienzoLanding; marco=$("#marco"); }
+    seleccionar(lista[0][0]);
+    $$("#secciones li").forEach(function(li){
+      li.onclick=function(e){ if(e.target.closest(".ojo")){li.classList.toggle("oculta");e.stopPropagation();return} seleccionar(li.dataset.id) };
+    });
+  }
+  var CONTENIDO={
+    portada:{t:"Portada",campos:[["Título","Mochila antirrobo con puerto USB"],["Frase corta","Cierre contra tu espalda, tela que repele la lluvia y espacio para un portátil de 15,6\"."]],datos:[["Precio","$89.900","de la ficha"],["Fotos","3 fotos","de la ficha"]]},
+    compra:{t:"Precio y pedido",campos:[["Texto del botón","Pedir y pagar al recibir"]],datos:[["Paquetes","1 y 2 unidades","de la ficha"],["Envío","Gratis, 2 a 4 días","de tu configuración"]]},
+    oculto:{t:"Lo que el ladrón no ve",campos:[["Título","Lo que el ladrón no ve"],["Texto","En el bus o en la calle, todo lo que importa queda del lado de tu espalda."]],datos:[]},
+    escala:{t:"Medidas",campos:[["Título","Del tamaño de tu día"]],datos:[["Medidas","45 × 30 × 14 cm","de la ficha"]]},
+    pasos:{t:"Así llega a tu casa",campos:[["Título","Así llega a tu casa"]],datos:[]},
+    preguntas:{t:"Antes de pedir",campos:[["Título","Antes de pedir"]],datos:[["Preguntas","4 preguntas","escritas por la IA con tus datos"]]},
+    titulo:{t:"Título",campos:[["Texto","Lo que el ladrón no ve"]],datos:[]},
+    precio:{t:"Precio",campos:[],datos:[["Precio","$89.900","de la ficha"]]},
+    sello:{t:"Sello",campos:[["Texto","Pagas al recibir"]],datos:[["Se muestra porque","cobras contraentrega","de tu configuración"]]},
+    foto:{t:"Foto del producto",campos:[],datos:[["Foto","De frente","de la ficha"]]}
+  };
+  function seleccionar(id){
+    $$("#secciones li").forEach(function(li){li.setAttribute("aria-selected",li.dataset.id===id)});
+    $$(".capa").forEach(function(c){c.classList.toggle("sel",c.dataset.id===id)});
+    var c=CONTENIDO[id]||CONTENIDO.portada;
+    $("#panelContenido").innerHTML='<div class="grupo"><h3>'+c.t+'</h3>'+c.campos.map(function(f){return '<div class="campo"><label>'+f[0]+'</label>'+(f[1].length>60?'<textarea>'+f[1]+'</textarea>':'<input value="'+f[1].replace(/"/g,"&quot;")+'">')+'</div>'}).join("")+
+      (c.campos.length?'<div class="ia-linea"><button class="btn"><svg><use href="#i-chispa"/></svg>Mejorar con IA</button><button class="btn">Más corto</button></div>':"")+'</div>'+
+      (c.datos.length?'<div class="grupo"><h3>Datos de tu negocio</h3><p class="ayuda">No se escriben aquí: cambian solos si cambias la ficha.</p>'+c.datos.map(function(d){return '<div class="campo"><div class="dato"><span>'+d[0]+': <b>'+d[1]+'</b></span><small>'+d[2]+'</small></div></div>'}).join("")+'</div>':"");
+    var sug={portada:["Hazla más urgente","Otro título"],compra:["Agrega oferta 2×1","Revisa el precio"],titulo:["3 títulos distintos","Más corto"]}[id]||["Mejora esta sección","Revisa si está lista"];
+    $("#sugAsistente").innerHTML=sug.concat(["Haz 3 imágenes con esta página"]).slice(0,3).map(function(s){return "<button>"+s+"</button>"}).join("");
+    var h=$("#hilo .burbuja"); if(h) h.innerHTML='Estás editando <b>'+c.t+'</b>. Puedo reescribirla, cambiar el diseño entero o revisar si está lista para el anuncio.';
+  }
+
+  $$(".inspector .pestanas button").forEach(function(b){b.onclick=function(){
+    $$(".inspector .pestanas button").forEach(function(x){x.setAttribute("aria-selected",x===b)});
+    $$("[data-panel]").forEach(function(p){p.hidden=p.dataset.panel!==b.dataset.pes});
+  }});
+  $$(".dispositivo button").forEach(function(b){b.onclick=function(){
+    $$(".dispositivo button").forEach(function(x){x.setAttribute("aria-pressed",x===b)});
+    var m=$("#marco"); if(m) m.classList.toggle("movil",b.dataset.disp==="movil");
+  }});
+  $$(".switch").forEach(function(s){s.onclick=function(){s.setAttribute("aria-checked",s.getAttribute("aria-checked")!=="true")}});
+  $$(".colores button").forEach(function(b){b.onclick=function(){$$(".colores button").forEach(function(x){x.setAttribute("aria-pressed",x===b)})}});
+
+  // Asistente
+  var asis=$("#asistente"), asisBtn=$("#asistenteBtn");
+  function asistente(abrir){ asis.classList.toggle("abierto",abrir); asisBtn.setAttribute("aria-expanded",abrir); if(abrir) $("#formAsistente input").focus(); }
+  asisBtn.onclick=function(){asistente(!asis.classList.contains("abierto"))};
+  $("#cerrarAsistente").onclick=function(){asistente(false)};
+  function decir(t){
+    $("#hilo").insertAdjacentHTML("beforeend",'<div class="burbuja yo">'+t.replace(/</g,"&lt;")+'</div><div class="burbuja">Listo. Lo apliqué en la vista; si no te gusta, toca deshacer.</div>');
+    $("#hilo").scrollTop=1e6;
+  }
+  $("#sugAsistente").addEventListener("click",function(e){var b=e.target.closest("button");if(b)decir(b.textContent)});
+  $("#formAsistente").onsubmit=function(e){e.preventDefault();var i=$("input",this);if(i.value.trim()){decir(i.value.trim());i.value=""}};
+
+  // Barra inferior en el celular: una hoja a la vez
+  var cuerpo=$("#cuerpo");
+  $$(".barra-movil button").forEach(function(b){b.onclick=function(){
+    var h=b.dataset.hoja, ya=b.getAttribute("aria-pressed")==="true";
+    $$(".barra-movil button").forEach(function(x){x.setAttribute("aria-pressed","false")});
+    cuerpo.classList.remove("ver-secciones","ver-inspector"); asistente(false);
+    if(ya||h==="vista")return;
+    b.setAttribute("aria-pressed","true");
+    if(h==="secciones")cuerpo.classList.add("ver-secciones");
+    if(h==="inspector")cuerpo.classList.add("ver-inspector");
+    if(h==="asistente")asistente(true);
+  }});
+
+  // Publicar
+  var dlg=$("#dlgPublicar");
+  $("#publicar").onclick=function(){dlg.showModal()};
+  $("#cancelarPublicar").onclick=function(){dlg.close()};
+  $("#confirmarPublicar").onclick=function(){dlg.close(); var b=$("#publicar"); b.innerHTML='<svg><use href="#i-check"/></svg>Publicada'; };
+
+  // Enlace directo a una pantalla: #crear, #editor o #creativo
+  var h=location.hash.slice(1);
+  if(h==="editor")abrirEditor("landing"); else if(h==="creativo")abrirEditor("creativo"); else if(h==="crear"){irPaso(1);ir("crear")}
+})();
+</script>
+</body>
+</html>

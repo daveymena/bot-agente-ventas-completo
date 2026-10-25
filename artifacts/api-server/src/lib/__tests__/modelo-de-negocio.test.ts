@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   modeloDelProducto, seEnvia, condicionesDesdePerfil, CONDICIONES_DE_RESPALDO,
+  sellosDelNegocio, envioConfirmado, lineaDeEnvio, fraseCostoEnvio, costoDeEnvioEnFrase,
   bloqueTrasElSi, marcaDeModelo, esColombia,
 } from "../modelo-de-negocio";
 import { contextoDeDropshipping, verificarZona, resumenDelPedido } from "../dropshipping";
@@ -55,11 +56,36 @@ describe("el modelo se decide por qué pasa después del sí", () => {
 });
 
 describe("las condiciones salen del perfil del negocio, no del código", () => {
-  it("sin perfil se usa el respaldo (lo del dueño), marcado como respaldo", () => {
+  // 23-10-2026: el respaldo llevaba "3 a 5 días · incluido · todo el país" y
+  // eso salía como "Envío gratis a todo el país" en landings y creativos de
+  // negocios que nunca configuraron envío.
+  it("sin perfil se usa el respaldo, marcado como respaldo y SIN plazo, costo ni cobertura", () => {
     const c = condicionesDesdePerfil({});
     expect(c).toBe(CONDICIONES_DE_RESPALDO);
     expect(c.fuente).toBe("respaldo");
-    expect(c.envio.plazo).toBe("3 a 5 días hábiles");
+    expect(c.envio).toMatchObject({ plazo: "", costo: "", cobertura: "", pago: "contraentrega" });
+    expect(sellosDelNegocio(c)).toEqual(["Paga al recibir"]);
+    expect(envioConfirmado(c)).toBe(false);
+    expect(lineaDeEnvio(c)).toBeNull();
+    expect(fraseCostoEnvio(c)).toBe("Costo de envío por confirmar");
+  });
+
+  it("un perfil con envío pero sin costo NO es 'envío incluido'", () => {
+    const c = condicionesDesdePerfil({ envio: { plazo: "2 días", pago: "contraentrega" } });
+    expect(c.fuente).toBe("perfil");
+    expect(c.envio.costo).toBe("");
+    expect(sellosDelNegocio(c)).not.toContain("Envío gratis");
+    expect(sellosDelNegocio(c)).toContain("Llega en 2 días");
+    expect(lineaDeEnvio(c)).toBe("Llega en 2 días.");
+    expect(costoDeEnvioEnFrase(c)).toBe("costo del envío por confirmar");
+    expect(contextoDeDropshipping(c)).toMatch(/COSTO del envío NO está configurado/);
+    expect(contextoDeDropshipping(c)).toMatch(/Tiempo de entrega: 2 días\./);
+  });
+
+  it("'gratis' o 'incluido' escrito por el dueño sí es envío incluido", () => {
+    const c = condicionesDesdePerfil({ envio: { plazo: "3 días", costo: "gratis" } });
+    expect(c.envio.costo).toBe("incluido");
+    expect(sellosDelNegocio(c)).toContain("Envío gratis");
   });
 
   it("un negocio que cobra el envío aparte y por adelantado NO hereda contraentrega", () => {

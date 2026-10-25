@@ -234,6 +234,13 @@ const MIGRATIONS = [
   `ALTER TABLE dropshipping_orders ADD COLUMN IF NOT EXISTS dropi_variation_id INTEGER`,
   `ALTER TABLE dropshipping_orders ADD COLUMN IF NOT EXISTS transportadora TEXT`,
   `ALTER TABLE dropshipping_orders ADD COLUMN IF NOT EXISTS transportadora_id INTEGER`,
+  // Formulario contraentrega seguro (lib/landing/pedido-seguro.ts): el código
+  // que el cliente nos escribe por WhatsApp, cuándo lo hizo, y la IP del
+  // formulario para el antifraude.
+  `ALTER TABLE dropshipping_orders ADD COLUMN IF NOT EXISTS codigo_verificacion TEXT`,
+  `ALTER TABLE dropshipping_orders ADD COLUMN IF NOT EXISTS verificado_at TIMESTAMP WITH TIME ZONE`,
+  `ALTER TABLE dropshipping_orders ADD COLUMN IF NOT EXISTS ip TEXT`,
+  `CREATE INDEX IF NOT EXISTS dropshipping_orders_codigo_idx ON dropshipping_orders (tenant_id, codigo_verificacion) WHERE codigo_verificacion IS NOT NULL`,
   `CREATE INDEX IF NOT EXISTS dropshipping_orders_estado_idx ON dropshipping_orders (tenant_id, estado)`,
   `CREATE TABLE IF NOT EXISTS remarketing_campaigns (
     id SERIAL PRIMARY KEY,

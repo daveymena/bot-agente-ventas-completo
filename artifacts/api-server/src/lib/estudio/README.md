@@ -44,6 +44,27 @@ propósito (ver `lib/creativos/almacen.ts`).
 `creativo_editar` (en `app-operator.ts`). `landing_editar` también entiende
 `update_theme` ("poné los botones verdes").
 
+### Atlas diseña (23-10-2026)
+
+Pedido del dueño: que Atlas no elija una plantilla, que **cree, edite y
+manipule**. Manos y ojos, sin pedir permiso en cada vuelta (solo borradores):
+
+| Herramienta | Qué hace | Dónde |
+|---|---|---|
+| `creativo_ver` | Capas con id y medidas, fotos permitidas, hechos de la ficha; `mirar` = crítica | `creativos/atlas.ts` |
+| `creativo_disenar` | Agregar/cambiar/borrar/duplicar/ordenar/alinear capas, fondo, formato. Sin id crea uno (en blanco o sobre maqueta) | `operaciones-escena.ts` |
+| `landing_ver` | Secciones con id, diseño, tema, fotos y hechos; `mirar` = captura en celular + crítica | `landing/atlas-diseno.ts` |
+| `landing_disenar` | Cambiar/agregar/mover/borrar secciones, tema, diseño. Se niega en una publicada | `landing/operaciones-landing.ts` |
+
+- **Ojos** (`ojo-de-disenador.ts`): el PNG o la captura van al modelo de visión
+  (`preguntarAVision`) con criterio de director de arte; vuelve NOTA + cambios
+  concretos con ids. Sin modelo de visión con clave, no hay crítica (no se inventa).
+- **Límites**: fotos solo del producto (o `/uploads`); textos sin cifras que no
+  estén en la ficha (`inventaCifras`); testimonios y garantía no se escriben.
+  Lo rechazado vuelve con su motivo para que Atlas corrija.
+- Un creativo que Atlas opera queda "hecho a mano" (`maqueta: null`):
+  `creativo_editar` ya no lo vuelve a diagramar.
+
 ## Zonas seguras de Meta
 
 14 % arriba / 35 % abajo / 6 % a los lados en 9:16. Fuente: guías de terceros

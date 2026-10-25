@@ -76,6 +76,33 @@ export async function escenaAPng(escenaCruda: unknown, opts: { escala?: number }
   }
 }
 
+/**
+ * Foto de una página entera (una landing) con el mismo Chromium compartido.
+ * La usa el ojo de diseñador de Atlas para ver la landing como la ve el
+ * cliente en el celular. Se corta en `altoMax`: una foto de 15.000 px no la
+ * lee bien ningún modelo de visión, y lo que decide la venta está arriba.
+ */
+export async function htmlAPng(html: string, opts: { ancho?: number; altoMax?: number; escala?: number } = {}): Promise<Buffer> {
+  const ancho = Math.max(320, Math.min(1600, opts.ancho ?? 390));
+  const altoMax = Math.max(600, Math.min(8000, opts.altoMax ?? 4200));
+  const b = await navegador();
+  const pagina = await b.newPage();
+  try {
+    await pagina.setViewport({ width: ancho, height: 844, deviceScaleFactor: Math.max(0.3, Math.min(2, opts.escala ?? 1)) });
+    await pagina.setContent(html, { waitUntil: "networkidle2", timeout: 30_000 });
+    await pagina.evaluate("document.fonts && document.fonts.ready").catch(() => {});
+    const alto = Math.min(altoMax, Number(await pagina.evaluate("document.documentElement.scrollHeight")) || 844);
+    // La pantalla del alto de la página: si no, lo fijo (barra de compra,
+    // botón de WhatsApp) sale pegado a la mitad de la foto, encima del
+    // contenido, y el ojo de diseñador lo critica como si tapara el texto.
+    await pagina.setViewport({ width: ancho, height: alto, deviceScaleFactor: Math.max(0.3, Math.min(2, opts.escala ?? 1)) });
+    const png: Buffer = await pagina.screenshot({ type: "png", clip: { x: 0, y: 0, width: ancho, height: alto } });
+    return Buffer.from(png);
+  } finally {
+    await pagina.close().catch(() => {});
+  }
+}
+
 /** Exporta y guarda en /uploads/creativos/. Devuelve la ruta pública. */
 export async function exportarEscena(tenantId: number, escena: unknown, nombre = "creativo"): Promise<string> {
   const png = await escenaAPng(escena);

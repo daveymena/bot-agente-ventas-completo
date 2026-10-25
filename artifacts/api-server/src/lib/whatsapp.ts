@@ -649,10 +649,11 @@ async function buildProductCaption(p: typeof products.$inferSelect, categoryName
     lines.push(variante([`🚚 *ENVÍO Y PAGO*`, `🚚 *Cómo lo recibes*`, `🚚 *Entrega y pago*`], sem));
     lines.push("");
     // Sin envío configurado no se afirma costo ni plazo (ver envioConfirmado).
-    const { envioConfirmado } = await import("./modelo-de-negocio");
+    const { envioConfirmado, costoConfirmado, plazoConfirmado } = await import("./modelo-de-negocio");
     if (envioConfirmado(c)) {
-      lines.push(`📦 ${fraseCostoEnvio(c)}, ${c.envio.cobertura}`);
-      lines.push(`⏱️ Llega en ${c.envio.plazo}`);
+      // Cada dato solo si el negocio lo cargó.
+      lines.push(`📦 ${costoConfirmado(c) ? fraseCostoEnvio(c) : "Te lo enviamos a tu dirección por transportadora"}${c.envio.cobertura ? `, ${c.envio.cobertura}` : ""}`);
+      if (plazoConfirmado(c)) lines.push(`⏱️ Llega en ${c.envio.plazo}`);
     } else {
       lines.push(`📦 Te lo enviamos a tu dirección por transportadora`);
     }
@@ -1154,11 +1155,9 @@ export async function construirSeccion(
     const { modeloDelProducto, fraseCostoEnvio, frasePagoEnvio } = await import("./modelo-de-negocio");
     const modelo = modeloDelProducto(p as any);
     const c = await condicionesDelProducto(p);
-    const { envioConfirmado } = await import("./modelo-de-negocio");
+    const { costoConfirmado, plazoConfirmado } = await import("./modelo-de-negocio");
     const texto = modelo === "fisico"
-      ? envioConfirmado(c)
-        ? `📦 Te lo enviamos a tu dirección por transportadora. ${fraseCostoEnvio(c)}.\n⏱️ Llega en ${c.envio.plazo}. ${frasePagoEnvio(c)}.\n\n${cierre}`
-        : `📦 Te lo enviamos a tu dirección por transportadora. ${frasePagoEnvio(c)}.\n⏱️ El tiempo depende de la transportadora: te comparto la guía apenas salga.\n\n${cierre}`
+      ? `📦 Te lo enviamos a tu dirección por transportadora.${costoConfirmado(c) ? ` ${fraseCostoEnvio(c)}.` : ""}\n${plazoConfirmado(c) ? `⏱️ Llega en ${c.envio.plazo}.` : "⏱️ El tiempo depende de la transportadora: te comparto la guía apenas salga."} ${frasePagoEnvio(c)}.\n\n${cierre}`
       : modelo === "servicio"
         ? `🗓️ Es un servicio: se agenda por acá${c.agenda ? ` (${c.agenda})` : ""} y el negocio te confirma la hora.\n\n${cierre}`
         : modelo === "cotizacion"
