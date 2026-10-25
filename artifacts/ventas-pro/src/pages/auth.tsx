@@ -492,10 +492,10 @@ export default function AuthPage() {
             </div>
             <div className="pt-3 space-y-2.5">
               <div className="max-w-[80%] rounded-2xl rounded-tl-md bg-white/10 px-3.5 py-2 text-[13px] text-slate-100">
-                Hola, ¿el curso de piano tiene certificado?
+                Hola, ¿cómo recibo mi curso?
               </div>
               <div className="ml-auto max-w-[85%] rounded-2xl rounded-tr-md bg-gradient-to-br from-primary to-fuchsia-500 px-3.5 py-2 text-[13px] text-white shadow-lg shadow-primary/30">
-                ¡Sí! Incluye certificado y acceso de por vida. Te dejo el link de pago 👇
+                Te compartimos el acceso cuando se confirme tu pago. Te ayudo con el proceso 😊
               </div>
               <div className="ml-auto max-w-[85%] rounded-xl bg-white/10 border border-white/10 px-3.5 py-2.5">
                 <p className="text-[13px] font-semibold text-white leading-tight">Curso de Piano Completo</p>

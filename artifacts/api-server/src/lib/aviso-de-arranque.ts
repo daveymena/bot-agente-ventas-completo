@@ -50,6 +50,12 @@ interface ReglaAviso {
  * mis campañas" no caiga en el aviso genérico de crear.
  */
 const REGLAS: ReglaAviso[] = [
+  // Proveedores de IA no son proveedores logísticos. Las exclusiones como
+  // "no actives campañas" tampoco convierten un diagnóstico en un cambio.
+  {
+    patron: /proveedores? (de )?(ia\b|inteligencia artificial)|modelos? (de )?(ia\b|inteligencia artificial)|deepseek|ollama|openrouter|\bgroq\b|claves? de (ia\b|api)/,
+    mensaje: "🩺 Reviso los proveedores de IA…",
+  },
   // ── Investigación real: es lo que más tarda y más necesita aviso ────────
   {
     patron: /competencia|competidor|biblioteca de anuncios|ad library|mercado|tendencia|benchmark|que (esta|estan) haciendo|que funciona/,

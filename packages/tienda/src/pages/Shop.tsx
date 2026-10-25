@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useStore, Product } from '../store/useStore';
+import { useStore } from '../store/useStore';
 import { Search, Store } from 'lucide-react';
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom';
 import ProductCard from '../components/ProductCard';
 import Portada from '../components/market/Portada';
+import { tipoDeOferta } from '../lib/experiencia-de-compra';
 import {
   HeroTech, BarraConfianza, CirculosCategorias, OfertasSemana, PromosDobles,
   DestacadosTech, BandaConfianza, CategoriasDestacadas, OfertaEspecial,
@@ -53,7 +54,7 @@ export { ProductCard };
 const sinTildes = (t: string) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 const Shop = () => {
-  const { config, updateConfig, products: localProducts } = useStore();
+  const { config, updateConfig } = useStore();
   const { slug: paramSlug } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -88,24 +89,22 @@ const Shop = () => {
       .finally(() => setLoading(false));
   }, [slug]);
 
-  const products = apiProducts.length > 0
-    ? apiProducts.map(p => ({
+  const products = apiProducts.map(p => ({
         id: p.id.toString(),
         name: p.name,
         description: p.description,
         price: Number(p.price),
         image: p.image ?? '',
         category: p.category,
-        type: (p.kind || 'digital') as Product['type'],
+        type: tipoDeOferta(p),
         stock: 999,
         resaltado: p.highlight || '',
-      }))
-    : localProducts.map(p => ({ ...p, resaltado: '' }));
+      }));
 
   // Qué vende REALMENTE esta tienda, para no prometer envíos que no existen
   // ni entrega digital de algo que se manda por correo (ver el hero abajo).
   const hayFisicos = products.some(p => p.type === 'physical');
-  const hayDigitales = products.some(p => p.type !== 'physical');
+  const hayDigitales = products.some(p => p.type === 'digital');
 
   // Ya no hace falta la etiqueta "Digital"/"Físico" en cada tarjeta: cada
   // departamento tiene su propia vitrina y nunca se mezclan (ver
@@ -198,7 +197,7 @@ const Shop = () => {
     // distinguen en el rótulo, si no el cliente ve dos entradas iguales.
     const porNombre: Record<string, number> = {};
     lista.forEach(c => { porNombre[c.name.toLowerCase()] = (porNombre[c.name.toLowerCase()] || 0) + 1; });
-    lista.forEach(c => { if (porNombre[c.name.toLowerCase()] > 1) c.name = `${c.name} (${c.type === 'physical' ? 'físico' : 'digital'})`; });
+    lista.forEach(c => { if (porNombre[c.name.toLowerCase()] > 1) c.name = `${c.name} (${c.type === 'physical' ? 'físico' : c.type === 'service' ? 'servicio' : 'digital'})`; });
     return lista.sort((a, b) => b.count - a.count);
   }, [products]);
 

@@ -9,7 +9,7 @@ export interface Product {
   price: number;
   image: string;
   category: string;
-  type: 'digital' | 'physical' | 'dropshipping';
+  type: 'digital' | 'physical' | 'dropshipping' | 'service' | 'servicio';
   stock: number;
   /** Talla/color/modelo que eligió el cliente antes de agregar al carrito. */
   variante?: string;
@@ -162,6 +162,8 @@ export const useStore = create<StoreState>()(
       })),
       setProducts: (products) => set({ products }),
   addToCart: (product) => set((state) => {
+    // Una consulta no es una descarga: su recorrido está en la ficha.
+    if (product.type === 'service' || product.type === 'servicio') return { cart: state.cart };
     // Un producto con variante (talla/color) cuenta por variante: "Camiseta
     // M" y "Camiseta G" son dos ítems distintos en el carrito, no uno con
     // cantidad 2.

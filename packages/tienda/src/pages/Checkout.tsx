@@ -11,6 +11,7 @@ import {
   faltantes, errorDeFormato, departamentoDeCiudad,
 } from '../lib/envio';
 import { LogoTienda } from '../components/PaymentIcons';
+import { tipoDeOferta } from '../lib/experiencia-de-compra';
 
 /** Un producto de dropshipping es físico: se despacha y se paga al recibir. */
 const esFisico = (tipo: string) => tipo === 'physical' || tipo === 'dropshipping';
@@ -30,7 +31,8 @@ export default function Checkout() {
   // que un pedido físico no tenía forma de completarse: nunca se le pedía a
   // dónde enviarlo.
   const hayFisicos = cart.some(i => esFisico(i.type));
-  const hayDigitales = cart.some(i => !esFisico(i.type));
+  const hayDigitales = cart.some(i => tipoDeOferta(i) === 'digital');
+  const servicios = cart.filter(i => tipoDeOferta(i) === 'service');
   const mixto = hayFisicos && hayDigitales;
 
   const [datosDigital, setDatosDigital] = useState({ name: '', email: '', phone: '' });
@@ -229,6 +231,13 @@ export default function Checkout() {
   }
 
   if (cart.length === 0) return null;
+  // También protege carritos persistidos antes de separar los servicios.
+  if (servicios.length) return <div className="mx-auto max-w-xl px-4 py-16">
+    <h1 className="text-2xl font-semibold text-slate-900">Primero, consulta el servicio</h1>
+    <p className="mt-3 text-slate-600">Confirma el alcance, el presupuesto y la disponibilidad con el negocio antes de pagar.</p>
+    <div className="mt-6 space-y-3">{servicios.map(s => <Link key={s.id} to={`/tienda/${slug}/producto/${s.id}`} className="block rounded-xl border border-slate-200 p-4 font-medium">Consultar {s.name} →</Link>)}</div>
+    <Link to={`/tienda/${slug}/carrito`} className="mt-6 inline-block text-sm underline">Volver al carrito</Link>
+  </div>;
 
   const inputCls =
     'w-full px-4 py-3.5 rounded-xl border border-gray-200 bg-white text-gray-900 focus:ring-2 focus:ring-[var(--store-primary)]/30 focus:border-[var(--store-primary)] outline-none transition-all shadow-sm placeholder-gray-400';

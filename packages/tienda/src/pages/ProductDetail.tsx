@@ -2,11 +2,12 @@ import { useMoneda } from '@/lib/moneda';
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useStore } from '../store/useStore';
-import { ShoppingCart, Check, Package, ShieldCheck, Infinity as InfinityIcon, Download, MessageCircle, Truck } from 'lucide-react';
+import { ShoppingCart, Check, Package, MessageCircle } from 'lucide-react';
 import { initPixel, trackViewContent, trackAddToCart, trackInitiateCheckout, trackContact } from '../lib/pixel';
 import { registrarVisto } from '../lib/vistos';
 import { sanitizeRichHtml, plainTextToHtml } from '../lib/rich-text';
 import TrustBar from '../components/TrustBar';
+import { experienciaDeCompra } from '../lib/experiencia-de-compra';
 
 interface DetailProduct {
   /** Galería completa (principal primero) y video principal, si el dueño los cargó. */
@@ -20,6 +21,7 @@ interface DetailProduct {
   image: string | null;
   category: string;
   kind: string;
+  linea?: string;
   sku: string | null;
   features: string[] | null;
   /** Talla/color/modelo: [{ nombre: "Talla", valores: ["S","M"], obligatoria: true }] */
@@ -43,7 +45,7 @@ const ProductDetail = () => {
   const { slug: paramSlug, productId } = useParams();
   const slug = paramSlug || 'sofia-premium';
   const navigate = useNavigate();
-  const { addToCart, config } = useStore();
+  const { addToCart, config, updateConfig } = useStore();
 
   const [product, setProduct] = useState<DetailProduct | null>(null);
   const [related, setRelated] = useState<RelatedProduct[]>([]);
@@ -62,6 +64,7 @@ const ProductDetail = () => {
       .then(r => { if (!r.ok) throw new Error('404'); return r.json(); })
       .then(data => {
         setProduct(data.product);
+        updateConfig({ whatsappPhone: data.store?.whatsappPhone || '' });
         setRelated(data.related || []);
 
         // Visto recientemente: alimenta la sección de la portada con el
@@ -125,7 +128,9 @@ const ProductDetail = () => {
   const descriptionHtml = sanitizeRichHtml(plainTextToHtml(product.description || ''));
   // Un curso y una rodillera no se entregan igual: lo que se le promete al
   // cliente cambia con esto, no es solo un texto distinto.
-  const esDigital = String(product.kind || 'digital') !== 'physical';
+  const experiencia = experienciaDeCompra(product);
+  const esServicio = experiencia.tipo === 'service';
+  const esDigital = experiencia.tipo === 'digital';
 
   const waHref = config.whatsappPhone
     ? `https://wa.me/${config.whatsappPhone}?text=${encodeURIComponent(
@@ -245,7 +250,7 @@ const ProductDetail = () => {
               se afirma. */}
           <div className="flex flex-wrap items-center gap-3 mb-6">
             <span className="inline-flex items-center gap-1.5 bg-[var(--store-primary)]/10 border border-[var(--store-primary)]/20 text-[var(--store-primary)] text-xs font-bold px-3 py-1.5 rounded-full">
-              <Check className="w-3.5 h-3.5" /> {esDigital ? 'Acceso inmediato' : 'Envío a domicilio'}
+              <Check className="w-3.5 h-3.5" /> {experiencia.etiqueta}
             </span>
           </div>
 
@@ -253,16 +258,16 @@ const ProductDetail = () => {
             <div className="flex items-baseline gap-2">
               {/* En celular text-5xl desborda con precios de siete cifras
                   ($1.899.000): el numero se sale de la columna. */}
-              <span className="text-3xl sm:text-4xl font-black text-gray-900">{formatear(price)}</span>
+              <span className="text-3xl sm:text-4xl font-black text-gray-900">{esServicio && price <= 0 ? 'Consultar presupuesto' : formatear(price)}</span>
               {/* formatear() ya incluye USD/MXN/EUR para visitantes de fuera.
                   Añadir siempre la moneda original producía "USD $16.89 COP",
                   una contradicción visible justo antes de comprar. */}
-              {visitante.esColombia && (
+              {visitante.esColombia && !(esServicio && price <= 0) && (
                 <span className="text-base font-semibold text-gray-500">COP</span>
               )}
             </div>
             <p className="text-sm text-emerald-600 font-bold mt-1">
-              {esDigital ? 'Pago único — sin mensualidades' : 'Precio final — sin sorpresas'}
+              {experiencia.detalle}
             </p>
           </div>
 
@@ -274,22 +279,9 @@ const ProductDetail = () => {
                 tiene "acceso de por vida". Esta lista estaba fija para todo el
                 catalogo, asi que una rodillera termica mostraba "Entrega por
                 Google Drive" -- reportado por el admin. Se ramifica por kind. */}
-            {(esDigital
-              ? [
-                  { icon: InfinityIcon, text: 'Acceso de por vida' },
-                  { icon: Download, text: 'Descargable u online' },
-                  { icon: ShieldCheck, text: 'Entrega por Google Drive' },
-                  { icon: Check, text: 'Acceso inmediato' },
-                ]
-              : [
-                  { icon: Truck, text: 'Envio a tu direccion' },
-                  { icon: MessageCircle, text: 'Coordinamos por WhatsApp' },
-                  { icon: ShieldCheck, text: 'Producto original' },
-                  { icon: Check, text: 'Pagas al recibir o en linea' },
-                ]
-            ).map(({ icon: Icon, text }) => (
+            {experiencia.pasos.map(text => (
               <div key={text} className="flex items-center gap-2.5 text-sm text-gray-700 bg-[var(--store-primary-soft)] rounded-xl px-3 py-2.5">
-                <Icon className="w-4 h-4 text-[var(--store-primary)] shrink-0" />
+                <Check className="w-4 h-4 text-[var(--store-primary)] shrink-0" />
                 <span>{text}</span>
               </div>
             ))}
@@ -319,9 +311,9 @@ const ProductDetail = () => {
           ))}
 
           <div className="space-y-3 mb-8">
-            <button
+            {!esServicio && <button
               onClick={() => {
-                if (faltanObligatorias) return;
+                if (esServicio || faltanObligatorias) return;
                 addToCart({
                   id: String(product.id),
                   name: product.name,
@@ -331,10 +323,8 @@ const ProductDetail = () => {
                   price: Number(product.price),
                   image: product.image ?? '',
                   category: product.category,
-                  // El backend solo emite 'physical' | 'digital'; el checkout
-                  // decide contra entrega vs pasarela leyendo justo esto, así
-                  // que no puede quedar en `any`.
-                  type: product.kind === 'physical' ? 'physical' : 'digital',
+                  // Conserva el tipo real de la oferta en el checkout.
+                  type: experiencia.tipo,
                   stock: 999,
                   variante: variante || undefined,
                 });
@@ -353,8 +343,8 @@ const ProductDetail = () => {
               }`}
             >
               <ShoppingCart className="w-5 h-5" />
-              {faltanObligatorias ? 'Elige las opciones para continuar' : 'Comprar ahora'}
-            </button>
+              {faltanObligatorias ? 'Elige las opciones para continuar' : experiencia.accion}
+            </button>}
 
             {waHref && (
               <a
@@ -365,10 +355,12 @@ const ProductDetail = () => {
                 className="w-full bg-white text-gray-900 border border-gray-200 py-3.5 rounded-full font-bold hover:bg-gray-50 transition-all flex items-center justify-center gap-2.5"
               >
                 <MessageCircle className="w-5 h-5 text-emerald-600" />
-                Consultar por WhatsApp
+                {esServicio ? 'Consultar disponibilidad y presupuesto' : 'Consultar por WhatsApp'}
               </a>
             )}
           </div>
+
+          {esServicio && !waHref && <p role="status" className="mb-8 rounded-xl bg-slate-50 p-4 text-sm text-slate-600">El negocio aún no tiene un canal de consulta disponible en esta página.</p>}
 
           {features.length > 0 && (
             <div className="border border-gray-200 rounded-xl p-5 mb-6">
@@ -461,7 +453,7 @@ const ProductDetail = () => {
       {/* El kit cierra la ficha de producto con la misma barra de garantías
           del catálogo. Acá se calcula sobre ESTE producto: una ficha digital
           no promete envío, y una física no promete entrega inmediata. */}
-      <TrustBar hayFisicos={!esDigital} hayDigitales={esDigital} className="mt-16" />
+      {!esServicio && <TrustBar hayFisicos={!esDigital} hayDigitales={esDigital} className="mt-16" />}
     </div>
   );
 };

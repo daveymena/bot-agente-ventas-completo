@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Heart, Download, Box, ShoppingCart } from 'lucide-react';
+import { Heart, Download, Box, ShoppingCart, MessageCircle } from 'lucide-react';
 import Swal from 'sweetalert2';
 import { useStore, Product } from '../store/useStore';
 import { useMoneda } from '@/lib/moneda';
 import { trackAddToCart, trackInitiateCheckout } from '../lib/pixel';
+import { experienciaDeCompra } from '../lib/experiencia-de-compra';
 
 /**
  * Tarjeta de producto con el look de la maqueta tech: borde suave, foto sobre
@@ -23,6 +24,8 @@ import { trackAddToCart, trackInitiateCheckout } from '../lib/pixel';
 const TIPO = {
   digital: { label: 'Digital', icon: Download },
   physical: { label: 'Físico', icon: Box },
+  service: { label: 'Servicio', icon: MessageCircle },
+  servicio: { label: 'Servicio', icon: MessageCircle },
 } as const;
 
 export default function ProductCard({
@@ -46,6 +49,8 @@ export default function ProductCard({
   const [buying, setBuying] = useState(false);
 
   const detailHref = `/tienda/${slug}/producto/${product.id}`;
+  const experiencia = experienciaDeCompra(product);
+  const esServicio = experiencia.tipo === 'service';
   const tipo = TIPO[product.type as keyof typeof TIPO] || TIPO.digital;
   const TipoIcon = tipo.icon;
   const enDeseados = wishlist.includes(product.id);
@@ -53,6 +58,7 @@ export default function ProductCard({
   // Físico: se paga contra entrega, así que va al checkout donde se piden
   // dirección y cédula. Digital: directo a la pasarela.
   const comprarAhora = async () => {
+    if (esServicio) { navigate(detailHref); return; }
     if (product.type === 'physical' || product.type === 'dropshipping') {
       addToCart(product);
       trackInitiateCheckout({ ids: [product.id], value: product.price });
@@ -84,6 +90,7 @@ export default function ProductCard({
   };
 
   const agregar = () => {
+    if (esServicio) { navigate(detailHref); return; }
     addToCart(product);
     trackAddToCart({ id: product.id, name: product.name, price: product.price });
     Swal.fire({
@@ -150,11 +157,16 @@ export default function ProductCard({
           {product.name}
         </Link>
 
-        <p className="mt-1.5 text-[16px] font-extrabold text-[var(--tech-tinta)]">{formatear(product.price)}</p>
+        <p className="mt-1.5 text-[16px] font-extrabold text-[var(--tech-tinta)]">{esServicio && product.price <= 0 ? 'Consultar presupuesto' : formatear(product.price)}</p>
 
         {/* Botones siempre visibles (en el teléfono no hay hover, y por ahí
             entra casi todo el tráfico del bot). */}
-        {acciones === 'carrito' && (
+        {esServicio && acciones !== 'ninguna' && (
+          <Link to={detailHref} className="mt-3 flex min-h-11 items-center justify-center gap-2 rounded-xl bg-[var(--tech-violeta)] px-3 text-center text-xs font-semibold text-white">
+            <MessageCircle className="h-4 w-4 shrink-0" /> Consultar servicio
+          </Link>
+        )}
+        {!esServicio && acciones === 'carrito' && (
           <button
             onClick={agregar}
             className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-slate-200 text-[12px] font-semibold text-[var(--tech-tinta)] transition-colors hover:border-[var(--tech-violeta)] hover:bg-[var(--tech-violeta)] hover:text-white"
@@ -162,14 +174,14 @@ export default function ProductCard({
             <ShoppingCart className="h-3.5 w-3.5" /> Agregar al carrito
           </button>
         )}
-        {acciones === 'ambas' && (
+        {!esServicio && acciones === 'ambas' && (
           <div className="mt-3 flex gap-2">
             <button
               onClick={comprarAhora}
               disabled={buying}
               className="h-9 flex-1 rounded-lg bg-[var(--tech-violeta)] text-[12px] font-bold text-white transition-colors hover:bg-[var(--tech-violeta-hover)] disabled:opacity-50"
             >
-              {buying ? 'Abriendo pago…' : 'Comprar ahora'}
+              {buying ? 'Abriendo pago…' : experiencia.accion}
             </button>
             <button
               onClick={agregar}

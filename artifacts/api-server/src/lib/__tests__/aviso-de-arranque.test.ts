@@ -86,3 +86,15 @@ describe("ante la duda, no se manda nada", () => {
     expect(avisoDeArranque(undefined as any)).toBeNull();
   });
 });
+
+describe("diagnóstico de IA observado en producción", () => {
+  it("no anuncia cambios de campañas por una prohibición explícita", () => {
+    expect(avisoDeArranque("Solo diagnóstico: revisa los proveedores de IA configurados. No cambies configuraciones, no publiques anuncios ni actives campañas.")).toBe("🩺 Reviso los proveedores de IA…");
+  });
+  it("proveedores de IA no son pedidos y entregas", () => {
+    expect(avisoDeArranque("Comprueba cuáles proveedores de IA tienen conexión utilizable y realiza una prueba breve de respuesta.")).toBe("🩺 Reviso los proveedores de IA…");
+  });
+  it("conserva proveedores logísticos", () => {
+    expect(avisoDeArranque("Revisa mis proveedores y entregas")).toContain("pedidos y entregas");
+  });
+});

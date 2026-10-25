@@ -12,16 +12,17 @@
  * productos activos son TODOS servicios se presenta como servicios.
  */
 
-export type Presentacion = "tienda" | "servicios";
+export type Presentacion = "tienda" | "servicios" | "digital";
 
 export function presentacionDelNegocio(
   perfil: { presentacion?: unknown } | null | undefined,
   lineas: Array<string | null | undefined>,
 ): Presentacion {
   const elegida = String(perfil?.presentacion || "");
-  if (elegida === "tienda" || elegida === "servicios") return elegida;
+  if (elegida === "tienda" || elegida === "servicios" || elegida === "digital") return elegida;
   const activas = lineas.filter(Boolean);
   if (activas.length > 0 && activas.every((l) => l === "servicio")) return "servicios";
+  if (activas.length > 0 && activas.every((l) => l === "digital")) return "digital";
   return "tienda";
 }
 

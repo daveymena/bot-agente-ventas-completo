@@ -27,9 +27,9 @@ const TrustBar = ({
   const { config } = useStore();
 
   const garantias = [
-    { icon: ShieldCheck, titulo: 'Pago seguro', detalle: 'Pasarelas oficiales', mostrar: true },
-    { icon: Truck, titulo: 'Envío a todo el país', detalle: 'Pagas al recibir', mostrar: hayFisicos },
-    { icon: Zap, titulo: 'Entrega inmediata', detalle: 'Sin esperas ni envíos', mostrar: hayDigitales },
+    { icon: ShieldCheck, titulo: 'Antes de comprar', detalle: 'Revisa las condiciones', mostrar: true },
+    { icon: Truck, titulo: 'Entrega a domicilio', detalle: 'Consulta costo y cobertura', mostrar: hayFisicos },
+    { icon: Zap, titulo: 'Acceso digital', detalle: 'Según la ficha del producto', mostrar: hayDigitales },
     { icon: MessageCircle, titulo: 'Te atendemos', detalle: 'Escríbenos por WhatsApp', mostrar: Boolean(config.whatsappPhone) },
   ].filter(g => g.mostrar);
 

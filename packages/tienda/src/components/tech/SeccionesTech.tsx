@@ -219,7 +219,7 @@ export function BarraConfianza({ hayFisicos }: { hayFisicos: boolean }) {
   const items = [
     { Icono: BadgeCheck, titulo: 'Compra protegida', bajada: 'Productos verificados' },
     { Icono: CreditCard, titulo: hayFisicos ? 'Pago contra entrega' : 'Pago seguro', bajada: hayFisicos ? 'Pagas al recibir' : 'Varios medios de pago' },
-    { Icono: Truck, titulo: hayFisicos ? 'Envío a todo el país' : 'Entrega inmediata', bajada: hayFisicos ? 'Coordinado por WhatsApp' : 'Directo a tu correo' },
+    { Icono: Truck, titulo: hayFisicos ? 'Entrega a domicilio' : 'Acceso digital', bajada: hayFisicos ? 'Consulta cobertura y condiciones' : 'Revisa cómo recibir tu contenido' },
     { Icono: Headphones, titulo: 'Soporte directo', bajada: 'Te asesoramos por WhatsApp' },
   ];
   return (
@@ -401,7 +401,7 @@ export function BandaConfianza({ hayFisicos }: { hayFisicos: boolean }) {
   const items = [
     { Icono: ShieldCheck, titulo: 'Compra protegida', bajada: 'Productos verificados' },
     { Icono: CreditCard, titulo: hayFisicos ? 'Pago contra entrega' : 'Pagos seguros', bajada: hayFisicos ? 'Pagas al recibir' : 'Varios medios' },
-    { Icono: hayFisicos ? Truck : Zap, titulo: hayFisicos ? 'Envío nacional' : 'Entrega inmediata', bajada: hayFisicos ? 'Rápido y seguro' : 'Al confirmar el pago' },
+    { Icono: hayFisicos ? Truck : Zap, titulo: hayFisicos ? 'Entrega a domicilio' : 'Acceso digital', bajada: hayFisicos ? 'Según la cobertura del negocio' : 'Según la ficha del producto' },
   ];
   return (
     <section className="relative mt-12 overflow-hidden rounded-[22px] px-6 py-8 text-white sm:px-10"

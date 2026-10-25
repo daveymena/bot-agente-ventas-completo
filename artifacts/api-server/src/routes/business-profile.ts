@@ -104,7 +104,7 @@ const guardarSchema = z.object({
    * médicos, asesores) no es una tienda. Ver lib/presentacion-del-negocio.ts.
    * Sin elegir, se deduce de los productos (todos servicios → servicios).
    */
-  presentacion: z.enum(["tienda", "servicios"]).nullable().optional(),
+  presentacion: z.enum(["tienda", "servicios", "digital"]).nullable().optional(),
   /** Credenciales REALES que se muestran ("Tarjeta profesional N°…", "10 años en derecho laboral"). */
   credenciales: z.array(z.string().max(160)).max(8).nullable().optional(),
   direccion: z.string().max(200).nullable().optional(),
