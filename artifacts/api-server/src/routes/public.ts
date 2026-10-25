@@ -6,7 +6,7 @@ import { generateImageBuffer, getProviderConfigFromSettings, getProviderConfig, 
 import { getG4FImage, getAvailableG4FImageProviders, initializeG4F } from "../lib/providers/g4f-provider";
 import { G4F_ENABLED } from "../config/g4f.config";
 import { logger } from "../lib/logger";
-import { getWhatsAppForTenant } from "../lib/whatsapp-factory";
+import { getWhatsAppForTenant, peekWhatsAppForTenant } from "../lib/whatsapp-factory";
 import { tenantManager } from "../lib/tenantManager";
 import { SAAS_PLANS } from "../middleware/saasValidation";
 import { encryptSecret } from "../lib/credentials-vault";
@@ -44,7 +44,7 @@ function resolveWhatsAppPhone(tenant?: { id?: number; contactPhone?: string | nu
   // el número de WhatsApp conectado del tenant 1 como si fuera el suyo.
   // Ahora se consulta la instancia real de ESTE tenant.
   if (tenant?.id) {
-    const wa = getWhatsAppForTenant(tenant.id).getStatus();
+    const wa = peekWhatsAppForTenant(tenant.id)?.getStatus();
     if (wa?.phone && /^\d+$/.test(wa.phone)) return wa.phone;
   }
   if (tenant?.contactPhone) return tenant.contactPhone.replace(/\D/g, "");
@@ -1109,7 +1109,7 @@ router.get("/whatsapp-info/:slug", async (req, res, next) => {
     const [tenant] = await db.select().from(tenants).where(eq(tenants.slug, slug)).limit(1);
     if (!tenant) return res.status(404).json({ message: "Tienda no encontrada" });
     const waPhone = resolveWhatsAppPhone(tenant);
-    return res.json({ phone: waPhone, connected: getWhatsAppForTenant(tenant.id).isConnected() });
+    return res.json({ phone: waPhone, connected: peekWhatsAppForTenant(tenant.id)?.isConnected() ?? false });
   } catch (err) {
     return next(err);
   }
@@ -1124,7 +1124,7 @@ router.get("/whatsapp-info", async (_req, res, next) => {
     const [tenant] = await db.select().from(tenants).where(eq(tenants.isActive, true)).limit(1);
     if (!tenant) return res.status(404).json({ message: "No hay tiendas activas" });
     const waPhone = resolveWhatsAppPhone(tenant);
-    return res.json({ phone: waPhone, connected: getWhatsAppForTenant(tenant.id).isConnected(), slug: tenant.slug });
+    return res.json({ phone: waPhone, connected: peekWhatsAppForTenant(tenant.id)?.isConnected() ?? false, slug: tenant.slug });
   } catch (err) {
     return next(err);
   }
@@ -1299,7 +1299,7 @@ router.post("/help-chat", rateLimitPublico(20, 5 * 60 * 1000, "help-chat"), asyn
     // respuesta de IA que sí funcionó.
     let whatsappPhone: string | null = null;
     try {
-      const waStatus = getWhatsAppForTenant(1).getStatus();
+      const waStatus = peekWhatsAppForTenant(1)?.getStatus();
       whatsappPhone = (waStatus?.phone && /^\d+$/.test(waStatus.phone))
         ? waStatus.phone
         : process.env.ADMIN_PHONE?.replace(/\D/g, "") || null;

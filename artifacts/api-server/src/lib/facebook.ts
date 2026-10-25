@@ -1031,8 +1031,8 @@ Responde SOLO con este JSON exacto:
       // en Meta el 24-09-2026). El número es el de la sesión conectada.
       let conectado = "";
       try {
-        const { getWhatsAppForTenant } = await import("./whatsapp-factory");
-        conectado = String(getWhatsAppForTenant(Number((this.tenant as any)?.id)).getStatus().phoneNumber || "");
+        const { peekWhatsAppForTenant } = await import("./whatsapp-factory");
+        conectado = String(peekWhatsAppForTenant(Number((this.tenant as any)?.id))?.getStatus().phoneNumber || "");
       } catch { conectado = ""; }
       // WHATSAPP_NUMBER del .env es el del dueño del servidor: el anuncio de
       // otro negocio con WhatsApp desconectado mandaba los clics a ese número.

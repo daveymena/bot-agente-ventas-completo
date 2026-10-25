@@ -1,6 +1,6 @@
 import { logger } from "./logger";
 import { runAgentReply } from "./agent";
-import { getWhatsAppForTenant } from "./whatsapp-factory";
+import { getWhatsAppForTenant, peekWhatsAppForTenant } from "./whatsapp-factory";
 import { FacebookMessengerService } from "./facebook-messenger";
 import { FacebookCommentsService } from "./facebook-comments";
 import { tenantManager, type TenantContext } from "./tenantManager";
@@ -131,7 +131,7 @@ export class ChannelManager {
 
     statuses.push({
       channel: "whatsapp",
-      connected: getWhatsAppForTenant(tenantId).isConnected(),
+      connected: peekWhatsAppForTenant(tenantId)?.isConnected() ?? false,
       label: "WhatsApp",
     });
 

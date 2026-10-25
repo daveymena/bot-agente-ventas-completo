@@ -41,7 +41,7 @@ vi.mock("../programador", () => ({
   programar: async (t: any) => { estado.programados.push(t); return { creado: true, id: 1 }; },
 }));
 vi.mock("../marketing-team/audit", () => ({ writeAuditLog: async () => undefined }));
-vi.mock("../whatsapp-factory", () => ({ getWhatsAppForTenant: () => ({ isConnected: () => false }) }));
+vi.mock("../whatsapp-factory", () => ({ getWhatsAppForTenant: () => ({ isConnected: () => false }), peekWhatsAppForTenant: () => undefined }));
 vi.mock("../facebook-messenger", () => ({ facebookMessengerService: {}, FacebookMessengerService: class {} }));
 vi.mock("../leadScoring", () => ({ leadScoringEngine: {} }));
 vi.mock("../tenant-email", () => ({ enviarComoNegocio: async () => true }));
