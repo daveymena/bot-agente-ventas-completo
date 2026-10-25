@@ -6,26 +6,16 @@
  * de imagen o video, un buen marco de copy con emojis y espacios. Nada
  * genérico."
  *
- * Lo genérico sale de escribir sin datos. Esto junta, en una sola lectura:
- *   1. Lo que YA convirtió en ESTA cuenta (gasto, CTR, CPC, costo por
- *      resultado por campaña, y el gancho/estructura del copy que lo logró),
- *      leído de Meta con la radiografía y las métricas reales.
- *   2. La estructura de la campaña más reciente (conjuntos, destino,
- *      optimización, Instagram, mejoras) para replicarla.
- *   3. Referencias del rubro, marcadas como orientativas, para tener contra
- *      qué comparar cuando la cuenta todavía no tiene historia.
- *   4. Especificaciones creativas concretas (formatos, medidas, qué mostrar,
- *      qué NO) y sugerencias de imagen/video para ESTE producto.
- *   5. Metas de KPI y reglas de decisión (cuándo cambiar gancho, cuándo
- *      pausar, cuándo escalar) y la lista de lo que el anuncio DEBE decir.
- *
- * El copy lo sigue escribiendo el modelo (MODULO_PUBLICIDAD); acá van los
- * hechos que lo vuelven específico.
+ * Lee datos aislados por tenant, métricas de entrega y estructura observada.
+ * Adjunta un plan de conversión específico y economía sin costos inventados.
+ * Los resultados de Meta no se clasifican como compras ni se usan para
+ * declarar un ganador; contrastar marketing_attribution y cierre final.
  */
 import { and, eq } from "drizzle-orm";
 import { db, products } from "@workspace/db";
 import { modeloDelProducto, codigoDePais } from "../modelo-de-negocio";
 import { getBusinessContext } from "../business-context";
+import { planDeConversion } from "./plan-de-conversion";
 
 export interface CampanaMedida {
   id: string; nombre: string; estado: string; objetivo: string | null;
@@ -36,28 +26,13 @@ export interface CampanaMedida {
   lectura: string;
 }
 
-/** Referencias del rubro para Colombia (COP). ORIENTATIVAS: sirven para comparar, no son promesa. */
-export const REFERENCIAS_DEL_RUBRO = {
-  fuente: "Rangos habituales medidos por agencias y anunciantes en Colombia 2025-2026 para campañas de mensajes a WhatsApp y tráfico. Orientativos; la cuenta propia manda.",
-  digital: {
-    cpmCop: [6000, 18000], ctrPct: [1.5, 4.0], cpcCop: [250, 900],
-    costoPorConversacionCop: [500, 3000], conversacionAVentaPct: [3, 10],
-    nota: "Cursos y productos digitales de ticket bajo ($20.000-$80.000): el cuello suele ser el CIERRE en el chat, no el clic.",
-  },
-  fisico: {
-    cpmCop: [7000, 22000], ctrPct: [1.2, 3.5], cpcCop: [300, 1200],
-    costoPorConversacionCop: [800, 4000], conversacionAVentaPct: [8, 20],
-    nota: "Contraentrega: la tasa de entrega efectiva (cliente recibe y paga) suele ser 60-80%; contarla en el margen.",
-  },
-};
-
 export const ESPECIFICACIONES_CREATIVAS = {
   imagen: [
-    "Feed 1:1 (1080×1080) y 4:5 (1080×1350): el 4:5 ocupa más pantalla en el celular, rinde mejor en feed.",
+    "Feed 1:1 (1080×1080) y 4:5 (1080×1350): el 4:5 ocupa más pantalla en el celular; probar su rendimiento en la cuenta.",
     "Stories/Reels 9:16 (1080×1920): dejar 250 px libres arriba y abajo para la interfaz.",
     "Texto sobre la imagen: máximo 3-5 palabras grandes (el gancho o el precio), nunca el anuncio entero.",
     "Mostrar el producto EN USO o el resultado (persona tocando el piano, pantalla del curso, la faja puesta), no un logo ni un mockup vacío.",
-    "Una cara con emoción real sube el CTR; fondo limpio y contraste alto con el color de marca.",
+    "Probar demostración humana y producto en detalle como hipótesis; no afirmar que una cara aumenta el CTR sin medición.",
     "Fotos reales del catálogo primero; IA solo para contexto, nunca para fingir testimonios.",
   ],
   video: [
@@ -68,53 +43,26 @@ export const ESPECIFICACIONES_CREATIVAS = {
   ],
   formatoDelCopy: [
     "Gancho en la primera línea (pregunta o problema), SIN 'Tenemos disponible', 'Nuevo', 'Oferta'.",
-    "Un emoji al inicio de cada línea con contenido, y una línea en blanco entre bloques: se lee en el celular.",
+    "Emojis con moderación y sentido; párrafos cortos y buena lectura móvil, sin decoración repetitiva.",
     "Bloque de beneficios: 3-5 líneas, cada una con su emoji y un beneficio concreto (no características sueltas).",
-    "Precio exacto y cómo llega (Drive / contraentrega) SIEMPRE: es lo primero que preguntan por WhatsApp.",
+    "Precio/condición de cotización y entrega/acceso/agenda reales, adecuados al modelo de negocio.",
     "Cierre con UNA acción: 'Escríbenos por WhatsApp' (en campañas de mensajes) o 'Pedir ahora' (tráfico).",
-    "Titular ≤ 40 caracteres; descripción = precio + garantía/acceso. Digital: 'Pago único $60.000 · Acceso de por vida'. Físico: '$45.000 · Pagas al recibir · Envío a todo Colombia' (NUNCA 'pago único' en un físico).",
-    "Largo total del texto principal: 8-12 líneas. Más es folleto, menos es pobre.",
+    "Titular breve. Nunca asumir acceso de por vida, garantía, envío gratis, cobertura nacional ni contraentrega por el tipo de producto.",
+    "Probar copy conciso según placement y nivel de conocimiento; no imponer un número universal de líneas.",
   ],
 };
 
-export function metasYReglas(modelo: "digital" | "fisico") {
-  const r = modelo === "fisico" ? REFERENCIAS_DEL_RUBRO.fisico : REFERENCIAS_DEL_RUBRO.digital;
-  return {
-    metas: {
-      ctrMinimoPct: r.ctrPct[0],
-      cpcMaximoCop: r.cpcCop[1],
-      costoPorConversacionMaximoCop: r.costoPorConversacionCop[1],
-      conversacionAVentaMinimaPct: r.conversacionAVentaPct[0],
-    },
-    reglas: [
-      `Con 1.000 impresiones y CTR < ${r.ctrPct[0]}%: el problema es el GANCHO o la imagen → cambiar creativo, no presupuesto.`,
-      `Con $30.000 gastados y costo por conversación > $${r.costoPorConversacionCop[1].toLocaleString("es-CO")}: pausar ese conjunto y probar otro ángulo o público.`,
-      `Conversaciones llegan pero cierre < ${r.conversacionAVentaPct[0]}%: el anuncio funciona, arreglar el VENDEDOR (respuesta, precio, objeciones) antes de subir presupuesto.`,
-      "Costo por conversación por debajo del rango y ventas confirmadas: subir presupuesto 20% cada 48 h, nunca duplicar de golpe (reinicia el aprendizaje).",
-      "Tres días sin resultados en un conjunto → pausarlo; dos conjuntos buenos → mantener ambos, no consolidar.",
-      "Nunca comparar un conjunto de Colombia con uno internacional: distintos CPM, distinta optimización.",
-    ],
-  };
+export function loQueDebeDecir(): string[] {
+  return ["Para quién sirve y qué uso o beneficio permite según la ficha real.", "Demostración o evidencia propia verificable, sin promesas de resultados garantizados.", "Precio, condiciones, acceso, entrega o agenda SOLO según datos confirmados del negocio.", "Una acción coherente con el objetivo y el destino. Aclarar límites relevantes para filtrar contactos sin encaje."];
 }
 
-export function loQueDebeDecir(modelo: "digital" | "fisico"): string[] {
-  const base = [
-    "Para quién es y qué problema le resuelve (primera línea).",
-    "Qué incluye, en 3-5 beneficios concretos sacados de la ficha real.",
-    "Precio exacto en COP y que es pago único (si aplica).",
-    "Cómo lo recibe: acceso por Google Drive de por vida (digital) o envío a domicilio con pago contraentrega (físico).",
-    "Desde dónde se usa (celular/computador) o cómo se usa (físico).",
-    "Una sola llamada a la acción, al final.",
-  ];
-  if (modelo === "fisico") base.push("Cobertura: a dónde se envía (el país del negocio) y que se paga al recibir.");
-  return base;
-}
-
-/** Lo que YA pasó en la cuenta: campaña por campaña, con su copy y sus números. */
+/** Resultados de entrega en la cuenta; no son necesariamente compras: campaña por campaña, con su copy y sus números. */
 export async function benchmarksDeLaCuenta(fb: any, dias = 30): Promise<{ campanas: CampanaMedida[]; resumen: string; mejor: CampanaMedida | null; peor: CampanaMedida | null }> {
   const lista = await fb.listActiveCampaigns();
+  if (fb.lastCampaignListError) throw new Error("No se pudieron consultar campañas de Meta; no equivale a cuenta sin campañas.");
   const pedir = fb.getCampaignMetricsHistoricos ?? fb.getCampaignMetrics;
   const metricas = lista.length ? await pedir.call(fb, { campaignIds: lista.map((c: any) => c.id), days: dias }) : null;
+  if (lista.length && !Array.isArray(metricas?.campaigns)) throw new Error("Métricas de Meta no disponibles; no interpretar como cero ventas.");
   const campanas: CampanaMedida[] = [];
   for (const c of lista.slice(0, 12)) {
     const m = (metricas?.campaigns || []).find((x: any) => x.id === c.id);
@@ -132,33 +80,29 @@ export async function benchmarksDeLaCuenta(fb: any, dias = 30): Promise<{ campan
       formato: creativo?.formato || null, gancho, titulo: creativo?.titulo || null, cta: creativo?.cta || null,
       lectura: "",
     };
-    fila.lectura = gasto === 0
+    fila.lectura = !m ? "sin métricas para esta campaña en la respuesta; resultado desconocido" : gasto === 0
       ? "sin gasto en la ventana"
       : res === 0
         ? `gastó $${gasto.toLocaleString("es-CO")} sin resultados`
         : `$${fila.costoPorResultado.toLocaleString("es-CO")} por resultado (${res}) con CTR ${fila.ctr}%`;
     campanas.push(fila);
   }
-  const conResultados = campanas.filter((c) => c.resultados > 0 && c.gasto > 0);
-  const mejor = conResultados.sort((a, b) => a.costoPorResultado - b.costoPorResultado)[0] || null;
-  const peor = campanas.filter((c) => c.gasto > 0).sort((a, b) => (b.resultados ? b.costoPorResultado : Infinity) - (a.resultados ? a.costoPorResultado : Infinity))[0] || null;
+  // No ordenar campañas con resultados/objetivos distintos como si fueran ventas.
+  const mejor: CampanaMedida | null = null;
+  const peor: CampanaMedida | null = null;
   const resumen = campanas.length
     ? campanas.map((c) => `• ${c.nombre} (${c.estado}): ${c.lectura}${c.gancho ? ` · gancho: "${c.gancho.slice(0, 70)}"` : ""}${c.formato ? ` · ${c.formato}` : ""}`).join("\n")
-    : "La cuenta no tiene campañas medibles todavía: se usan las referencias del rubro.";
+    : "La cuenta no tiene campañas medibles todavía: no hay evidencia de ventas para elegir un ganador.";
   return { campanas, resumen, mejor, peor };
 }
 
 /** El paquete completo para un producto: todo lo que hace falta ANTES de escribir el anuncio. */
-export async function datosExpertosParaAnuncio(opts: { tenantId: number; productId: number; objetivo?: string; fb: any | null }) {
+export async function datosExpertosParaAnuncio(opts: { tenantId: number; productId: number; objetivo?: string; fb: any | null; costosVariablesPorVenta?: number; beneficioMinimoPorVenta?: number }) {
   const [p] = await db.select().from(products).where(and(eq(products.id, opts.productId), eq(products.tenantId, opts.tenantId))).limit(1);
   if (!p) throw new Error(`No encontré el producto ${opts.productId}.`);
-  const modelo = modeloDelProducto(p as any) === "fisico" ? "fisico" : "digital";
-  const referencias = modelo === "fisico" ? REFERENCIAS_DEL_RUBRO.fisico : REFERENCIAS_DEL_RUBRO.digital;
+  const modelo = modeloDelProducto(p as any);
   const ctxNeg = await getBusinessContext(opts.tenantId).catch(() => null);
   const pais = codigoDePais(ctxNeg?.condiciones?.pais || null);
-  const notaPais = pais === "CO"
-    ? ""
-    : ` El negocio está en ${ctxNeg?.condiciones?.pais || pais}: las referencias son de Colombia, en COP; conviértalas a la moneda de la cuenta y ajústelas al país (CPM y costo por conversación suelen ser mayores en US/ES y similares en MX/PE/EC).`;
 
   let cuenta: Awaited<ReturnType<typeof benchmarksDeLaCuenta>> | null = null;
   let plantilla: any = null;
@@ -177,16 +121,20 @@ export async function datosExpertosParaAnuncio(opts: { tenantId: number; product
         "Segunda imagen: captura REAL del contenido por dentro (módulos/lecciones) con el texto 'Así se ve por dentro'.",
         "Video 15-20 s vertical: 3 s de pregunta en pantalla → 10 s mostrando el contenido por dentro → precio y 'Escríbenos por WhatsApp'.",
       ]
-    : [
-        `Imagen 4:5: el producto (${p.name}) EN USO por una persona, fondo limpio, gancho de 3-4 palabras y 'Pago contraentrega' como etiqueta.`,
+    : modelo === "fisico" ? [
+        `Imagen 4:5: el producto (${p.name}) EN USO por una persona, fondo limpio, gancho de 3-4 palabras y una condición de pago verificada (no asumir contraentrega).`,
         "Segunda imagen: el producto solo, en detalle, con 3 beneficios en íconos.",
         "Video 15-30 s vertical: problema (3 s) → el producto resolviéndolo (12 s) → precio, envío y 'Pedir por WhatsApp'.",
+      ] : [
+        `Demostración real de ${p.name}: proceso, alcance y prueba verificable del trabajo.`,
+        "Pieza centrada en una objeción real, con condiciones de agenda, cotización o suscripción confirmadas.",
+        "CTA acorde al cierre: reservar, cotizar o consultar; no prometer entrega digital ni contraentrega.",
       ];
 
   return {
     producto: { id: p.id, nombre: p.name, modelo, precio, fotosReales: fotos.length, descripcion: String((p as any).description || "").slice(0, 600), caracteristicas: ((p as any).features as string[]) || [] },
     objetivoSugerido: opts.objetivo || "mensajes",
-    loQueDebeDecir: loQueDebeDecir(modelo),
+    loQueDebeDecir: loQueDebeDecir(),
     formatoDelCopy: ESPECIFICACIONES_CREATIVAS.formatoDelCopy,
     creativo: { imagen: ESPECIFICACIONES_CREATIVAS.imagen, video: ESPECIFICACIONES_CREATIVAS.video, sugerenciasParaEsteProducto: sugerenciasCreativas },
     cuenta: cuenta
@@ -195,13 +143,12 @@ export async function datosExpertosParaAnuncio(opts: { tenantId: number; product
           mejor: cuenta.mejor ? { nombre: cuenta.mejor.nombre, costoPorResultado: cuenta.mejor.costoPorResultado, ctr: cuenta.mejor.ctr, gancho: cuenta.mejor.gancho, formato: cuenta.mejor.formato, optimizacion: cuenta.mejor.optimizacion } : null,
           peor: cuenta.peor ? { nombre: cuenta.peor.nombre, lectura: cuenta.peor.lectura } : null,
         }
-      : { resumen: "Facebook no conectado o sin campañas: se usan referencias del rubro.", mejor: null, peor: null },
+      : { resumen: "Sin métricas verificadas de Meta; no afirmar que un anuncio vende.", mejor: null, peor: null },
     estructuraARepetir: plantilla
       ? { deCampana: plantilla.origen?.nombre || null, conjuntos: plantilla.conjuntos.map((c: any) => `${c.nombre}: ${c.paises.join(",")} · ${c.optimizacion || "según objetivo"} · ${c.presupuestoDiario ? `$${Number(c.presupuestoDiario).toLocaleString("es-CO")}/día` : ""}`), instagram: !!plantilla.instagram, mejorasCompletas: !!plantilla.mejorasCompletas }
       : null,
     pais,
     moneda: (p as any).currency || "COP",
-    referenciasDelRubro: { ...referencias, fuente: REFERENCIAS_DEL_RUBRO.fuente + notaPais },
-    ...metasYReglas(modelo),
+    planConversion: planDeConversion({ modelo, nombre: p.name, descripcion: String(p.description || ""), fotos: fotos.length, precio: p.price == null ? null : Number(p.price) }, { costos: opts.costosVariablesPorVenta ?? null, beneficioMinimo: opts.beneficioMinimoPorVenta ?? null }),
   };
 }

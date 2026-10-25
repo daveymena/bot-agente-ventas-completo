@@ -46,8 +46,8 @@ const SUGERENCIAS: Record<ContextoEstudio["espacio"], string[]> = {
     "¿Qué tipografía va con mi marca y por qué?",
   ],
   creativos: [
+    "Prepará un anuncio para Meta: revisá el producto, proponé el copy y decime qué creativo mostraría antes de publicarlo",
     "Creá 3 creativos 4:5 para este producto con ganchos distintos",
-    "Hacé versiones 9:16 para historias",
     "Proponé ganchos para mamás",
   ],
 };
@@ -188,7 +188,10 @@ export function AtlasDock({ contexto, leerContexto, onTurnoTerminado, onCerrar, 
             <div className={`max-w-[92%] rounded-2xl px-3 py-2 text-[13px] leading-relaxed ${m.role === "user" ? "bg-violet-600 text-white rounded-br-sm" : "bg-muted rounded-bl-sm"}`}>
               {m.role === "assistant" ? (
                 <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-ul:my-1 prose-li:my-0 [&_a]:text-violet-600 [&_a]:underline">
-                  <ReactMarkdown components={{ a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer">{children}</a> }}>{m.content}</ReactMarkdown>
+                  <ReactMarkdown components={{
+                    a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer">{children}</a>,
+                    img: ({ src, alt }) => <img src={src} alt={alt || "Vista previa del creativo"} loading="lazy" className="my-2 max-h-72 w-auto rounded-xl border bg-white object-contain" />,
+                  }}>{m.content}</ReactMarkdown>
                 </div>
               ) : m.content}
             </div>
