@@ -38,12 +38,13 @@ export async function modelosCopilotEnAtlas(): Promise<string[] | null> {
     const proveedores = data.providers ?? data.all ?? [];
     const p = Array.isArray(proveedores) ? proveedores.find((p: any) => (p.id || p.providerID) === 'github-copilot') : proveedores['github-copilot'];
     const modelos = p?.models;
-    return Array.isArray(modelos) ? modelos.map((m: any) => m?.id).filter((v: unknown): v is string => typeof v === 'string') : Object.keys(modelos || {}).sort();
+    const habilitado = (m: any) => m?.enabled !== false && m?.policy?.state !== 'disabled';
+    return Array.isArray(modelos) ? modelos.filter(habilitado).map((m: any) => m?.id).filter((v: unknown): v is string => typeof v === 'string') : Object.entries(modelos || {}).filter(([,m]) => habilitado(m)).map(([id]) => id).sort();
   } catch { return null; }
 }
 
 /** Catálogo de la cuenta conectada, nunca una lista de nombres inventados. */
-export async function modelosDeCopilot(rawToken: string | string[], headers: Record<string, string> = {}) {
+export async function catalogoDeCopilot(rawToken: string | string[], headers: Record<string, string> = {}) {
   const sesion = await sesionCopilotGuardada(Array.isArray(rawToken) ? rawToken : [rawToken]);
   if (!sesion) throw new Error('No se pudo renovar la sesión local de Copilot. El token guardado se conserva; comprueba también la conexión de Atlas.');
   const r = await fetch('https://api.githubcopilot.com/models', {
@@ -55,9 +56,22 @@ export async function modelosDeCopilot(rawToken: string | string[], headers: Rec
     : `No se pudo consultar Copilot (${r.status}). Intenta de nuevo.`);
   const body: any = await r.json();
   const data: any[] = Array.isArray(body?.data) ? body.data : [];
-  return [...new Set<string>(data.filter(m =>
+  const chat = data.filter(m =>
     typeof m?.id === 'string' && m.id.trim() &&
-    (!m.capabilities?.type || m.capabilities.type === 'chat') &&
-    m.policy?.state !== 'disabled' && m.model_picker_enabled !== false
-  ).map(m => m.id))].sort();
+    (!m.capabilities?.type || m.capabilities.type === 'chat')
+  );
+  const permitidos = chat.filter(m => m.policy?.state !== 'disabled');
+  const unicos = (lista: any[]) => [...new Set<string>(lista.map(m => m.id))].sort();
+  const modelos = unicos(permitidos.filter(m => m.model_picker_enabled !== false));
+  return {
+    modelos,
+    automaticos: unicos(permitidos.filter(m => m.model_picker_enabled === false)),
+    bloqueados: unicos(chat.filter(m => m.policy?.state === 'disabled')),
+    soloAuto: permitidos.length > 0 && modelos.length === 0,
+  };
+}
+
+/** Compatibilidad para consumidores que necesitan solo modelos seleccionables. */
+export async function modelosDeCopilot(rawToken: string | string[], headers: Record<string, string> = {}) {
+  return (await catalogoDeCopilot(rawToken, headers)).modelos;
 }

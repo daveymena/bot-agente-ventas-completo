@@ -18,7 +18,7 @@ import { logger } from "../lib/logger";
 import { cifrar, descifrar, cargarClavesEnEntorno, leerBusinessConfig } from "../lib/ai-keys";
 import { sincronizarProveedorConOpencode, sincronizarTodasLasClavesConOpencode } from "../lib/opencode-provider-sync";
 import type { TenantRequest } from "../lib/tenantManager";
-import { GITHUB_MODELS_RETIRADO, modelosDeCopilot, modelosCopilotEnAtlas, tokensCopilotGuardados, sesionCopilotGuardada } from '../lib/copilot-modelos';
+import { GITHUB_MODELS_RETIRADO, catalogoDeCopilot, modelosCopilotEnAtlas, tokensCopilotGuardados, sesionCopilotGuardada } from '../lib/copilot-modelos';
 
 const router = Router();
 
@@ -38,7 +38,7 @@ export const PROVEEDORES = [
   // como proveedor principal.
   { id: "ollama_cloud", nombre: "Ollama Cloud", gratis: true, envKey: "OLLAMA_CLOUD_API_KEY", alta: "https://ollama.com/settings/keys", nota: "Modelos grandes · cuota diaria gratis · el catálogo rota" },
   { id: "github", nombre: "GitHub Models (retirado)", gratis: true, envKey: "GITHUB_TOKEN", alta: "https://docs.github.com/en/github-models", nota: GITHUB_MODELS_RETIRADO },
-  { id: "github_copilot_internal", nombre: "GitHub Copilot", gratis: false, envKey: "GITHUB_COPILOT_TOKEN", alta: "https://github.com/settings/copilot", nota: "Conecta tu cuenta por código de dispositivo. Los modelos dependen de tu plan y políticas." },
+  { id: "github_copilot_internal", nombre: "GitHub Copilot", gratis: true, envKey: "GITHUB_COPILOT_TOKEN", alta: "https://github.com/settings/copilot", nota: "Planes Free y de pago. Free usa selección Auto; su disponibilidad en Atlas depende del conector." },
   { id: "mimo", nombre: "Xiaomi MiMo", gratis: false, envKey: "MIMO_API_KEY", alta: "https://platform.xiaomimimo.com/#/console/api-keys", nota: "De pago · 1M de contexto · fuerte en código" },
   { id: "openai", nombre: "OpenAI (ChatGPT)", gratis: false, envKey: "OPENAI_API_KEY", alta: "https://platform.openai.com/api-keys", nota: "GPT · también genera imágenes con DALL·E" },
   { id: "anthropic", nombre: "Anthropic (Claude)", gratis: false, envKey: "ANTHROPIC_API_KEY", alta: "https://console.anthropic.com/settings/keys", nota: "Claude · fuerte razonando y en código" },
@@ -228,14 +228,25 @@ router.get("/models/:proveedor", async (req: TenantRequest, res, next) => {
       const [fila] = await db.select().from(settings).limit(1);
       const base = getProviderConfig(proveedor);
       let modelos: string[];
+      let automaticos: string[] = [];
+      let bloqueados: string[] = [];
+      let soloAuto = false;
       let origen = 'copilot';
-      try { modelos = await modelosDeCopilot(tokensCopilotGuardados(fila, process.env), base?.defaultHeaders); }
+      try {
+        const catalogo = await catalogoDeCopilot(tokensCopilotGuardados(fila, process.env), base?.defaultHeaders);
+        ({ modelos, automaticos, bloqueados, soloAuto } = catalogo);
+        // Auto solo se ofrece si el conector de ejecución lo publica.
+        if (soloAuto) {
+          const deAtlas = await modelosCopilotEnAtlas();
+          if (deAtlas?.includes('auto')) { modelos = ['auto']; origen = 'atlas'; }
+        }
+      }
       catch (e) {
         const deAtlas = await modelosCopilotEnAtlas();
         if (deAtlas === null) throw e;
         modelos = deAtlas; origen = 'atlas';
       }
-      return res.json({ modelos, total: modelos.length, origen, consultado: origen === 'atlas' ? 'Conexión de Copilot en Atlas' : 'https://api.githubcopilot.com', aviso: origen === 'atlas' ? 'Atlas reconoce la conexión de Copilot ya autenticada. Guarda el modelo y pruébalo en Atlas; no hace falta reemplazar el token.' : modelos.length ? 'Catálogo de la cuenta; prueba el modelo antes de usarlo.' : 'La cuenta no ofrece modelos de chat con selección manual para esta conexión. Revisa tu plan y las políticas en GitHub.' });
+      return res.json({ modelos, total: modelos.length, origen, soloAuto, automaticos, bloqueados, autoDisponible: modelos.includes('auto'), consultado: origen === 'atlas' ? 'Conexión de Copilot en Atlas' : 'https://api.githubcopilot.com', aviso: soloAuto && !modelos.length ? 'GitHub respondió, pero no permite seleccionar modelos manualmente en esta cuenta. Copilot Free y Student utilizan Auto; el conector de Atlas aún no lo ha expuesto. El token se conserva.' : origen === 'atlas' ? 'Atlas reconoce la conexión de Copilot ya autenticada. Guarda el modelo y pruébalo en Atlas; no hace falta reemplazar el token.' : modelos.length ? 'Catálogo de la cuenta; prueba el modelo antes de usarlo.' : 'El proveedor no devolvió modelos seleccionables. Esto no demuestra que el token esté ausente.' });
     }
     const guardadas = await leerClavesGuardadas();
     const base = getProviderConfig(proveedor);

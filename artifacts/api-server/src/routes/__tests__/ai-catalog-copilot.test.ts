@@ -18,6 +18,18 @@ async function llamar(method:string,path:string,body:any={}) {
 beforeEach(async()=>{await db.delete(settings);});
 afterEach(()=>{vi.unstubAllEnvs();vi.unstubAllGlobals();vi.clearAllMocks();});
 describe('catálogo de configuración de GitHub',()=>{
+  it.each([true,false])('Auto solo es seleccionable si el conector lo ofrece: %s',async(disponible)=>{
+    await db.insert(settings).values({githubToken:'oauth-guardado-prueba'});
+    vi.mocked(getCopilotSessionToken).mockResolvedValue({token:'session-test',expiresAt:Date.now()/1000+1800,refreshIn:1800});
+    vi.stubEnv('ATLAS_OPENCODE_HOST','https://atlas.test');vi.stubEnv('ATLAS_OPENCODE_USER','user-test');vi.stubEnv('ATLAS_OPENCODE_PASS','secret-test');
+    vi.stubGlobal('fetch',vi.fn().mockImplementation(async(url:string)=>({ok:true,json:async()=>url.endsWith('/models') ? {data:[{id:'gpt-4o',model_picker_enabled:false}]} : {connected:['github-copilot'],all:[{id:'github-copilot',models:{auto:{enabled:disponible}}}]} })));
+    const {data}=await llamar('get','/models/:proveedor',{proveedor:'github_copilot_internal'});
+    expect(data.soloAuto).toBe(true);
+    expect(data.autoDisponible).toBe(disponible);
+    expect(data.modelos).toEqual(disponible ? ['auto'] : []);
+    expect(data.automaticos).toEqual(['gpt-4o']);
+    expect((await llamar('get','/catalog')).data.proveedores.find((p:any)=>p.id==='github_copilot_internal').gratis).toBe(true);
+  });
   it('el frontend reutiliza la conexión de Atlas cuando falla la renovación local',async()=>{
     await db.insert(settings).values({githubToken:'oauth-guardado-prueba'});
     vi.mocked(getCopilotSessionToken).mockResolvedValue(null);

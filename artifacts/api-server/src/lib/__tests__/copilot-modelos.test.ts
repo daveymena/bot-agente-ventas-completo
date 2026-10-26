@@ -1,12 +1,25 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../copilot', () => ({ getCopilotSessionToken: vi.fn() }));
 import { getCopilotSessionToken } from '../copilot';
-import { modelosDeCopilot, tokensCopilotGuardados, modelosCopilotEnAtlas } from '../copilot-modelos';
+import { catalogoDeCopilot, modelosDeCopilot, tokensCopilotGuardados, modelosCopilotEnAtlas } from '../copilot-modelos';
 import { preferenciaModeloAtlas, copilotElegido } from '../preferencia-modelo-atlas';
 import { estadoCopilot } from '../../../../ventas-pro/src/lib/estado-copilot';
 
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); vi.resetAllMocks(); });
 describe('selección real de modelos de Copilot', () => {
+  it('una cuenta sin selector conserva los modelos informativos y distingue Auto de un catálogo vacío',async()=>{
+    vi.mocked(getCopilotSessionToken).mockResolvedValue({token:'session-test',expiresAt:Date.now()/1000+1800,refreshIn:1800});
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({data:[
+      {id:'gpt-4o',model_picker_enabled:false,capabilities:{type:'chat'}},
+      {id:'premium-bloqueado',model_picker_enabled:false,policy:{state:'disabled'}},
+    ]})}));
+    expect(await catalogoDeCopilot('oauth-test')).toEqual({modelos:[],automaticos:['gpt-4o'],bloqueados:['premium-bloqueado'],soloAuto:true});
+  });
+  it('no adivina un plan Free cuando GitHub devuelve un catálogo vacío',async()=>{
+    vi.mocked(getCopilotSessionToken).mockResolvedValue({token:'session-test',expiresAt:Date.now()/1000+1800,refreshIn:1800});
+    vi.stubGlobal('fetch',vi.fn().mockResolvedValue({ok:true,json:async()=>({data:[]})}));
+    expect((await catalogoDeCopilot('oauth-test')).soloAuto).toBe(false);
+  });
   it('un token guardado no desaparece al recargar ni por vencer la sesión corta', () => {
     expect(estadoCopilot({hasGithubToken:true,hasCopilotSessionToken:true,copilotSessionExpiresAt:'2000-01-01'})).toMatchObject({guardado:true,vigente:false});
     expect(estadoCopilot({hasGithubToken:true}).etiqueta).toContain('guardado');

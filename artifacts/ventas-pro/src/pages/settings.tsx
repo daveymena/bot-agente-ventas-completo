@@ -604,7 +604,7 @@ export default function Settings() {
                           ) : !deviceFlow.active ? (
                             <div className="space-y-6 animate-in fade-in duration-500">
                               <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                                {["GPT-4o", "Claude 3.5", "o1", "o3", "Llama 3"].map(m => (
+                                {["Modelos según tu cuenta", "Free con Auto"].map(m => (
                                   <div key={m} className="flex flex-col items-center gap-1">
                                     <div className="w-full h-1 bg-gradient-to-r from-transparent via-primary/30 to-transparent rounded-full" />
                                     <span className="text-[8px] font-bold text-muted-foreground uppercase">{m}</span>
@@ -893,17 +893,17 @@ export default function Settings() {
 
                 <div className="bg-muted/20 rounded-2xl p-5 border border-dashed flex flex-col justify-center gap-3">
                   <h4 className="font-bold text-sm flex items-center gap-2">
-                    <ShieldCheck className="h-4 w-4 text-green-500" /> Nota sobre Suscripción
+                    <ShieldCheck className="h-4 w-4 text-green-500" /> Copilot Free y planes de pago
                   </h4>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Requiere suscripción activa a GitHub Copilot. Los modelos de Claude y Gemini estarán disponibles según tu plan.
+                    Conecta tu cuenta de Copilot, gratuita o de pago. Free y Student usan Auto; los demás planes permiten elegir modelos según las políticas de la cuenta y el cliente utilizado.
                   </p>
                   <div className="mt-2 p-3 bg-primary/5 rounded-xl border border-primary/10">
-                    <p className="text-[10px] text-primary font-bold uppercase mb-1">Capacidades Activas</p>
+                    <p className="text-[10px] text-primary font-bold uppercase mb-1">Qué muestra este panel</p>
                     <ul className="text-[10px] space-y-1 text-muted-foreground">
-                      <li>• GPT-4o y Claude 3.5 Sonnet soportados</li>
-                      <li>• Razonamiento por etapas habilitado</li>
-                      <li>• Memoria de corto y mediano plazo activa</li>
+                      <li>• El token ya guardado en el servidor</li>
+                      <li>• Los modelos y modos que publique tu conexión</li>
+                      <li>• La prueba de respuesta, separada de la autenticación</li>
                     </ul>
                   </div>
                 </div>
