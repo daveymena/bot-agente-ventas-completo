@@ -3,8 +3,8 @@ import crypto from "node:crypto";
 import { db, tenants } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { logger } from "../lib/logger";
-import { estadoCanva } from "../lib/canva-connector";
-import { encryptSecret, decryptSecret } from "../lib/credentials-vault";
+import { estadoCanva, CANVA_SCOPES, canvaRequest } from "../lib/canva-connector";
+import { encryptSecret } from "../lib/credentials-vault";
 
 export const canvaRouter = Router();
 
@@ -13,9 +13,9 @@ function tenantIdDe(req: any): number | null {
   // el tenant con un valor controlado por el cliente.
   const raw = req.signedCookies?.tenant_id;
   const id = Number(raw);
-  if (Number.isFinite(id) && id > 0) return id;
+  if (Number.isSafeInteger(id) && id > 0) return id;
   const tid = Number((req as any).tenant?.id);
-  return Number.isFinite(tid) && tid > 0 ? tid : null;
+  return Number.isSafeInteger(tid) && tid > 0 ? tid : null;
 }
 
 // PKCE store en memoria (single container). Para multi-instancia debería ser DB, pero Easypanel es 1.
@@ -31,7 +31,7 @@ function redirectUri(): string {
 function canvaAuthorizeUrl(clientId: string, challenge: string, state: string): string {
   // Nombres exactos según OpenAPI oficial Canva: brandtemplate SIN guion bajo (brand_template da invalid_scope).
   // design:meta:read es obligatorio para LISTAR diseños (el endpoint lo exige aunque solo leas contenido).
-  const scopes = ["design:content:read","design:content:write","design:meta:read","asset:read","asset:write","brandtemplate:content:read","profile:read"].join(" ");
+  const scopes = CANVA_SCOPES.join(" ");
   const params = new URLSearchParams({
     code_challenge: challenge,
     code_challenge_method: "S256",
@@ -66,7 +66,8 @@ canvaRouter.get("/estado", async (req, res) => {
     canva: {
       ...base,
       tieneToken,
-      conectado: base.enabled && tieneToken,
+      conectado: base.enabled && tieneToken && canva.verificado === true,
+      requiereRevision: tieneToken && canva.verificado !== true,
       actualizadoEn: canva.actualizadoEn || null,
     },
   });
@@ -158,55 +159,26 @@ canvaRouter.delete("/desconectar", async (req, res) => {
   return res.json({ success: true });
 });
 
-/** POST /api/canva/probar — crea un diseño de prueba desde template (si hay token). */
+/** Verifica acceso real, renovando tokens vencidos; no crea diseños. */
 canvaRouter.post("/probar", async (req, res) => {
   const tid = tenantIdDe(req);
   if (!tid) return res.status(401).json({ success: false, error: "No autenticado" });
-  const meta = await leerMetadataCanva(tid);
-  const canva = meta.canva;
-  if (!canva?.accessToken) return res.status(400).json({ success: false, error: "Canva no conectado: autoriza primero." });
   try {
-    const token = decryptSecret(canva.accessToken);
-    const authH = { Authorization: `Bearer ${token}` };
-    // perfil + capacidades (dice si la cuenta es Pro y qué funciones pagas puede usar)
-    const [perfil, caps] = await Promise.all([
-      fetch("https://api.canva.com/rest/v1/users/me", { headers: authH, signal: AbortSignal.timeout(15_000) }).then((r) => r.json().catch(() => ({}))).catch(() => ({})),
-      fetch("https://api.canva.com/rest/v1/users/me/capabilities", { headers: authH, signal: AbortSignal.timeout(15_000) }).then((r) => r.json().catch(() => ({}))).catch(() => ({})),
-    ]);
-    // prueba real: listar diseños (es lo que Atlas va a usar). introspect solo de apoyo.
-    const r2 = await fetch("https://api.canva.com/rest/v1/designs?limit=1", {
-      headers: { Authorization: `Bearer ${token}` },
-      signal: AbortSignal.timeout(15_000),
-    });
-    const dj: any = await r2.json().catch(() => ({}));
-    // introspect exige autenticación de CLIENTE (Basic client_id:client_secret),
-    // no el Bearer del usuario. Con Bearer Canva responde 400/401 siempre.
-    const cid = String(process.env.CANVA_CLIENT_ID || "").trim();
-    const sec = String(process.env.CANVA_CLIENT_SECRET || "").trim();
-    const basic = Buffer.from(`${cid}:${sec}`).toString("base64");
-    const r = await fetch("https://api.canva.com/rest/v1/oauth/introspect", {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: `Basic ${basic}` },
-      body: new URLSearchParams({ token }).toString(),
-      signal: AbortSignal.timeout(15_000),
-    });
-    const j: any = await r.json().catch(() => ({}));
-    if (r2.ok) {
-      // No devolver al navegador el payload crudo de /designs (incluye urls de
-      // edición/visualización de la cuenta) ni la introspección completa.
-      return res.json({
-        success: true,
-        perfil: { display_name: perfil?.profile?.display_name ?? perfil?.display_name ?? null },
-        capacidades: caps?.capabilities ?? null,
-        disenosVisibles: Array.isArray(dj?.items) ? dj.items.length : 0,
-        tokenActivo: j?.active ?? null,
-        scopesConcedidos: Array.isArray(j?.scopes) ? j.scopes : null,
-      });
-    }
-    return res.status(400).json({ success: false, error: `Canva respondió designs=${r2.status} introspect=${r.status}: ${JSON.stringify(r2.ok ? j : dj).slice(0,300)}` });
+    const listado = await canvaRequest(tid, "/designs?limit=1");
+    const caps = await canvaRequest(tid, "/users/me/capabilities").catch(() => null);
+    const meta = await leerMetadataCanva(tid);
+    meta.canva = { ...meta.canva, verificado: true, verificadoEn: new Date().toISOString() };
+    await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tid));
+    return res.json({ success: true, disenosVisibles: listado.items?.length || 0, capacidades: caps?.capabilities || null });
   } catch (e: any) {
-    return res.status(400).json({ success: false, error: e?.message || String(e) });
+    const meta = await leerMetadataCanva(tid);
+    if (meta.canva) { meta.canva.verificado = false; await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tid)); }
+    return res.status(e.status === 401 ? 409 : 502).json({ success: false, error: e.message || "No se pudo comprobar Canva", reconnect: e.status === 401 });
   }
 });
+
+// Studio comparte las mismas credenciales del negocio y el mismo control de sesión.
+import { canvaStudioRouter } from "./canva-studio";
+canvaRouter.use("/studio", canvaStudioRouter);
 
 export default canvaRouter;

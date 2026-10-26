@@ -12,7 +12,9 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, LayoutTemplate, Image as ImageIcon, Palette, Sparkles, PanelRightClose, PanelRightOpen, Gem } from "lucide-react";
+import { ArrowLeft, LayoutTemplate, Image as ImageIcon, Palette, Sparkles, PanelRightClose, PanelRightOpen, Gem, Figma } from "lucide-react";
+import { FigmaWorkspace, type FigmaContext } from "@/components/estudio/figma-workspace";
+import { CanvaWorkspace } from "@/components/estudio/canva-workspace";
 import { KitMarca } from "@/components/estudio/kit-marca";
 import LandingStudioV2, { type ContextoLanding } from "@/pages/landing-studio-v2";
 import CreativosPage from "@/pages/creativos";
@@ -20,24 +22,27 @@ import { GaleriaDisenos, DISENOS } from "@/components/estudio/galeria-disenos";
 import { EjemplosIA } from "@/components/estudio/ejemplos-ia";
 import { AtlasDock, type ContextoEstudio } from "@/components/estudio/atlas-dock";
 
-type Espacio = "landings" | "disenos" | "creativos" | "marca";
+type Espacio = "landings" | "disenos" | "creativos" | "marca" | "canva" | "figma";
 
 const ESPACIOS: { id: Espacio; nombre: string; icono: any; ayuda: string }[] = [
   { id: "landings", nombre: "Landings", icono: LayoutTemplate, ayuda: "Editá tu página: bloques, textos, tema" },
   { id: "disenos", nombre: "Diseños", icono: Palette, ayuda: "22 diseños en vivo con tu producto" },
   { id: "creativos", nombre: "Creativos", icono: ImageIcon, ayuda: "Imágenes para tus anuncios" },
+  { id: "figma", nombre: "Figma", icono: Figma, ayuda: "Frames y referencias visuales para Atlas" },
+  { id: "canva", nombre: "Canva", icono: Palette, ayuda: "Plantillas, variantes, videos y archivos de Canva" },
   { id: "marca", nombre: "Marca", icono: Gem, ayuda: "Tus colores, letras y logo: todo sale con tu identidad" },
 ];
 
 export default function EstudioPage() {
   const [espacio, setEspacio] = useState<Espacio>(() => {
     const q = new URLSearchParams(window.location.search).get("espacio");
-    return q === "creativos" || q === "disenos" || q === "marca" ? q : "landings";
+    return q === "creativos" || q === "disenos" || q === "marca" || q === "canva" || q === "figma" ? q : "landings";
   });
   const [producto, setProducto] = useState<number | "">(() => {
     const p = Number(new URLSearchParams(window.location.search).get("producto"));
     return Number.isInteger(p) && p > 0 ? p : "";
   });
+  const [ctxFigma, setCtxFigma] = useState<FigmaContext>(null);
   const [ctxLanding, setCtxLanding] = useState<ContextoLanding | null>(null);
   const [ctxCreativo, setCtxCreativo] = useState<{ productId: number | null; productoNombre: string | null; creativo: { id: string | null; nombre: string } | null } | null>(null);
   const [atlasAbierto, setAtlasAbierto] = useState(() => window.innerWidth >= 1280);
@@ -57,8 +62,9 @@ export default function EstudioPage() {
 
   const contexto: ContextoEstudio = {
     espacio,
+    figma: espacio === "figma" ? ctxFigma : null,
     producto: typeof producto === "number" ? { id: producto, nombre: productos.find((p) => p.id === producto)?.name || ctxLanding?.productoNombre || ctxCreativo?.productoNombre || `Producto ${producto}` } : null,
-    landing: espacio !== "creativos" && ctxLanding?.landing ? ctxLanding.landing : null,
+    landing: espacio === "landings" && ctxLanding?.landing ? ctxLanding.landing : null,
     creativo: espacio === "creativos" ? ctxCreativo?.creativo ?? null : null,
   };
 
@@ -90,7 +96,7 @@ export default function EstudioPage() {
           {ESPACIOS.map((e) => (
             <button key={e.id} onClick={() => setEspacio(e.id)} aria-pressed={espacio === e.id} title={e.ayuda}
               className={`h-9 px-3 rounded-lg text-sm font-semibold inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-500 focus-visible:ring-offset-2 ${espacio === e.id ? "bg-background text-foreground shadow-sm dark:bg-violet-600 dark:text-white" : "text-muted-foreground hover:bg-background hover:text-foreground"}`}>
-              <e.icono className="h-4 w-4" /><span className="hidden sm:inline">{e.nombre}</span>
+              <e.icono className="h-4 w-4" /><span>{e.nombre}</span>
             </button>
           ))}
         </nav>
@@ -131,6 +137,12 @@ export default function EstudioPage() {
           </div>
           <div className={espacio === "creativos" ? "flex-1 min-h-0 flex flex-col" : "hidden"}>
             <CreativosPage incrustado producto={producto} onProducto={setProducto} onContexto={setCtxCreativo} onIrAMarca={() => setEspacio("marca")} registrarGuardado={registrarGuardado} />
+          </div>
+          <div className={espacio === "figma" ? "flex-1 min-h-0 overflow-y-auto" : "hidden"}>
+            {espacio === "figma" && <FigmaWorkspace onContexto={setCtxFigma} />}
+          </div>
+          <div className={espacio === "canva" ? "flex-1 min-h-0 overflow-y-auto" : "hidden"}>
+            {espacio === "canva" && <CanvaWorkspace producto={producto} onProducto={setProducto} productos={productos} onMarca={() => setEspacio("marca")} />}
           </div>
           <div className={espacio === "marca" ? "flex-1 min-h-0 overflow-y-auto" : "hidden"}>
             {!producto && productos.length > 0 && (

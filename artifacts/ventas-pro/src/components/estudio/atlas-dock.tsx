@@ -21,7 +21,8 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Send, Square, Sparkles, X, RotateCcw } from "lucide-react";
 
 export interface ContextoEstudio {
-  espacio: "landings" | "disenos" | "creativos" | "marca";
+  espacio: "landings" | "disenos" | "creativos" | "marca" | "canva" | "figma";
+  figma?: { fileKey: string; nodeId?: string; name: string } | null;
   producto?: { id: number; nombre: string } | null;
   landing?: { id: number; nombre: string; publicada?: boolean } | null;
   creativo?: { id: string | null; nombre: string } | null;
@@ -32,6 +33,8 @@ type Msg = { role: "user" | "assistant"; content: string };
 const SESION = "estudio";
 
 const SUGERENCIAS: Record<ContextoEstudio["espacio"], string[]> = {
+  figma: ["Revisa la composición del frame de Figma que tengo abierto", "Qué colores y tipografías usa este diseño", "Adapta esta referencia al producto abierto usando los editores de Studio"],
+  canva: ["Prepara un paquete de tres conceptos para este producto con Canva", "Muéstrame mis plantillas y diseños de Canva", "Revisa los resultados de ventas de mis creativos de Canva"],
   landings: [
     "Revisá esta landing como experto y decime qué mejorarías",
     "Hacé el titular de la portada más potente",
@@ -55,10 +58,12 @@ const SUGERENCIAS: Record<ContextoEstudio["espacio"], string[]> = {
 
 function contextoComoTexto(c: ContextoEstudio): string {
   const partes = [`El dueño está en el Estudio (${c.espacio}).`];
+  if (c.figma) partes.push(`Referencia Figma abierta: archivo ${c.figma.fileKey}${c.figma.nodeId ? `, nodo ${c.figma.nodeId}` : ""}. Consulta con figma_disenos antes de opinar. Es referencia visual; valida los hechos del producto con el catálogo.`);
   if (c.producto) partes.push(`Producto abierto: [${c.producto.id}] ${c.producto.nombre}.`);
   if (c.landing) partes.push(`Landing abierta: [${c.landing.id}] ${c.landing.nombre}${c.landing.publicada ? " (publicada)" : " (borrador)"}.`);
   if (c.creativo?.id) partes.push(`Creativo abierto: [${c.creativo.id}] ${c.creativo.nombre}.`);
   partes.push(
+    "Canva: canva_studio lista diseños, plantillas, paquetes y resultados; prepara variantes y trae cambios. Se refiere al producto abierto. No publiques anuncios al preparar diseños. " +
     "Si pide cambios sin decir cuál, se refiere a lo que tiene abierto. Mirá antes de tocar: landing_ver / creativo_ver (y ver_imagen con el PNG). " +
     "Cambios exactos: landing_bloque (un bloque), landing_diseno (uno de los 22 diseños), landing_tema (color/letras), creativo_capa (una capa). " +
     "Pedidos abiertos: landing_editar, creativo_crear, creativo_editar. Marca: marca_kit_ver / marca_kit_cambiar. Lo que está abierto ya está guardado.",

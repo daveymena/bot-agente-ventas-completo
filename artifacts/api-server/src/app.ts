@@ -21,6 +21,7 @@ import activationRouter from "./routes/activation";
 import aiCatalogRouter from "./routes/ai-catalog";
 import { integracionesRouter, integracionesWebhooksRouter } from "./routes/integraciones";
 import canvaRouter from "./routes/canva";
+import { figmaRouter } from "./routes/figma";
 import { facturacionRouter } from "./routes/facturacion";
 import { posRouter } from "./routes/pos";
 import { eventosRouter } from "./routes/eventos";
@@ -1012,6 +1013,7 @@ app.use("/api/integraciones", integracionesRouter);
 app.use("/api/integraciones/webhooks", integracionesWebhooksRouter);
 // Canva Connect: OAuth PKCE (auth/callback/estado), con sesión para /estado y /auth, callback público.
 app.use("/api/canva", canvaRouter);
+app.use("/api/figma", figmaRouter);
 // Facturación: cada negocio conecta SU sistema (Alegra o webhook). Con sesión.
 app.use("/api/facturacion", facturacionRouter);
 // POS tienda física: inventario, caja, ventas, devoluciones. Con sesión.

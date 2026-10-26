@@ -92,3 +92,9 @@ no documentación de Meta. Se usan como guía visual y aviso, nunca como bloqueo
   visión con rúbrica de director de arte cuando hay uno con clave. Sin modelo, lo
   dice y no inventa puntaje. `creativo_crear` arma hasta 2 candidatos de más y se
   queda con los de mejor puntaje.
+
+## Canva y referencias Figma
+
+Studio incorpora los espacios **Canva** y **Figma**. Canva prepara paquetes desde el producto y kit existentes o autorrellena plantillas propias, conserva versiones exportadas y permite consultar atribución. Figma aporta lectura de frames y referencias visuales para Atlas con autorización independiente por negocio. El dibujante de creativos y landings continúa siendo el mismo; no se duplicó el renderer ni se mezcló con el agente vendedor de WhatsApp.
+
+Consulta `docs/CANVA_INTEGRATION.md` y `docs/FIGMA_INTEGRATION.md` para configuración, permisos, pruebas y límites de persistencia/cola. Las conexiones de estos servicios en ChatGPT no configuran sus credenciales dentro de VentasPro.

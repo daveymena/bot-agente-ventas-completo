@@ -185,6 +185,19 @@ export default function CreativosPage(props: PropsCreativos = {}) {
     setTic((t) => t + 1);
   };
 
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("creativo");
+    if (!id) return;
+    let vigente = true;
+    api<Guardado>(`/api/creativos/${encodeURIComponent(id)}`).then((c) => {
+      if (!vigente) return;
+      if (c.productId) setProductId(c.productId);
+      abrirEscena(normalizarEscena(c.escena), { maqueta: c.maqueta, id: c.id, nombre: c.nombre, guardado: true });
+      setPng(c.png);
+    }).catch((e) => vigente && toast.error(e.message));
+    return () => { vigente = false; };
+  }, []);
+
   const confirmarDescartar = () => !hayCambios || window.confirm("Tenés cambios sin guardar en este creativo. ¿Descartarlos?");
 
   const usarMaqueta = (id: string, f: Formato = formato, d: DatosCreativo | null = datos) => {

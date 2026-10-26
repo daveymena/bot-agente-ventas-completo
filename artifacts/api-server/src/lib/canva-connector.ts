@@ -25,7 +25,7 @@ export interface CanvaEstado {
   env: { CANVA_ENABLED: string; tieneClientId: boolean; tieneSecret: boolean; redirectUri: string };
 }
 
-const SCOPES = ["design:content:read","design:content:write","design:meta:read","asset:read","asset:write","brandtemplate:content:read","profile:read"];
+export const CANVA_SCOPES = ["design:content:read","design:content:write","design:meta:read","asset:read","asset:write","brandtemplate:content:read","brandtemplate:meta:read","profile:read"];
 const ENDPOINTS = ["POST /rest/v1/oauth/token","GET /rest/v1/designs","POST /rest/v1/designs","POST /rest/v1/autofills","POST /rest/v1/exports","GET /rest/v1/exports/{id}","POST /rest/v1/assets"];
 
 export async function estadoCanva(): Promise<CanvaEstado> {
@@ -48,9 +48,9 @@ export async function estadoCanva(): Promise<CanvaEstado> {
     motivo,
     docs,
     redirectUri: redirect,
-    scopes: SCOPES,
+    scopes: CANVA_SCOPES,
     endpoints: ENDPOINTS,
-    limitaciones: "Video automático: solo plan Enterprise · Las plantillas de marca requieren plan Pro o superior · Exportar consume 1 diseño · Para que otros negocios conecten su Canva, la integración debe aprobarla Canva.",
+    limitaciones: "Autorrelleno y adaptación de formatos: Pro o superior, según capacidades de tu cuenta. Exportación de imágenes y MP4 según el diseño. Otros negocios requieren una integración aprobada por Canva.",
     env: { CANVA_ENABLED: String(process.env.CANVA_ENABLED || "false"), tieneClientId: !!cid, tieneSecret: !!sec, redirectUri: redirect },
   };
 }
@@ -71,52 +71,75 @@ async function leerMetaCanva(tenantId: number): Promise<any> {
 }
 
 /** Access token válido del tenant: refresca solo si venció (tokens duran 4h). */
-export async function tokenCanvaDelTenant(tenantId: number): Promise<{ token: string } | { error: string }> {
+const renovaciones = new Map<number, Promise<{ token: string } | { error: string }>>();
+
+export async function tokenCanvaDelTenant(tenantId: number, opts: { forzar?: boolean; rechazado?: string } = {}): Promise<{ token: string } | { error: string }> {
   const meta = await leerMetaCanva(tenantId);
   const canva = meta?.canva;
   if (!canva?.accessToken) return { error: "Canva no conectado: autoriza en /integraciones primero." };
-  const aunValido = !canva.expiraEn || Number(canva.expiraEn) > Date.now() + 60_000;
-  if (aunValido) {
-    // decryptSecret NO lanza: devuelve "" cuando la clave cambió o el dato está
-    // corrupto. Hay que comprobar el resultado o se manda "Bearer " vacío.
-    const token = decryptSecret(String(canva.accessToken));
-    if (!token) return { error: "No se pudo desencriptar el token (CREDENTIALS_ENCRYPTION_KEY cambió o el dato está corrupto). Reconecta en /integraciones." };
-    return { token };
+  const token = decryptSecret(String(canva.accessToken));
+  if (!token) return { error: "No se pudo desencriptar el token. Reconecta Canva en /integraciones." };
+  // Otro pedido puede haber renovado el token rechazado mientras esperábamos.
+  if (opts.rechazado && opts.rechazado !== token) return { token };
+  if (!opts.forzar && (!canva.expiraEn || Number(canva.expiraEn) > Date.now() + 60_000)) return { token };
+  const pendiente = renovaciones.get(tenantId);
+  if (pendiente) return pendiente;
+  const renovar = async (): Promise<{ token: string } | { error: string }> => {
+    const refresh = canva.refreshToken && decryptSecret(String(canva.refreshToken));
+    if (!refresh) return { error: "La autorización de Canva venció. Reconecta en /integraciones." };
+    try {
+      const cid = String(process.env.CANVA_CLIENT_ID || "").trim();
+      const sec = String(process.env.CANVA_CLIENT_SECRET || "").trim();
+      const r = await fetch(`${CANVA_API}/oauth/token`, {
+        method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Authorization: `Basic ${Buffer.from(`${cid}:${sec}`).toString("base64")}` },
+        body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refresh }).toString(), signal: AbortSignal.timeout(20_000),
+      });
+      const j: any = await r.json().catch(() => ({}));
+      if (!r.ok || !j.access_token) return { error: "Canva rechazó la renovación. Reconecta en /integraciones." };
+      // No pisar otros cambios del perfil que ocurrieron durante la petición.
+      const actual = await leerMetaCanva(tenantId);
+      if (!actual.canva?.accessToken) return { error: "Canva fue desconectado durante la renovación." };
+      actual.canva = { ...actual.canva, accessToken: encryptSecret(String(j.access_token)), refreshToken: j.refresh_token ? encryptSecret(String(j.refresh_token)) : canva.refreshToken,
+        expiraEn: Date.now() + (Number(j.expires_in) || 14_400) * 1000, actualizadoEn: new Date().toISOString(), errorAuth: false };
+      await db.update(tenants).set({ metadata: actual as any }).where(eq(tenants.id, tenantId));
+      return { token: String(j.access_token) };
+    } catch { return { error: "No se pudo renovar la conexión de Canva. Vuelve a probar o reconecta." }; }
+  };
+  const promesa = renovar(); renovaciones.set(tenantId, promesa);
+  try { return await promesa; } finally { if (renovaciones.get(tenantId) === promesa) renovaciones.delete(tenantId); }
+}
+
+export class CanvaError extends Error {
+  constructor(message: string, public status = 502, public code = "canva_error") { super(message); }
+}
+
+/** Todas las operaciones, incluida la prueba del panel, comparten renovación. */
+export async function canvaFetch(tenantId: number, ruta: string, init: RequestInit = {}): Promise<Response> {
+  if (!ruta.startsWith("/") || ruta.startsWith("//")) throw new CanvaError("Ruta de Canva inválida", 400);
+  let t = await tokenCanvaDelTenant(tenantId);
+  if ("error" in t) throw new CanvaError(t.error, 401, "reconnect_required");
+  const pedir = (token: string) => fetch(`${CANVA_API}${ruta}`, { ...init, headers: { ...init.headers, Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20_000) });
+  let r = await pedir(t.token);
+  if (r.status === 401) {
+    t = await tokenCanvaDelTenant(tenantId, { forzar: true, rechazado: t.token });
+    if ("error" in t) throw new CanvaError(t.error, 401, "reconnect_required");
+    r = await pedir(t.token);
   }
-  // vencido: refresh
-  if (!canva.refreshToken) return { error: "Token vencido y sin refresh_token: reconecta en /integraciones." };
-  try {
-    const cid = String(process.env.CANVA_CLIENT_ID || "").trim();
-    const sec = String(process.env.CANVA_CLIENT_SECRET || "").trim();
-    const body = new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: decryptSecret(String(canva.refreshToken)),
-      client_id: cid,
-      client_secret: sec,
-    });
-    const r = await fetch(`${CANVA_API}/oauth/token`, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: body.toString(),
-      signal: AbortSignal.timeout(20_000),
-    });
-    const j: any = await r.json().catch(() => ({}));
-    if (!r.ok || !j.access_token) {
-      logger.warn({ tenantId, status: r.status }, "[Canva] refresh falló");
-      return { error: "Refresh rechazado: reconecta en /integraciones." };
-    }
-    meta.canva = {
-      ...canva,
-      accessToken: encryptSecret(String(j.access_token)),
-      refreshToken: j.refresh_token ? encryptSecret(String(j.refresh_token)) : canva.refreshToken,
-      expiraEn: Date.now() + (Number(j.expires_in) || 14_400) * 1000,
-      actualizadoEn: new Date().toISOString(),
-    };
-    await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tenantId));
-    return { token: String(j.access_token) };
-  } catch (e: any) {
-    return { error: `Refresh falló: ${e?.message || e}` };
+  if (r.status === 401) throw new CanvaError("La autorización de Canva ya no es válida. Reconecta en /integraciones.", 401, "reconnect_required");
+  return r;
+}
+
+export async function canvaRequest(tenantId: number, ruta: string, body?: unknown): Promise<any> {
+  const r = await canvaFetch(tenantId, ruta, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const j: any = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const code = String(j.code || j.error?.code || "canva_error").slice(0, 80);
+    const message = r.status === 403 ? "Canva no permite esta operación: revisa el plan y los permisos de tu cuenta."
+      : r.status === 429 ? "Canva alcanzó su límite de solicitudes. Espera un momento antes de reintentar."
+      : `Canva no pudo completar la operación (${r.status}, ${code}).`;
+    throw new CanvaError(message, r.status, code);
   }
+  return j;
 }
 
 /* ── Diseños: listar + exportar (para maquetas vía Atlas) ── */
@@ -142,10 +165,7 @@ export async function listarDisenosCanva(
     const params = new URLSearchParams();
     if (opts.query?.trim()) params.set("query", opts.query.trim());
     params.set("limit", String(Math.max(1, Math.min(100, opts.limit || 20))));
-    const r = await fetch(`${CANVA_API}/designs?${params.toString()}`, {
-      headers: { Authorization: `Bearer ${t.token}` },
-      signal: AbortSignal.timeout(20_000),
-    });
+    const r = await canvaFetch(tenantId, `/designs?${params.toString()}`);
     const j: any = await r.json().catch(() => ({}));
     if (!r.ok) return { error: `Canva listó ${r.status}: ${JSON.stringify(j).slice(0, 200)}` };
     const items = Array.isArray(j.items) ? j.items : [];
@@ -173,12 +193,12 @@ export async function listarDisenosCanva(
 export async function exportarDisenoCanva(
   tenantId: number,
   designId: string,
-  formato: "png" | "jpg" | "pdf" = "png",
+  formato: "png" | "jpg" | "pdf" | "mp4" = "png",
 ): Promise<{ urls: string[]; formato: string } | { error: string }> {
   const t = await tokenCanvaDelTenant(tenantId);
   if ("error" in t) return t;
   try {
-    const r = await fetch(`${CANVA_API}/exports`, {
+    const r = await canvaFetch(tenantId, `/exports`, {
       method: "POST",
       headers: { Authorization: `Bearer ${t.token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ design_id: designId, format: { type: formato } }),
@@ -199,7 +219,7 @@ export async function exportarDisenoCanva(
       await new Promise((res) => setTimeout(res, ESPERA_MS));
       let s: Response;
       try {
-        s = await fetch(`${CANVA_API}/exports/${jobId}`, {
+        s = await canvaFetch(tenantId, `/exports/${jobId}`, {
           headers: { Authorization: `Bearer ${(t as { token: string }).token}` },
           signal: AbortSignal.timeout(15_000),
         });
