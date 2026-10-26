@@ -1,7 +1,7 @@
-import { IconoDelMenu } from "@/components/icono-del-menu";
+import "./workspace-sidebar.css";
 import { AvisoAppAndroid } from "@/components/app-android";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import {
   LayoutDashboard,
   MessageSquare,
@@ -31,12 +31,13 @@ import {
   Search,
   Sparkles,
   LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
+  ArrowUpRight,
 } from "lucide-react";
-import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, SidebarGroup, SidebarGroupContent, useSidebar } from "./ui/sidebar";
-import { Badge as UiBadge } from "@/components/ui/badge";
+import { Sidebar, SidebarContent, SidebarHeader, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarProvider, SidebarTrigger, useSidebar } from "./ui/sidebar";
 import { CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { useGetWhatsAppStatus, getGetWhatsAppStatusQueryKey } from "@workspace/api-client-react";
-import { useSaasStatus } from "@/hooks/useSaasStatus";
 import { useSession } from "@/App";
 import { MobileNav } from "./mobile-nav";
 import { HelpChatWidget } from "./HelpChatWidget";
@@ -47,8 +48,12 @@ type NavItem = { label: string; href: string; icon: any; external?: boolean | st
 type NavGroup = { id: string; label: string; icon: any; items: NavItem[] };
 
 /** Ruta activa: coincide exacta o por prefijo de sección. */
-function estaActiva(location: string, href: string): boolean {
-  return location === href || (href !== "/" && location.startsWith(`${href}/`));
+function estaActiva(location: string, href: string, search = ""): boolean {
+  const [ruta, consulta] = href.split("?");
+  if (location !== ruta && !(ruta !== "/" && location.startsWith(`${ruta}/`))) return false;
+  const actual = new URLSearchParams(search);
+  if (consulta) return [...new URLSearchParams(consulta)].every(([key, value]) => actual.get(key) === value);
+  return ruta !== "/estudio" || actual.get("espacio") !== "creativos";
 }
 
 /**
@@ -124,134 +129,86 @@ function EstadoWhatsApp({ conectado }: { conectado: boolean }) {
 }
 
 export function AppSidebar() {
-  const [location, setLocation] = useLocation();
-  const [openGroup, setOpenGroup] = useState<string | null>("operacion");
-  const { state: sidebarState, toggleSidebar } = useSidebar();
-
-  const { data: wsStatus } = useGetWhatsAppStatus({
-    query: { refetchInterval: 30000, staleTime: 15000, refetchIntervalInBackground: false, queryKey: getGetWhatsAppStatusQueryKey() }
-  });
-
-  const { saasStatus } = useSaasStatus();
-  const { tenant: sessionTenant } = useSession();
-  const currentPlan = saasStatus?.plan;
-  const isPremium = currentPlan && currentPlan !== "free" && currentPlan !== "basic";
-  const isAdmin = !!sessionTenant?.isAdmin;
-  const grupos = useGruposDeNavegacion(isAdmin, sessionTenant?.slug);
+  const [location] = useLocation();
+  const search = useSearch();
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({ crecimiento: true });
+  const { state: sidebarState, toggleSidebar, isMobile } = useSidebar();
+  const collapsed = sidebarState === "collapsed" && !isMobile;
+  const { tenant: sessionTenant, logout } = useSession();
+  const grupos = useGruposDeNavegacion(!!sessionTenant?.isAdmin, sessionTenant?.slug);
+  const workspace = sessionTenant?.businessName || sessionTenant?.name || "Mi negocio";
+  const principal: NavItem[] = [{ label: "Inicio", href: "/", icon: LayoutDashboard }, ...grupos[0].items];
 
   useEffect(() => {
-    const grupoActivo = grupos.find((g) => g.items.some((item) => estaActiva(location, item.href)));
-    if (grupoActivo) setOpenGroup(grupoActivo.id);
-  }, [location, grupos]);
+    const activo = grupos.find((g) => g.items.some((item) => !item.external && estaActiva(location, item.href, search)));
+    if (activo) setOpenGroups((actual) => actual[activo.id] ? actual : { ...actual, [activo.id]: true });
+  }, [location, search, grupos]);
 
   const renderItem = (item: NavItem) => {
-    const isActive = estaActiva(location, item.href);
-    const linkClassName = "flex items-center gap-3 px-2.5 w-full";
-    const linkContent = (
-      <>
-        <IconoDelMenu icon={item.icon} href={item.href} tam={24} activo={isActive} />
-        <span className="truncate">{item.label}</span>
-      </>
-    );
-    const externalUrl = typeof item.external === "string" ? item.external : item.href;
-    return (
-      <SidebarMenuItem key={item.href}>
-        <SidebarMenuButton
-          asChild
-          isActive={isActive}
-          tooltip={item.label}
-          className={`group flex h-9 rounded-lg text-sm transition-colors ${isActive ? "bg-sidebar-primary text-white font-medium" : "text-sidebar-foreground/85 hover:text-white hover:bg-sidebar-accent"}`}
-        >
-          {item.external ? (
-            <a href={externalUrl} target="_blank" rel="noopener noreferrer" className={linkClassName}>{linkContent}</a>
-          ) : (
-            <Link href={item.href} className={linkClassName}>{linkContent}</Link>
-          )}
-        </SidebarMenuButton>
-      </SidebarMenuItem>
-    );
+    const active = !item.external && estaActiva(location, item.href, search);
+    const Icon = item.icon;
+    const content = <>
+      <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+      {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
+      {!collapsed && item.external && <ArrowUpRight className="h-3 w-3 shrink-0 opacity-45" aria-hidden="true" />}
+    </>;
+    return <SidebarMenuItem key={item.href}>
+      <SidebarMenuButton asChild isActive={active} tooltip={item.label} className="vp-workspace-link h-9 rounded-lg px-2.5 text-[13px]">
+        {item.external ? <a href={typeof item.external === "string" ? item.external : item.href} target="_blank" rel="noopener noreferrer" aria-label={collapsed ? `${item.label} (nueva pestaña)` : undefined}>{content}</a>
+          : <Link href={item.href} aria-current={active ? "page" : undefined} aria-label={collapsed ? item.label : undefined}>{content}</Link>}
+      </SidebarMenuButton>
+    </SidebarMenuItem>;
   };
 
-  const atlasActivo = estaActiva(location, ATLAS.href);
-
-  return (
-    <Sidebar className="border-r border-sidebar-border bg-sidebar text-sidebar-foreground">
-      <SidebarHeader className="flex h-14 items-center border-b border-sidebar-border px-4">
-        <Link href="/" className="flex items-center transition-opacity hover:opacity-90">
-          <img src="/logo-sidebar.svg" alt="VentasPro" className="h-8 w-auto" />
-        </Link>
-        {isPremium && (
-          <UiBadge className="ml-2 border-none bg-amber-500/90 text-[10px] font-bold text-white">PRO</UiBadge>
-        )}
-      </SidebarHeader>
-
-      <SidebarContent className="gap-1 px-2.5 py-3 [scrollbar-width:thin] [scrollbar-color:rgba(255,255,255,0.2)_transparent]">
-        {/* Atlas: acción destacada, siempre visible arriba. */}
-        <button
-          type="button"
-          onClick={() => setLocation(ATLAS.href)}
-          aria-current={atlasActivo ? "page" : undefined}
-          className={`mb-2 flex h-10 w-full items-center gap-2.5 rounded-xl px-3 text-left text-sm font-semibold transition-colors ${atlasActivo ? "bg-sidebar-primary text-white" : "bg-sidebar-accent/60 text-white hover:bg-sidebar-accent"}`}
-        >
-          <Sparkles className="h-4 w-4 shrink-0" />
-          <span className="flex-1 truncate">{ATLAS.label}</span>
-          <span className="rounded-md border border-white/15 px-1.5 py-0.5 text-[10px] font-medium text-white/70">IA</span>
-        </button>
-
-        <SidebarGroup className="p-0">
-          <SidebarGroupContent>
-            <SidebarMenu className="gap-0.5">
-              {renderItem({ label: "Panel", href: "/", icon: LayoutDashboard })}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-
-        <div className="mt-2 flex flex-col gap-1">
-          {grupos.map((grupo) => {
-            const Icon = grupo.icon;
-            const open = openGroup === grupo.id;
-            const tieneActivo = grupo.items.some((item) => estaActiva(location, item.href));
-            return (
-              <SidebarGroup key={grupo.id} className="p-0">
-                <button
-                  type="button"
-                  aria-expanded={open}
-                  title={sidebarState === "collapsed" ? grupo.label : undefined}
-                  onClick={() => {
-                    if (sidebarState === "collapsed") { setOpenGroup(grupo.id); toggleSidebar(); return; }
-                    setOpenGroup((actual) => (actual === grupo.id ? null : grupo.id));
-                  }}
-                  className={`flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm font-semibold transition-colors ${sidebarState === "collapsed" ? "justify-center px-1" : ""} ${tieneActivo ? "text-white" : "text-sidebar-foreground/70 hover:text-white hover:bg-sidebar-accent"}`}
-                >
-                  <Icon className="h-4 w-4 shrink-0" />
-                  {sidebarState !== "collapsed" && <>
-                    <span className="flex-1 truncate">{grupo.label}</span>
-                    <span className="text-[11px] tabular-nums text-sidebar-foreground/45">{grupo.items.length}</span>
-                    <ChevronDown className={`h-4 w-4 shrink-0 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
-                  </>}
-                </button>
-                {open && sidebarState !== "collapsed" && (
-                  <SidebarMenu className="ml-4 mt-0.5 mb-1 gap-0.5 border-l border-sidebar-border pl-2">
-                    {grupo.items.map(renderItem)}
-                  </SidebarMenu>
-                )}
-              </SidebarGroup>
-            );
-          })}
-        </div>
-      </SidebarContent>
-
-      <div className="mt-auto space-y-2 border-t border-sidebar-border px-2.5 py-3">
-        <button
-          onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); window.location.href = "/auth"; }}
-          className="flex h-9 w-full items-center gap-2.5 rounded-lg px-2.5 text-sm font-medium text-sidebar-foreground/75 transition-colors hover:bg-sidebar-accent hover:text-white"
-        >
-          <LogOut className="h-4 w-4" />
-          <span>Cerrar sesión</span>
-        </button>
+  return <Sidebar collapsible="icon" className="vp-workspace-sidebar">
+    <SidebarHeader className={`flex-row items-center gap-2.5 border-b border-sidebar-border py-4 ${collapsed ? "justify-center px-1" : "px-4"}`}>
+      <Link href="/" aria-label="VentasPro · Inicio" className="flex min-w-0 flex-1 items-center gap-2.5">
+        <img src="/logo-mark-plano.svg" alt="" className="h-8 w-8 shrink-0" />
+        {!collapsed && <span className="min-w-0"><span className="block text-[15px] font-semibold tracking-tight">VentasPro<span className="ml-1 text-indigo-600 dark:text-indigo-400">IA</span></span><span className="block truncate text-[11px] text-sidebar-foreground/60">{workspace}</span></span>}
+      </Link>
+      {!collapsed && <button type="button" onClick={toggleSidebar} title="Contraer menú (Ctrl+B)" aria-label="Contraer menú" className="vp-workspace-control"><PanelLeftClose className="h-4 w-4" /></button>}
+    </SidebarHeader>
+    <SidebarContent className={`gap-5 py-4 [scrollbar-width:thin] ${collapsed ? "px-1.5" : "px-3"}`}>
+      <SidebarMenu className="gap-1">{renderItem(ATLAS)}</SidebarMenu>
+      <nav aria-label="Navegación principal" className="space-y-5">
+        <section>
+          {!collapsed && <p className="vp-workspace-heading">Tu negocio</p>}
+          <SidebarMenu className="gap-0.5">{principal.map(renderItem)}</SidebarMenu>
+        </section>
+        {grupos.filter((g) => g.id !== "operacion" && g.id !== "sistema").map((grupo) => {
+          const Icon = grupo.icon;
+          const open = !!openGroups[grupo.id];
+          const active = grupo.items.some((item) => !item.external && estaActiva(location, item.href, search));
+          return <section key={grupo.id}>
+            <button type="button" aria-label={collapsed ? grupo.label : undefined} title={collapsed ? grupo.label : undefined} aria-expanded={!collapsed && open} aria-controls={`menu-${grupo.id}`} className={`vp-workspace-section ${active ? "is-current" : ""} ${collapsed ? "justify-center px-1" : ""}`} onClick={() => {
+              if (collapsed) { setOpenGroups((actual) => ({ ...actual, [grupo.id]: true })); toggleSidebar(); }
+              else setOpenGroups((actual) => ({ ...actual, [grupo.id]: !actual[grupo.id] }));
+            }}>
+              {collapsed ? <Icon className="h-[18px] w-[18px]" /> : <><span className="flex-1">{grupo.label}</span><ChevronDown className={`h-3.5 w-3.5 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`} /></>}
+            </button>
+            <SidebarMenu id={`menu-${grupo.id}`} hidden={collapsed || !open} className={collapsed || !open ? "hidden" : "mt-1 gap-0.5"}>{grupo.items.map(renderItem)}</SidebarMenu>
+          </section>;
+        })}
+      </nav>
+    </SidebarContent>
+    <div className={`mt-auto border-t border-sidebar-border py-3 ${collapsed ? "px-1.5" : "px-3"}`}>
+      <SidebarMenu className="gap-0.5">
+        {collapsed && <SidebarMenuItem><SidebarMenuButton tooltip="Expandir menú" aria-label="Expandir menú" onClick={toggleSidebar} className="vp-workspace-link h-9"><PanelLeftOpen className="h-[18px] w-[18px]" /></SidebarMenuButton></SidebarMenuItem>}
+        <SidebarMenuItem>
+          <SidebarMenuButton tooltip="Configuración y ayuda" aria-label={collapsed ? "Configuración y ayuda" : undefined} onClick={() => {
+            if (collapsed) toggleSidebar();
+            setOpenGroups((actual) => ({ ...actual, sistema: !actual.sistema || collapsed }));
+          }} aria-expanded={!collapsed && !!openGroups.sistema} aria-controls="menu-sistema" className="vp-workspace-link h-9 rounded-lg px-2.5 text-[13px]">
+            <Settings className="h-[18px] w-[18px] shrink-0" />{!collapsed && <><span className="flex-1">Configuración y ayuda</span><ChevronDown className={`h-3.5 w-3.5 ${openGroups.sistema ? "rotate-180" : ""}`} /></>}
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      </SidebarMenu>
+      <div id="menu-sistema" hidden={collapsed || !openGroups.sistema} className="max-h-[35svh] overflow-y-auto">
+        <SidebarMenu className="mt-1 gap-0.5">{grupos.find((g) => g.id === "sistema")?.items.map(renderItem)}</SidebarMenu>
+        <button type="button" onClick={() => logout()} className="vp-workspace-section mt-1 w-full justify-start gap-2.5 text-xs"><LogOut className="h-4 w-4" />Cerrar sesión</button>
       </div>
-    </Sidebar>
-  );
+    </div>
+  </Sidebar>;
 }
 
 /** Buscador global (Cmd/Ctrl + K): va a cualquier sección sin recorrer el menú. */
