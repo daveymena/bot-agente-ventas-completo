@@ -38,10 +38,27 @@ type Mensaje = {
   salioIgual?: boolean;
   /** Lo que el servidor encontró que esta respuesta no puede sostener (ver lib/revisar-respuesta.ts). */
   revision?: Alerta[];
+  revisionEstado?: "completada" | "no_disponible";
+  proveedor?: string | null;
+  herramientas?: string[];
+};
+
+type RespuestaPrueba = {
+  texto: string;
+  textoParaHistorial?: string;
+  mensajes: Burbuja[];
+  estado: unknown;
+  pedido: unknown;
+  productoEnFoco: number | null;
+  revision?: Alerta[];
+  revisionEstado?: "completada" | "no_disponible";
+  proveedor?: string | null;
+  herramientas?: string[];
 };
 
 
 type LoQueSabe = {
+  productos?: { id: number; nombre: string }[];
   agente: { id: number; nombre: string } | null;
   agentes?: { id: number; nombre: string }[];
   indicaciones: string[];
@@ -102,13 +119,13 @@ export default function ProbarVendedorPage() {
     setTexto("");
     setPensando(true);
     try {
-      const r = await api<{ texto: string; mensajes: Burbuja[]; estado: unknown; pedido: unknown; productoEnFoco: number | null; revision?: Alerta[] }>(
+      const r = await api<RespuestaPrueba>(
         "/api/probar-vendedor/mensaje",
         { method: "POST", body: JSON.stringify({ mensaje: limpio, historial, estado, pedido }) },
       );
       setEstado(r.estado);
       setPedido(r.pedido ?? null);
-      setMensajes((m) => [...m, { role: "agent", content: r.texto || "[ficha]", burbujas: r.mensajes, productoEnFoco: r.productoEnFoco, estadoAntes, pedidoAntes, revision: r.revision || [] }]);
+      setMensajes((m) => [...m, { role: "agent", content: r.textoParaHistorial || r.texto || "[ficha]", burbujas: r.mensajes, productoEnFoco: r.productoEnFoco, estadoAntes, pedidoAntes, revision: r.revision || [], revisionEstado: r.revisionEstado, proveedor: r.proveedor, herramientas: r.herramientas }]);
     } catch (e: any) {
       toast.error(e.message || "El vendedor no respondió");
       setMensajes((m) => m.slice(0, -1));
@@ -135,25 +152,24 @@ export default function ProbarVendedorPage() {
     setMensajes(mensajes.slice(0, i));
     setPensando(true);
     try {
-      const r = await api<{ texto: string; mensajes: Burbuja[]; estado: unknown; pedido: unknown; productoEnFoco: number | null; revision?: Alerta[] }>(
+      const r = await api<RespuestaPrueba>(
         "/api/probar-vendedor/mensaje",
         { method: "POST", body: JSON.stringify({ mensaje: mensajes[c].content, historial, estado: vieja.estadoAntes ?? null, pedido: vieja.pedidoAntes ?? null }) },
       );
-      const textoDe = (bs?: Burbuja[]) => (bs || []).map((b) => b.texto).join("\n").trim();
-      const salioIgual = textoDe(r.mensajes) === textoDe(vieja.burbujas);
+      const salioIgual = JSON.stringify(r.mensajes) === JSON.stringify(vieja.burbujas);
       setEstado(r.estado);
       setPedido(r.pedido ?? null);
       setMensajes([
         ...mensajes.slice(0, i),
         {
-          role: "agent", content: r.texto || "[ficha]", burbujas: r.mensajes, productoEnFoco: r.productoEnFoco,
+          role: "agent", content: r.textoParaHistorial || r.texto || "[ficha]", burbujas: r.mensajes, productoEnFoco: r.productoEnFoco,
           estadoAntes: vieja.estadoAntes, pedidoAntes: vieja.pedidoAntes,
-          corregido: true, antes: vieja.antes ?? vieja.burbujas, salioIgual, revision: r.revision || [],
+          corregido: true, antes: vieja.antes ?? vieja.burbujas, salioIgual, revision: r.revision || [], revisionEstado: r.revisionEstado, proveedor: r.proveedor, herramientas: r.herramientas,
         },
       ]);
-      if (salioIgual) toast.warning("Respondió igual. Prueba escribir la corrección de otra forma, más concreta.");
+      if (salioIgual) toast.warning("La corrección se guardó, pero esta respuesta no cambió. Revisa la regla y los datos del negocio.");
     } catch (e: any) {
-      toast.error(e.message || "No se pudo volver a generar");
+      toast.error(`La corrección sigue guardada. No se pudo comprobar la nueva respuesta: ${e.message || "error del vendedor"}`);
       setMensajes(mensajes);
     } finally {
       setPensando(false);
@@ -173,7 +189,7 @@ export default function ProbarVendedorPage() {
         method: "POST",
         body: JSON.stringify({ tipo: "forma", indicacion: a.correccion }),
       });
-      toast.success("Corregido", { description: `Tu vendedor ya no dirá "${a.frase}". Así responde ahora:` });
+      toast.success("Regla guardada", { description: "Volviendo a generar para comprobar la respuesta…" });
       cargarSabe();
       await regenerar(i);
     } catch (e: any) {
@@ -204,7 +220,7 @@ export default function ProbarVendedorPage() {
             </div>
             <button onClick={() => setLocation("/ensenar-con-ejemplo")} className="rounded-full p-2 hover:bg-white/10" aria-label="Enseñar con un ejemplo" title="Enseñar con un ejemplo"><GraduationCap className="h-5 w-5" /></button>
             <button onClick={() => setVerSabe(true)} className="lg:hidden rounded-full p-2 hover:bg-white/10" aria-label="Lo que ya sabe"><BookOpen className="h-5 w-5" /></button>
-            <button onClick={reiniciar} disabled={!mensajes.length} className="rounded-full p-2 hover:bg-white/10 disabled:opacity-40" aria-label="Empezar de nuevo" title="Empezar de nuevo"><RotateCcw className="h-5 w-5" /></button>
+            <button onClick={reiniciar} disabled={!mensajes.length || pensando || !!arreglando} className="rounded-full p-2 hover:bg-white/10 disabled:opacity-40" aria-label="Empezar de nuevo" title="Empezar de nuevo"><RotateCcw className="h-5 w-5" /></button>
           </header>
 
           <div
@@ -217,7 +233,7 @@ export default function ProbarVendedorPage() {
               <div className="mx-auto my-6 max-w-md rounded-3xl border border-slate-200/80 bg-white p-5 text-center shadow-sm md:my-10 md:p-7">
                 <Wand2 className="mx-auto mb-2 h-6 w-6 text-indigo-600" />
                 <p className="text-sm font-semibold text-slate-800">Háblale como si fueras un cliente</p>
-                <p className="mt-1 text-xs text-slate-500">Si algo sale mal, toca <b>Corregir</b> debajo de la respuesta. Se aplica desde el siguiente mensaje, también en WhatsApp.</p>
+                <p className="mt-1 text-xs text-slate-500">Si algo sale mal, toca <b>Corregir</b> debajo de la respuesta. Las correcciones se guardan para tu negocio, también en WhatsApp. Aquí puedes comparar la nueva respuesta.</p>
                 <div className="mt-4 grid grid-cols-2 gap-2">
                   {SUGERENCIAS.map((s) => (
                     <button key={s} onClick={() => enviar(s)} className="min-h-11 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700 hover:border-indigo-300 hover:bg-indigo-50">{s}</button>
@@ -248,18 +264,29 @@ export default function ProbarVendedorPage() {
                   {m.role === "agent" && m.revision && (
                     <Revision
                       alertas={m.revision}
-                      ocupado={arreglando}
+                      estado={m.revisionEstado}
+                      ocupado={pensando ? "generando" : arreglando}
                       i={i}
                       alCorregir={(a) => corregirAlerta(i, a)}
                       alConfigurarEnvio={() => setConfigEnvio(i)}
                     />
                   )}
                   {m.role === "agent" && (
+                    <details className="max-w-full rounded-lg bg-white/60 px-2.5 py-1.5 text-[11px] text-slate-500">
+                      <summary className="cursor-pointer">Detalles de la respuesta · {m.proveedor || "proveedor no informado"}</summary>
+                      <p className="mt-1">Motor vendedor v2 · pedido simulado</p>
+                      <p className="mt-1 break-words">IA que respondió: {m.proveedor || "No informado por el servidor"}</p>
+                      <p className="mt-1 font-medium">Herramientas utilizadas</p>
+                      {m.herramientas?.length ? <ul className="mt-1 list-disc space-y-1 pl-4">{m.herramientas.map((h, j) => <li key={j} className="break-words">{h}</li>)}</ul> : <p>Sin herramientas informadas en este turno.</p>}
+                    </details>
+                  )}
+                  {m.role === "agent" && (
                     <button
+                      disabled={pensando || !!arreglando}
                       onClick={() => setCorrigiendo(i)}
                       className={`self-start inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${m.corregido ? (m.salioIgual ? "text-amber-700" : "text-emerald-700") : "text-slate-500 hover:text-indigo-700 hover:bg-white/70"}`}
                     >
-                      <PencilLine className="h-3 w-3" /> {m.corregido ? (m.salioIgual ? "Salió igual · corregir otra vez" : "Corregido · así responde ahora") : "Corregir"}
+                      <PencilLine className="h-3 w-3" /> {m.corregido ? (m.salioIgual ? "Salió igual · corregir otra vez" : "Nueva respuesta · revisar") : "Corregir"}
                     </button>
                   )}
                 </div>
@@ -313,6 +340,7 @@ export default function ProbarVendedorPage() {
         mensajeCliente={corrigiendo !== null ? [...mensajes.slice(0, corrigiendo)].reverse().find((m) => m.role === "customer")?.content || "" : ""}
         respuestaBot={corrigiendo !== null ? (mensajes[corrigiendo]?.burbujas?.map((b) => b.texto).join("\n\n") || mensajes[corrigiendo]?.content || "") : ""}
         burbujaElegida={eleccion && eleccion.k !== null ? mensajes[eleccion.i]?.burbujas?.[eleccion.k] ?? null : null}
+        productos={sabe?.productos || []}
         productoEnFoco={corrigiendo !== null ? mensajes[corrigiendo]?.productoEnFoco ?? null : null}
         alCerrar={() => setCorrigiendo(null)}
         alCorregir={() => {
@@ -331,19 +359,27 @@ function DialogoCorregir(p: {
   mensajeCliente: string;
   respuestaBot: string;
   productoEnFoco: number | null;
+  productos: { id: number; nombre: string }[];
   /** La burbuja que tocó el dueño (una ficha, un texto, un audio), si tocó una. */
   burbujaElegida?: Burbuja | null;
   alCerrar: () => void;
   alCorregir: () => void;
 }) {
   const [texto, setTexto] = useState("");
+  const [productoId, setProductoId] = useState<number | null>(p.productoEnFoco);
   const elegida = p.burbujaElegida ?? null;
   const esFicha = elegida?.imagen !== undefined && elegida !== null;
   const [guardando, setGuardando] = useState(false);
-  useEffect(() => { if (p.abierto) setTexto(""); }, [p.abierto]);
+  useEffect(() => {
+    if (p.abierto) { setTexto(""); setProductoId(p.burbujaElegida?.productoId ?? p.productoEnFoco); }
+  }, [p.abierto, p.productoEnFoco, p.burbujaElegida]);
 
   const guardar = async () => {
     if (!texto.trim()) return;
+    if (productoId !== null && !p.productos.some((producto) => producto.id === productoId)) {
+      toast.error("Comprueba el producto de la corrección: no se pudo cargar su ficha.");
+      return;
+    }
     setGuardando(true);
     try {
       const r = await api<{ mensaje: string; tipo?: "forma" | "dato"; guardado?: string }>("/api/probar-vendedor/corregir", {
@@ -353,7 +389,7 @@ function DialogoCorregir(p: {
           mensajeDelCliente: p.mensajeCliente,
           // Si tocó una burbuja, la corrección es sobre ESE mensaje (la ficha, el audio…).
           respuestaBot: elegida ? `[El dueño señala este mensaje${esFicha ? " (una ficha con foto)" : elegida.audio ? " (una nota de voz)" : ""}]: ${elegida.texto}` : p.respuestaBot,
-          productId: p.productoEnFoco,
+          productId: productoId,
         }),
       });
       toast.success(
@@ -373,7 +409,7 @@ function DialogoCorregir(p: {
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><MessageSquareWarning className="h-5 w-5 text-indigo-600" /> Corregir respuesta</DialogTitle>
-          <DialogDescription>Escríbelo como se lo dirías a tu vendedor. Se aplica al instante, aquí y en WhatsApp, y la respuesta se vuelve a generar para que veas el cambio.</DialogDescription>
+          <DialogDescription>Escríbelo como se lo dirías a tu vendedor. Se guarda para el vendedor de tu negocio, también en WhatsApp. Después volvemos a generar esta respuesta para que compares el resultado.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-2 rounded-lg bg-slate-50 p-3 text-xs">
@@ -396,6 +432,15 @@ function DialogoCorregir(p: {
           </p>
         )}
 
+        <label className="grid gap-1.5 text-xs font-medium text-slate-700">
+          Producto al que se aplica el dato
+          <select value={productoId ?? "negocio"} onChange={(e) => setProductoId(e.target.value === "negocio" ? null : Number(e.target.value))} className="h-10 w-full min-w-0 rounded-lg border border-slate-200 bg-white px-2 text-sm">
+            <option value="negocio">Todo el negocio</option>
+            {productoId !== null && !p.productos.some((producto) => producto.id === productoId) && <option value={productoId} disabled>Producto no disponible · elige el correcto</option>}
+            {p.productos.map((producto) => <option key={producto.id} value={producto.id}>{producto.nombre}</option>)}
+          </select>
+          <span className="font-normal text-slate-500">Comprueba el producto antes de guardar. Las reglas de conversación se aplican a todos tus agentes.</span>
+        </label>
         <Textarea
           value={texto}
           onChange={(e) => setTexto(e.target.value)}

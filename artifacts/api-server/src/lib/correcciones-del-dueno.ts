@@ -143,16 +143,12 @@ export async function loQueSabeElVendedor(tenantId: number) {
     .where(eq(productKnowledge.tenantId, tenantId))
     .orderBy(desc(productKnowledge.id))
     .limit(100);
-  // 09-10-2026: el dueño enseñó "garantía de 30 días" probando con el producto
-  // 174 y creyó que valía para todo; con el corrector 155 el vendedor decía "no
-  // tengo garantía publicada". La lista ahora dice a qué producto aplica.
-  const ids = [...new Set(datos.map((k: any) => k.productId).filter((x: any) => x != null))] as number[];
-  const nombres = new Map<number, string>();
-  if (ids.length) {
-    const filas = await db.select({ id: products.id, name: products.name }).from(products).where(eq(products.tenantId, tenantId));
-    for (const f of filas as any[]) if (ids.includes(f.id)) nombres.set(f.id, String(f.name));
-  }
+  // El alcance de una corrección debe ser visible y editable antes de guardar.
+  const catalogo = await db.select({ id: products.id, nombre: products.name }).from(products)
+    .where(eq(products.tenantId, tenantId)).orderBy(products.name).limit(1000);
+  const nombres = new Map<number, string>(catalogo.map((p: any) => [p.id, String(p.nombre)]));
   return {
+    productos: catalogo,
     agente: agentes[0] ? { id: agentes[0].id, nombre: agentes[0].name } : null,
     agentes: agentes.map((a: any) => ({ id: a.id, nombre: a.name })),
     indicaciones: indicacionesDe(agentes),
@@ -215,6 +211,11 @@ export async function corregirDato(
     return { ok: false, mensaje: "El mensaje del cliente es muy corto para reconocerlo después. Corrige un mensaje con la pregunta completa." };
   }
 
+  if (p.productId != null) {
+    const [producto] = await db.select({ id: products.id }).from(products)
+      .where(and(eq(products.id, p.productId), eq(products.tenantId, tenantId))).limit(1);
+    if (!producto) return { ok: false, mensaje: "El producto elegido no pertenece a este negocio o ya no existe." };
+  }
   await db.insert(productKnowledge).values({
     tenantId,
     productId: p.productId ?? null,

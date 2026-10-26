@@ -529,6 +529,62 @@ export async function responder(params: {
     }
   }
 
+  // Resolver foco y guion ANTES de construir el contexto que leerá la IA.
+  // Si se hacía después, el primer turno veía la ficha del producto anterior
+  // (o ninguna), aunque el estado ya apuntara al nuevo.
+  const traza: ResultadoRespuesta["traza"] = [];
+  let contextoDeMenciones: string | null = null;
+  // ── El mensaje ACTUAL manda sobre el foco viejo (regla del playbook que
+  // v1 aprendió con sangre, acá como hecho del SERVIDOR) ────────────────────
+  // El probador la marcó dos rondas seguidas: "dice que no lo tiene" con
+  // productos que SÍ existen ("Coche Mecedora para Bebé…") y "el precio que
+  // dice no es el de lo que se está hablando" (×9): el cliente cambia de
+  // producto y el modelo, sin volver a buscar, responde con el foco VIEJO o
+  // niega el existe. Y en el caso del cliente CAÓTICO (nombra varios en un
+  // mensaje), el hecho ahora LISTA TODOS los nombrados: el vendedor no
+  // niega ninguno que exista y el foco queda en el que ganó con margen.
+  // los productos que este turno NOMBRÓ los lleva el guard del precio:
+  // un precio de UNO de esos productos es legítimo aunque el foco sea otro.
+  let mencionadosFoco: number[] = [];
+  try {
+    const mencionados = productosMencionadosEnElMensajeActual(mensajeDelCliente, catalogo);
+    const focoViejo = estado.productoEnFoco ?? null;
+    if (mencionados.length) {
+      mencionadosFoco = mencionados.map((m) => m.id);
+      const hayOtro = mencionados.some((m) => m.id !== focoViejo);
+      if (hayOtro) {
+        // ¿Re-enfoque? SOLO si hay un ganador CLARO (el doble del segundo).
+        // Sin ganador (mención ambigua) el foco se queda y el hecho lista
+        // los nombrados: el vendedor pregunta cuál, no decide solo.
+        const [top, segundo] = mencionados;
+        const ganadorClaro = mencionados.length === 1 || (segundo && top.puntos >= segundo.puntos * 2);
+        if (ganadorClaro) {
+          apilarContexto(estado, focoViejo ? `hablaban de ${nombrePorProducto(focoViejo)}` : "explorando");
+          estado.productoAnterior = focoViejo ?? null;
+          estado.productoEnFoco = top.id;
+          estado.opcionesMostradas = [];
+          // El cambio automático por mención explícita debe tener la misma
+          // semántica que `enfocar_producto`: un "sí" posterior no puede
+          // confirmar una oferta del producto que el cliente acaba de dejar.
+          if (estado.ultimaOferta?.productoId != null && estado.ultimaOferta.productoId !== top.id) {
+            estado.ultimaOferta = null;
+          }
+          if (estado.etapa === "saludo" || estado.etapa === "explorando") estado.etapa = "producto_en_foco";
+          if (params.recargarGuion) {
+            try { Object.assign(guion, await params.recargarGuion(top.id)); } catch { /* conservar el guion disponible */ }
+          }
+          traza.push({ herramienta: "[foco:revalidado]", args: { nuevo: top.id, anterior: focoViejo }, resultado: `${top.nombre} (${top.puntos.toFixed(0)} pts) sustituyó al foco anterior` });
+        }
+        const listaNombres = mencionados.map((m) => `"${m.nombre}" (#${m.id})`).join(", ");
+        contextoDeMenciones =
+            `El cliente MENCIONA en este mensaje: ${listaNombres}. TODOS existen en el catálogo`
+            + (ganadorClaro ? `; el foco YA cambió a "${mencionados[0].nombre}"` : "; NINGUNO quedó en foco todavía")
+            + `. Cualquier dato (precio, ficha, variantes) sale de las herramientas PARA el producto que se esté hablando: el precio/ficha del producto anterior NO aplica y no digas "no lo tengo" de ninguno de los de esa lista`
+            + (mencionados.length > 1 ? " (si no está claro cuál quiere, pregúntale cuál de esos es)." : ".");
+      }
+    }
+  } catch { /* sin revalidación el foco queda como estaba */ }
+
   let { fijo, delTurno } = partesDelPrompt({ voz, estado, catalogo, guion, nombrePorProducto, conocimiento: params.conocimiento });
 
   // A/B TEST: reemplaza prompt si hay versión candidata
@@ -599,8 +655,8 @@ export async function responder(params: {
   // Orden pensado para el caché del proveedor (ver partesDelPrompt): lo fijo,
   // el historial (que solo crece al final) y recién ahí el estado del turno.
   const messages: any[] = [{ role: "system", content: fijo }, ...charla, { role: "system", content: delTurno }];
+  if (contextoDeMenciones) messages.push({ role: "system", content: contextoDeMenciones });
 
-  const traza: ResultadoRespuesta["traza"] = [];
   let proveedor = "desconocido";
   let modoPlan = false;
   let textoFinal = "";
@@ -614,57 +670,6 @@ export async function responder(params: {
     uso.salida += u.salida;
     uso.cacheados += u.cacheados;
   };
-
-  // ── El mensaje ACTUAL manda sobre el foco viejo (regla del playbook que
-  // v1 aprendió con sangre, acá como hecho del SERVIDOR) ────────────────────
-  // El probador la marcó dos rondas seguidas: "dice que no lo tiene" con
-  // productos que SÍ existen ("Coche Mecedora para Bebé…") y "el precio que
-  // dice no es el de lo que se está hablando" (×9): el cliente cambia de
-  // producto y el modelo, sin volver a buscar, responde con el foco VIEJO o
-  // niega el existe. Y en el caso del cliente CAÓTICO (nombra varios en un
-  // mensaje), el hecho ahora LISTA TODOS los nombrados: el vendedor no
-  // niega ninguno que exista y el foco queda en el que ganó con margen.
-  // los productos que este turno NOMBRÓ los lleva el guard del precio:
-  // un precio de UNO de esos productos es legítimo aunque el foco sea otro.
-  let mencionadosFoco: number[] = [];
-  try {
-    const mencionados = productosMencionadosEnElMensajeActual(mensajeDelClienteActual, catalogo);
-    const focoViejo = estado.productoEnFoco ?? null;
-    if (mencionados.length) {
-      mencionadosFoco = mencionados.map((m) => m.id);
-      const hayOtro = mencionados.some((m) => m.id !== focoViejo);
-      if (hayOtro) {
-        // ¿Re-enfoque? SOLO si hay un ganador CLARO (el doble del segundo).
-        // Sin ganador (mención ambigua) el foco se queda y el hecho lista
-        // los nombrados: el vendedor pregunta cuál, no decide solo.
-        const [top, segundo] = mencionados;
-        const ganadorClaro = mencionados.length === 1 || (segundo && top.puntos >= segundo.puntos * 2);
-        if (ganadorClaro) {
-          apilarContexto(estado, focoViejo ? `hablaban de ${nombrePorProducto(focoViejo)}` : "explorando");
-          estado.productoAnterior = focoViejo ?? null;
-          estado.productoEnFoco = top.id;
-          estado.opcionesMostradas = [];
-          // El cambio automático por mención explícita debe tener la misma
-          // semántica que `enfocar_producto`: un "sí" posterior no puede
-          // confirmar una oferta del producto que el cliente acaba de dejar.
-          if (estado.ultimaOferta?.productoId != null && estado.ultimaOferta.productoId !== top.id) {
-            estado.ultimaOferta = null;
-          }
-          if (estado.etapa === "saludo" || estado.etapa === "explorando") estado.etapa = "producto_en_foco";
-          traza.push({ herramienta: "[foco:revalidado]", args: { nuevo: top.id, anterior: focoViejo }, resultado: `${top.nombre} (${top.puntos.toFixed(0)} pts) sustituyó al foco anterior` });
-        }
-        const listaNombres = mencionados.map((m) => `"${m.nombre}" (#${m.id})`).join(", ");
-        messages.push({
-          role: "system",
-          content:
-            `El cliente MENCIONA en este mensaje: ${listaNombres}. TODOS existen en el catálogo`
-            + (ganadorClaro ? `; el foco YA cambió a "${mencionados[0].nombre}"` : "; NINGUNO quedó en foco todavía")
-            + `. Cualquier dato (precio, ficha, variantes) sale de las herramientas PARA el producto que se esté hablando: el precio/ficha del producto anterior NO aplica y no digas "no lo tengo" de ninguno de los de esa lista`
-            + (mencionados.length > 1 ? " (si no está claro cuál quiere, pregúntale cuál de esos es)." : "."),
-        });
-      }
-    }
-  } catch { /* sin revalidación el foco queda como estaba */ }
 
   // CEREBRO: razonar antes de responder
   const ctxRazonamiento: ContextoRazonamiento = {

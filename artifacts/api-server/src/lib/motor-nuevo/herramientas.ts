@@ -285,7 +285,7 @@ export const PALABRAS_GENERICAS = new Set([
   "hola", "tiene", "tienen", "tienes", "hay", "quiero", "quisiera", "puedo", "pueden", "como", "cuanto", "cuando",
   "donde", "que", "para", "pero", "entonces", "este", "esta", "esto", "ese", "esa", "eso", "sobre", "porque",
   "buenas", "buenos", "gracias", "favor", "saber", "dame", "dime", "decir", "hacer", "tambien", "algo", "los", "las",
-  "del", "con", "una", "uno", "por", "mas", "muy",
+  "del", "con", "una", "uno", "por", "mas", "muy", "incluye",
 ]);
 
 const N = (t: unknown): string =>
@@ -728,7 +728,7 @@ export function puntuarCoincidencias(consulta: string, catalogo: Producto[], lim
   const disponibles = catalogo.filter((p) => p.disponible !== false);
   const palabras = N(consulta)
     .split(/[^a-z0-9ñ]+/)
-    .filter((w) => w.length > 2);
+    .filter((w) => w.length > 2 && !PALABRAS_GENERICAS.has(w));
 
   const nombres = disponibles.map((p) => N(p.name).trim());
   const descripciones = disponibles.map((p) => N(p.description || ""));
@@ -813,7 +813,7 @@ export function productosMencionadosEnElMensajeActual(
   if (!String(mensaje || "").trim()) return [];
   const palabras = N(mensaje)
     .split(/[^a-z0-9ñ]+/)
-    .filter((w) => w.length > 2);
+    .filter((w) => w.length > 2 && !PALABRAS_GENERICAS.has(w));
   if (!palabras.length) return [];
   const punt = puntuarCoincidencias(mensaje, catalogo, 8);
   const out: Array<{ id: number; nombre: string; puntos: number }> = [];
@@ -869,7 +869,7 @@ export function productoMencionadoEnElMensajeActual(
   if (top.puntos < UMBRAL_RE_ENFOQUE) return null;
   const palabras = N(mensaje)
     .split(/[^a-z0-9ñ]+/)
-    .filter((w) => w.length > 2);
+    .filter((w) => w.length > 2 && !PALABRAS_GENERICAS.has(w));
   if (!palabras.some((w) => incluyeConTypo(N(top.p.name), w))) return null;
   const segundo = punt[1]?.puntos ?? 0;
   if (segundo > 0 && top.puntos < segundo * 2) return null;
@@ -1282,7 +1282,10 @@ export const ejecutores: Record<string, Ejecutor> = {
     // Las palabras que están en casi cualquier pregunta no cuentan: con ellas
     // "¿y tiene envío?" devolvía la respuesta de "Tiene certificado" (chat de
     // prueba, 25-09-2026) y el vendedor la repetía sin que se la pidieran.
-    const palabras = q.split(/[^a-z0-9ñ]+/).filter((w) => w.length > 2 && !PALABRAS_GENERICAS.has(w));
+    // Un disparador que el dueño cargó explícitamente sigue siendo válido
+    // como tema (p. ej. "incluye"), aunque no identifique un producto.
+    const disparadores = new Set(ctx.conocimiento.flatMap((k) => k.disparadores.map((d) => N(d))));
+    const palabras = q.split(/[^a-z0-9ñ]+/).filter((w) => w.length > 2 && (!PALABRAS_GENERICAS.has(w) || disparadores.has(w)));
     if (!palabras.length) return { ok: false, mensaje: "No entendí qué preguntarle al conocimiento del negocio." };
 
     const enFoco = Number(productoId) || ctx.estado.productoEnFoco;

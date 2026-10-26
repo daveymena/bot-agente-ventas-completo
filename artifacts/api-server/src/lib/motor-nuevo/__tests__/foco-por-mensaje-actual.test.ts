@@ -104,3 +104,22 @@ describe("productosMencionadosEnElMensajeActual (los multi-nombrados)", () => {
     expect(r.every((x) => /mochila|pañalera|beb[eé]/i.test(x.nombre))).toBe(true);
   });
 });
+
+describe("preguntas de seguimiento no son nombres de otros productos", () => {
+  const productos: any[] = [
+    { id: 1, name: "Curso de piano", description: "19 módulos en video HD", price: 60000, disponible: true },
+    { id: 2, name: "Portátil ASUS Vivobook 15 | Incluye Morral + Mouse", description: "Computador portátil", price: 2000000, disponible: true },
+    ...Array.from({ length: 18 }, (_, i) => ({ id: i + 3, name: `Artículo ${i}`, description: "", disponible: true })),
+  ];
+  it("incluye certificado no selecciona el portátil por la palabra Incluye de su nombre", () => {
+    const pregunta = "¿Cuántos módulos dijiste que trae? ¿Incluye certificado?";
+    expect(productosMencionadosEnElMensajeActual(pregunta, productos)).toEqual([]);
+    expect(productoMencionadoEnElMensajeActual(pregunta, productos)).toBeNull();
+  });
+  it("una pregunta de contenido que nombra el curso conserva su identidad", () => {
+    expect(productosMencionadosEnElMensajeActual("¿El curso de piano incluye certificado?", productos).map((p) => p.id)).toEqual([1]);
+  });
+  it("el portátil sigue siendo localizable por su nombre real", () => {
+    expect(productoMencionadoEnElMensajeActual("Quiero el portátil ASUS Vivobook", productos)?.id).toBe(2);
+  });
+});

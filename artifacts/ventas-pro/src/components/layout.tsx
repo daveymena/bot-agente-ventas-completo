@@ -1,4 +1,5 @@
 import "./workspace-sidebar.css";
+import { estaActiva } from "@/lib/sidebar-navigation";
 import { AvisoAppAndroid } from "@/components/app-android";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
@@ -47,14 +48,6 @@ import { iconoMarca } from "@/components/logo-marca";
 type NavItem = { label: string; href: string; icon: any; external?: boolean | string };
 type NavGroup = { id: string; label: string; icon: any; items: NavItem[] };
 
-/** Ruta activa: coincide exacta o por prefijo de sección. */
-function estaActiva(location: string, href: string, search = ""): boolean {
-  const [ruta, consulta] = href.split("?");
-  if (location !== ruta && !(ruta !== "/" && location.startsWith(`${ruta}/`))) return false;
-  const actual = new URLSearchParams(search);
-  if (consulta) return [...new URLSearchParams(consulta)].every(([key, value]) => actual.get(key) === value);
-  return ruta !== "/estudio" || actual.get("espacio") !== "creativos";
-}
 
 /**
  * Navegación en cuatro bloques (ver REDESENO_FRONTEND_UX_UI_2026.md, sección 6).
@@ -136,7 +129,7 @@ export function AppSidebar() {
   const collapsed = sidebarState === "collapsed" && !isMobile;
   const { tenant: sessionTenant, logout } = useSession();
   const grupos = useGruposDeNavegacion(!!sessionTenant?.isAdmin, sessionTenant?.slug);
-  const workspace = sessionTenant?.businessName || sessionTenant?.name || "Mi negocio";
+  const workspace = sessionTenant?.brandName || sessionTenant?.businessName || sessionTenant?.name || "Mi negocio";
   const principal: NavItem[] = [{ label: "Inicio", href: "/", icon: LayoutDashboard }, ...grupos[0].items];
 
   useEffect(() => {

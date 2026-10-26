@@ -127,8 +127,19 @@ export async function armarCadena(opts: {
   proveedorElegido?: string | null;
 }): Promise<Candidato[]> {
   const { tenantId, appSettings } = opts;
+  // Resolver la configuración ANTES de elegir/priorizar el proveedor. El
+  // probador y WhatsApp suelen pasar solo tenantId, sin la fila precargada.
+  let ajustes = appSettings;
+  if (ajustes === undefined) {
+    try {
+      const [fila] = await db.select().from(settingsTable).limit(1);
+      ajustes = fila ?? null;
+    } catch {
+      ajustes = null;
+    }
+  }
   const cola: Candidato[] = [];
-  const proveedorElegido = String(opts.proveedorElegido ?? appSettings?.aiProvider ?? "none");
+  const proveedorElegido = String(opts.proveedorElegido ?? ajustes?.aiProvider ?? "none");
 
   const conModelos = (proveedor: string) => {
     if (proveedorElegido === proveedor) return []; // ya entra por su cuenta, más abajo
@@ -175,21 +186,9 @@ export async function armarCadena(opts: {
   }
 
   // ── 3. Lo que el dueño eligió en Configuración ────────────────────────────
-  // `appSettings` llega undefined cuando el que llama no la tiene a mano (es
-  // el caso del motor v2, que se engancha antes de cargar nada). Se lee una
-  // vez por turno y sin romper si la tabla no está.
-  let ajustes = appSettings;
-  if (ajustes === undefined) {
-    try {
-      const [fila] = await db.select().from(settingsTable).limit(1);
-      ajustes = fila ?? null;
-    } catch {
-      ajustes = null;
-    }
-  }
   if (ajustes && proveedorElegido !== "none" && proveedorElegido !== "opencode") {
     try {
-      const cfg = getProviderConfigFromSettings(ajustes);
+      const cfg = getProviderConfigFromSettings({ ...ajustes, aiProvider: proveedorElegido });
       if (cfg) cola.push({ config: cfg, source: `${proveedorElegido}/${cfg.model}` });
     } catch {
       /* si no se puede resolver, sigue la cadena */

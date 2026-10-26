@@ -46,7 +46,7 @@ import { crearRepositorioDrizzle, type EstadoConversacion, type RepositorioEstad
 import type { ItemDeConocimiento, Producto, ServicioDePedidos } from "./herramientas";
 import { guionDelNegocio, type GuionDelNegocio, type NegocioParaNicho } from "./nicho";
 import { crearClienteLLM, armarCadena, type ClienteLLM } from "./cliente-llm";
-import { laSeccionMuestraContenido, resumenDeLaFicha } from "./lo-que-dice-la-ficha";
+import { textoDelTurnoParaHistorial } from "./historial-del-turno";
 import { responder, type Mensaje, type VozDelNegocio } from "./motor";
 
 /* ────────────────────────────────────────────────────────────────────────────
@@ -1028,39 +1028,7 @@ export async function responderComoVendedor(
     .join("\n\n")
     .trim();
   const cardProductIds = resultado.partes.filter((p) => p.kind === "card").map((p) => (p as any).productId);
-  // ── Lo guardado tiene que decir QUÉ salió en la ficha ─────────────────────
-  //
-  // Conversación real 269 (26-09-2026): el cliente preguntó el precio, el
-  // modelo escribió "Acá te dejo el valor" y el precio salió en la ficha,
-  // que NO quedaba guardada. El dueño vio en el panel una frase sin número,
-  // creyó que el bot había fallado y escribió a mano "Vale 50.000" cuatro
-  // minutos después. Y el vendedor, en el turno siguiente, tampoco veía en su
-  // historial que ya había dado el precio.
-  //
-  // ── Y tiene que decir QUÉ DECÍA la ficha, no solo que salió ──────────────
-  //
-  // Chat del dueño (27-09-2026): la ficha del piano listó "19 módulos, 283
-  // clases, cerca de 19 horas" y dos mensajes después el bot contestó que el
-  // detalle de los módulos y las horas "lo confirmo con el equipo". En el
-  // historial solo había quedado `[ficha info de Curso de Piano]`: el modelo
-  // sabía que había mandado una ficha y no sabía qué decía, así que dudó de
-  // sus propios datos. Ahora se guarda también lo que el cliente leyó.
-  const marcasDeFicha = resultado.partes
-    .filter((p) => p.kind === "card")
-    .map((p) => {
-      const prod = catalogoCompleto.find((x) => x.id === (p as any).productId);
-      const sec = String((p as any).seccion || "completa");
-      const precio = prod?.price != null && Number(prod.price) > 0 ? ` — $${Number(prod.price).toLocaleString("es-CO")}` : "";
-      const conPrecio = sec === "precio" || sec === "completa" ? precio : "";
-      const marca = `[ficha ${sec} de ${prod?.name ?? (p as any).productId}${conPrecio}]`;
-      // Solo las secciones que muestran el contenido: el precio y las cuentas
-      // de pago ya quedan en la marca, y repetir la ficha entera en cada
-      // renglón del historial la infla sin agregar nada.
-      if (!prod || !laSeccionMuestraContenido(sec)) return marca;
-      const hechos = resumenDeLaFicha(prod);
-      return hechos ? `${marca}\nLo que le mostró: ${hechos}` : marca;
-    });
-  const textoParaGuardar = [texto, ...marcasDeFicha].filter(Boolean).join("\n\n");
+  const textoParaGuardar = textoDelTurnoParaHistorial(resultado.partes, catalogoCompleto);
 
   await saveAgentMessage(conversationId, textoParaGuardar || "…", ETAPA_A_STAGE[resultado.estado.etapa] as any, {
     intent: "motor_v2",
@@ -1281,11 +1249,11 @@ export async function correrEnSombra(params: {
   }
   const voz = await cargarVozDelNegocio(params.tenantId, params.agente ?? null);
   const conocimiento = await cargarConocimiento(params.tenantId);
-  const guion = await cargarGuion(params.tenantId, catalogo, null);
 
   let estado: EstadoConversacion =
     params.estadoInicial ??
     ((await import("./estado-conversacion")).estadoInicial(0));
+  const guion = await cargarGuion(params.tenantId, catalogo, estado.productoEnFoco ?? null);
   const historial: Mensaje[] = [...(params.historialPrevio ?? [])];
   const salida: any[] = [];
 
@@ -1318,10 +1286,12 @@ export async function correrEnSombra(params: {
       .filter((p) => p.kind === "text" || p.kind === "voz")
       .map((p) => (p.kind === "voz" ? `🎙️ (nota de voz) ${p.content || ""}` : String(p.content || "")))
       .join("\n\n");
-    historial.push({ role: "agent", content: texto || "[ficha]", createdAt: new Date() });
+    const textoParaHistorial = textoDelTurnoParaHistorial(partes, completo);
+    historial.push({ role: "agent", content: textoParaHistorial || "[ficha]", createdAt: new Date() });
     salida.push({
       mensaje: turno,
       texto,
+      textoParaHistorial,
       tarjetas: partes.filter((p) => p.kind === "card"),
       // En orden, texto y fichas intercalados: el chat de prueba las muestra
       // como salen por WhatsApp (ver mensajesDeLaFicha).

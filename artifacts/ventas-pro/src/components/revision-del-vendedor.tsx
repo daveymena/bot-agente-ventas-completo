@@ -37,16 +37,20 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
  */
 export function Revision(p: {
   alertas: Alerta[];
+  estado?: "completada" | "no_disponible";
   /** Clave de la alerta que se está arreglando (`${i}:${frase}`). */
   ocupado: string | null;
   i: number;
   alCorregir: (a: Alerta) => void;
   alConfigurarEnvio: () => void;
 }) {
+  if (p.estado !== "completada" && p.alertas.length === 0) {
+    return <p className="self-start rounded-full bg-white/60 px-2 py-0.5 text-[11px] text-slate-500">Revisión automática no disponible</p>;
+  }
   if (p.alertas.length === 0) {
     return (
-      <p className="self-start inline-flex items-center gap-1 rounded-full bg-white/60 px-2 py-0.5 text-[11px] text-emerald-700">
-        <ShieldCheck className="h-3 w-3" /> Revisada: no promete nada fuera de la ficha
+      <p title="Comprobaciones limitadas sobre promesas y configuración de envío. Revisa también los datos y la coherencia de la conversación." className="self-start inline-flex items-center gap-1 rounded-full bg-white/60 px-2 py-0.5 text-[11px] text-emerald-700">
+        <ShieldCheck className="h-3 w-3" /> Sin alertas en las comprobaciones automáticas
       </p>
     );
   }
