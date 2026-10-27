@@ -55,4 +55,14 @@ describe("TurnosDeEnvio", () => {
     t.reservar("b@s");
     expect(t.antesDeEnviar("c@s")).toBe(28_000);
   });
+
+  it("consultar el turno no lo aparta", () => {
+    const { t } = agenda();
+    t.antesDeEnviar("a@s");
+    expect(t.libreEn("b@s")).toBe(14_000);
+    expect(t.libreEn("b@s")).toBe(14_000);
+    expect(t.reservar("b@s")).toBe(14_000);
+    expect(t.libreEn("c@s")).toBe(28_000);
+    expect(t.libreEn("a@s")).toBe(0);
+  });
 });

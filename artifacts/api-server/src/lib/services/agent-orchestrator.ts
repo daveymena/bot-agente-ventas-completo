@@ -13,7 +13,7 @@
 import { getMessageQueue, QueuedMessage } from '../message-queue';
 import { runAgentReply } from '../agent';
 import { type AgentReplyPart } from '../whatsapp-singleton';
-import { transporteConectado, enviarPartsAlCliente, reservarTurnoDeEnvio } from '../transporte-whatsapp';
+import { transporteConectado, enviarPartsAlCliente, reservarTurnoDeEnvio, turnoDeEnvioLibreEn } from '../transporte-whatsapp';
 import { tenantManager } from '../tenantManager';
 import { checkMessageLimit } from '../../middleware/featureLimits';
 import { db } from "@workspace/db";
@@ -56,6 +56,26 @@ export class AgentOrchestrator {
   private esperandoEnvio = new Map<string, string>();
   /** Esperas más cortas que esto se duermen en el turno: posponer no vale la pena. */
   static readonly ESPERA_MAXIMA_EN_TURNO_MS = 2000;
+  /**
+   * Con el número ocupado, la respuesta se redacta solo si su turno está así
+   * de cerca. Redactar 300 respuestas de golpe para mandarlas durante una hora
+   * gastaba la cuota de IA por adelantado y entregaba respuestas viejas.
+   */
+  static readonly REDACTAR_CON_TURNO_A_MS = 10_000;
+
+  private static destinoDe(m: QueuedMessage): string {
+    return m.from || `${m.phone}@s.whatsapp.net`;
+  }
+
+  /**
+   * ¿Vale la pena redactar ya la respuesta, o el número de ese negocio está
+   * ocupado? El turno se aparta al empezar a redactar (ver el bucle), así que
+   * el siguiente cliente del mismo número ya lo ve ocupado.
+   */
+  private turnoCerca(m: QueuedMessage): boolean {
+    if (m.parts) return true;
+    return turnoDeEnvioLibreEn(Number(m.tenantId), AgentOrchestrator.destinoDe(m)) <= AgentOrchestrator.REDACTAR_CON_TURNO_A_MS;
+  }
 
   private static claveDe(m: QueuedMessage): string {
     return m.conversationId != null ? `c${m.conversationId}` : `t${m.tenantId}:${m.phone || m.from}`;
@@ -215,10 +235,13 @@ export class AgentOrchestrator {
     // Se llenan los lugares libres con conversaciones que NO se estén
     // atendiendo ya. Cada una corre por su cuenta; el bucle no las espera.
     while (this.activos < this.maxEnParalelo) {
-      const message = this.queue.dequeue((m) => !this.enCurso.has(AgentOrchestrator.claveDe(m)) && !this.detrasDeUnEnvio(m) && this.configs.get(m.tenantId)?.enabled !== false);
+      const message = this.queue.dequeue((m) => !this.enCurso.has(AgentOrchestrator.claveDe(m)) && !this.detrasDeUnEnvio(m) && this.configs.get(m.tenantId)?.enabled !== false && this.turnoCerca(m));
       if (!message) break;
       const clave = AgentOrchestrator.claveDe(message);
       if (this.esperandoEnvio.get(clave) === message.id) this.esperandoEnvio.delete(clave);
+      // Se aparta el turno del número antes de redactar: si no, con el número
+      // libre se redactaban de golpe tantas respuestas como lugares hubiera.
+      if (!message.parts) reservarTurnoDeEnvio(Number(message.tenantId), AgentOrchestrator.destinoDe(message));
       this.activos++;
       this.enCurso.add(clave);
       this.processMessage(message)
@@ -412,7 +435,7 @@ export class AgentOrchestrator {
       // durmiendo acá: dormir ocupaba uno de los pocos lugares de la
       // plataforma y frenaba a los demás negocios. La respuesta ya quedó
       // guardada en el mensaje, así que al volver solo se envía.
-      const falta = reservarTurnoDeEnvio(tenantIdNum, message.from || `${phone}@s.whatsapp.net`);
+      const falta = reservarTurnoDeEnvio(tenantIdNum, AgentOrchestrator.destinoDe(message));
       if (falta > AgentOrchestrator.ESPERA_MAXIMA_EN_TURNO_MS && message.conversationId != null) {
         // Los mensajes agrupados ya están contestados por esta respuesta.
         for (const recibido of agrupados) if (recibido.id !== message.id) this.queue.markProcessed(recibido.id);
