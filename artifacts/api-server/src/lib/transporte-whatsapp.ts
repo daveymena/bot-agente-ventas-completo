@@ -26,6 +26,15 @@ export function transporteConectado(tenantId: number): boolean {
   return peekWhatsAppForTenant(tenantId)?.isConnected() ?? false;
 }
 
+/**
+ * Ms que faltan para que el número del tenant pueda escribirle a `jid`; deja
+ * el turno apartado. Cloud API no lleva el espaciado de Baileys.
+ */
+export function reservarTurnoDeEnvio(tenantId: number, jid: string): number {
+  if (transporteEnUso(tenantId) === "cloud") return 0;
+  return peekWhatsAppForTenant(tenantId)?.reservarTurnoDeEnvio(jid) ?? 0;
+}
+
 /** Envía las partes del agente por el transporte correcto del tenant. */
 export async function enviarPartsAlCliente(
   tenantId: number,

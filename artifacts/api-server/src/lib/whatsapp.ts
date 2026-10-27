@@ -1,5 +1,6 @@
 import { eq, inArray, desc, and } from "drizzle-orm";
 import { getAppUrl } from "./app-url";
+import { TurnosDeEnvio } from "./turnos-de-envio";
 import { transcribirAudio, describirImagen } from "./media-entrante";
 import { contextoDeMoneda } from "./moneda-por-pais";
 import { invitacionDe, sePuedeOfrecerElVideo, pidioElVideo, type SeccionFicha } from "./ficha-parcial";
@@ -1832,8 +1833,12 @@ export class WhatsAppManager {
    * No afecta la conversación normal (una respuesta cada varios segundos ya
    * cumple el espaciado por sí sola); solo frena los envíos en lote.
    */
-  private ultimoEnvioMs = 0;
-  private ultimoDestino = "";
+  private turnosDeEnvio = new TurnosDeEnvio();
+
+  /** Para el orquestador: cuánto falta para escribirle a `destino` (y lo aparta). */
+  reservarTurnoDeEnvio(destino: string): number {
+    return this.turnosDeEnvio.reservar(destino);
+  }
 
   /**
    * Espaciado entre envíos, pero SOLO al cambiar de destinatario.
@@ -1856,21 +1861,10 @@ export class WhatsAppManager {
    * donde de verdad protege al número.
    */
   private async esperarEspaciadoEntreEnvios(destino?: string): Promise<void> {
-    const jid = String(destino || "");
-    const mismaPersona = !!jid && jid === this.ultimoDestino;
-
-    if (!mismaPersona) {
-      const MIN_MS = Number(process.env.WA_MIN_MS_ENTRE_ENVIOS) || 8000;
-      const JITTER_MS = Number(process.env.WA_JITTER_MS_ENTRE_ENVIOS) || 12000;
-      const objetivo = MIN_MS + Math.floor(Math.random() * JITTER_MS);
-      const transcurrido = Date.now() - this.ultimoEnvioMs;
-      if (this.ultimoEnvioMs > 0 && transcurrido < objetivo) {
-        await sleep(objetivo - transcurrido);
-      }
-    }
-
-    this.ultimoEnvioMs = Date.now();
-    if (jid) this.ultimoDestino = jid;
+    // La agenda vive en turnos-de-envio.ts: el orquestador aparta el turno
+    // antes y acá normalmente ya no queda nada que esperar.
+    const espera = this.turnosDeEnvio.antesDeEnviar(String(destino || ""));
+    if (espera > 0) await sleep(espera);
   }
 
   private enforceSendLimits(): void {

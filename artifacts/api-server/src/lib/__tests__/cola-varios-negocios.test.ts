@@ -14,12 +14,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const runAgentReply = vi.fn();
 const enviarPartsAlCliente = vi.fn();
+const reservarTurnoDeEnvio = vi.fn();
 
 vi.mock("../agent", () => ({ runAgentReply: (...a: any[]) => runAgentReply(...a) }));
 vi.mock("../transporte-whatsapp", () => ({
   // El negocio 2 tiene el WhatsApp caído.
   transporteConectado: (t: number) => t !== 2,
   enviarPartsAlCliente: (...a: any[]) => enviarPartsAlCliente(...a),
+  reservarTurnoDeEnvio: (...a: any[]) => reservarTurnoDeEnvio(...a),
 }));
 vi.mock("../tenantManager", () => ({ tenantManager: { getTenantById: async () => ({ plan: "pro" }) } }));
 vi.mock("../../middleware/featureLimits", () => ({ checkMessageLimit: async () => ({ allowed: true }) }));
@@ -42,7 +44,46 @@ function orquestador(estados: Record<number, string> = {}) {
 beforeEach(() => {
   runAgentReply.mockReset();
   enviarPartsAlCliente.mockReset();
+  reservarTurnoDeEnvio.mockReset();
+  reservarTurnoDeEnvio.mockReturnValue(0);
   runAgentReply.mockResolvedValue({ parts: [{ kind: "text", content: "hola" }] });
+});
+
+describe("el espaciado del número no ocupa un lugar del orquestador", () => {
+  it("si al número le falta turno, la respuesta se pospone ya redactada", async () => {
+    const { o, q } = orquestador();
+    reservarTurnoDeEnvio.mockReturnValue(14_000);
+    const m = msj(q, "1", 40);
+    await o.processMessage(q.dequeue()!);
+    expect(enviarPartsAlCliente).not.toHaveBeenCalled();
+    expect(m.processed).toBe(false);
+    expect(m.parts).toEqual([{ kind: "text", content: "hola" }]);
+    expect(m.noAntesDe).toBeGreaterThan(Date.now() + 10_000);
+  });
+
+  it("al volver se envía sin pedirle otra respuesta a la IA", async () => {
+    const { o, q } = orquestador();
+    reservarTurnoDeEnvio.mockReturnValueOnce(14_000).mockReturnValue(0);
+    const m = msj(q, "1", 41);
+    await o.processMessage(q.dequeue()!);
+    m.noAntesDe = Date.now() - 1;
+    await o.processMessage(q.dequeue()!);
+    expect(runAgentReply).toHaveBeenCalledTimes(1);
+    expect(enviarPartsAlCliente).toHaveBeenCalledTimes(1);
+    expect(m.processed).toBe(true);
+  });
+
+  it("un mensaje nuevo del mismo cliente espera a que salga la respuesta anterior", async () => {
+    const { o, q } = orquestador();
+    reservarTurnoDeEnvio.mockReturnValue(14_000);
+    msj(q, "1", 42);
+    await o.processMessage(q.dequeue()!);
+    const nuevo = q.enqueue({ tenantId: "1", from: "5742@s.whatsapp.net", to: "1", body: "otra cosa", timestamp: new Date(), messageId: "m42b", isGroup: false, conversationId: 42, phone: "5742" });
+    const otroCliente = msj(q, "1", 43);
+    const siguiente = q.dequeue((x) => !o.detrasDeUnEnvio(x));
+    expect(siguiente?.id).toBe(otroCliente.id);
+    expect(nuevo.processing).toBeFalsy();
+  });
 });
 
 describe("un negocio sin WhatsApp no traba a los demás", () => {
