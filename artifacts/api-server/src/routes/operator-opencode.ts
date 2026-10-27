@@ -36,7 +36,7 @@ import { correrTurnoDirecto, correrTurnoDirectoConRotacion, candidatosDirectos, 
 import { promptDeAtlas, executeAction, verifyMutation, investigacionRapida, mensajeParaAdmin, isReadOnlyTool, notaDeLandingsEnSegundoPlano, type OperatorContext } from "../lib/app-operator";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
-  clearPendingPlan, isApproval, isRejection, esSiConCorreccion, loadRecentLessons,
+  clearPendingPlan, isApproval, isRejection, esSiConCorreccion, decisionSinContextoEstudio, loadRecentLessons,
 } from "../lib/architect-store";
 import { toEmojiStyle } from "../lib/conversation-engine";
 import { esResumenInterno, pareceIngles, avisoDeTurnoIncompleto, avisoDeCierreVacio } from "../lib/respuesta-al-admin";
@@ -900,6 +900,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       logger.info({ tenantId, largo: texto.length }, "[AtlasOpenCode] Pedido por voz transcrito");
     }
 
+    // El servidor también acepta decisiones enviadas por una pestaña de Studio anterior
+    // al arreglo del frontend. Nunca buscar un «sí» dentro del contexto ni del historial.
+    prompt = decisionSinContextoEstudio(String(prompt));
+
     const persisted = await loadArchitectHistory(tenantId, sessionId);
     const convo = persisted.length > 0 ? persisted : (Array.isArray(historialCrudo) ? historialCrudo : []);
     await saveArchitectTurn(tenantId, sessionId, "user", String(prompt));
@@ -937,7 +941,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // Acá un falso positivo publica en la pagina o crea una campaña que
       // gasta: preguntar de nuevo cuesta un mensaje.
       const aprobadoPorElModelo =
-        !isRejection(String(prompt)) &&
+        !isApproval(String(prompt)) && !isRejection(String(prompt)) &&
         (await esUnSiParaEstePlan(String(prompt), pending.actions.map((a: any) => describePlannedAction(a)).join(" · ")));
       if (aprobadoPorElModelo) {
         logger.info({ tenantId, prompt: String(prompt).slice(0, 60) }, "[Atlas] la lista no lo reconocio pero el modelo lo leyo como un si");
