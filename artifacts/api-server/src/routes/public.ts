@@ -9,11 +9,12 @@ import { logger } from "../lib/logger";
 import { getWhatsAppForTenant, peekWhatsAppForTenant } from "../lib/whatsapp-factory";
 import { tenantManager } from "../lib/tenantManager";
 import { SAAS_PLANS } from "../middleware/saasValidation";
-import { encryptSecret } from "../lib/credentials-vault";
+import { encryptSecret, decryptSecret } from "../lib/credentials-vault";
 import { credencialesDe } from "../lib/tenant-payment-credentials";
 import { rateLimitPublico } from "../middleware/rateLimitPublico";
 import { FB_GRAPH_BASE } from "../lib/meta-api-version";
 import { respaldoEnvFacebook } from "../lib/tenant-facebook-credentials";
+import { appFacebookParaLogin, listarPaginasFacebook, elegirPaginaFacebook, puedePublicarFacebook } from "../lib/facebook-onboarding";
 import { lineaDeProducto } from "../lib/taxonomia";
 
 /**
@@ -286,11 +287,13 @@ router.post("/fb-connect", rateLimitPublico(10, 10 * 60 * 1000, "fb-connect"), a
       return res.status(401).json({ message: "Sesión requerida" });
     }
     const wantedPageId = req.body?.pageId ? String(req.body.pageId) : null;
-
-    const appId = process.env.FB_APP_ID;
-    const appSecret = process.env.FB_APP_SECRET;
+    const [row] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    if (!row) return res.status(404).json({ message: "Negocio no encontrado" });
+    const meta: any = row.metadata ? (typeof row.metadata === "string" ? JSON.parse(row.metadata) : row.metadata) : {};
+    const app = appFacebookParaLogin({ ...meta.facebook, appSecret: decryptSecret(meta.facebook?.appSecret) });
+    const { appId, appSecret } = app;
     if (!appId || !appSecret) {
-      return res.status(500).json({ message: "FB_APP_ID / FB_APP_SECRET no configurados" });
+      return res.status(400).json({ message: "Falta configurar el App ID y App Secret de la app de Meta elegida para este negocio." });
     }
 
     const graph = FB_GRAPH_BASE;
@@ -307,8 +310,15 @@ router.post("/fb-connect", rateLimitPublico(10, 10 * 60 * 1000, "fb-connect"), a
     // (exigencia de OAuth), por eso el frontend la manda tal cual la armó.
     const code = req.body?.code;
     const redirectUri = req.body?.redirectUri;
-    let userToken = req.body?.userToken; // compat: token ya resuelto (uso interno/pruebas)
+    const pendiente = meta.facebookConnectionPending;
+    const elegirOtraPagina = req.body?.selectPage === true && !code && !req.body?.userToken;
+    const seleccionPendiente = !elegirOtraPagina && !!wantedPageId && !code && !req.body?.userToken;
+    if (seleccionPendiente && (!pendiente || pendiente.expiresAt <= Date.now() || pendiente.appId !== appId)) {
+      return res.status(409).json({ message: "La selección de página venció o cambió la app de Meta. Volvé a conectar Facebook." });
+    }
+    let userToken = elegirOtraPagina ? decryptSecret(meta.facebook?.userAccessToken) : seleccionPendiente ? decryptSecret(pendiente.userAccessToken) : req.body?.userToken; // compat: token ya resuelto (uso interno/pruebas)
 
+    if (elegirOtraPagina && !userToken) return res.status(409).json({ message: "Reconectá Facebook para autorizar las páginas del negocio." });
     if (!userToken) {
       if (!code || typeof code !== "string" || !redirectUri || typeof redirectUri !== "string") {
         return res.status(400).json({ message: "code y redirectUri requeridos" });
@@ -330,45 +340,43 @@ router.post("/fb-connect", rateLimitPublico(10, 10 * 60 * 1000, "fb-connect"), a
 
     // 1. Canjear por token de larga duración. Los tokens del Explorador duran
     //    ~1-2 horas; los de página derivados de uno de larga duración no caducan.
-    const exRes = await fetch(
-      `${graph}/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${encodeURIComponent(userToken)}`,
-      { signal: AbortSignal.timeout(15000) },
-    );
-    const exData: any = await exRes.json();
-    if (!exRes.ok || exData.error) {
-      logger.error({ err: exData?.error }, "[FB-Connect] Falló el canje de token");
-      return res.status(502).json({ message: exData?.error?.message || "Error canjeando el token" });
+    let longLivedUserToken = userToken;
+    if (!seleccionPendiente && !elegirOtraPagina) {
+      const exRes = await fetch(
+        `${graph}/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${encodeURIComponent(userToken)}`,
+        { signal: AbortSignal.timeout(15000) },
+      );
+      const exData: any = await exRes.json();
+      if (!exRes.ok || exData.error) {
+        logger.error({ err: exData?.error }, "[FB-Connect] Falló el canje de token");
+        return res.status(502).json({ message: exData?.error?.message || "Error canjeando el token" });
+      }
+      longLivedUserToken = exData.access_token;
     }
-    const longLivedUserToken = exData.access_token;
-
-    // 2. Páginas que administra, con su token propio
-    const pagesRes = await fetch(
-      `${graph}/me/accounts?fields=id,name,access_token,tasks&access_token=${encodeURIComponent(longLivedUserToken)}`,
-      { signal: AbortSignal.timeout(15000) },
-    );
-    const pagesData: any = await pagesRes.json();
-    if (!pagesRes.ok || pagesData.error) {
-      return res.status(502).json({ message: pagesData?.error?.message || "Error listando páginas" });
+    if (!longLivedUserToken || typeof longLivedUserToken !== "string") {
+      return res.status(502).json({ message: "Facebook no devolvió un token válido. Volvé a conectar." });
     }
 
-    const pages: any[] = pagesData.data || [];
-    if (pages.length === 0) {
-      return res.status(404).json({ message: "El usuario no administra ninguna página" });
+    // Todas las páginas, no solo la primera página de resultados de Graph.
+    let pages;
+    try {
+      pages = await listarPaginasFacebook(longLivedUserToken);
+    } catch (err: any) {
+      return res.status(502).json({ message: err.message });
     }
-
-    const page = wantedPageId ? pages.find(p => p.id === wantedPageId) : pages[0];
+    if (!pages.length) {
+      return res.status(403).json({ message: "Meta no compartió páginas con esta conexión. Reconectá y autorizá la página del negocio. Si funciona solo con el dueño de la app, revisá en Meta el modo de la app y el acceso avanzado de pages_show_list para usuarios externos." });
+    }
+    const page = elegirOtraPagina ? null : elegirPaginaFacebook(pages, wantedPageId, meta.facebook?.pageId);
     if (!page) {
-      return res.status(404).json({
-        message: `La página ${wantedPageId} no está entre las que administra`,
-        disponibles: pages.map(p => ({ id: p.id, name: p.name })),
-      });
+      if (wantedPageId) return res.status(403).json({ message: "La página elegida no está autorizada para esta conexión." });
+      // Token cifrado y temporal, solo en el negocio de la sesión; nunca al navegador.
+      meta.facebookConnectionPending = { appId, userAccessToken: encryptSecret(longLivedUserToken), expiresAt: Date.now() + 10 * 60 * 1000 };
+      await db.update(tenants).set({ metadata: meta as any }).where(eq(tenants.id, tenantId));
+      return res.json({ ok: false, requiresPageSelection: true, pages: pages.map(p => ({ id: p.id, name: p.name })) });
     }
+    delete meta.facebookConnectionPending;
 
-    // 3. Guardar en el tenant (no en el .env): esto es multi-cuenta
-    const [row] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
-    const meta: any = row?.metadata
-      ? (typeof row.metadata === "string" ? JSON.parse(row.metadata) : row.metadata)
-      : {};
     const encryptedPageToken = encryptSecret(page.access_token);
     meta.facebook = {
       ...(meta.facebook || {}),
@@ -453,12 +461,15 @@ router.post("/fb-connect", rateLimitPublico(10, 10 * 60 * 1000, "fb-connect"), a
     tenantManager.clearCache();
 
     // 4. Confirmar qué permisos quedaron en el token de la página
-    const permRes = await fetch(
-      `${graph}/me/permissions?access_token=${encodeURIComponent(page.access_token)}`,
-      { signal: AbortSignal.timeout(15000) },
-    );
-    const permData: any = await permRes.json();
-    const granted = (permData.data || []).filter((p: any) => p.status === "granted").map((p: any) => p.permission);
+    // /me/permissions requiere el token de USUARIO; el de página da vacío.
+    let granted: string[] = [];
+    try {
+      const permRes = await fetch(`${graph}/me/permissions?access_token=${encodeURIComponent(longLivedUserToken)}`, { signal: AbortSignal.timeout(15000) });
+      const permData: any = await permRes.json();
+      granted = (permData.data || []).filter((p: any) => p.status === "granted").map((p: any) => p.permission);
+    } catch {
+      logger.warn({ tenantId }, "[FB-Connect] No se pudieron consultar permisos; la conexión se guardó");
+    }
 
     // 5. Suscribir la página a los eventos de la app (mensajes, comentarios,
     // leads). Sin esto Meta no le avisa NADA a nuestro webhook de esta página:
@@ -486,7 +497,7 @@ router.post("/fb-connect", rateLimitPublico(10, 10 * 60 * 1000, "fb-connect"), a
     return res.json({
       ok: true,
       page: { id: page.id, name: page.name, tasks: page.tasks },
-      canPost: granted.includes("pages_manage_posts"),
+      canPost: puedePublicarFacebook(page.tasks, granted),
       permissions: granted,
       // ¿Meta le va a avisar a la app los mensajes y comentarios de esta página?
       webhookSuscrito,

@@ -11,7 +11,8 @@ import { buildPostDraft, publishToPage, checkPostingPermission } from "../lib/fa
 import { whatsapp } from "../lib/whatsapp-singleton";
 import { logger } from "../lib/logger";
 import { encryptSecret, decryptSecret } from "../lib/credentials-vault";
-import { FB_GRAPH_BASE } from "../lib/meta-api-version";
+import { FB_GRAPH_BASE, META_API_VERSION } from "../lib/meta-api-version";
+import { appFacebookParaLogin } from "../lib/facebook-onboarding";
 import { respaldoEnvFacebook } from "../lib/tenant-facebook-credentials";
 
 const router: IRouter = Router();
@@ -1060,6 +1061,20 @@ router.get("/debug-pixels", async (req, res, next) => {
     const data = await r.json();
     return res.json(data);
   } catch (e) { return next(e); }
+});
+
+// Mismo origen de app en el botón y en el canje del código OAuth.
+router.get("/login-config", async (req, res, next) => {
+  try {
+    const tenantId = Number((req as any).tenant?.id);
+    if (!tenantId) return res.status(401).json({ message: "Sesión requerida" });
+    const [row] = await db.select({ metadata: tenants.metadata }).from(tenants).where(eq(tenants.id, tenantId)).limit(1);
+    if (!row) return res.status(404).json({ message: "Negocio no encontrado" });
+    const meta: any = row.metadata ? (typeof row.metadata === "string" ? JSON.parse(row.metadata) : row.metadata) : {};
+    const app = appFacebookParaLogin({ ...meta.facebook, appSecret: decryptSecret(meta.facebook?.appSecret) });
+    return res.json({ appId: app.appId || null, loginConfigId: app.loginConfigId || null, origen: app.origen, apiVersion: META_API_VERSION,
+      enabled: process.env.FB_CONNECT_ENABLED === "true" && !!app.appId && !!app.appSecret });
+  } catch (err) { return next(err); }
 });
 
 // GET /facebook/config — leer configuración actual (desde metadata o entorno)

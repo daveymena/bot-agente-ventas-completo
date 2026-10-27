@@ -17,7 +17,7 @@ import { HelpTourButton } from "@/components/HelpTourButton";
 import { useAutoTour } from "@/hooks/use-auto-tour";
 import { getHelpGuide } from "@/data/help-guides";
 import { describeError } from "@/lib/utils";
-import { urlLoginFacebook } from "@/lib/facebook-login";
+import { urlLoginFacebook, type ConfigAppFacebook } from "@/lib/facebook-login";
 import { LogoMarca } from "@/components/logo-marca";
 import { DatoSensibleInput, ValorOculto } from "@/components/ui/dato-sensible";
 
@@ -292,13 +292,14 @@ export default function FacebookAdsPage() {
   // reconectando todo el tiempo. Este botón hace el login real y el backend
   // (/api/public/fb-connect) canjea el token por uno de página de larga
   // duración que prácticamente no vence.
-  const [fbAppConfig, setFbAppConfig] = useState<{ appId: string | null; enabled: boolean }>({ appId: null, enabled: false });
+  const [fbAppConfig, setFbAppConfig] = useState<ConfigAppFacebook>({ appId: null, enabled: false });
   const [connectingOAuth, setConnectingOAuth] = useState(false);
+  const [pagesToChoose, setPagesToChoose] = useState<Array<{ id: string; name: string }>>([]);
   const [otherPages, setOtherPages] = useState<Array<{ id: string; name: string }>>([]);
 
   useEffect(() => {
     loadData();
-    apiRequest("/public/fb-app-config").then(setFbAppConfig).catch(() => setFbAppConfig({ appId: null, enabled: false }));
+    apiRequest("/facebook/login-config").then(setFbAppConfig).catch(() => setFbAppConfig({ appId: null, enabled: false }));
     handleOAuthRedirectIfAny();
   }, []);
 
@@ -350,13 +351,18 @@ export default function FacebookAdsPage() {
   const handleOAuthRedirectIfAny = async () => {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
+    if (params.has("error")) {
+      window.history.replaceState(null, "", window.location.pathname);
+      toast({ title: "Facebook no autorizó la conexión", description: params.get("error_description") || "No se otorgó acceso. Volvé a conectar y autorizá la página del negocio.", variant: "destructive" });
+      return;
+    }
     if (!code) return;
     // Limpiar el ?code= de la URL para no reprocesarlo al recargar.
     window.history.replaceState(null, "", window.location.pathname);
     await connectWithAuthCode(code);
   };
 
-  const connectWithAuthCode = async (code: string, pageId?: string) => {
+  const connectWithAuthCode = async (code?: string, pageId?: string, selectPage = false) => {
     try {
       setConnectingOAuth(true);
       const redirectUri = window.location.origin + window.location.pathname;
@@ -366,8 +372,14 @@ export default function FacebookAdsPage() {
       // dueño de la plataforma en vez de la suya propia.
       const res = await apiRequest("/public/fb-connect", {
         method: "POST",
-        body: JSON.stringify({ code, redirectUri, pageId }),
+        body: JSON.stringify({ code, redirectUri, pageId, selectPage }),
       });
+      if (res.requiresPageSelection) {
+        setPagesToChoose(res.pages || []);
+        setTab("config");
+        return;
+      }
+      setPagesToChoose([]);
       toast({ title: "Facebook conectado", description: `Página: ${res.page?.name || res.page?.id}${res.canPost ? "" : " (falta el permiso para publicar en el muro)"}` });
       setOtherPages(res.otrasPaginas || []);
       setConnected(true);
@@ -391,7 +403,7 @@ export default function FacebookAdsPage() {
   // Permisos y config_id en lib/facebook-login.ts (los comparte Integraciones).
   const startFacebookLogin = () => {
     const url = urlLoginFacebook(fbAppConfig, window.location.origin + window.location.pathname);
-    if (url) window.open(url, "_blank", "noopener,noreferrer");
+    if (url) window.location.assign(url);
   };
 
   const loadData = async () => {
@@ -431,6 +443,8 @@ export default function FacebookAdsPage() {
           loginConfigId: config.loginConfigId || "",
         }),
       });
+      const loginCfg = await apiRequest("/facebook/login-config").catch(() => null);
+      if (loginCfg) setFbAppConfig(loginCfg);
       toast({ title: "Guardado", description: "Configuración de Facebook guardada" });
       setRawToken("");
       setRawAppSecret("");
@@ -895,7 +909,7 @@ export default function FacebookAdsPage() {
                     <CardTitle className="flex items-center gap-2"><LogoMarca marca="facebook" className="h-5 w-5" /> Conectar con Facebook</CardTitle>
                     <CardDescription>
                       Recomendado: hace login real con Facebook y guarda un token de página de larga
-                      duración (prácticamente no vence). El campo manual de abajo es solo un respaldo —
+                      duración. El campo manual de abajo es solo un respaldo —
                       si pegás ahí un token del Explorador de Graph API, dura 1-2 horas y hay que
                       reconectar todo el tiempo.
                     </CardDescription>
@@ -905,24 +919,29 @@ export default function FacebookAdsPage() {
                       {connectingOAuth ? <Loader2 className="mr-2 h-4 w-4 animate-spin shrink-0" /> : <Globe className="mr-2 h-4 w-4 shrink-0" />}
                       Conectar con Facebook
                     </Button>
+                    {connected && <Button variant="outline" className="w-full sm:w-auto sm:ml-2" disabled={connectingOAuth} onClick={() => connectWithAuthCode(undefined, undefined, true)}>Elegir otra página</Button>}
                     {!fbAppConfig.enabled && (
                       <Alert>
                         <XCircle className="h-4 w-4" />
                         <AlertDescription>
-                          Falta configurar <code className="break-all">FB_APP_ID</code>, <code className="break-all">FB_APP_SECRET</code> y{" "}
-                          <code className="break-all">FB_CONNECT_ENABLED=true</code> en las variables de entorno del servidor.
+                          El login no está habilitado o falta el App ID y App Secret de la app de Meta elegida.
+                          Revisá las credenciales del negocio o pedí al administrador habilitar la conexión.
                           También agregá <code className="break-all">{window.location.origin}{window.location.pathname}</code> a las
                           "Valid OAuth Redirect URIs" del producto Facebook Login de tu app en developers.facebook.com.
                         </AlertDescription>
                       </Alert>
                     )}
+                    {pagesToChoose.length > 0 && (
+                      <div className="rounded-lg border p-3 space-y-3" role="group" aria-label="Elegir página de Facebook">
+                        <p className="text-sm font-medium">Elegí la página que querés conectar a este negocio</p>
+                        <p className="text-xs text-muted-foreground">La conexión se completará cuando elijas una página.</p>
+                        <div className="flex flex-wrap gap-2">
+                          {pagesToChoose.map(p => <Button key={p.id} variant="outline" disabled={connectingOAuth} onClick={() => connectWithAuthCode(undefined, p.id)} className="h-auto whitespace-normal text-left">{p.name}</Button>)}
+                        </div>
+                      </div>
+                    )}
                     {otherPages.length > 0 && (
-                      <Alert>
-                        <MessageSquare className="h-4 w-4" />
-                        <AlertDescription>
-                          También administrás: {otherPages.map(p => p.name).join(", ")}. Para conectar otra en vez de la actual, decíselo a Atlas o volvé a hacer login y elegí otra.
-                        </AlertDescription>
-                      </Alert>
+                      <p className="text-xs text-muted-foreground">Otras páginas autorizadas: {otherPages.map(p => p.name).join(", ")}. Usá «Elegir otra página» para cambiar la conexión de este negocio.</p>
                     )}
                   </CardContent>
                 </Card>

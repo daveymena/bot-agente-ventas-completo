@@ -13,6 +13,7 @@ export interface ConfigAppFacebook {
   appId: string | null;
   enabled: boolean;
   loginConfigId?: string | null;
+  apiVersion?: string;
 }
 
 export const PERMISOS_FACEBOOK = [
@@ -29,8 +30,9 @@ export const PERMISOS_FACEBOOK = [
 
 /** URL del diálogo de login; null si la app no está configurada. */
 export function urlLoginFacebook(cfg: ConfigAppFacebook, redirectUri: string): string | null {
-  if (!cfg.appId) return null;
-  const base = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(cfg.appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code`;
+  if (!cfg.enabled || !cfg.appId) return null;
+  const version = /^v\d+\.0$/.test(cfg.apiVersion || "") ? cfg.apiVersion : "v23.0";
+  const base = `https://www.facebook.com/${version}/dialog/oauth?client_id=${encodeURIComponent(cfg.appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code`;
   // "Inicio de sesión con Facebook para empresas" ignora `scope` y exige
   // `config_id` (confirmado en producción, ago-2026).
   if (cfg.loginConfigId) return `${base}&config_id=${encodeURIComponent(cfg.loginConfigId)}`;

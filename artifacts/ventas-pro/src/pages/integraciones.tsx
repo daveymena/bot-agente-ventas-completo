@@ -281,7 +281,7 @@ function TarjetaFacebook() {
   const [cfg, setCfg] = useState<ConfigAppFacebook>({ appId: null, enabled: false });
   const [estado, setEstado] = useState<{ hasToken?: boolean; pageId?: string; adAccountId?: string } | null>(null);
   useEffect(() => {
-    api<ConfigAppFacebook>("/public/fb-app-config").then(setCfg).catch(() => setCfg({ appId: null, enabled: false }));
+    api<ConfigAppFacebook>("/facebook/login-config").then(setCfg).catch(() => setCfg({ appId: null, enabled: false }));
     api<any>("/facebook/config").then(setEstado).catch(() => setEstado(null));
   }, []);
   const conectada = !!estado?.hasToken && !!estado?.pageId;
@@ -306,7 +306,7 @@ function TarjetaFacebook() {
         {conectada && <p className="text-xs text-muted-foreground">Página <ValorOculto valor={estado?.pageId} />{estado?.adAccountId ? <> · cuenta publicitaria <ValorOculto valor={estado.adAccountId} /></> : " · falta elegir la cuenta publicitaria"}</p>}
       </CardHeader>
       <CardContent className="flex flex-wrap gap-2">
-        <Button onClick={() => url && window.open(url, "_blank", "noopener,noreferrer")} disabled={!cfg.enabled || !url} className="bg-[#1877F2] hover:bg-[#166FE5]">
+        <Button onClick={() => url && window.location.assign(url)} disabled={!cfg.enabled || !url} className="bg-[#1877F2] hover:bg-[#166FE5]">
           {conectada ? "Reconectar con Facebook" : "Conectar con Facebook"}
         </Button>
         <Button variant="outline" asChild><Link href="/facebook">Configuración de Facebook <ExternalLink className="ml-2 h-4 w-4" /></Link></Button>
