@@ -1839,6 +1839,11 @@ export class WhatsAppManager {
     return this.turnosDeEnvio.reservar(destino);
   }
 
+  /** Cuánto falta para que el número pueda escribirle a `destino`, sin apartarlo. */
+  turnoDeEnvioLibreEn(destino: string): number {
+    return this.turnosDeEnvio.libreEn(destino);
+  }
+
   /**
    * Espaciado entre envíos, pero SOLO al cambiar de destinatario.
    *

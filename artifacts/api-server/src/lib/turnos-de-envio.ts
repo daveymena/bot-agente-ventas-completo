@@ -29,6 +29,15 @@ export class TurnosDeEnvio {
     return min + Math.floor(this.azar() * jitter);
   }
 
+  /** Ms que faltarían para escribirle a `destino`, sin apartar nada. */
+  libreEn(destino: string): number {
+    const ahora = this.reloj();
+    const apartado = this.reservas.get(destino);
+    if (apartado !== undefined) return Math.max(0, apartado - ahora);
+    if (destino && destino === this.ultimoDestino) return 0;
+    return Math.max(0, this.proximoLibreMs - ahora);
+  }
+
   /** Ms que faltan para poder escribirle a `destino`. Deja el turno apartado. */
   reservar(destino: string): number {
     const ahora = this.reloj();

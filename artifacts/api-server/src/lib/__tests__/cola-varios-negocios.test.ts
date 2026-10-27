@@ -15,6 +15,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const runAgentReply = vi.fn();
 const enviarPartsAlCliente = vi.fn();
 const reservarTurnoDeEnvio = vi.fn();
+const turnoDeEnvioLibreEn = vi.fn();
 
 vi.mock("../agent", () => ({ runAgentReply: (...a: any[]) => runAgentReply(...a) }));
 vi.mock("../transporte-whatsapp", () => ({
@@ -22,6 +23,7 @@ vi.mock("../transporte-whatsapp", () => ({
   transporteConectado: (t: number) => t !== 2,
   enviarPartsAlCliente: (...a: any[]) => enviarPartsAlCliente(...a),
   reservarTurnoDeEnvio: (...a: any[]) => reservarTurnoDeEnvio(...a),
+  turnoDeEnvioLibreEn: (...a: any[]) => turnoDeEnvioLibreEn(...a),
 }));
 vi.mock("../tenantManager", () => ({ tenantManager: { getTenantById: async () => ({ plan: "pro" }) } }));
 vi.mock("../../middleware/featureLimits", () => ({ checkMessageLimit: async () => ({ allowed: true }) }));
@@ -46,6 +48,8 @@ beforeEach(() => {
   enviarPartsAlCliente.mockReset();
   reservarTurnoDeEnvio.mockReset();
   reservarTurnoDeEnvio.mockReturnValue(0);
+  turnoDeEnvioLibreEn.mockReset();
+  turnoDeEnvioLibreEn.mockReturnValue(0);
   runAgentReply.mockResolvedValue({ parts: [{ kind: "text", content: "hola" }] });
 });
 
@@ -83,6 +87,28 @@ describe("el espaciado del número no ocupa un lugar del orquestador", () => {
     const siguiente = q.dequeue((x) => !o.detrasDeUnEnvio(x));
     expect(siguiente?.id).toBe(otroCliente.id);
     expect(nuevo.processing).toBeFalsy();
+  });
+
+  it("con el número ocupado no se redacta todavía; el otro negocio sí entra", () => {
+    const { o, q } = orquestador();
+    turnoDeEnvioLibreEn.mockImplementation((t: number) => (t === 1 ? 60_000 : 0));
+    msj(q, "1", 44);
+    const otro = msj(q, "3", 45);
+    expect(q.dequeue((x) => o.turnoCerca(x))?.id).toBe(otro.id);
+  });
+
+  it("aparta el turno del número antes de redactar, no después", async () => {
+    const { o, q } = orquestador();
+    const orden: string[] = [];
+    reservarTurnoDeEnvio.mockImplementation(() => { orden.push("turno"); return 0; });
+    runAgentReply.mockImplementation(async () => { orden.push("ia"); return { parts: [{ kind: "text", content: "ok" }] }; });
+    msj(q, "1", 47);
+    o.processing = true;
+    await o.runProcessingLoop();
+    o.processing = false;
+    clearTimeout(o.intervalId);
+    await new Promise((r) => setTimeout(r, 100));
+    expect(orden.slice(0, 2)).toEqual(["turno", "ia"]);
   });
 });
 

@@ -35,6 +35,12 @@ export function reservarTurnoDeEnvio(tenantId: number, jid: string): number {
   return peekWhatsAppForTenant(tenantId)?.reservarTurnoDeEnvio(jid) ?? 0;
 }
 
+/** Como `reservarTurnoDeEnvio`, pero solo consulta: no aparta el turno. */
+export function turnoDeEnvioLibreEn(tenantId: number, jid: string): number {
+  if (transporteEnUso(tenantId) === "cloud") return 0;
+  return peekWhatsAppForTenant(tenantId)?.turnoDeEnvioLibreEn(jid) ?? 0;
+}
+
 /** Envía las partes del agente por el transporte correcto del tenant. */
 export async function enviarPartsAlCliente(
   tenantId: number,
