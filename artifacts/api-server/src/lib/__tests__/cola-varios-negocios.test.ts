@@ -97,7 +97,7 @@ describe("varias conversaciones en paralelo, pero de a una por conversación", (
     expect(q.dequeue((m) => !enCurso.has(m.conversationId!))?.id).toBe(otra.id);
   });
 
-  it("con 3 clientes esperando, se atienden los 3 a la vez", async () => {
+  it("respeta el máximo simultáneo del plan aunque haya más clientes esperando", async () => {
     const { o, q } = orquestador();
     let simultaneos = 0;
     let maximo = 0;
@@ -116,7 +116,7 @@ describe("varias conversaciones en paralelo, pero de a una por conversación", (
     o.processing = false;
     clearTimeout(o.intervalId);
     await new Promise((r) => setTimeout(r, 200));
-    expect(maximo).toBe(3);
+    expect(maximo).toBe(2);
   });
 });
 

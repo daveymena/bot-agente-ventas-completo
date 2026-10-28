@@ -88,8 +88,9 @@ export function validateFeatureLimits(feature: "products" | "agents" | "conversa
  * WhatsApp (agent-orchestrator.ts), que no tiene req/res -- ahí es donde
  * pasa la mayoría del tráfico real, no solo en el dashboard.
  */
-export async function checkMessageLimit(tenantId: number, plan: string): Promise<{ allowed: boolean; current: number; limit: number; planName: string }> {
-  const planDetails = SAAS_PLANS[plan as SaasPlan] || SAAS_PLANS.basic;
+export async function checkMessageLimit(tenantId: number, plan: string, timezone?: string): Promise<{ allowed: boolean; current: number; limit: number; currentDaily: number; dailyLimit: number; planName: string; reason?: "daily" | "monthly" }> {
+  const canonicalPlan = plan.toLowerCase() === "pro" ? "professional" : plan.toLowerCase();
+  const planDetails = SAAS_PLANS[canonicalPlan as SaasPlan] || SAAS_PLANS.basic;
   const monthlyLimit = planDetails.monthlyMessages;
 
   // ── El consumo sale de la BASE, no de la memoria ────────────────────────
@@ -101,12 +102,33 @@ export async function checkMessageLimit(tenantId: number, plan: string): Promise
   // Se toma el MAYOR de los dos: si por lo que sea la fila del mes todavia no
   // refleja los envios recientes, el contador en memoria de esta instancia si.
   // Quedarse con el mas alto es lo prudente cuando lo que se protege es plata.
-  const { mensajesDelMes } = await import("../lib/consumo-del-plan");
-  const enBase = await mensajesDelMes(tenantId);
+  const { usoWhatsappDelPeriodo, limiteDiarioDelPlan } = await import("../lib/consumo-del-plan");
+  const uso = await usoWhatsappDelPeriodo(tenantId, new Date(), timezone);
   const enMemoria = (getUsageAnalytics(String(tenantId)) as { whatsappMessages: number } | null)?.whatsappMessages ?? 0;
-  const current = Math.max(enBase, enMemoria);
+  const current = Math.max(uso.mensual, enMemoria);
+  const dailyLimit = limiteDiarioDelPlan(monthlyLimit);
+  const currentDaily = uso.diario;
+  const allowed = current < monthlyLimit && currentDaily < dailyLimit;
 
-  return { allowed: current < monthlyLimit, current, limit: monthlyLimit, planName: planDetails.name };
+  return {
+    allowed,
+    current,
+    limit: monthlyLimit,
+    currentDaily,
+    dailyLimit,
+    planName: planDetails.name,
+    ...(allowed ? {} : { reason: currentDaily >= dailyLimit ? "daily" as const : "monthly" as const }),
+  };
+}
+
+export async function reserveAiResponse(tenantId: number, plan: string, timezone?: string): Promise<{
+  allowed: boolean; current: number; limit: number; planName: string;
+}> {
+  const canonicalPlan = plan.toLowerCase() === "pro" ? "professional" : plan.toLowerCase();
+  const planDetails = SAAS_PLANS[canonicalPlan as SaasPlan] || SAAS_PLANS.basic;
+  const { reservarRespuestaIA } = await import("../lib/consumo-del-plan");
+  const result = await reservarRespuestaIA(tenantId, planDetails.monthlyAiResponses, new Date(), timezone);
+  return { ...result, planName: planDetails.name };
 }
 
 /**
@@ -128,24 +150,40 @@ export function validateMessageLimit() {
         return next();
       }
 
-      const result = await checkMessageLimit(tenant.id, saas.plan);
-      (req as any).messageLimit = { limit: result.limit, current: result.current, remaining: Math.max(0, result.limit - result.current) };
+      const result = await checkMessageLimit(tenant.id, saas.plan, tenant.settings?.timezone);
+      (req as any).messageLimit = {
+        limit: result.limit,
+        current: result.current,
+        remaining: Math.max(0, result.limit - result.current),
+        dailyLimit: result.dailyLimit,
+        currentDaily: result.currentDaily,
+        remainingToday: Math.max(0, result.dailyLimit - result.currentDaily),
+      };
 
       if (!result.allowed) {
         logger.warn({ tenantId: tenant.id, current: result.current, limit: result.limit, plan: saas.plan }, "[MessageLimit] Monthly message limit reached");
         return res.status(403).json({
           error: "Message limit reached",
-          message: `Alcanzaste el límite de ${result.limit.toLocaleString()} mensajes mensuales de tu plan ${result.planName}. Actualiza tu plan para seguir enviando mensajes.`,
-          action: "upgrade_plan",
+          message: result.reason === "daily"
+            ? `Alcanzaste el límite diario de ${result.dailyLimit.toLocaleString()} mensajes de WhatsApp de tu plan ${result.planName}. Podrás volver a enviar mañana; tu cupo mensual sigue disponible.`
+            : `Alcanzaste el límite mensual de ${result.limit.toLocaleString()} mensajes de WhatsApp de tu plan ${result.planName}. Actualiza tu plan para seguir enviando mensajes.`,
+          action: result.reason === "daily" ? "retry_tomorrow" : "upgrade_plan",
           limit: result.limit,
           current: result.current,
+          dailyLimit: result.dailyLimit,
+          currentDaily: result.currentDaily,
+          reason: result.reason,
         });
       }
 
       next();
     } catch (error) {
       logger.error({ error }, "Error validating message limit");
-      next();
+      return res.status(503).json({
+        error: "Usage limit unavailable",
+        message: "No pudimos verificar tu consumo. Inténtalo de nuevo en unos minutos.",
+        retryable: true,
+      });
     }
   };
 }

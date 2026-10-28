@@ -43,6 +43,11 @@ export const consumoMensual = pgTable(
     periodo: text("periodo").notNull(),
     /** Mensajes que el negocio ENVIÓ. Es lo que cuesta plata. */
     mensajes: integer("mensajes").notNull().default(0),
+    respuestasIa: integer("respuestas_ia").notNull().default(0),
+    /** Contadores del día UTC actual, reiniciados por cambio de fecha al sumar. */
+    dia: text("dia").notNull().default(""),
+    mensajesDia: integer("mensajes_dia").notNull().default(0),
+    respuestasIaDia: integer("respuestas_ia_dia").notNull().default(0),
     actualizadoAt: timestamp("actualizado_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => ({

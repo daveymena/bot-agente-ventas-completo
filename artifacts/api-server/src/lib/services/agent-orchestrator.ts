@@ -16,6 +16,7 @@ import { type AgentReplyPart } from '../whatsapp-singleton';
 import { transporteConectado, enviarPartsAlCliente } from '../transporte-whatsapp';
 import { tenantManager } from '../tenantManager';
 import { checkMessageLimit } from '../../middleware/featureLimits';
+import { SAAS_PLANS } from '../../middleware/saasValidation';
 import { db } from "@workspace/db";
 import { conversations, messages } from "@workspace/db";
 import { eq, and, gt, desc, inArray } from "drizzle-orm";
@@ -47,8 +48,15 @@ export class AgentOrchestrator {
    * esperaba la suma de todos. Dentro de una misma conversación sigue siendo
    * de a uno (ver `enCurso`).
    */
-  private readonly maxEnParalelo = Math.min(128, Math.max(1, Math.floor(Number(process.env.AGENT_CONCURRENCIA) || 4)));
+  private readonly maxEnParalelo = Math.min(
+    128,
+    Math.max(1, Math.min(
+      Math.floor(Number(process.env.AGENT_CONCURRENCIA) || 4),
+      Math.floor(Number(process.env.AGENT_GLOBAL_CONCURRENCIA) || Number(process.env.AGENT_CONCURRENCIA) || 4),
+    )),
+  );
   private activos = 0;
+  private activosPorTenant = new Map<number, number>();
   private claimHeartbeats = new Map<string, NodeJS.Timeout>();
   /** Conversaciones que se están atendiendo ahora mismo. */
   private enCurso = new Set<string>();
@@ -225,8 +233,29 @@ export class AgentOrchestrator {
         this.queue.posponer(message.id, 5_000);
         continue;
       }
+      const tenantId = Number(message.tenantId);
+      let planTenant;
+      try {
+        planTenant = await tenantManager.getTenantById(tenantId);
+      } catch (error) {
+        this.queue.posponer(message.id, 5_000);
+        logger.error({ error, tenantId }, "[AgentOrchestrator] No se pudo cargar el plan para aplicar capacidad");
+        break;
+      }
+      const rawPlanKey = String(planTenant?.plan || "basic").toLowerCase();
+      const planKey = rawPlanKey === "pro" ? "professional" : rawPlanKey;
+      const planDetails = SAAS_PLANS[planKey] || SAAS_PLANS.basic;
+      const limiteTenant = Math.min(
+        Math.min(16, Math.max(1, Math.floor(Number(process.env.AGENT_MAX_EN_PARALELO_TENANT) || 4))),
+        planDetails.maxConcurrentAi,
+      );
+      if ((this.activosPorTenant.get(tenantId) || 0) >= limiteTenant) {
+        this.queue.posponer(message.id, 1_000);
+        continue;
+      }
       const clave = AgentOrchestrator.claveDe(message);
       this.activos++;
+      this.activosPorTenant.set(tenantId, (this.activosPorTenant.get(tenantId) || 0) + 1);
       this.enCurso.add(clave);
       const leaseHeartbeat = process.env.VENTASPRO_PROCESS_ROLE === "worker"
         ? setInterval(() => {
@@ -246,6 +275,9 @@ export class AgentOrchestrator {
           if (leaseHeartbeat) clearInterval(leaseHeartbeat);
           this.claimHeartbeats.delete(message.id);
           this.activos--;
+          const restantesTenant = (this.activosPorTenant.get(tenantId) || 1) - 1;
+          if (restantesTenant > 0) this.activosPorTenant.set(tenantId, restantesTenant);
+          else this.activosPorTenant.delete(tenantId);
           this.enCurso.delete(clave);
         });
     }
@@ -300,9 +332,17 @@ export class AgentOrchestrator {
     // reintenta en bucle) y se loguea -- el cliente no recibe respuesta
     // hasta que el dueño actualice su plan.
     const tenantForLimit = await tenantManager.getTenantById(tenantIdNum);
-    const limitCheck = await checkMessageLimit(tenantIdNum, tenantForLimit?.plan || "basic");
+    const planWhatsapp = tenantForLimit?.isAdmin ? "enterprise" : tenantForLimit?.plan || "basic";
+      let limitCheck: Awaited<ReturnType<typeof checkMessageLimit>>;
+    try {
+      limitCheck = await checkMessageLimit(tenantIdNum, planWhatsapp, tenantForLimit?.settings?.timezone);
+    } catch (error) {
+      logger.error({ error, tenantId: tenantIdNum, queueId: message.id }, "[AgentOrchestrator] No se pudo verificar el consumo de WhatsApp");
+      this.queue.posponer(message.id, 30_000);
+      return;
+    }
     if (!limitCheck.allowed) {
-      logger.warn({ tenantId: tenantIdNum, current: limitCheck.current, limit: limitCheck.limit }, '[AgentOrchestrator] Monthly message limit reached, dropping message');
+      logger.warn({ tenantId: tenantIdNum, current: limitCheck.current, limit: limitCheck.limit, currentDaily: limitCheck.currentDaily, dailyLimit: limitCheck.dailyLimit, reason: limitCheck.reason }, '[AgentOrchestrator] WhatsApp usage limit reached, dropping message');
       this.queue.markProcessed(message.id);
       return;
     }
@@ -436,6 +476,12 @@ export class AgentOrchestrator {
 
     } catch (error) {
       const detalle = error instanceof Error ? error.message : String(error);
+
+      if (detalle.startsWith("USAGE_QUOTA_RETRYABLE:")) {
+        this.queue.posponer(message.id, 30_000);
+        logger.warn({ tenantId: tenantIdNum, queueId: message.id }, "[AgentOrchestrator] Cuota temporalmente no disponible; el mensaje queda en cola");
+        return;
+      }
 
       // Caídas o saturación del gateway no gastan los tres reintentos del
       // mensaje: se conserva la respuesta ya redactada y se vuelve a intentar.

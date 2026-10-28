@@ -96,6 +96,11 @@ export class PostgresQueueStore implements QueueStore {
   }
 
   async claimNext(workerId: string, leaseMs: number): Promise<QueuedMessage | null> {
+    // Serializa la selección breve, para que los workers no reclamen al mismo
+    // tiempo varios jobs al ver el mismo cupo libre global o por negocio.
+    const lock = await this.client.query('SELECT pg_try_advisory_lock(19870623, 4) AS acquired');
+    if (!lock.rows[0]?.acquired) return null;
+    try {
     const { rows } = await this.client.query(`
       WITH candidato AS (
         SELECT q.id
@@ -106,7 +111,18 @@ export class PostgresQueueStore implements QueueStore {
           AND COALESCE((q.payload->>'noAntesDe')::bigint, 0) <= (extract(epoch from now()) * 1000)::bigint
           AND (SELECT count(*) FROM whatsapp_message_outbox activo
             WHERE activo.tenant_id = q.tenant_id AND NOT activo.finished
-              AND activo.claimed_until > now()) < $3::int
+              AND activo.claimed_until > now()) < LEAST($3::int, COALESCE((
+                SELECT CASE WHEN t.is_admin THEN 4 ELSE CASE lower(t.plan)
+                  WHEN 'premium' THEN 2
+                  WHEN 'professional' THEN 2
+                  WHEN 'pro' THEN 2
+                  WHEN 'enterprise' THEN 4
+                  ELSE 1
+                END END
+                FROM tenants t WHERE t.id::text = q.tenant_id
+              ), 1))
+          AND (SELECT count(*) FROM whatsapp_message_outbox activo_global
+            WHERE NOT activo_global.finished AND activo_global.claimed_until > now()) < $4::int
           AND NOT EXISTS (
             SELECT 1 FROM whatsapp_message_outbox ocupado
             WHERE ocupado.tenant_id = q.tenant_id
@@ -129,10 +145,14 @@ export class PostgresQueueStore implements QueueStore {
       RETURNING q.payload, q.claim_version`, [
         workerId,
         leaseMs,
-        Math.min(16, Math.max(1, Math.floor(Number(process.env.AGENT_MAX_EN_PARALELO_TENANT) || 2))),
+        Math.min(16, Math.max(1, Math.floor(Number(process.env.AGENT_MAX_EN_PARALELO_TENANT) || 4))),
+        Math.min(128, Math.max(1, Math.floor(Number(process.env.AGENT_GLOBAL_CONCURRENCIA) || Number(process.env.AGENT_CONCURRENCIA) || 4))),
       ]);
     if (!rows[0]) return null;
     return { ...rows[0].payload, claimVersion: Number(rows[0].claim_version) };
+    } finally {
+      await this.client.query('SELECT pg_advisory_unlock(19870623, 4)').catch(() => {});
+    }
   }
 
   async renewClaim(messageId: string, workerId: string, claimVersion: number, leaseMs: number): Promise<boolean> {

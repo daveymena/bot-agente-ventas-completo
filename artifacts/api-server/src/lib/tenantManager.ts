@@ -515,6 +515,11 @@ export class TenantManager {
     conversations: { current: number; limit: number; exceeded: boolean };
     products: { current: number; limit: number; exceeded: boolean };
     monthlyMessages: { current: number; limit: number; exceeded: boolean };
+    monthlyWhatsappMessages: { current: number; limit: number; exceeded: boolean };
+    dailyWhatsappMessages: { current: number; limit: number; exceeded: boolean };
+    monthlyAiResponses: { current: number; limit: number; exceeded: boolean };
+    dailyAiResponses: { current: number; limit: number; exceeded: boolean };
+    aiCapacity: { serverConcurrent: number; perTenantConcurrent: number; maxWhatsappNumbers: number };
   }> {
     try {
       const tenant = await db
@@ -540,9 +545,32 @@ export class TenantManager {
         .from(products)
         .where(eq(products.tenantId, tenantId));
 
-      // For monthly messages, we'd need to implement message counting
-      // For now, we'll use a placeholder
-      const monthlyMessages = 0;
+      const [{ usoWhatsappDelPeriodo, respuestasIADelMes, respuestasIADelDia, limiteDiarioDelPlan }, { SAAS_PLANS }] = await Promise.all([
+        import("./consumo-del-plan"),
+        import("../middleware/saasValidation"),
+      ]);
+      const rawPlan = String(tenant[0].plan || "basic").toLowerCase();
+      const plan = tenant[0].isAdmin ? SAAS_PLANS.enterprise : SAAS_PLANS[rawPlan === "pro" ? "professional" : rawPlan] || SAAS_PLANS.basic;
+      const zonaHoraria = (tenant[0].settings as any)?.timezone || "America/Bogota";
+      const [whatsappUsage, monthlyAiResponses, dailyAiResponses] = await Promise.all([
+        usoWhatsappDelPeriodo(tenantId, new Date(), zonaHoraria),
+        respuestasIADelMes(tenantId),
+        respuestasIADelDia(tenantId, new Date(), zonaHoraria),
+      ]);
+      const monthlyMessages = whatsappUsage.mensual;
+      const serverConcurrent = Math.min(
+        128,
+        Math.max(1, Math.min(
+          Math.floor(Number(process.env.AGENT_CONCURRENCIA) || 4),
+          Math.floor(Number(process.env.AGENT_GLOBAL_CONCURRENCIA) || Number(process.env.AGENT_CONCURRENCIA) || 4),
+        )),
+      );
+      const tenantConfiguredConcurrent = Math.min(16, Math.max(1, Math.floor(Number(process.env.AGENT_MAX_EN_PARALELO_TENANT) || 4)));
+      const perTenantConcurrent = Math.min(serverConcurrent, tenantConfiguredConcurrent, plan.maxConcurrentAi);
+      const monthlyWhatsappLimit = plan.monthlyMessages;
+      const monthlyAiLimit = plan.monthlyAiResponses;
+      const dailyWhatsappLimit = limiteDiarioDelPlan(monthlyWhatsappLimit);
+      const dailyAiLimit = limiteDiarioDelPlan(monthlyAiLimit);
 
       return {
         conversations: {
@@ -557,8 +585,33 @@ export class TenantManager {
         },
         monthlyMessages: {
           current: monthlyMessages,
-          limit: limits.maxMonthlyMessages,
-          exceeded: monthlyMessages >= limits.maxMonthlyMessages
+          limit: monthlyWhatsappLimit,
+          exceeded: monthlyMessages >= monthlyWhatsappLimit
+        },
+        monthlyWhatsappMessages: {
+          current: monthlyMessages,
+          limit: monthlyWhatsappLimit,
+          exceeded: monthlyMessages >= monthlyWhatsappLimit
+        },
+        dailyWhatsappMessages: {
+          current: whatsappUsage.diario,
+          limit: dailyWhatsappLimit,
+          exceeded: whatsappUsage.diario >= dailyWhatsappLimit
+        },
+        monthlyAiResponses: {
+          current: monthlyAiResponses,
+          limit: monthlyAiLimit,
+          exceeded: monthlyAiResponses >= monthlyAiLimit
+        },
+        dailyAiResponses: {
+          current: dailyAiResponses,
+          limit: dailyAiLimit,
+          exceeded: dailyAiResponses >= dailyAiLimit
+        },
+        aiCapacity: {
+          serverConcurrent,
+          perTenantConcurrent,
+          maxWhatsappNumbers: plan.maxWhatsappNumbers,
         }
       };
 

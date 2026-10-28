@@ -28,6 +28,9 @@ interface Plan {
   quarterlyPrice?: number;
   annualPrice?: number;
   monthlyMessages: number;
+  monthlyAiResponses?: number;
+  maxConcurrentAi?: number;
+  maxWhatsappNumbers?: number;
   maxConversations: number;
   maxProducts: number;
   maxAgents: number;
@@ -318,8 +321,20 @@ export default function PricingPage() {
                     <div className="space-y-3">
                       <div className="flex items-center gap-3">
                         <div className="p-1.5 bg-primary/10 rounded-lg text-primary shrink-0"><Zap className="h-4 w-4" /></div>
-                        <span className="text-sm font-semibold">{plan.monthlyMessages.toLocaleString()} mensajes/mes</span>
+                        <span className="text-sm font-semibold">{plan.monthlyMessages.toLocaleString()} mensajes de WhatsApp/mes</span>
                       </div>
+                      <div className="flex items-center gap-3">
+                        <div className="p-1.5 bg-primary/10 rounded-lg text-primary shrink-0"><Zap className="h-4 w-4" /></div>
+                        <span className="text-sm font-semibold">{(plan.monthlyAiResponses ?? plan.monthlyMessages).toLocaleString()} respuestas de IA/mes</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="p-1.5 bg-primary/10 rounded-lg text-primary shrink-0"><Check className="h-4 w-4" /></div>
+                        <span className="text-sm font-semibold">Hasta {Math.ceil(plan.monthlyMessages / 30)} mensajes WhatsApp y {Math.ceil((plan.monthlyAiResponses ?? plan.monthlyMessages) / 30)} respuestas IA por día</span>
+                      </div>
+                      {plan.maxConcurrentAi != null && <div className="flex items-center gap-3">
+                        <div className="p-1.5 bg-primary/10 rounded-lg text-primary shrink-0"><Check className="h-4 w-4" /></div>
+                        <span className="text-sm font-semibold">{plan.maxConcurrentAi} respuestas de IA simultáneas{plan.maxWhatsappNumbers ? ` · ${plan.maxWhatsappNumbers} número WhatsApp` : ""}</span>
+                      </div>}
                       <div className="flex items-center gap-3">
                         <div className="p-1.5 bg-primary/10 rounded-lg text-primary shrink-0"><Check className="h-4 w-4" /></div>
                         <span className="text-sm font-semibold">{plan.maxConversations.toLocaleString()} conversaciones</span>

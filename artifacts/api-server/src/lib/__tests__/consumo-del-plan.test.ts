@@ -11,7 +11,7 @@
  * USD 66. La perdida aparece en la factura del mes siguiente, no al vender.
  */
 import { describe, expect, it } from "vitest";
-import { periodoDe } from "../consumo-del-plan";
+import { diaDe, limiteDiarioDelPlan, periodoDe } from "../consumo-del-plan";
 
 describe("el periodo es el mes calendario", () => {
   it("da AAAA-MM", () => {
@@ -39,6 +39,24 @@ describe("el periodo es el mes calendario", () => {
     // corra el contenedor, y el limite se aplicaria distinto en cada despliegue.
     expect(periodoDe(new Date("2026-03-01T00:30:00Z"))).toBe("2026-03");
     expect(periodoDe(new Date("2026-02-28T23:30:00Z"))).toBe("2026-02");
+  });
+});
+
+describe("cuotas diarias por plan y horario del negocio", () => {
+  it("reparte el cupo mensual en 30 días sin acumular el restante", () => {
+    expect(limiteDiarioDelPlan(30)).toBe(1);
+    expect(limiteDiarioDelPlan(1500)).toBe(50);
+    expect(limiteDiarioDelPlan(4000)).toBe(134);
+    expect(limiteDiarioDelPlan(9000)).toBe(300);
+  });
+
+  it("cambia de día a medianoche de America/Bogota", () => {
+    expect(diaDe(new Date("2026-10-29T04:30:00Z"), "America/Bogota")).toBe("2026-10-28");
+    expect(diaDe(new Date("2026-10-29T05:30:00Z"), "America/Bogota")).toBe("2026-10-29");
+  });
+
+  it("usa America/Bogota si el tenant no tiene una zona válida", () => {
+    expect(diaDe(new Date("2026-10-29T05:30:00Z"), "zona-desconocida")).toBe("2026-10-29");
   });
 });
 
@@ -83,13 +101,11 @@ describe("se cuenta donde se envia", () => {
 
 describe("el limite se mide contra la base", () => {
   it("lee el consumo persistido", () => {
-    expect(LIMITES).toContain("mensajesDelMes");
+    expect(LIMITES).toContain("usoWhatsappDelPeriodo");
   });
 
   it("se queda con el MAYOR entre base y memoria", () => {
-    // Si la fila del mes todavia no refleja los envios recientes, el contador
-    // en memoria de esta instancia si. Con plata de por medio, gana el mas alto.
-    expect(LIMITES).toContain("Math.max(enBase, enMemoria)");
+    expect(LIMITES).toContain("Math.max(uso.mensual, enMemoria)");
   });
 
   it("ya no depende SOLO del Map del proceso", () => {
@@ -99,5 +115,10 @@ describe("el limite se mide contra la base", () => {
 
   it("sigue comparando contra el tope del plan", () => {
     expect(LIMITES).toContain("current < monthlyLimit");
+  });
+
+  it("aplica también el tope diario por negocio", () => {
+    expect(LIMITES).toContain("currentDaily < dailyLimit");
+    expect(LIMITES).toContain("reserveAiResponse");
   });
 });

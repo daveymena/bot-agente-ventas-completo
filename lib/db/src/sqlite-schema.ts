@@ -534,6 +534,10 @@ export const consumoMensual = sqliteTable("consumo_mensual", {
   tenantId: integer("tenant_id").references(() => tenants.id, { onDelete: "cascade" }).notNull(),
   periodo: text("periodo").notNull(),
   mensajes: integer("mensajes").notNull().default(0),
+  respuestasIa: integer("respuestas_ia").notNull().default(0),
+  dia: text("dia").notNull().default(""),
+  mensajesDia: integer("mensajes_dia").notNull().default(0),
+  respuestasIaDia: integer("respuestas_ia_dia").notNull().default(0),
   actualizadoAt: text("actualizado_at").notNull(),
 });
 

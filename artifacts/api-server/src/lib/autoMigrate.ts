@@ -315,8 +315,17 @@ const MIGRATIONS = [
     tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     periodo TEXT NOT NULL,
     mensajes INTEGER NOT NULL DEFAULT 0,
+    respuestas_ia INTEGER NOT NULL DEFAULT 0,
+    dia TEXT NOT NULL DEFAULT '',
+    mensajes_dia INTEGER NOT NULL DEFAULT 0,
+    respuestas_ia_dia INTEGER NOT NULL DEFAULT 0,
     actualizado_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
   )`,
+  `ALTER TABLE consumo_mensual
+    ADD COLUMN IF NOT EXISTS respuestas_ia INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS dia TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS mensajes_dia INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS respuestas_ia_dia INTEGER NOT NULL DEFAULT 0`,
   // Una sola fila por negocio y mes. Sin esto, dos envios simultaneos crean dos
   // filas y el conteo queda partido -- la forma silenciosa de que un limite
   // deje de aplicarse.

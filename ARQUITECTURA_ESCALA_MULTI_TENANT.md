@@ -17,7 +17,7 @@ Esto da aislamiento funcional en un runtime, pero **no equivale todavía a escal
 
 1. **Un solo gateway de Baileys.** El lock asesor de PostgreSQL impide que dos procesos sean dueños de las sesiones; un gateway único sigue siendo necesario hasta repartir explícitamente sesiones por tenant.
 2. **Outbox compartido con reclamo por fila.** Los workers usan `FOR UPDATE SKIP LOCKED`, lease renovable y token de versión para reclamar mensajes; además, solo un worker procesa una conversación a la vez. Producción exige PostgreSQL. El buffer local se carga por lotes acotados.
-3. **Concurrencia global, no por plan/tenant.** `AGENT_CONCURRENCIA` se aplica al proceso entero. No hay presupuestos de cola ni límites de equidad por negocio más allá del orden rotatorio de tenants.
+3. **Capacidad compartida.** La concurrencia total ahora se limita con `AGENT_GLOBAL_CONCURRENCIA`; cada negocio también tiene un máximo simultáneo según plan y `AGENT_MAX_EN_PARALELO_TENANT`.
 4. **Memoria proporcional a las sesiones.** Cada socket Baileys y su estado viven en el mismo proceso. El monitor evita ciertos sockets obsoletos, pero no hay asignación/rebalanceo entre nodos.
 5. **Índices insuficientes en rutas calientes.** Las búsquedas por negocio/teléfono, inbox por estado/última actividad e historial por conversación podían recorrer tablas crecientes. Se añadieron índices compuestos idempotentes para PostgreSQL y SQLite.
 6. **Arranque de mensajería.** El bootstrap configura explícitamente el tenant `1`; los mensajes de otros tenants pueden entrar por las instancias conectadas, pero la configuración operativa debería descubrir los tenants activos desde base de datos y aplicar límites consistentes.
@@ -45,10 +45,14 @@ Esto da aislamiento funcional en un runtime, pero **no equivale todavía a escal
 - El código ya admite `VENTASPRO_PROCESS_ROLE=combined` (predeterminado), `gateway` o `worker`: el gateway es dueño de los sockets y persiste entradas; los workers reclaman trabajos de PostgreSQL y envían respuestas por un endpoint interno autenticado.
 - El lock asesor permite varias réplicas `worker`; los reclamos usan leases y fencing tokens para que un worker atrasado no sobrescriba ni envíe si perdió su reclamo.
 - El gateway guarda recibos de entrega por ID para que una repetición HTTP después de un envío confirmado no vuelva a mandar el mismo contenido. Mantener el gateway en una sola réplica y montarle el volumen persistente de autenticación. Iniciarlo primero y esperar `/api/ready`; luego iniciar workers. `WHATSAPP_GATEWAY_URL` debe ser HTTPS en producción y `WHATSAPP_GATEWAY_TOKEN` debe ser el mismo secreto largo en ambos servicios.
-- El reclamo limita por defecto a 2 trabajos activos por tenant entre todos los workers (`AGENT_MAX_EN_PARALELO_TENANT`, máximo 16), para que una ráfaga de un negocio no ocupe todos los espacios.
+- El reclamo aplica el máximo de concurrencia del plan y `AGENT_MAX_EN_PARALELO_TENANT` (máximo 16), además del límite global `AGENT_GLOBAL_CONCURRENCIA` entre workers.
 - El servicio worker debe permanecer en la red interna, sin dominio público. El gateway sigue ejecutando los programadores; el worker solo procesa la cola de conversaciones.
 - Presupuestar conexiones: cada worker usa por defecto `DB_POOL_MAX=8` más su conexión de lock; fijar `DB_POOL_MAX` según el límite total de PostgreSQL y la cantidad de réplicas. El pool de conexión debe mantener sesiones (no transaction pooling), porque los locks asesores viven en una conexión.
 - El gateway envía respuestas por la sesión dueña; ningún worker puede enviar por un número ajeno.
+- Las cuotas mensuales de IA y WhatsApp se aplican por plan y negocio. Se guardan en PostgreSQL/SQLite y sobreviven reinicios. El contador diario permite `ceil(cupo mensual / 30)` y se renueva a medianoche en la zona horaria del negocio (America/Bogota por defecto); el cupo diario no usado no se acumula.
+- Cada turno de IA reserva su cupo mensual y diario atómicamente. Baileys registra los mensajes salientes en su cuota diaria/mensual. Messenger y comentarios gastan IA, pero no WhatsApp.
+- Concurrencia por plan: prueba/Starter 1 respuesta simultánea, Growth/Pro 2 y Enterprise 4, siempre limitada por el máximo global configurado. Baileys admite una sesión por negocio.
+- El total seguro de sesiones Baileys de la VPS depende de su RAM y del consumo observado por sesión. No se fija un cap global a ciegas porque podría dejar negocios existentes desconectados; hay que medir la VPS antes de definirlo.
 - Reintentos con dead-letter, métricas de edad/profundidad de cola y recuperación tras caída.
 - La topología de roles está implementada en código, pero no activada en EasyPanel: el despliegue sigue usando `combined` hasta configurar y verificar esas variables y servicios.
 
