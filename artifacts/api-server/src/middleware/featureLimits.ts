@@ -122,7 +122,13 @@ export async function checkMessageLimit(tenantId: number, plan: string, timezone
 }
 
 export async function reserveAiResponse(tenantId: number, plan: string, timezone?: string): Promise<{
-  allowed: boolean; current: number; limit: number; planName: string;
+  allowed: boolean;
+  current: number;
+  limit: number;
+  currentDaily: number;
+  dailyLimit: number;
+  planName: string;
+  reason?: "daily" | "monthly";
 }> {
   const canonicalPlan = plan.toLowerCase() === "pro" ? "professional" : plan.toLowerCase();
   const planDetails = SAAS_PLANS[canonicalPlan as SaasPlan] || SAAS_PLANS.basic;

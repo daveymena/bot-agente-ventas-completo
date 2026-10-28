@@ -30,7 +30,7 @@ router.get("/current", async (req: TenantRequest, res) => {
       });
     }
 
-    const usage = getUsageAnalytics(req.tenant.id.toString());
+    const usage = getUsageAnalytics(req.tenant.id.toString()) as UsageMetrics | null;
     const tenantLimits = await tenantManager.checkTenantLimits(req.tenant.id);
 
      // Calculate usage percentages
@@ -136,7 +136,7 @@ router.get("/summary", async (req: TenantRequest, res) => {
       });
     }
 
-    const usage = getUsageAnalytics(req.tenant.id.toString());
+    const usage = getUsageAnalytics(req.tenant.id.toString()) as UsageMetrics | null;
     const tenantLimits = await tenantManager.checkTenantLimits(req.tenant.id);
 
     // Generate alerts
@@ -187,14 +187,14 @@ router.get("/summary", async (req: TenantRequest, res) => {
       summary,
       alerts,
       recommendations,
-      usage: {
+      planUsage: {
         ai: tenantLimits.monthlyAiResponses,
         whatsapp: tenantLimits.monthlyWhatsappMessages,
         aiToday: tenantLimits.dailyAiResponses,
         whatsappToday: tenantLimits.dailyWhatsappMessages,
         capacity: tenantLimits.aiCapacity,
       },
-      usage,
+      usage: usage || null,
       limits: tenantLimits,
       costPercentage: Math.round(costPercentage * 100) / 100
     });
@@ -276,7 +276,7 @@ router.get("/optimization", async (req: TenantRequest, res) => {
       });
     }
 
-    const usage = getUsageAnalytics(req.tenant.id.toString());
+    const usage = getUsageAnalytics(req.tenant.id.toString()) as UsageMetrics | null;
 
     if (!usage) {
       return res.json({
