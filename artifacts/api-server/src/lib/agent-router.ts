@@ -137,7 +137,7 @@ async function scoreAgents(
       // El agente por defecto es el de la especialidad con MÁS productos:
       // es lo más probable que el cliente busque, y no exige configurar nada.
       if (!match?.product) {
-        const [convoActual] = await base.select({ agentId: conversations.agentId }).from(conversations).where(eq(conversations.id, conversationId)).limit(1);
+        const [convoActual] = await base.select({ agentId: conversations.agentId }).from(conversations).where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId))).limit(1);
         if (!convoActual?.agentId) {
           const fisicos = catalogo.filter((p: any) => String(p.kind || "digital") === "physical").length;
           const digitales = catalogo.length - fisicos;
@@ -193,7 +193,7 @@ async function scoreAgents(
   const [convo] = await db
     .select({ agentId: conversations.agentId })
     .from(conversations)
-    .where(eq(conversations.id, conversationId))
+    .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
     .limit(1);
 
   if (convo?.agentId) {
@@ -236,9 +236,10 @@ async function scoreAgents(
 
   // Obtener historial de la conversación para contexto
   const history = await db
-    .select()
+    .select({ id: messages.id, role: messages.role, content: messages.content, createdAt: messages.createdAt })
     .from(messages)
-    .where(eq(messages.conversationId, conversationId))
+    .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+    .where(and(eq(messages.conversationId, conversationId), eq(conversations.tenantId, tenantId)))
     .orderBy(messages.createdAt)
     .limit(10);
 
@@ -257,7 +258,7 @@ async function scoreAgents(
     }
 
     // 2. Bonus si el agente ya participó en esta conversación
-    const agentParticipated = history.some(msg => 
+    const agentParticipated = history.some((msg: { role: string; content: string }) =>
       msg.role === "agent" && msg.content.includes(agent.name)
     );
     if (agentParticipated) {
@@ -366,15 +367,15 @@ export async function selectBestAgent(
  * registra y se sigue -- el peor caso es que el próximo mensaje lo vuelva a
  * elegir, que es exactamente como funcionaba antes.
  */
-async function recordarQuienAtiende(conversationId: number, agentId: number): Promise<void> {
+async function recordarQuienAtiende(conversationId: number, tenantId: number, agentId: number): Promise<void> {
   try {
     const [actual] = await db
       .select({ agentId: conversations.agentId })
       .from(conversations)
-      .where(eq(conversations.id, conversationId))
+      .where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)))
       .limit(1);
     if (actual?.agentId === agentId) return;
-    await db.update(conversations).set({ agentId }).where(eq(conversations.id, conversationId));
+    await db.update(conversations).set({ agentId }).where(and(eq(conversations.id, conversationId), eq(conversations.tenantId, tenantId)));
     logger.info({ conversationId, agentId }, "[AgentRouter] Conversación asignada");
   } catch (e: any) {
     logger.warn({ conversationId, agentId, err: e?.message }, "[AgentRouter] No se pudo asentar el agente de la conversación");
@@ -412,7 +413,7 @@ export async function getActiveAgent(
       .limit(1);
 
     if (sirve(agent)) {
-      await recordarQuienAtiende(conversationId, agent.id);
+      await recordarQuienAtiende(conversationId, tenantId, agent.id);
       return agent;
     }
     logger.warn({ tenantId, agentId: selected.agentId }, "[AgentRouter] El agente elegido no sirve (sin nombre o de otro negocio) — se busca otro");
@@ -428,7 +429,7 @@ export async function getActiveAgent(
     ));
 
   const usable = activos.find(sirve);
-  if (usable) await recordarQuienAtiende(conversationId, usable.id);
+  if (usable) await recordarQuienAtiende(conversationId, tenantId, usable.id);
   if (!usable && activos.length) {
     logger.error({ tenantId, cuantos: activos.length }, "[AgentRouter] Hay agentes activos pero NINGUNO tiene nombre");
   }

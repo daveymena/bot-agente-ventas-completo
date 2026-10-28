@@ -138,6 +138,15 @@ function transferenciasDe(pm: any, esDuenoDelServidor: boolean): { enabled: bool
 export function credencialesDe(tenant: TenantContext | null | undefined): CredencialesDePago {
   const pm: any = tenant?.paymentMethods || {};
 
+  // Si no hay tenant resuelto, no asumir que es el propietario: un llamado
+  // sin contexto nunca debe poder cobrar usando las credenciales globales.
+  const esDuenoDelServidor = !!tenant && tenant.id === tenantManager.getDefaultTenant().id;
+  const env = (valor: string | undefined) => (esDuenoDelServidor ? valor || "" : "");
+
+  // Si el negocio guardó una credencial explícitamente, se conserva aunque
+  // coincida con la del entorno (puede usar legítimamente esa misma cuenta).
+  // El .env solo se consulta para el tenant dueño; nunca se copia como valor
+  // inicial a los demás negocios.
   const mpToken = leerSecreto(pm.mercadopago?.accessToken);
   const ppId = typeof pm.paypal?.clientId === "string" ? pm.paypal.clientId : "";
   const ppSecret = leerSecreto(pm.paypal?.clientSecret);
@@ -155,9 +164,8 @@ export function credencialesDe(tenant: TenantContext | null | undefined): Creden
   // Para cualquier otro negocio, vacío es vacío: el checkout responde
   // "MercadoPago no configurado" y el dueño va a cargar el suyo, en vez de
   // que la plata entre en la cuenta equivocada sin que nadie se entere.
-  const esDuenoDelServidor = !tenant || tenant.id === tenantManager.getDefaultTenant().id;
-  const env = (valor: string | undefined) => (esDuenoDelServidor ? valor || "" : "");
-
+  // Si no hay tenant resuelto, no asumir que es el propietario: un llamado
+  // sin contexto nunca debe poder cobrar usando las credenciales globales.
   return {
     mercadopago: {
       accessToken: mpToken || env(process.env.MERCADO_PAGO_ACCESS_TOKEN),

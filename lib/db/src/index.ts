@@ -282,10 +282,11 @@ async function initDb() {
       return;
     }
 
+    const poolDefaultMax = process.env.VENTASPRO_PROCESS_ROLE === "worker" ? 8 : 20;
     pool = new Pool({
       connectionString: dbUrl,
       ssl: dbUrl.includes("sslmode=disable") ? false : { rejectUnauthorized: false },
-      max: Math.min(100, Math.max(2, Math.floor(Number(process.env.DB_POOL_MAX) || 20))), min: 0, idleTimeoutMillis: 30000,
+      max: Math.min(100, Math.max(2, Math.floor(Number(process.env.DB_POOL_MAX) || poolDefaultMax))), min: 0, idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000, statement_timeout: 10000, query_timeout: 10000,
     });
     db = drizzle(pool, { schema: pgSchema });
@@ -442,6 +443,18 @@ async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: (
   ];
   for (const sql of columnMigrations) {
     try { sqliteDb.run(sql); } catch { /* columna ya existe */ }
+  }
+
+  // Índices compuestos usados por las consultas más frecuentes del inbox,
+  // recuperación del bot y lectura del historial por conversación.
+  const hotPathIndexes = [
+    `CREATE INDEX IF NOT EXISTS conversations_tenant_phone_idx ON conversations(tenant_id, contact_phone)`,
+    `CREATE INDEX IF NOT EXISTS conversations_tenant_status_last_message_idx ON conversations(tenant_id, status, last_message_at)`,
+    `CREATE INDEX IF NOT EXISTS messages_conversation_created_idx ON messages(conversation_id, created_at, id)`,
+    `CREATE INDEX IF NOT EXISTS messages_conversation_role_created_idx ON messages(conversation_id, role, created_at)`,
+  ];
+  for (const sql of hotPathIndexes) {
+    try { sqliteDb.run(sql); } catch (err) { console.error("Error creating hot-path index:", err); }
   }
 
   saveDb();

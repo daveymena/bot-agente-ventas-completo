@@ -2,6 +2,12 @@ import { pool } from "@workspace/db";
 import { logger } from "./logger";
 
 const MIGRATIONS = [
+  // Indices para que la latencia del inbox y la carga de historial no crezcan
+  // linealmente con todos los negocios de la plataforma.
+  `CREATE INDEX IF NOT EXISTS conversations_tenant_phone_idx ON conversations(tenant_id, contact_phone)`,
+  `CREATE INDEX IF NOT EXISTS conversations_tenant_status_last_message_idx ON conversations(tenant_id, status, last_message_at)`,
+  `CREATE INDEX IF NOT EXISTS messages_conversation_created_idx ON messages(conversation_id, created_at, id)`,
+  `CREATE INDEX IF NOT EXISTS messages_conversation_role_created_idx ON messages(conversation_id, role, created_at)`,
   // El feed de actividad se compartia entre TODOS los negocios: el aviso de
   // uno le aparecia a los demas. Nullable porque las filas viejas no tienen
   // dueno conocido y no se puede adivinar.

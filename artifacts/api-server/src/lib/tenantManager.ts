@@ -11,6 +11,7 @@ export interface TenantContext {
   slug: string;
   name: string;
   email: string;
+  contactPhone?: string | null;
   // Dueño de la plataforma: ve y administra TODOS los tenants, no solo el
   // propio. Antes esto se chequeaba comparando req.tenant.email (un campo
   // que TenantContext nunca poblaba) contra un email hardcodeado -- esa
@@ -116,6 +117,7 @@ const DEFAULT_TENANT: TenantContext = {
   // AdStrategist cuando no hay tenant resuelto) -- nunca debe ser admin.
   isAdmin: false,
   brandName: "TecnoVariedades",
+  plan: "basic",
   agentPersonality: "professional",
   agentPrompt: null,
   agentName: "Asistente Virtual",
@@ -131,32 +133,14 @@ const DEFAULT_TENANT: TenantContext = {
       days: [1, 2, 3, 4, 5] // Monday to Friday
     }
   },
+  // No rellenar los medios de pago del negocio con las credenciales del
+  // servidor: un tenant nuevo terminaría cobrando en la cuenta del dueño.
+  // credencialesDe() conserva el fallback de .env exclusivamente para el
+  // tenant propietario de la plataforma.
   paymentMethods: {
-    mercadopago: {
-      accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN || "",
-      enabled: !!process.env.MERCADO_PAGO_ACCESS_TOKEN
-    },
-    paypal: {
-      clientId: process.env.PAYPAL_CLIENT_ID || "",
-      clientSecret: process.env.PAYPAL_CLIENT_SECRET || "",
-      mode: (process.env.PAYPAL_MODE as "sandbox" | "live") || "live",
-      enabled: !!process.env.PAYPAL_CLIENT_ID
-    },
-    transfer: {
-      enabled: true,
-      accounts: [
-        {
-          type: "Nequi",
-          number: process.env.TRANSFER_NUMBER || "",
-          name: process.env.TRANSFER_NAME || ""
-        },
-        {
-          type: "Daviplata", 
-          number: process.env.TRANSFER_NUMBER || "",
-          name: process.env.TRANSFER_NAME || ""
-        }
-      ]
-    }
+    mercadopago: { accessToken: "", enabled: false },
+    paypal: { clientId: "", clientSecret: "", mode: "live", enabled: false },
+    transfer: { enabled: false, accounts: [] },
   },
   emailCredentials: {
     host: process.env.SMTP_HOST || "smtp.gmail.com",
@@ -710,7 +694,7 @@ export function resolveTenant() {
         path: req.path 
       }, "[TenantManager] Tenant resolved for request");
 
-      next();
+      return next();
 
     } catch (error) {
       logger.error({ error }, "[TenantManager] Failed to resolve tenant");
@@ -731,7 +715,7 @@ export function requireAdmin() {
     if (!req.tenant?.isAdmin) {
       return res.status(403).json({ message: "Acceso solo para administrador de la plataforma" });
     }
-    next();
+    return next();
   };
 }
 
@@ -750,5 +734,4 @@ export function addTenantToInsert<T extends Record<string, any>>(
   return { ...data, tenantId };
 }
 
-// Export types
-export type { TenantRequest };
+// TenantRequest is exported with its declaration above.

@@ -208,6 +208,7 @@ const healthHandler = async (req: any, res: any) => {
     // devuelve 503.
     res.status(200).json({
       status: problemas.length === 0 ? "ok" : "degradado",
+      role: process.env.VENTASPRO_PROCESS_ROLE || "combined",
       credenciales: {
         claveFija,
         // ⚠️ NUNCA la clave, solo si existe.
@@ -249,10 +250,14 @@ router.get("/healthz", healthHandler);
  */
 router.get("/ready", async (req, res) => {
   try {
-    const { pool } = require("@workspace/db");
+    const { pool, db } = require("@workspace/db");
     let dbOk = false;
     if (pool && typeof pool.query === "function") {
       await pool.query("SELECT 1");
+      dbOk = true;
+    } else if (db && typeof db.get === "function") {
+      const { sql } = require("drizzle-orm");
+      await db.get(sql`select 1`);
       dbOk = true;
     }
 
@@ -264,8 +269,45 @@ router.get("/ready", async (req, res) => {
       });
     }
 
+    // En PostgreSQL las migraciones deben haber terminado antes de declarar
+    // lista la instancia. Esto evita enviar tráfico a una app cuyo código ya
+    // usa columnas/tablas que todavía no existen en la base.
+    if (pool) {
+      const { ultimasMigraciones, tablasFaltantes } = await import("./lib/autoMigrate");
+      const role = process.env.VENTASPRO_PROCESS_ROLE || "combined";
+      if (role !== "worker" && !ultimasMigraciones.cuando) {
+        return res.status(503).json({ status: "not_ready", reason: "migrations_pending" });
+      }
+      if (role !== "worker" && ultimasMigraciones.fallos.length) {
+        return res.status(503).json({
+          status: "not_ready",
+          reason: "migrations_failed",
+          failedMigrations: ultimasMigraciones.fallos.length,
+        });
+      }
+      const faltan = await tablasFaltantes();
+      if (faltan === null || faltan.length) {
+        return res.status(503).json({
+          status: "not_ready",
+          reason: faltan === null ? "schema_check_failed" : "missing_tables",
+          ...(faltan?.length ? { missingTables: faltan } : {}),
+        });
+      }
+    }
+
+    // En producción el receptor de WhatsApp solo debe aceptar tráfico si la
+    // cola está conectada a PostgreSQL y sus escrituras persistentes funcionan.
+    if (process.env.NODE_ENV === "production") {
+      const { getMessageQueue } = await import("./lib/message-queue");
+      const cola = getMessageQueue().getStats();
+      if (cola.persistence !== "postgres" || !cola.persistenceHealthy) {
+        return res.status(503).json({ status: "not_ready", reason: "whatsapp_queue" });
+      }
+    }
+
     return res.status(200).json({
       status: "ready",
+      role: process.env.VENTASPRO_PROCESS_ROLE || "combined",
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

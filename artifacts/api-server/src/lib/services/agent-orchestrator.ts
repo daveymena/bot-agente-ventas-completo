@@ -20,6 +20,7 @@ import { db } from "@workspace/db";
 import { conversations, messages } from "@workspace/db";
 import { eq, and, gt, desc, inArray } from "drizzle-orm";
 import { logger } from '../logger';
+import { randomUUID } from 'node:crypto';
 
 export interface AgentOrchestratorConfig {
   tenantId: string;
@@ -36,6 +37,8 @@ export class AgentOrchestrator {
   private processing = false;
   private intervalId?: NodeJS.Timeout;
   private recuperacionProgramada = false;
+  private ultimoRefrescoCola = 0;
+  private readonly workerId = `${process.env.HOSTNAME || "worker"}:${process.pid}:${randomUUID()}`;
 
   /**
    * Cuántas conversaciones se atienden a la vez. Antes era UNA para toda la
@@ -46,6 +49,7 @@ export class AgentOrchestrator {
    */
   private readonly maxEnParalelo = Math.min(128, Math.max(1, Math.floor(Number(process.env.AGENT_CONCURRENCIA) || 4)));
   private activos = 0;
+  private claimHeartbeats = new Map<string, NodeJS.Timeout>();
   /** Conversaciones que se están atendiendo ahora mismo. */
   private enCurso = new Set<string>();
 
@@ -115,6 +119,7 @@ export class AgentOrchestrator {
    * alguien dos días después es peor que no contestarle.
    */
   private async recuperarSinResponder(): Promise<void> {
+    if (!this.queue.canRecoverUnanswered()) return;
     try {
       // Se usa el constructor de consultas de Drizzle, no SQL crudo con
       // db.execute: db.execute no se usa en ningún otro lado de este código,
@@ -185,6 +190,21 @@ export class AgentOrchestrator {
   private async runProcessingLoop(): Promise<void> {
     if (!this.processing) return;
 
+    // En despliegue separado, WhatsApp Gateway persiste los mensajes y este
+    // worker los incorpora sin reiniciarse. En modo combinado no agrega nada
+    // porque los mensajes ya están en memoria.
+    const stats = this.queue.getStats();
+    if (stats.persistence === "postgres" && stats.pending < 10 && Date.now() - this.ultimoRefrescoCola >= 1000) {
+      try {
+        await this.queue.refreshFromStore();
+        this.ultimoRefrescoCola = Date.now();
+      } catch (error) {
+        logger.error({ error }, "[AgentOrchestrator] No se pudieron refrescar mensajes persistidos");
+        this.intervalId = setTimeout(() => this.runProcessingLoop(), 5000);
+        return;
+      }
+    }
+
     try { await this.queue.flush(); }
     catch (error) {
       logger.error({ error }, "[AgentOrchestrator] Outbox no durable: se pausa el consumo");
@@ -196,17 +216,35 @@ export class AgentOrchestrator {
     // Se llenan los lugares libres con conversaciones que NO se estén
     // atendiendo ya. Cada una corre por su cuenta; el bucle no las espera.
     while (this.activos < this.maxEnParalelo) {
-      const message = this.queue.dequeue((m) => !this.enCurso.has(AgentOrchestrator.claveDe(m)) && this.configs.get(m.tenantId)?.enabled !== false);
+      const aceptar = (m: QueuedMessage) => !this.enCurso.has(AgentOrchestrator.claveDe(m)) && this.configs.get(m.tenantId)?.enabled !== false;
+      const message = process.env.VENTASPRO_PROCESS_ROLE === "worker"
+        ? await this.queue.claimNextFromStore(this.workerId)
+        : this.queue.dequeue(aceptar);
       if (!message) break;
+      if (!aceptar(message)) {
+        this.queue.posponer(message.id, 5_000);
+        continue;
+      }
       const clave = AgentOrchestrator.claveDe(message);
       this.activos++;
       this.enCurso.add(clave);
+      const leaseHeartbeat = process.env.VENTASPRO_PROCESS_ROLE === "worker"
+        ? setInterval(() => {
+          void this.queue.renewClaim(message.id, this.workerId).catch(error =>
+            logger.error({ error, queueId: message.id }, "[AgentOrchestrator] No se pudo renovar el reclamo del mensaje"),
+          );
+        }, 30_000)
+        : undefined;
+      leaseHeartbeat?.unref?.();
+      if (leaseHeartbeat) this.claimHeartbeats.set(message.id, leaseHeartbeat);
       this.processMessage(message)
         .catch((error) => {
           this.queue.markFailed(message.id);
           logger.error({ error }, '[AgentOrchestrator] Loop error');
         })
         .finally(() => {
+          if (leaseHeartbeat) clearInterval(leaseHeartbeat);
+          this.claimHeartbeats.delete(message.id);
           this.activos--;
           this.enCurso.delete(clave);
         });
@@ -376,7 +414,11 @@ export class AgentOrchestrator {
 
       // ── Enviar ──────────────────────────────────────────────────────────
       const pushName = convo.contactName || phone;
-      await enviarPartsAlCliente(tenantIdNum, phone, pushName, partes, message.from);
+      if (process.env.VENTASPRO_PROCESS_ROLE === "worker" &&
+          !await this.queue.renewClaim(message.id, this.workerId)) {
+        throw new Error("El worker perdió el reclamo del mensaje antes del envío; no se enviará una respuesta duplicada.");
+      }
+      await enviarPartsAlCliente(tenantIdNum, phone, pushName, partes, message.from, message.id);
 
       // NO se persiste aquí: runAgentReply ya guardó la respuesta con
       // saveAgentMessage (con su metadata y actualizando lastMessage) en todos
@@ -394,6 +436,14 @@ export class AgentOrchestrator {
 
     } catch (error) {
       const detalle = error instanceof Error ? error.message : String(error);
+
+      // Caídas o saturación del gateway no gastan los tres reintentos del
+      // mensaje: se conserva la respuesta ya redactada y se vuelve a intentar.
+      if (detalle.startsWith("WHATSAPP_GATEWAY_RETRYABLE:")) {
+        this.queue.posponer(message.id, 30_000);
+        logger.warn({ tenantId: message.tenantId, queueId: message.id }, "[AgentOrchestrator] Gateway temporalmente no disponible; respuesta conservada para reintento");
+        return;
+      }
 
       // ── Cortes que se resuelven SOLOS con el tiempo ─────────────────────
       //
@@ -512,6 +562,8 @@ export class AgentOrchestrator {
    */
   stopProcessing(): void {
     this.processing = false;
+    for (const heartbeat of this.claimHeartbeats.values()) clearInterval(heartbeat);
+    this.claimHeartbeats.clear();
     if (this.intervalId) {
       clearTimeout(this.intervalId as any);
       this.intervalId = undefined;
