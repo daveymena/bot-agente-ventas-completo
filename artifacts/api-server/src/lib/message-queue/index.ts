@@ -8,6 +8,12 @@ import { randomUUID } from 'node:crypto';
 
 export interface QueueStore {
   load(): Promise<QueuedMessage[]>;
+  /** Bounded page for live consumers; avoids loading an unbounded outbox. */
+  loadPending?(): Promise<QueuedMessage[]>;
+  /** Atomic claim for multi-process consumers; only one worker owns a job. */
+  claimNext?(workerId: string, leaseMs: number): Promise<QueuedMessage | null>;
+  renewClaim?(messageId: string, workerId: string, claimVersion: number, leaseMs: number): Promise<boolean>;
+  isRecoveryLeader?(): boolean;
   save(messages: QueuedMessage[]): Promise<void>;
   cleanup(before: Date): Promise<void>;
 }
@@ -39,6 +45,8 @@ export interface QueuedMessage {
   phone?: string;
   processed: boolean;
   processing?: boolean;
+  /** Monotonic PostgreSQL fencing token for a claimed job. */
+  claimVersion?: number;
   retryCount: number;
   createdAt: Date;
 
@@ -72,8 +80,8 @@ export type MessageQueueEvent =
   | 'queue:drained';
 
 /**
- * Cola con eventos y outbox PostgreSQL en producción.
- * Un solo runtime posee las sesiones; la concurrencia es por conversación.
+ * Cola con outbox PostgreSQL en producción. Un gateway posee las sesiones;
+ * los workers reclaman mensajes por conversación desde el outbox.
  */
 export class MessageQueue extends EventEmitter {
   private queue: QueuedMessage[] = [];
@@ -89,16 +97,63 @@ export class MessageQueue extends EventEmitter {
   /** Called before importing app.ts: no sockets or consumers exist yet. */
   async attachStore(store: QueueStore): Promise<void> {
     if (this.queue.length) throw new Error('Attach queue persistence before accepting messages');
-    const restored = await store.load();
     this.store = store;
+    const initial = store.loadPending ? await store.loadPending() : await store.load();
+    this.addRestored(initial);
+  }
+
+  /**
+   * Mantiene un buffer acotado de mensajes persistidos desde otros procesos.
+   * Los workers de producción reclaman el siguiente mensaje con `claimNext`,
+   * que usa lease y `SKIP LOCKED`; este refresco solo precarga el buffer.
+   */
+  async refreshFromStore(): Promise<number> {
+    if (!this.store) return 0;
+    const restored = this.store.loadPending ? await this.store.loadPending() : await this.store.load();
+    return this.addRestored(restored);
+  }
+
+  private addRestored(restored: QueuedMessage[]): number {
+    let added = 0;
     for (const message of restored) {
+      if (this.byId.has(message.id)) continue;
       message.timestamp = new Date(message.timestamp);
       message.createdAt = new Date(message.createdAt);
       message.processing = false; // previous process no longer owns the work
       this.queue.push(message);
       this.byId.set(message.id, message);
       if (message.messageId) this.bySource.set(JSON.stringify([message.tenantId, message.messageId]), message);
+      added++;
     }
+    return added;
+  }
+
+  async claimNextFromStore(workerId: string, leaseMs = 2 * 60_000): Promise<QueuedMessage | null> {
+    if (!this.store?.claimNext) return this.dequeue();
+    const message = await this.store.claimNext(workerId, leaseMs);
+    if (!message) return null;
+    message.timestamp = new Date(message.timestamp);
+    message.createdAt = new Date(message.createdAt);
+    message.processing = true;
+    const existing = this.byId.get(message.id);
+    if (existing) {
+      Object.assign(existing, message);
+      return existing;
+    }
+    this.queue.push(message);
+    this.byId.set(message.id, message);
+    if (message.messageId) this.bySource.set(JSON.stringify([message.tenantId, message.messageId]), message);
+    return message;
+  }
+
+  async renewClaim(messageId: string, workerId: string, leaseMs = 2 * 60_000): Promise<boolean> {
+    const message = this.byId.get(messageId);
+    if (!message?.claimVersion || !this.store?.renewClaim) return false;
+    return this.store.renewClaim(messageId, workerId, message.claimVersion, leaseMs);
+  }
+
+  canRecoverUnanswered(): boolean {
+    return this.store?.isRecoveryLeader?.() ?? true;
   }
 
   private changed(message: QueuedMessage): void {

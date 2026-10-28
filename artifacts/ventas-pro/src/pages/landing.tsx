@@ -258,6 +258,9 @@ interface Plan {
   name: string;
   price: number;
   monthlyMessages: number;
+  monthlyAiResponses?: number;
+  maxConcurrentAi?: number;
+  maxWhatsappNumbers?: number;
   maxAgents: number;
   features: string[];
 }
@@ -540,7 +543,9 @@ export default function LandingPage() {
                       <span className={`text-base ${destacado ? "text-white/80" : "text-slate-500 dark:text-slate-400"}`}> USD/mes</span>
                     </p>
                     <ul className={`space-y-3 text-base flex-1 ${destacado ? "text-white/90" : "text-slate-700 dark:text-slate-200"}`}>
-                      <li className="flex gap-2.5"><Check className="h-5 w-5 shrink-0 mt-0.5" /> {plan.monthlyMessages.toLocaleString("es")} mensajes al mes</li>
+                      <li className="flex gap-2.5"><Check className="h-5 w-5 shrink-0 mt-0.5" /> {plan.monthlyMessages.toLocaleString("es")} mensajes WhatsApp/mes · hasta {Math.ceil(plan.monthlyMessages / 30)} al día</li>
+                      <li className="flex gap-2.5"><Check className="h-5 w-5 shrink-0 mt-0.5" /> {(plan.monthlyAiResponses ?? plan.monthlyMessages).toLocaleString("es")} respuestas IA/mes · hasta {Math.ceil((plan.monthlyAiResponses ?? plan.monthlyMessages) / 30)} al día</li>
+                      {plan.maxConcurrentAi != null && <li className="flex gap-2.5"><Check className="h-5 w-5 shrink-0 mt-0.5" /> {plan.maxConcurrentAi} conversaciones IA simultáneas</li>}
                       <li className="flex gap-2.5"><Check className="h-5 w-5 shrink-0 mt-0.5" /> {plan.maxAgents} vendedora{plan.maxAgents > 1 ? "s" : ""}</li>
                       {(plan.features || []).slice(0, 2).map(f => (
                         <li key={f} className="flex gap-2.5"><Check className="h-5 w-5 shrink-0 mt-0.5" /> {f}</li>

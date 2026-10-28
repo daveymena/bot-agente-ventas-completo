@@ -1,4 +1,4 @@
-import { integer, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { index, integer, jsonb, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 import { conversations } from "./conversations";
 
 export const messages = pgTable("messages", {
@@ -12,7 +12,11 @@ export const messages = pgTable("messages", {
   // Metadata estructurada: producto mostrado, intención detectada, proveedor IA, etc.
   metadata: jsonb("metadata").$type<MessageMetadata>().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+}, (t) => ({
+  // Conversation history is the hot path for both the inbox and the seller.
+  conversationCreated: index("messages_conversation_created_idx").on(t.conversationId, t.createdAt, t.id),
+  conversationRoleCreated: index("messages_conversation_role_created_idx").on(t.conversationId, t.role, t.createdAt),
+}));
 
 export interface MessageMetadata {
   productId?: number;        // ID del producto mostrado en este mensaje

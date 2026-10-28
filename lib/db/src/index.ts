@@ -282,10 +282,11 @@ async function initDb() {
       return;
     }
 
+    const poolDefaultMax = process.env.VENTASPRO_PROCESS_ROLE === "worker" ? 8 : 20;
     pool = new Pool({
       connectionString: dbUrl,
       ssl: dbUrl.includes("sslmode=disable") ? false : { rejectUnauthorized: false },
-      max: Math.min(100, Math.max(2, Math.floor(Number(process.env.DB_POOL_MAX) || 20))), min: 0, idleTimeoutMillis: 30000,
+      max: Math.min(100, Math.max(2, Math.floor(Number(process.env.DB_POOL_MAX) || poolDefaultMax))), min: 0, idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000, statement_timeout: 10000, query_timeout: 10000,
     });
     db = drizzle(pool, { schema: pgSchema });
@@ -393,7 +394,7 @@ async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: (
     `CREATE TABLE IF NOT EXISTS marketing_budgets (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL UNIQUE, max_daily_spend REAL DEFAULT 50000, max_budget_change_percent REAL DEFAULT 25, max_scale_percent REAL DEFAULT 30, approval_required INTEGER DEFAULT 1, currency TEXT DEFAULT 'COP', today_spend REAL DEFAULT 0, today_date TEXT, period_spend REAL DEFAULT 0, period_start TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS marketing_audit_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, agent TEXT NOT NULL, task_id INTEGER, action TEXT NOT NULL, resource TEXT, before TEXT, after TEXT, approval TEXT, reason TEXT, result TEXT DEFAULT 'PENDING', error TEXT, request_id TEXT, created_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS trabajos_programados (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, tipo TEXT NOT NULL, clave TEXT NOT NULL UNIQUE, corre_at TEXT NOT NULL, estado TEXT NOT NULL DEFAULT 'pendiente', datos TEXT NOT NULL DEFAULT '{}', resultado TEXT, intentos INTEGER NOT NULL DEFAULT 0, error TEXT, repite_cada_min INTEGER, creado_at TEXT DEFAULT (datetime('now')), actualizado_at TEXT DEFAULT (datetime('now')))`,
-    `CREATE TABLE IF NOT EXISTS consumo_mensual (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, periodo TEXT NOT NULL, mensajes INTEGER NOT NULL DEFAULT 0, actualizado_at TEXT DEFAULT (datetime('now')), UNIQUE(tenant_id, periodo))`,
+    `CREATE TABLE IF NOT EXISTS consumo_mensual (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, periodo TEXT NOT NULL, mensajes INTEGER NOT NULL DEFAULT 0, respuestas_ia INTEGER NOT NULL DEFAULT 0, dia TEXT NOT NULL DEFAULT '', mensajes_dia INTEGER NOT NULL DEFAULT 0, respuestas_ia_dia INTEGER NOT NULL DEFAULT 0, actualizado_at TEXT DEFAULT (datetime('now')), UNIQUE(tenant_id, periodo))`,
     `CREATE TABLE IF NOT EXISTS consumo_conversaciones (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, periodo TEXT NOT NULL, conversaciones INTEGER NOT NULL DEFAULT 0, actualizado_at TEXT DEFAULT (datetime('now')), UNIQUE(tenant_id, periodo))`,
     `CREATE TABLE IF NOT EXISTS coupons (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, product_id INTEGER REFERENCES products(id) ON DELETE SET NULL, code TEXT NOT NULL, tipo TEXT NOT NULL DEFAULT 'porcentaje', valor REAL NOT NULL, minimo_compra REAL, usos_max INTEGER, usos INTEGER NOT NULL DEFAULT 0, activo INTEGER DEFAULT 1, vigencia_inicio TEXT, vigencia_fin TEXT, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
     `CREATE TABLE IF NOT EXISTS push_subscriptions (id INTEGER PRIMARY KEY AUTOINCREMENT, tenant_id INTEGER REFERENCES tenants(id) ON DELETE CASCADE NOT NULL, endpoint TEXT NOT NULL UNIQUE, p256dh TEXT NOT NULL, auth TEXT NOT NULL, dispositivo TEXT, activo INTEGER DEFAULT 1, created_at TEXT DEFAULT (datetime('now')), updated_at TEXT DEFAULT (datetime('now')))`,
@@ -439,9 +440,25 @@ async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: (
     // primer SELECT de settings ("copilot_tokens is not valid JSON") y el
     // vendedor devolvía null para TODO mensaje, sin un solo log.
     `ALTER TABLE settings ADD COLUMN copilot_tokens TEXT`,
+    `ALTER TABLE consumo_mensual ADD COLUMN respuestas_ia INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE consumo_mensual ADD COLUMN dia TEXT NOT NULL DEFAULT ''`,
+    `ALTER TABLE consumo_mensual ADD COLUMN mensajes_dia INTEGER NOT NULL DEFAULT 0`,
+    `ALTER TABLE consumo_mensual ADD COLUMN respuestas_ia_dia INTEGER NOT NULL DEFAULT 0`,
   ];
   for (const sql of columnMigrations) {
     try { sqliteDb.run(sql); } catch { /* columna ya existe */ }
+  }
+
+  // Índices compuestos usados por las consultas más frecuentes del inbox,
+  // recuperación del bot y lectura del historial por conversación.
+  const hotPathIndexes = [
+    `CREATE INDEX IF NOT EXISTS conversations_tenant_phone_idx ON conversations(tenant_id, contact_phone)`,
+    `CREATE INDEX IF NOT EXISTS conversations_tenant_status_last_message_idx ON conversations(tenant_id, status, last_message_at)`,
+    `CREATE INDEX IF NOT EXISTS messages_conversation_created_idx ON messages(conversation_id, created_at, id)`,
+    `CREATE INDEX IF NOT EXISTS messages_conversation_role_created_idx ON messages(conversation_id, role, created_at)`,
+  ];
+  for (const sql of hotPathIndexes) {
+    try { sqliteDb.run(sql); } catch (err) { console.error("Error creating hot-path index:", err); }
   }
 
   saveDb();

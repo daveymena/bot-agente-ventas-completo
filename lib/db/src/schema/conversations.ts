@@ -1,4 +1,4 @@
-import { integer, jsonb, numeric, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
+import { index, integer, jsonb, numeric, pgTable, serial, text, timestamp } from "drizzle-orm/pg-core";
 import { agents } from "./agents";
 import { leads } from "./leads";
 import { tenants } from "./tenants";
@@ -38,7 +38,12 @@ export const conversations = pgTable("conversations", {
   estadoAgente: jsonb("estado_agente"),
 
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-});
+}, (t) => ({
+  // Inbox lookups always scope by tenant before sorting/filtering. Without
+  // these indexes the cost grows with every conversation across the platform.
+  tenantPhone: index("conversations_tenant_phone_idx").on(t.tenantId, t.contactPhone),
+  tenantStatusLastMessage: index("conversations_tenant_status_last_message_idx").on(t.tenantId, t.status, t.lastMessageAt),
+}));
 
 export type Conversation = typeof conversations.$inferSelect;
 export type InsertConversation = typeof conversations.$inferInsert;

@@ -30,15 +30,17 @@ router.get("/current", async (req: TenantRequest, res) => {
       });
     }
 
-    const usage = getUsageAnalytics(req.tenant.id.toString());
+    const usage = getUsageAnalytics(req.tenant.id.toString()) as UsageMetrics | null;
     const tenantLimits = await tenantManager.checkTenantLimits(req.tenant.id);
 
      // Calculate usage percentages
-     const usagePercentages = usage ? {
-       requests: ((usage as any).requests / req.tenant.limits.maxMonthlyMessages) * 100,
-       aiCalls: (((usage as any).aiCalls) / (req.tenant.limits.apiCallsPerMinute * 60 * 24 * 30)) * 100, // Rough monthly estimate
-       estimatedCostPercentage: (((usage as any).estimatedCost) / 100) * 100 // Assuming $100 monthly limit
-     } : null;
+     const usagePercentages = {
+       whatsappMessages: (tenantLimits.monthlyWhatsappMessages.current / Math.max(1, tenantLimits.monthlyWhatsappMessages.limit)) * 100,
+       aiResponses: (tenantLimits.monthlyAiResponses.current / Math.max(1, tenantLimits.monthlyAiResponses.limit)) * 100,
+       whatsappMessagesToday: (tenantLimits.dailyWhatsappMessages.current / Math.max(1, tenantLimits.dailyWhatsappMessages.limit)) * 100,
+       aiResponsesToday: (tenantLimits.dailyAiResponses.current / Math.max(1, tenantLimits.dailyAiResponses.limit)) * 100,
+       ...(usage ? { estimatedCostPercentage: (((usage as any).estimatedCost) / 100) * 100 } : {}),
+     };
 
     return res.json({
       tenantId: req.tenant.id,
@@ -47,6 +49,13 @@ router.get("/current", async (req: TenantRequest, res) => {
       usagePercentages,
       limits: req.tenant.limits,
       currentLimits: tenantLimits,
+      durableUsage: {
+        whatsapp: tenantLimits.monthlyWhatsappMessages,
+        ai: tenantLimits.monthlyAiResponses,
+        whatsappToday: tenantLimits.dailyWhatsappMessages,
+        aiToday: tenantLimits.dailyAiResponses,
+      },
+      capacity: tenantLimits.aiCapacity,
       lastUpdated: new Date()
     });
 
@@ -127,23 +136,15 @@ router.get("/summary", async (req: TenantRequest, res) => {
       });
     }
 
-    const usage = getUsageAnalytics(req.tenant.id.toString());
+    const usage = getUsageAnalytics(req.tenant.id.toString()) as UsageMetrics | null;
     const tenantLimits = await tenantManager.checkTenantLimits(req.tenant.id);
-
-    if (!usage) {
-      return res.json({
-        summary: "No usage data available",
-        alerts: [],
-        recommendations: ["Start using the system to see usage analytics"]
-      });
-    }
 
     // Generate alerts
     const alerts: string[] = [];
     const recommendations: string[] = [];
 
     // Cost alerts
-    const costPercentage = (usage.estimatedCost / 100) * 100; // Assuming $100 limit
+    const costPercentage = usage ? (usage.estimatedCost / 100) * 100 : 0; // costo histórico en memoria
     if (costPercentage >= 90) {
       alerts.push("CRITICAL: 90%+ of monthly cost limit reached");
       recommendations.push("Consider upgrading your plan or optimizing usage");
@@ -162,23 +163,38 @@ router.get("/summary", async (req: TenantRequest, res) => {
       alerts.push("Monthly message limit exceeded");
       recommendations.push("Upgrade plan for higher message limits");
     }
+    if (tenantLimits.monthlyAiResponses.exceeded) {
+      alerts.push("Monthly AI response limit exceeded");
+      recommendations.push("Upgrade plan for higher AI response limits");
+    }
+    if (tenantLimits.dailyWhatsappMessages.exceeded || tenantLimits.dailyAiResponses.exceeded) {
+      alerts.push("Daily plan usage limit reached");
+      recommendations.push("El cupo diario se renueva a medianoche según la zona horaria del negocio; el consumo mensual permanece visible abajo");
+    }
 
     // Efficiency recommendations
-    if (usage.aiCalls > usage.requests * 2) {
+    if (usage && usage.aiCalls > usage.requests * 2) {
       recommendations.push("High AI call ratio detected - consider optimizing agent responses");
     }
 
-    if (usage.whatsappMessages > usage.requests * 3) {
+    if (usage && usage.whatsappMessages > usage.requests * 3) {
       recommendations.push("High WhatsApp message ratio - consider consolidating messages");
     }
 
-    const summary = `This month: ${usage.requests} API requests, ${usage.aiCalls} AI calls, ${usage.whatsappMessages} WhatsApp messages. Estimated cost: $${usage.estimatedCost.toFixed(2)}`;
+    const summary = `Hoy: ${tenantLimits.dailyAiResponses.current}/${tenantLimits.dailyAiResponses.limit} respuestas IA y ${tenantLimits.dailyWhatsappMessages.current}/${tenantLimits.dailyWhatsappMessages.limit} mensajes WhatsApp. Este mes: ${tenantLimits.monthlyAiResponses.current}/${tenantLimits.monthlyAiResponses.limit} respuestas IA y ${tenantLimits.monthlyWhatsappMessages.current}/${tenantLimits.monthlyWhatsappMessages.limit} mensajes WhatsApp.`;
 
     return res.json({
       summary,
       alerts,
       recommendations,
-      usage,
+      planUsage: {
+        ai: tenantLimits.monthlyAiResponses,
+        whatsapp: tenantLimits.monthlyWhatsappMessages,
+        aiToday: tenantLimits.dailyAiResponses,
+        whatsappToday: tenantLimits.dailyWhatsappMessages,
+        capacity: tenantLimits.aiCapacity,
+      },
+      usage: usage || null,
       limits: tenantLimits,
       costPercentage: Math.round(costPercentage * 100) / 100
     });
@@ -260,7 +276,7 @@ router.get("/optimization", async (req: TenantRequest, res) => {
       });
     }
 
-    const usage = getUsageAnalytics(req.tenant.id.toString());
+    const usage = getUsageAnalytics(req.tenant.id.toString()) as UsageMetrics | null;
 
     if (!usage) {
       return res.json({

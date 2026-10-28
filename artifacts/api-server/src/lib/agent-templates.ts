@@ -114,7 +114,7 @@ Te cuento lo que incluye para que decidas con todo a la vista.
 ¿A qué ciudad lo enviamos? 🚚
 ━━━━━━━━━━━━━━━━━━━━━━━━
 
-💰 Pago: Nequi ${NEQUI} | MercadoPago | PayPal`,
+💰 Pago: ofrece solo los medios que este negocio tenga configurados. No inventes cuentas ni enlaces.`,
     stages: [
       { key: "greeting", name: "Saludo Energético", prompt: "Saluda con entusiasmo. Menciona la oferta del día o el producto más vendido." },
       { key: "catalog", name: "Catálogo", prompt: "Muestra los productos disponibles con [CARD: ID]. Destaca precio y disponibilidad." },
@@ -169,13 +169,13 @@ Al presentar un producto digital:
 ✅ Sin suscripciones ni mensualidades
 ✅ Acceso de por vida desde cualquier dispositivo
 
-💰 INVERSIÓN: Nequi ${NEQUI} (${OWNER}) | MercadoPago | PayPal`,
+💰 INVERSIÓN: usa únicamente los medios configurados para este negocio. Si no hay ninguno, confirma con el dueño; no inventes cuentas ni enlaces.`,
     stages: [
       { key: "hook", name: "Hook Emocional", prompt: "Conecta emocionalmente. ¿Qué sueño o meta tiene el cliente? Habla de su futuro." },
       { key: "qualification", name: "Descubrir Necesidad", prompt: "¿Qué quiere aprender? ¿Para qué lo usaría? ¿Tiene experiencia previa?" },
       { key: "presentation", name: "Presentación del Pack", prompt: "Presenta con [CARD: ID]. Enfatiza contenido, horas, lecciones y acceso de por vida." },
       { key: "value", name: "Justificación de Valor", prompt: "Compara con cursos pagos en plataformas ($200-500 USD). El pack es una fracción del precio." },
-      { key: "closing", name: "Cierre Inspirador", prompt: "¿Cuándo quiere empezar? El acceso es inmediato. Genera los links de pago." },
+      { key: "closing", name: "Cierre Inspirador", prompt: "Avanza al siguiente paso y ofrece solo los medios de pago configurados para este negocio. No prometas acceso ni generes enlaces si el sistema no lo tiene habilitado." },
       { key: "delivery", name: "Entrega", prompt: "Comparte el Drive. Confirma que abrió correctamente. Pide su correo para el respaldo." },
     ],
   },

@@ -21,12 +21,44 @@ loadDotenv({ path: path.resolve(__dirname, "../../../.env") });
 // sí respeta el orden de ejecución real, así que corre después de cargar
 // el .env.
 async function start() {
+  const role = process.env.VENTASPRO_PROCESS_ROLE || "combined";
+  if (!new Set(["combined", "gateway", "worker"]).has(role)) {
+    throw new Error(`VENTASPRO_PROCESS_ROLE inválido: ${role}. Usa combined, gateway o worker.`);
+  }
+  if ((role === "gateway" || role === "worker") &&
+      (process.env.WHATSAPP_GATEWAY_TOKEN || "").length < 32) {
+    throw new Error("Los roles gateway/worker requieren un WHATSAPP_GATEWAY_TOKEN de al menos 32 caracteres.");
+  }
+  if (role === "worker") {
+    if (!process.env.WHATSAPP_GATEWAY_URL) {
+      throw new Error("El rol worker requiere WHATSAPP_GATEWAY_URL.");
+    }
+    const gatewayUrl = new URL(process.env.WHATSAPP_GATEWAY_URL);
+    if (process.env.NODE_ENV === "production" && gatewayUrl.protocol !== "https:") {
+      throw new Error("WHATSAPP_GATEWAY_URL debe usar HTTPS en producción.");
+    }
+    if (gatewayUrl.pathname !== "/" || gatewayUrl.search || gatewayUrl.hash) {
+      throw new Error("WHATSAPP_GATEWAY_URL debe ser el origen del gateway, sin ruta, query ni fragmento.");
+    }
+  }
+
   const { initializeMessagePersistence } = await import("./lib/message-queue/postgres-store");
   await initializeMessagePersistence();
-  const { default: app } = await import("./app");
   const { logger } = await import("./lib/logger");
-  const { runAutoMigrations } = await import("./lib/autoMigrate");
   const { ensureDbReady } = await import("@workspace/db");
+
+  // No importar app.ts todavía: ese módulo arranca WhatsApp y varios
+  // programadores como efecto lateral. Primero deja lista la base y aplica
+  // las migraciones para que ningún worker toque un esquema a medio preparar.
+  logger.info("[DB] Esperando inicialización de base de datos...");
+  await ensureDbReady();
+  logger.info("[DB] Base de datos lista");
+
+  const { runAutoMigrations } = await import("./lib/autoMigrate");
+  if (role !== "worker") await runAutoMigrations();
+
+  // Solo después del esquema listo arrancan los sockets y schedulers.
+  const { default: app } = await import("./app");
 
   const rawPort = process.env["PORT"];
 
@@ -41,18 +73,6 @@ async function start() {
   if (Number.isNaN(port) || port <= 0) {
     throw new Error(`Invalid PORT value: "${rawPort}"`);
   }
-
-  // Wait for database to be ready before accepting connections
-  logger.info("[DB] Esperando inicialización de base de datos...");
-  try {
-    await ensureDbReady();
-    logger.info("[DB] Base de datos lista");
-  } catch (err) {
-    logger.error({ err }, "[DB] Error en ensureDbReady, continuando de todas formas");
-  }
-
-  // Non-blocking database migrations (fires in background)
-  runAutoMigrations().catch(() => {});
 
   // Claves de IA guardadas desde la pantalla de Configuración: se vuelcan al
   // entorno para que los proveedores las usen igual que las del .env.
@@ -95,19 +115,21 @@ async function start() {
       process.exit(1);
     }
 
-    logger.info({ port, host: "0.0.0.0", authDir: process.env.WA_AUTH_DIR || "data/.baileys-auth" }, "Server listening — WhatsApp auth persistente");
+    logger.info({ port, host: "0.0.0.0", role, authDir: process.env.WA_AUTH_DIR || "data/.baileys-auth" }, "Server listening");
 
     // Revisión periódica de disponibilidad en Dropi (cada DROPI_REVISION_HORAS,
     // 6 por defecto; 0 la apaga). Dropify no sincroniza stock: si el
     // proveedor archiva un producto, nadie se entera hasta que un cliente lo
     // pide (#323). Ver lib/dropi-disponibilidad.ts.
-    import("./lib/dropi-disponibilidad").then(({ programarRevisionDeDropi }) => {
-      programarRevisionDeDropi(async () => {
-        const { db, tenants } = await import("@workspace/db");
-        const filas = await db.select({ id: tenants.id }).from(tenants);
-        return filas.map((t: any) => Number(t.id));
-      });
-    }).catch((err) => logger.warn({ err }, "[Dropi] No se pudo programar la revisión de disponibilidad"));
+    if (role !== "worker") {
+      import("./lib/dropi-disponibilidad").then(({ programarRevisionDeDropi }) => {
+        programarRevisionDeDropi(async () => {
+          const { db, tenants } = await import("@workspace/db");
+          const filas = await db.select({ id: tenants.id }).from(tenants);
+          return filas.map((t: any) => Number(t.id));
+        });
+      }).catch((err) => logger.warn({ err }, "[Dropi] No se pudo programar la revisión de disponibilidad"));
+    }
 
     // Cerrar el socket de WhatsApp ANTES de morir. Sin esto, un deploy mata
     // el proceso con la sesión a medio cerrar y WhatsApp entrega los mensajes

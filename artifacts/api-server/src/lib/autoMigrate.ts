@@ -2,6 +2,12 @@ import { pool } from "@workspace/db";
 import { logger } from "./logger";
 
 const MIGRATIONS = [
+  // Indices para que la latencia del inbox y la carga de historial no crezcan
+  // linealmente con todos los negocios de la plataforma.
+  `CREATE INDEX IF NOT EXISTS conversations_tenant_phone_idx ON conversations(tenant_id, contact_phone)`,
+  `CREATE INDEX IF NOT EXISTS conversations_tenant_status_last_message_idx ON conversations(tenant_id, status, last_message_at)`,
+  `CREATE INDEX IF NOT EXISTS messages_conversation_created_idx ON messages(conversation_id, created_at, id)`,
+  `CREATE INDEX IF NOT EXISTS messages_conversation_role_created_idx ON messages(conversation_id, role, created_at)`,
   // El feed de actividad se compartia entre TODOS los negocios: el aviso de
   // uno le aparecia a los demas. Nullable porque las filas viejas no tienen
   // dueno conocido y no se puede adivinar.
@@ -309,8 +315,17 @@ const MIGRATIONS = [
     tenant_id INTEGER NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
     periodo TEXT NOT NULL,
     mensajes INTEGER NOT NULL DEFAULT 0,
+    respuestas_ia INTEGER NOT NULL DEFAULT 0,
+    dia TEXT NOT NULL DEFAULT '',
+    mensajes_dia INTEGER NOT NULL DEFAULT 0,
+    respuestas_ia_dia INTEGER NOT NULL DEFAULT 0,
     actualizado_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now()
   )`,
+  `ALTER TABLE consumo_mensual
+    ADD COLUMN IF NOT EXISTS respuestas_ia INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS dia TEXT NOT NULL DEFAULT '',
+    ADD COLUMN IF NOT EXISTS mensajes_dia INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS respuestas_ia_dia INTEGER NOT NULL DEFAULT 0`,
   // Una sola fila por negocio y mes. Sin esto, dos envios simultaneos crean dos
   // filas y el conteo queda partido -- la forma silenciosa de que un limite
   // deje de aplicarse.

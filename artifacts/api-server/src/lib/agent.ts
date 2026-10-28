@@ -796,40 +796,36 @@ export async function runAgentReply(conversationId: number) {
     return null;
   }
 
-  // ── Límite del plan contratado ────────────────────────────────────────────
-  // AGUJERO REAL cerrado el 2026-08-12: el límite mensual de mensajes existía
-  // solo como middleware HTTP, pero los mensajes de WhatsApp entran por el
-  // socket de Baileys y NUNCA pasan por una ruta HTTP -- así que el bot
-  // respondía sin límite alguno. Un cliente del plan más barato podía generar
-  // decenas de miles de respuestas con IA que paga el dueño de la plataforma,
-  // sin ningún tope. Es fuga de dinero directa, no un detalle de producto.
-  //
-  // Este es el punto ÚNICO por donde pasan todas las respuestas del agente
-  // (WhatsApp, Messenger y comentarios de Facebook), así que el candado va
-  // acá y cubre todos los canales de una.
+  // Reserva mensual y diaria de IA para todos los canales. La cuota de WhatsApp
+  // se controla aparte en el orquestador Baileys y en los envíos desde el panel.
   if (convo.tenantId) {
+    let planDeUso = "basic";
+    let zonaHorariaDeUso = "America/Bogota";
     try {
-      const { checkMessageLimit } = await import("../middleware/featureLimits");
       const { tenantManager } = await import("./tenantManager");
       const tenant = await tenantManager.getTenantById(convo.tenantId);
-      const plan = (tenant as any)?.plan || (tenant as any)?.subscriptionPlan || "basic";
-      const limite = await checkMessageLimit(convo.tenantId, plan);
-      if (!limite.allowed) {
+      planDeUso = (tenant as any)?.isAdmin ? "enterprise" : (tenant as any)?.plan || (tenant as any)?.subscriptionPlan || "basic";
+      zonaHorariaDeUso = (tenant as any)?.settings?.timezone || "America/Bogota";
+    } catch (e: any) {
+      logger.error({ err: e?.message, tenantId: convo.tenantId }, "[Agent] No se pudo cargar el plan para reservar uso de IA");
+      throw new Error("USAGE_QUOTA_RETRYABLE: no se pudo cargar el plan del negocio");
+    }
+
+    try {
+      const { reserveAiResponse } = await import("../middleware/featureLimits");
+      const usoIa = await reserveAiResponse(convo.tenantId, planDeUso, zonaHorariaDeUso);
+      if (!usoIa.allowed) {
         logger.warn(
-          { tenantId: convo.tenantId, plan, usados: limite.current, tope: limite.limit },
-          "[Agent] Límite mensual del plan alcanzado -- no se genera respuesta con IA",
+          { tenantId: convo.tenantId, plan: planDeUso, usados: usoIa.current, tope: usoIa.limit, usadosHoy: usoIa.currentDaily, topeDiario: usoIa.dailyLimit, reason: usoIa.reason },
+          usoIa.reason === "daily" ? "[Agent] Límite diario de respuestas de IA alcanzado" : "[Agent] Límite mensual de respuestas de IA alcanzado",
         );
-        // Se devuelve null (no responde) en vez de lanzar: el mensaje del
-        // cliente igual queda guardado, y el dueño del negocio ve el aviso en
-        // su panel. Contestarle al cliente final "tu plan se acabó" sería
-        // exponerle al comprador un problema comercial que no es suyo.
         return null;
       }
     } catch (e: any) {
-      // Ante un fallo del chequeo NO se bloquea la respuesta: dejar mudo al
-      // bot de un cliente que sí pagó es peor que dejar pasar algunos
-      // mensajes de más.
-      logger.warn({ err: e?.message, tenantId: convo.tenantId }, "[Agent] No se pudo verificar el límite del plan; se responde igual");
+      // Sin una reserva persistente, varios workers podrían rebasar la cuota y
+      // cargar el costo al servidor. Se deja sin respuesta hasta recuperar BD.
+      logger.error({ err: e?.message, tenantId: convo.tenantId }, "[Agent] Se detuvo la respuesta por no poder verificar la cuota de IA");
+      throw new Error("USAGE_QUOTA_RETRYABLE: no se pudo reservar la cuota de IA");
     }
   }
 
@@ -1338,6 +1334,24 @@ export async function runAgentReply(conversationId: number) {
   // panel y nada de eso llegaba al modelo -- y encima el bloque del negocio,
   // tres párrafos más abajo, decía "Vos sos: Sofía". Gana lo primero que lee.
   const instruccionesDelAgente = String(activeAgent.systemPrompt || "").trim();
+  // Las instrucciones de cobro se construyen con la configuración REAL de
+  // este tenant. No enseñar a cada negocio una plantilla que presuponga
+  // MercadoPago, PayPal o billeteras del dueño de VentasPro.
+  const credencialesPago = (await import("./tenant-payment-credentials")).credencialesDe(realTenant);
+  const mediosPagoDelNegocio: string[] = [];
+  if (credencialesPago.mercadopago.enabled && credencialesPago.mercadopago.accessToken) mediosPagoDelNegocio.push("MercadoPago");
+  if (credencialesPago.paypal.enabled && credencialesPago.paypal.clientId && credencialesPago.paypal.clientSecret) mediosPagoDelNegocio.push("PayPal");
+  if (credencialesPago.transfer.enabled) {
+    mediosPagoDelNegocio.push(...credencialesPago.transfer.accounts.map((c) => c.type).filter(Boolean));
+  }
+  const bloqueProcesoPago = mediosPagoDelNegocio.length
+    ? `📌 MÉTODOS DE PAGO CONFIGURADOS PARA ESTE NEGOCIO: ${[...new Set(mediosPagoDelNegocio)].join(", ")}.\n`
+      + `Ofrece únicamente esos métodos. El sistema solo puede generar enlaces para las pasarelas conectadas y mostrar las cuentas cargadas; no sustituyas, inventes ni uses credenciales de otro negocio.\n`
+      + (credencialesPago.transfer.enabled && credencialesPago.transfer.accounts.length
+        ? `Si eligen una transferencia configurada, comparte únicamente sus datos exactos y espera el comprobante para validación.\n`
+        : "")
+      + `Si el negocio tiene un medio propio descrito en sus instrucciones pero no integrado aquí, explícalo solo según esos datos y no simules generar ni confirmar un pago.`
+    : `📌 ESTE NEGOCIO NO TIENE UN MEDIO DE PAGO INTEGRADO Y CONFIGURADO. No nombres MercadoPago, PayPal, Nequi, Daviplata ni el método de otro negocio. Si el cliente quiere pagar, dile que vas a confirmar el medio propio del negocio; no generes enlaces ni afirmes que el pago quedó confirmado.`;
   // ── Un "sí" contesta la ÚLTIMA pregunta del asesor: se le dice al modelo ──
   //
   // El dueño (13-09-2026): "no está entendiendo un sí cuando anteriormente
@@ -1431,8 +1445,8 @@ EL NEGOCIO:
 ${renderBloqueNegocio(negocio)}
 
 PROCESO DE PAGO:
-- Producto DIGITAL: con enlace de pago el sistema crea el enlace y confirma el pago; con transferencia el cliente envía el comprobante por este chat para validación.
-- Producto FÍSICO (se despacha): se paga CONTRAENTREGA, al recibirlo. No le ofrezcas enlaces de pago ni cuentas, no le digas "cuando tengas el pago listo": lo que sigue es tomarle los datos de envío (el sistema te indica cuáles, más abajo).
+${bloqueProcesoPago}
+- Producto FÍSICO (se despacha): usa contraentrega únicamente si las condiciones de envío de ESTE negocio lo indican; de lo contrario, sigue solo los métodos configurados arriba.
 
 CATÁLOGO DISPONIBLE:
 ${productList.length > 0 ? productsBlock : "No hay productos disponibles en este momento."}
@@ -1535,9 +1549,8 @@ palabras, cero razones para seguir leyendo. Eso no es un formato: es no vender.
 ${renderBloqueNegocio(negocio)}
 
 📌 PROCESO DE PAGO Y ENTREGA:
-• Pago por LINK (MercadoPago o PayPal): el cliente paga con tarjeta, PSE o PayPal. El sistema GENERA el enlace automáticamente y detecta el pago solo; al confirmarse, se le entrega el producto en este chat.
-• Pago por CONSIGNACIÓN (Nequi/Daviplata/transferencia): el cliente transfiere y envía el comprobante por este chat; se verifica y se le entrega el producto.
-• Los enlaces de pago (MercadoPago/PayPal) los GENERA EL SISTEMA en el momento — tú NO los escribes ni los inventas, solo confirmas con entusiasmo y el sistema los adjunta.
+${bloqueProcesoPago}
+• Producto FÍSICO (se despacha): usa contraentrega únicamente si las condiciones de envío de ESTE negocio lo indican; de lo contrario, sigue solo los métodos configurados arriba.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📦 CATÁLOGO DE PRODUCTOS
@@ -1553,7 +1566,7 @@ ${productList.length > 0 ? productsBlock : "No hay productos disponibles."}
 [6] No repitas información que ya diste. Usa la MEMORIA de la conversación.
 [6b] El "[ID: N]" del catálogo es INTERNO, solo para que TÚ elijas la card correcta. NUNCA menciones ese número al cliente (nada de "el curso ID 82", "producto 82", etc.). Refiérete al producto SIEMPRE por su NOMBRE.
 [6c] Los datos de pago (número de Nequi/Daviplata y el NOMBRE del titular) van EXACTOS como aparecen en los datos del negocio. NUNCA cambies, adivines ni "corrijas" el nombre del titular ni el número — cópialos tal cual.
-${isPaymentIntent ? "[7] ✅ El cliente quiere COMPRAR. Confirma con entusiasmo y cierra. Termina tu mensaje con [CARD: ID] del producto (reemplazá 'ID' por el NÚMERO, ej: [CARD: 124]) — el sistema adjunta AUTOMÁTICAMENTE la tarjeta con los enlaces dinámicos de MercadoPago y PayPal. NUNCA escribas [PAGAR:...], enlaces, URLs ni números de cuenta: SOLO usa [CARD: ID] con el número real." : `[7] 🧠 ANALIZA EL CONTEXTO y elige el producto CORRECTO del catálogo. Cuando el cliente pregunte por UN producto, pida información de él, o diga "sí"/"dame la información" tras ofrecerle la ficha, termina SIEMPRE tu mensaje con [CARD: ID] del producto que corresponda (reemplazá 'ID' por el NÚMERO del producto, ej: [CARD: 124]) — la tarjeta la arma el sistema con la foto, el detalle y TODOS los medios de pago; NUNCA la escribas tú a mano (no pongas precios, enlaces ni métodos de pago en tu texto: van en la tarjeta). Si el cliente PIDIÓ información, entregásela YA con la card: NO le hagas preguntas de calificación antes ("¿nunca has tocado piano?") — eso es interrogar a alguien que solo quiere que le muestres el curso. Puedes pedir UN dato útil DESPUÉS de entregar la card, si hace falta, pero la ficha va primero. El ÚNICO marcador válido es [CARD: ID] con el número real — nunca uses [PAGAR:...] ni escribas enlaces. Solo NO mandes la card en un saludo, una despedida o si el mensaje del cliente es tan ambiguo que mostrar el producto equivocado arruinaría la venta — en ese único caso, pregunta UNA cosa concreta antes de mostrar una card. NUNCA muestres un producto que no tenga relación con lo que el cliente busca.`}
+${isPaymentIntent ? "[7] El cliente quiere comprar. Avanza con el siguiente paso real. Usa [CARD: ID] solo para el producto correcto; la tarjeta incluirá únicamente los métodos disponibles para este negocio. Si no hay medio configurado, no afirmes que el sistema enviará un enlace: dile que confirmas cómo cobra este negocio. Nunca escribas ni inventes links, URLs o números de cuenta." : `[7] 🧠 ANALIZA EL CONTEXTO y elige el producto CORRECTO del catálogo. Cuando el cliente pregunte por UN producto, pida información de él, o diga "sí"/"dame la información" tras ofrecerle la ficha, termina SIEMPRE tu mensaje con [CARD: ID] del producto que corresponda (reemplazá 'ID' por el NÚMERO del producto, ej: [CARD: 124]) — la tarjeta la arma el sistema con los datos reales y solo los medios de pago configurados para ESTE negocio. NUNCA la escribas tú a mano (no pongas precios, enlaces ni métodos de pago en tu texto). Si el cliente PIDIÓ información, entrégasela YA con la card. Solo NO mandes la card en un saludo, despedida o si el mensaje es ambiguo y mostrar el producto equivocado perjudicaría la venta. NUNCA muestres un producto que no tenga relación con lo que busca.`}
 
 ⛔ REGLA ABSOLUTA: Cuando usás [CARD: ID], tu texto es SOLO una frase corta de acompañamiento (1-2 líneas máximo). NUNCA escribas la descripción del producto, características, precio ni detalles en tu texto — TODO eso va en la card que el sistema arma automáticamente. Si escribís más, el cliente recibe la info DOS VECES: primero en tu texto y después en la card. Eso es redundante y confuso.
 

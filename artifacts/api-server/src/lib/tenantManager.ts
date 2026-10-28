@@ -11,6 +11,7 @@ export interface TenantContext {
   slug: string;
   name: string;
   email: string;
+  contactPhone?: string | null;
   // Dueño de la plataforma: ve y administra TODOS los tenants, no solo el
   // propio. Antes esto se chequeaba comparando req.tenant.email (un campo
   // que TenantContext nunca poblaba) contra un email hardcodeado -- esa
@@ -116,6 +117,7 @@ const DEFAULT_TENANT: TenantContext = {
   // AdStrategist cuando no hay tenant resuelto) -- nunca debe ser admin.
   isAdmin: false,
   brandName: "TecnoVariedades",
+  plan: "basic",
   agentPersonality: "professional",
   agentPrompt: null,
   agentName: "Asistente Virtual",
@@ -131,32 +133,14 @@ const DEFAULT_TENANT: TenantContext = {
       days: [1, 2, 3, 4, 5] // Monday to Friday
     }
   },
+  // No rellenar los medios de pago del negocio con las credenciales del
+  // servidor: un tenant nuevo terminaría cobrando en la cuenta del dueño.
+  // credencialesDe() conserva el fallback de .env exclusivamente para el
+  // tenant propietario de la plataforma.
   paymentMethods: {
-    mercadopago: {
-      accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN || "",
-      enabled: !!process.env.MERCADO_PAGO_ACCESS_TOKEN
-    },
-    paypal: {
-      clientId: process.env.PAYPAL_CLIENT_ID || "",
-      clientSecret: process.env.PAYPAL_CLIENT_SECRET || "",
-      mode: (process.env.PAYPAL_MODE as "sandbox" | "live") || "live",
-      enabled: !!process.env.PAYPAL_CLIENT_ID
-    },
-    transfer: {
-      enabled: true,
-      accounts: [
-        {
-          type: "Nequi",
-          number: process.env.TRANSFER_NUMBER || "",
-          name: process.env.TRANSFER_NAME || ""
-        },
-        {
-          type: "Daviplata", 
-          number: process.env.TRANSFER_NUMBER || "",
-          name: process.env.TRANSFER_NAME || ""
-        }
-      ]
-    }
+    mercadopago: { accessToken: "", enabled: false },
+    paypal: { clientId: "", clientSecret: "", mode: "live", enabled: false },
+    transfer: { enabled: false, accounts: [] },
   },
   emailCredentials: {
     host: process.env.SMTP_HOST || "smtp.gmail.com",
@@ -531,6 +515,11 @@ export class TenantManager {
     conversations: { current: number; limit: number; exceeded: boolean };
     products: { current: number; limit: number; exceeded: boolean };
     monthlyMessages: { current: number; limit: number; exceeded: boolean };
+    monthlyWhatsappMessages: { current: number; limit: number; exceeded: boolean };
+    dailyWhatsappMessages: { current: number; limit: number; exceeded: boolean };
+    monthlyAiResponses: { current: number; limit: number; exceeded: boolean };
+    dailyAiResponses: { current: number; limit: number; exceeded: boolean };
+    aiCapacity: { serverConcurrent: number; perTenantConcurrent: number; maxWhatsappNumbers: number };
   }> {
     try {
       const tenant = await db
@@ -556,9 +545,32 @@ export class TenantManager {
         .from(products)
         .where(eq(products.tenantId, tenantId));
 
-      // For monthly messages, we'd need to implement message counting
-      // For now, we'll use a placeholder
-      const monthlyMessages = 0;
+      const [{ usoWhatsappDelPeriodo, respuestasIADelMes, respuestasIADelDia, limiteDiarioDelPlan }, { SAAS_PLANS }] = await Promise.all([
+        import("./consumo-del-plan"),
+        import("../middleware/saasValidation"),
+      ]);
+      const rawPlan = String(tenant[0].plan || "basic").toLowerCase();
+      const plan = tenant[0].isAdmin ? SAAS_PLANS.enterprise : SAAS_PLANS[rawPlan === "pro" ? "professional" : rawPlan] || SAAS_PLANS.basic;
+      const zonaHoraria = (tenant[0].settings as any)?.timezone || "America/Bogota";
+      const [whatsappUsage, monthlyAiResponses, dailyAiResponses] = await Promise.all([
+        usoWhatsappDelPeriodo(tenantId, new Date(), zonaHoraria),
+        respuestasIADelMes(tenantId),
+        respuestasIADelDia(tenantId, new Date(), zonaHoraria),
+      ]);
+      const monthlyMessages = whatsappUsage.mensual;
+      const serverConcurrent = Math.min(
+        128,
+        Math.max(1, Math.min(
+          Math.floor(Number(process.env.AGENT_CONCURRENCIA) || 4),
+          Math.floor(Number(process.env.AGENT_GLOBAL_CONCURRENCIA) || Number(process.env.AGENT_CONCURRENCIA) || 4),
+        )),
+      );
+      const tenantConfiguredConcurrent = Math.min(16, Math.max(1, Math.floor(Number(process.env.AGENT_MAX_EN_PARALELO_TENANT) || 4)));
+      const perTenantConcurrent = Math.min(serverConcurrent, tenantConfiguredConcurrent, plan.maxConcurrentAi);
+      const monthlyWhatsappLimit = plan.monthlyMessages;
+      const monthlyAiLimit = plan.monthlyAiResponses;
+      const dailyWhatsappLimit = limiteDiarioDelPlan(monthlyWhatsappLimit);
+      const dailyAiLimit = limiteDiarioDelPlan(monthlyAiLimit);
 
       return {
         conversations: {
@@ -573,8 +585,33 @@ export class TenantManager {
         },
         monthlyMessages: {
           current: monthlyMessages,
-          limit: limits.maxMonthlyMessages,
-          exceeded: monthlyMessages >= limits.maxMonthlyMessages
+          limit: monthlyWhatsappLimit,
+          exceeded: monthlyMessages >= monthlyWhatsappLimit
+        },
+        monthlyWhatsappMessages: {
+          current: monthlyMessages,
+          limit: monthlyWhatsappLimit,
+          exceeded: monthlyMessages >= monthlyWhatsappLimit
+        },
+        dailyWhatsappMessages: {
+          current: whatsappUsage.diario,
+          limit: dailyWhatsappLimit,
+          exceeded: whatsappUsage.diario >= dailyWhatsappLimit
+        },
+        monthlyAiResponses: {
+          current: monthlyAiResponses,
+          limit: monthlyAiLimit,
+          exceeded: monthlyAiResponses >= monthlyAiLimit
+        },
+        dailyAiResponses: {
+          current: dailyAiResponses,
+          limit: dailyAiLimit,
+          exceeded: dailyAiResponses >= dailyAiLimit
+        },
+        aiCapacity: {
+          serverConcurrent,
+          perTenantConcurrent,
+          maxWhatsappNumbers: plan.maxWhatsappNumbers,
         }
       };
 
@@ -710,7 +747,7 @@ export function resolveTenant() {
         path: req.path 
       }, "[TenantManager] Tenant resolved for request");
 
-      next();
+      return next();
 
     } catch (error) {
       logger.error({ error }, "[TenantManager] Failed to resolve tenant");
@@ -731,7 +768,7 @@ export function requireAdmin() {
     if (!req.tenant?.isAdmin) {
       return res.status(403).json({ message: "Acceso solo para administrador de la plataforma" });
     }
-    next();
+    return next();
   };
 }
 
@@ -750,5 +787,4 @@ export function addTenantToInsert<T extends Record<string, any>>(
   return { ...data, tenantId };
 }
 
-// Export types
-export type { TenantRequest };
+// TenantRequest is exported with its declaration above.

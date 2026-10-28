@@ -55,7 +55,7 @@ import { logger } from "../lib/logger";
  *
  * 👉 Recalcular estos numeros cuando cambie el costo real, no antes.
  */
-export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMessages: number; monthlyConversations: number; maxConversations: number; maxProducts: number; maxAgents: number; features: string[]; trialDays: number; visible?: boolean; }> = {
+export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMessages: number; monthlyAiResponses: number; maxConcurrentAi: number; maxWhatsappNumbers: number; monthlyConversations: number; maxConversations: number; maxProducts: number; maxAgents: number; features: string[]; trialDays: number; visible?: boolean; }> = {
   basic: {
     // Prueba de 7 días, no gratis para siempre -- si el plan gratuito no
     // vence nadie tiene motivo real para pagar. 30 mensajes alcanza para que
@@ -63,6 +63,9 @@ export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMe
     name: "Prueba gratis",
     price: 0,
     monthlyMessages: 30,
+    monthlyAiResponses: 30,
+    maxConcurrentAi: 1,
+    maxWhatsappNumbers: 1,
     monthlyConversations: 20,
     maxConversations: 20,
     maxProducts: 10,
@@ -75,6 +78,9 @@ export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMe
     name: "Starter",
     price: 29,          // cuesta ~$5 (IA) -> margen ~83%
     monthlyMessages: 1500,
+    monthlyAiResponses: 1500,
+    maxConcurrentAi: 1,
+    maxWhatsappNumbers: 1,
     monthlyConversations: 500,
     maxConversations: 150,
     maxProducts: 75,
@@ -87,6 +93,9 @@ export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMe
     name: "Growth",
     price: 79,          // cuesta ~$13 (IA) -> margen ~84%
     monthlyMessages: 4000,
+    monthlyAiResponses: 4000,
+    maxConcurrentAi: 2,
+    maxWhatsappNumbers: 1,
     monthlyConversations: 1500,
     maxConversations: 400,
     maxProducts: 300,
@@ -99,6 +108,9 @@ export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMe
     name: "Pro",
     price: 149,         // cuesta ~$30 (IA) -> margen ~80%
     monthlyMessages: 9000,
+    monthlyAiResponses: 9000,
+    maxConcurrentAi: 2,
+    maxWhatsappNumbers: 1,
     monthlyConversations: 3000,
     maxConversations: 900,
     maxProducts: 750,
@@ -120,6 +132,9 @@ export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMe
     name: "Free",
     price: 0,
     monthlyMessages: 100,
+    monthlyAiResponses: 100,
+    maxConcurrentAi: 1,
+    maxWhatsappNumbers: 1,
     monthlyConversations: 30,
     maxConversations: 10,
     maxProducts: 5,
@@ -132,6 +147,9 @@ export const SAAS_PLANS: Record<string, { name: string; price: number; monthlyMe
     name: "Enterprise",
     price: 299,         // cuesta ~$89 (IA) -> margen ~70%
     monthlyMessages: 27000,
+    monthlyAiResponses: 27000,
+    maxConcurrentAi: 4,
+    maxWhatsappNumbers: 1,
     monthlyConversations: 10000,
     maxConversations: 2700,
     maxProducts: 5000,
@@ -165,7 +183,7 @@ export function validateSaasPlan() {
 
       // Normalizar el plan a minúsculas para evitar errores de mayúsculas
       const rawPlan = (tenant.plan || "free").toString().toLowerCase();
-      const plan = rawPlan as SaasPlan;
+      const plan = (rawPlan === "pro" ? "professional" : rawPlan) as SaasPlan;
       
       // EXCEPCIÓN VIP: administrador de la plataforma, acceso gratuito de por
       // vida. Antes comparaba tenant.email contra un valor hardcodeado (el
@@ -256,11 +274,18 @@ export function validateUsageLimits() {
 
       const planDetails = saas.planDetails;
 
-      // Aquí se pueden agregar validaciones de límites
-      // Por ejemplo: verificar que no se exceda el límite de mensajes mensuales
-
       (req as any).limits = {
         monthlyMessages: planDetails.monthlyMessages,
+        monthlyWhatsappMessages: planDetails.monthlyMessages,
+        dailyWhatsappMessages: Math.max(1, Math.ceil(planDetails.monthlyMessages / 30)),
+        monthlyAiResponses: planDetails.monthlyAiResponses,
+        dailyAiResponses: Math.max(1, Math.ceil(planDetails.monthlyAiResponses / 30)),
+        maxConcurrentAi: Math.min(
+          planDetails.maxConcurrentAi,
+          Math.max(1, Math.floor(Number(process.env.AGENT_MAX_EN_PARALELO_TENANT) || 4)),
+          Math.max(1, Math.floor(Number(process.env.AGENT_GLOBAL_CONCURRENCIA) || Number(process.env.AGENT_CONCURRENCIA) || 4)),
+        ),
+        maxWhatsappNumbers: planDetails.maxWhatsappNumbers,
         maxConversations: planDetails.maxConversations,
         maxProducts: planDetails.maxProducts,
         maxAgents: planDetails.maxAgents,
@@ -276,7 +301,8 @@ export function validateUsageLimits() {
 
 // Función para obtener información del plan
 export function getPlanInfo(plan: SaasPlan) {
-  return SAAS_PLANS[plan] || SAAS_PLANS.free;
+  const canonical = (plan as string) === "pro" ? "professional" : plan;
+  return SAAS_PLANS[canonical] || SAAS_PLANS.free;
 }
 
 // Función para verificar si un tenant puede acceder a una característica

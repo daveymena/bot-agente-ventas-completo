@@ -977,6 +977,18 @@ export const ejecutores: Record<string, Ejecutor> = {
       };
     }
 
+    // No dejes que una llamada del modelo presente una tarjeta de pago vacía
+    // ni sugiera un proveedor por defecto. La lista del guion viene de los
+    // medios configurados para el tenant activo.
+    if (sec.startsWith("pago") && !ctx.guion.hechos.some((h) => h.startsWith("Se cobra con:"))) {
+      return {
+        ok: false,
+        mensaje:
+          "No se envió: este negocio no tiene un medio de pago integrado/configurado. " +
+          "No inventes PayPal, MercadoPago, transferencias ni enlaces. Dile al cliente que confirmarás cómo cobra este negocio.",
+      };
+    }
+
     // ── Entrega: solo si el negocio la tiene cargada ───────────────────────
     if (sec === "entrega" && !ctx.guion.hechos.some((h) => h.startsWith("Entrega:"))) {
       return {

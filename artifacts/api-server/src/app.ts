@@ -13,6 +13,7 @@ import router from "./routes";
 import { landingPublicaRouter } from "./routes/landing-publica";
 import { catalogoMetaRouter } from "./routes/catalogo-meta";
 import healthRouter from "./health";
+import whatsappInternalRouter from "./routes/whatsapp-internal";
 import woocommerceRouter from "./routes/woocommerce";
 import dropiRouter from "./routes/dropi";
 import telegramRouter from "./routes/telegram";
@@ -36,8 +37,13 @@ import { ensureDbReady } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import { getImageStoreDir } from "./lib/image-store";
 
+const PROCESS_ROLE = process.env.VENTASPRO_PROCESS_ROLE || "combined";
+const OWNS_WHATSAPP = PROCESS_ROLE === "combined" || PROCESS_ROLE === "gateway";
+const RUNS_AGENT_WORKER = PROCESS_ROLE === "combined" || PROCESS_ROLE === "worker";
+const RUNS_SCHEDULERS = PROCESS_ROLE !== "worker";
+
 // Auto-start WhatsApp bot on boot (multi-tenant: una instancia por tenant)
-(async () => {
+if (OWNS_WHATSAPP) void (async () => {
   try {
     // Primero la base. Sin esto, getTenantById(1) corría antes de que `db`
     // existiera, fallaba ("[TenantManager] Failed to get tenant by ID",
@@ -72,12 +78,12 @@ import { getImageStoreDir } from "./lib/image-store";
 
 // Monitor periódico de instancias multi-tenant (limpieza cada 5 min)
 import { startWhatsAppMonitor } from "./lib/whatsapp-monitor";
-startWhatsAppMonitor(5 * 60 * 1000);
+if (OWNS_WHATSAPP) startWhatsAppMonitor(5 * 60 * 1000);
 
 // Auto-start del agente de crecimiento de Facebook Ads (asistido: solo
 // sugiere por WhatsApp, nunca ejecuta sin aprobación -- ver ad-growth-agent.ts)
 import { startAdGrowthAgent } from "./lib/ad-growth-agent";
-startAdGrowthAgent();
+if (RUNS_SCHEDULERS) startAdGrowthAgent();
 
 // El reloj del sistema: lo que hay que hacer A UNA HORA determinada.
 //
@@ -94,67 +100,73 @@ import { registrarOrganico } from "./lib/agente-organico";
 import { registrarAgencia } from "./lib/agencia-ritmo";
 import { registrarGuardia } from "./lib/agente-horario";
 import { registrarAgendaDeAtlas } from "./lib/atlas-agenda";
-registrarOrganico();
+import { startMarketingDailyReport } from "./lib/marketing-team/daily-report";
+import { registrarAutoReflexion } from "./lib/auto-reflexion";
+import { remarketingScheduler } from "./lib/remarketing-scheduler";
+import { followUpScheduler } from "./lib/followUpScheduler";
+if (RUNS_SCHEDULERS) {
+  registrarOrganico();
 // El equipo de marketing tambien necesita reloj: sin esto, sus catorce
 // especialistas solo trabajan cuando el admin abre el chat y pregunta.
-registrarAgencia();
+  registrarAgencia();
 // Cierra el loop de aprobaciones: al aprobar una tarea del equipo, se ejecuta
 // de verdad contra Meta (ver lib/marketing-team/task-executor.ts).
-import("./lib/marketing-team/task-executor").then((m) => m.iniciarEjecutorDeTareas()).catch(() => undefined);
+  import("./lib/marketing-team/task-executor").then((m) => m.iniciarEjecutorDeTareas()).catch(() => undefined);
 // Tokens de Dropify por producto: se auditan y reparan solos (ver lib/dropify-auditoria.ts).
-import("./lib/dropify-auditoria").then((m) => m.iniciarAuditoriaDropify()).catch(() => undefined);
+  import("./lib/dropify-auditoria").then((m) => m.iniciarAuditoriaDropify()).catch(() => undefined);
 // Pedidos que Dropi rechazó: se reintentan solos y se le avisa al cliente (ver lib/reintento-pedidos.ts).
-import("./lib/reintento-pedidos").then((m) => m.iniciarReintentoDePedidos()).catch(() => undefined);
-import("./lib/telegram-atlas").then((m) => m.iniciarAtlasEnTelegramParaTodos()).catch(() => undefined);
+  import("./lib/reintento-pedidos").then((m) => m.iniciarReintentoDePedidos()).catch(() => undefined);
+  import("./lib/telegram-atlas").then((m) => m.iniciarAtlasEnTelegramParaTodos()).catch(() => undefined);
 // Productos importados (Dropi/Woo) sin categoría real → se enlazan solos (ver lib/categorias.ts).
-import("./lib/categorias").then((m) => m.iniciarVinculoDeCategorias()).catch(() => undefined);
+  import("./lib/categorias").then((m) => m.iniciarVinculoDeCategorias()).catch(() => undefined);
 // Atlas arrastraba "Dropi rechaza el token del panel" de sesiones viejas (ver lib/dropi-memoria.ts).
-import("./lib/dropi-memoria").then((m) => m.iniciarCorreccionDeMemoriaDropi()).catch(() => undefined);
-registrarGuardia();
+  import("./lib/dropi-memoria").then((m) => m.iniciarCorreccionDeMemoriaDropi()).catch(() => undefined);
+  registrarGuardia();
 // Las acciones que el admin deja programadas desde Atlas (ver lib/atlas-agenda.ts).
-registrarAgendaDeAtlas();
-iniciarProgramador();
+  registrarAgendaDeAtlas();
+  iniciarProgramador();
 
 // Reporte diario del equipo de marketing. Los 13 agentes existian pero no
 // corria ninguno solo: habia que ir a despertarlos entrando a la pagina. Un
 // equipo que hay que despertar no hace seguimiento. Solo MIRA y avisa por
 // WhatsApp; no cambia nada, y si no hay novedades no escribe.
-import { startMarketingDailyReport } from "./lib/marketing-team/daily-report";
-startMarketingDailyReport();
+  startMarketingDailyReport();
 
 // Auto-mejora curada de agentes: aprende de errores en segundo plano. Apagado
 // por defecto (AUTOREFLEXION_ENABLED=true lo prende). Aplica cambios aditivos
 // al prompt con version y rollback (ver lib/auto-reflexion.ts).
-import { registrarAutoReflexion } from "./lib/auto-reflexion";
-registrarAutoReflexion();
+  registrarAutoReflexion();
 
 // Auto-start del scheduler de remarketing: procesa en tandas chicas las
 // campañas de email/WhatsApp que Atlas encoló (nunca manda nada por su
 // cuenta -- solo drena lo que el admin ya confirmó, ver remarketing.ts).
-import { remarketingScheduler } from "./lib/remarketing-scheduler";
-remarketingScheduler.start();
+  remarketingScheduler.start();
 
 // Seguimientos comerciales (follow_ups): antes se encendía solo al importar
 // followUpScheduler.ts, desde donde fuera. Ahora se enciende acá, a la vista,
 // y su primera pasada espera a la base.
-import { followUpScheduler } from "./lib/followUpScheduler";
-followUpScheduler.start(30);
+  followUpScheduler.start(30);
+}
 
 // Auto-start AI Processor (Orchestrator) on boot
 import { getAgentOrchestrator } from "./lib/services/agent-orchestrator";
 import { getMessageHandler } from "./lib/services/message-handler";
 
-const orchestrator = getAgentOrchestrator();
-orchestrator.configureTenant("1", { enabled: true, processingIntervalMs: 500 });
-logger.info("[AgentOrchestrator] AI processing auto-started for default tenant");
+if (RUNS_AGENT_WORKER) {
+  const orchestrator = getAgentOrchestrator();
+  orchestrator.configureTenant("1", { enabled: true, processingIntervalMs: 500 });
+  logger.info({ role: PROCESS_ROLE }, "[AgentOrchestrator] AI processing started");
+}
 
 // Configure MessageHandler for receiving incoming WhatsApp messages
-const messageHandler = getMessageHandler();
-messageHandler.configureTenant("1", { enabled: true });
-logger.info("[MessageHandler] Message receiver configured for default tenant");
+if (OWNS_WHATSAPP) {
+  const messageHandler = getMessageHandler();
+  messageHandler.configureTenant("1", { enabled: true });
+  logger.info("[MessageHandler] Message receiver configured for default tenant");
+}
 
 // Auto-seed initial data if empty DB
-(async () => {
+if (OWNS_WHATSAPP) void (async () => {
   try {
     await ensureDbReady();
 
@@ -416,6 +428,9 @@ app.use(express.urlencoded({ extended: true, limit: "12mb" }));
 
 // Health check endpoints (sin autenticación)
 app.use("/api", healthRouter);
+// Relay privado worker → gateway; autentica su propio token y no necesita
+// una cookie/sesión de tenant del navegador.
+app.use("/api/internal/whatsapp", whatsappInternalRouter);
 
 // Digital Asset Links para la APK (TWA): asocia ventasproia.com con la app.
 // ANDROID_SHA256 = huella SHA-256 (sin :) del keystore de firma (upload key).

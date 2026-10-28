@@ -28,6 +28,8 @@ import { presentarParaWhatsApp } from "./presentacion";
 import { unirTextosSeguidos } from "./una-sola-burbuja";
 import { type AgentReplyPart } from "./whatsapp-singleton";
 import { META_API_VERSION } from "./meta-api-version";
+import { sumarMensaje } from "./consumo-del-plan";
+import { trackWhatsAppCost } from "../middleware/rateLimiting";
 
 const API_VERSION = process.env.WHATSAPP_CLOUD_API_VERSION || META_API_VERSION;
 const GRAPH = `https://graph.facebook.com/${API_VERSION}`;
@@ -116,6 +118,10 @@ export async function sendTextCloud(phone: string, text: string): Promise<boolea
     text: { body },
   });
   if (!r.ok) logger.warn({ to, status: r.status, err: r.error }, "[CloudAPI] No se pudo enviar texto");
+  if (r.ok) {
+    trackWhatsAppCost(String(cfg.tenantId));
+    void sumarMensaje(cfg.tenantId);
+  }
   return r.ok;
 }
 
@@ -140,6 +146,8 @@ export async function sendImageCloud(phone: string, imageUrl: string, caption: s
     logger.warn({ to, status: r.status, err: r.error }, "[CloudAPI] No se pudo enviar imagen; se manda el texto");
     return sendTextCloud(phone, caption);
   }
+  trackWhatsAppCost(String(cfg.tenantId));
+  void sumarMensaje(cfg.tenantId);
   return true;
 }
 
