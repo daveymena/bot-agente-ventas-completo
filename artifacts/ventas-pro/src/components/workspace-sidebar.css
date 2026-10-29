@@ -1,0 +1,23 @@
+.vp-workspace-sidebar {
+  --sidebar: 220 23% 98%; --sidebar-foreground: 222 32% 22%; --sidebar-border: 220 18% 91%;
+  --sidebar-accent: 225 24% 94%; --sidebar-accent-foreground: 222 32% 18%; --sidebar-primary: 243 75% 59%;
+  border-color: hsl(var(--sidebar-border)); color: hsl(var(--sidebar-foreground));
+}
+.dark .vp-workspace-sidebar {
+  --sidebar: 222 34% 10%; --sidebar-foreground: 218 23% 85%; --sidebar-border: 220 22% 18%;
+  --sidebar-accent: 223 26% 17%; --sidebar-accent-foreground: 218 23% 95%;
+}
+.vp-workspace-link { gap: 10px; color: hsl(var(--sidebar-foreground) / .78); transition: background-color .15s, color .15s; }
+.vp-workspace-link:hover { color: hsl(var(--sidebar-foreground)); background: hsl(var(--sidebar-accent)); }
+.vp-workspace-link[data-active="true"] { color: #4f46e5; background: #eaeafa; font-weight: 600; box-shadow: inset 2px 0 #6366f1; }
+.dark .vp-workspace-link[data-active="true"] { color: #c7d2fe; background: #252744; }
+.vp-workspace-link[href="/code-agent"] { color: #4f46e5; background: #eeeffc; border: 1px solid #e0e2fb; font-weight: 600; }
+.dark .vp-workspace-link[href="/code-agent"] { color: #c7d2fe; background: #20223a; border-color: #343752; }
+.vp-workspace-heading, .vp-workspace-section { font-size: 11px; font-weight: 600; letter-spacing: .025em; color: hsl(var(--sidebar-foreground) / .57); }
+.vp-workspace-heading { padding: 0 10px; margin-bottom: 8px; }
+.vp-workspace-section { display: flex; align-items: center; width: 100%; min-height: 32px; padding: 6px 10px; border-radius: 8px; }
+.vp-workspace-section:hover, .vp-workspace-section.is-current { color: hsl(var(--sidebar-foreground)); background: hsl(var(--sidebar-accent)); }
+.vp-workspace-control { padding: 6px; border-radius: 6px; color: hsl(var(--sidebar-foreground) / .5); }
+.vp-workspace-control:hover { background: hsl(var(--sidebar-accent)); color: hsl(var(--sidebar-foreground)); }
+.vp-workspace-sidebar :is(a, button):focus-visible { outline: 2px solid #818cf8; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .vp-workspace-sidebar *, .vp-workspace-sidebar *::before { transition: none !important; animation: none !important; } }

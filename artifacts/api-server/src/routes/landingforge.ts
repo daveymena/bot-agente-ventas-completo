@@ -14,8 +14,8 @@ const router = Router();
 /** Verificar estado de LandingForge y proveedores de IA */
 router.get("/status", async (_req, res) => {
   try {
-    const BASE = process.env.LANDINGFORGE_URL || "https://landingforge.2xs2bu.easypanel.host";
-    const r = await fetch(`${BASE}/api/health`);
+    const BASE = process.env.LANDINGFORGE_URL || "http://localhost:3000";
+    const r = await fetch(`${BASE}/api/generate`);
     const data = await r.json();
     res.json({ ok: true, landingforge: data, url: BASE });
   } catch (e) {
@@ -39,9 +39,9 @@ router.post("/generate", async (req, res) => {
       { tenantId: (req as any).tenant?.id ?? null },
     );
 
-    res.json(result);
+    return res.json(result);
   } catch (e) {
-    res.status(500).json({ ok: false, error: (e as Error).message });
+    return res.status(500).json({ ok: false, error: (e as Error).message });
   }
 });
 

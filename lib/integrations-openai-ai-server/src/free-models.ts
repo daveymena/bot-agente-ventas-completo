@@ -36,6 +36,12 @@ export const MODELOS_LIBRES: ModeloLibre[] = [
   { proveedor: "opencode", modelo: "gpt-5.6-sol", especialidad: "razonar", estado: "verificado", nota: "modelo actual disponible" },
   { proveedor: "opencode", modelo: "gpt-5.6-terra", especialidad: "rapido", estado: "verificado", nota: "modelo actual disponible" },
 
+  // ── Excelnt (puente del dueño, 2026-10-06) ── gateway https://excelnt.ai/v1
+  // "GPT 6 Astra" es el recomendado por su propia documentación para código.
+  // Estado "sin probar": falta la key (se crea en la extensión de VS Code)
+  // para verificar contra la API real y pasarlos a "verificado".
+  { proveedor: "excelnt", modelo: "gpt-6-astra", especialidad: "general", estado: "sin probar", nota: "recomendado por Excelnt para código" },
+
   // ── Groq (clave GROQ_API_KEY, ya configurada) ── 14.400 req/día ────────────
   // ⚠️ Catalogo contrastado contra su API el 2026-08-27: los llama-3.x y
   // gemma2 que habia aca YA NO EXISTEN en Groq. Apuntar ahi era un 404

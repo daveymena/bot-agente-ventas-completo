@@ -2,7 +2,12 @@ import { logger } from "./logger";
 import { CAMPOS_WEBHOOK_PAGINA } from "./meta-campos-webhook";
 import { getAppUrl } from "./app-url";
 import { destinoWebDelProducto } from "./landing/destino-del-producto";
-import { db, products } from "@workspace/db";
+import { db, products, pool } from "@workspace/db";
+import { historicoDesdeTabla } from "./meta/metricas";
+import { sqlDesdePool } from "./meta/sql-pool";
+import { conExclusionDeCuenta, type PoolBloqueo } from "./meta/bloqueo-cuenta";
+import { payloadProductoCatalogo } from "./meta/catalogo-producto";
+import { leerUso } from "./meta/graph";
 import { eq } from "drizzle-orm";
 import { tenantManager, type TenantContext } from "./tenantManager";
 
@@ -482,6 +487,41 @@ export class FacebookService {
   }
 
   /**
+   * ¿La conexión con Meta FUNCIONA? Distinto de `isConfigured()`.
+   *
+   * `isConfigured()` solo mira que exista un token. Un token VENCIDO lo pasa y
+   * después todas las llamadas fallan, cada una en su propio `catch`: el panel
+   * no se queja, el dueño no se entera, y los frenos de gasto quedan apagados
+   * en silencio.
+   *
+   * Pasó en producción y se verificó el 2026-10-14: el token devolvía
+   * `code 190, subcode 467` ("the user logged out") y el sistema lo sabía —lo
+   * escribía en el log de `CatalogoAutoSync` en cada corrida— pero nunca se lo
+   * dijo a nadie. Con la cuenta a ciegas: sin métricas, sin publicación, sin
+   * atribución y sin vigilancia de gasto.
+   *
+   * Hace la llamada más barata posible (`/me`) para poder correr seguido.
+   */
+  async verificarConexion(): Promise<{ ok: boolean; motivo: string }> {
+    if (!this.isConfigured()) {
+      return { ok: false, motivo: "No hay token de Facebook configurado." };
+    }
+    try {
+      const res = await this.fbGet("me", { fields: "id,name" }, this.config.userAccessToken as string);
+      if (res?.id) return { ok: true, motivo: "" };
+      return { ok: false, motivo: "Meta respondió sin identificador de cuenta." };
+    } catch (err: any) {
+      // `diagnosticoDeErrorDeMeta` ya traduce los códigos reales (190 token
+      // vencido, 200 permisos, 2635 cuenta restringida) a algo accionable.
+      const d = diagnosticoDeErrorDeMeta(err);
+      const motivo = d?.motivo
+        ? d.motivo + (d.hayQueReconectar ? " Reconectá la cuenta desde el panel." : "")
+        : err?.message || String(err);
+      return { ok: false, motivo: String(motivo).slice(0, 400) };
+    }
+  }
+
+  /**
    * Las cuentas publicitarias a las que llega este token, con cual esta en uso.
    *
    * ── Por que hacia falta ───────────────────────────────────────────────
@@ -692,7 +732,7 @@ export class FacebookService {
     if (!this.isConfigured()) return { ok: false, message: "Token no configurado" };
     try {
       const res = await fetch(`${FB_GRAPH_URL}/me?access_token=${this.config.accessToken}`, { signal: AbortSignal.timeout(10000) });
-      const d = await res.json();
+      const d: any = await res.json();
       return d.id
         ? { ok: true, message: `Conectado como ${d.name || d.id}` }
         : { ok: false, message: d.error?.message || "Token inválido" };
@@ -1827,6 +1867,40 @@ Responde SOLO con este JSON exacto:
   }
 
   /**
+   * Métricas de varios días para REPORTES (diagnóstico, análisis de expertos).
+   *
+   * Lee de la tabla propia `meta_insights_diarios` cuando hay cobertura y la
+   * sincronización es reciente; si no, cae a la consulta en vivo. Las
+   * decisiones de presupuesto y pausa NO usan esta función: siguen en vivo.
+   * Apagado por defecto: se enciende con META_HISTORICO_DESDE_TABLA=true.
+   */
+  async getCampaignMetricsHistoricos(opts?: { campaignIds?: string[]; days?: number }): Promise<{
+    campaigns: any[];
+    totals: { spend: number; impressions: number; clicks: number; results: number; costPerResult: number };
+    fuente: "tabla" | "vivo";
+    actualizadoEn?: string;
+  } | null> {
+    const dias = Math.min(Math.max(opts?.days || 7, 1), 30);
+    const usarTabla = process.env.META_HISTORICO_DESDE_TABLA === "true" && pool && this.config.adAccountId;
+    if (usarTabla) {
+      try {
+        const cuenta = String(this.config.adAccountId).startsWith("act_") ? String(this.config.adAccountId) : `act_${this.config.adAccountId}`;
+        const sql = sqlDesdePool(pool as unknown as Parameters<typeof sqlDesdePool>[0]);
+        const h = await historicoDesdeTabla(sql, Number(this.tenant.id), cuenta, dias);
+        if (h) {
+          const ids = opts?.campaignIds;
+          const campaigns = ids?.length ? h.campaigns.filter((c) => ids.includes(c.id)) : h.campaigns;
+          return { campaigns, totals: h.totals, fuente: "tabla", actualizadoEn: h.actualizadoEn };
+        }
+      } catch (err: any) {
+        logger.warn({ err }, "[Facebook] histórico desde tabla falló, se usa Meta en vivo");
+      }
+    }
+    const vivo = await this.getCampaignMetrics({ campaignIds: opts?.campaignIds, days: dias });
+    return vivo ? { ...vivo, fuente: "vivo" } : null;
+  }
+
+  /**
    * Inversa de `presupuestoDiarioParaMeta`: pasa un monto que viene de Graph
    * API (en unidades mínimas) al número que el admin entiende.
    *
@@ -2501,22 +2575,35 @@ Responde SOLO con este JSON exacto:
   }
 
   /** Ajusta el presupuesto diario de un conjunto de anuncios por un
-   * porcentaje (ej. 0.2 = +20%, -0.2 = -20%). Graph API espera el
-   * presupuesto en centavos. */
+   * porcentaje (ej. 0.2 = +20%, -0.2 = -20%). */
   async adjustAdSetBudget(adSetId: string, percentChange: number): Promise<{ ok: boolean; newBudget?: number }> {
     try {
       const current = await this.getAdSetBudgetStatus(adSetId);
       if (!current || !current.dailyBudget) return { ok: false };
-      // Acá NO se convierte: current.dailyBudget ya viene de Meta en la moneda
-      // de la cuenta, así que el porcentaje se aplica y se devuelve en esa
-      // misma moneda. Lo que sí importa es el PISO: estaba fijo en 1000, que
-      // en una cuenta en pesos son 1.000 COP (razonable) pero en una cuenta
-      // en dólares serían US$1.000 POR DÍA -- un piso capaz de multiplicar el
-      // gasto por mil al "bajar" un presupuesto.
+      // `current.dailyBudget` ya viene en la moneda de la cuenta (lo convierte
+      // `deMetaAMonedaDeCuenta`). El porcentaje se aplica ahí y el RESULTADO
+      // vuelve a unidades mínimas con el helper, que conoce el offset de cada
+      // moneda. Ver presupuestoDiarioParaMeta().
+      //
+      // ⚠️ BUG DE PLATA REAL, corregido el 2026-10-14: acá se hacía
+      // `Math.round(newBudget * 100)` a mano. En una cuenta en COP -- offset 1,
+      // sin centavos -- eso manda cien veces el monto. Es el MISMO ×100 que ya
+      // se había corregido en el camino de creación de conjuntos (ver el
+      // comentario de la línea 641, incidente del 2026-08-12): ese arreglo no
+      // cubrió este camino, que es el que usa el agente cuando el dueño aprueba
+      // "subir presupuesto" por WhatsApp. Un "$5.000 → +20%" habría quedado en
+      // $600.000/día.
       const moneda = (await this.getAccountCurrency()) || "COP";
       const piso = moneda === "COP" ? 1000 : 1;
       const newBudget = Math.max(piso, Math.round(current.dailyBudget * (1 + percentChange)));
-      await this.fbPost(adSetId, { daily_budget: Math.round(newBudget * 100) }, "ajustar presupuesto", this.config.userAccessToken);
+
+      const enUnidadesDeMeta = await this.presupuestoDiarioParaMeta(newBudget);
+      if (!enUnidadesDeMeta.ok) {
+        logger.warn({ adSetId, newBudget, motivo: enUnidadesDeMeta.message }, "[Facebook] Presupuesto rechazado por el guardián de montos");
+        return { ok: false };
+      }
+
+      await this.fbPost(adSetId, { daily_budget: enUnidadesDeMeta.valor }, "ajustar presupuesto", this.config.userAccessToken);
       return { ok: true, newBudget };
     } catch (err: any) {
       logger.warn({ err, adSetId }, "[Facebook] Error ajustando presupuesto");
@@ -2679,7 +2766,27 @@ Responde SOLO con este JSON exacto:
     }
   }
 
+  /**
+   * Toda escritura a Meta pasa por aquí. Con Postgres disponible, una sola
+   * escritura por cuenta a la vez en todas las instancias (ver meta/bloqueo-cuenta.ts).
+   * Sin Postgres, o con META_EXCLUSION_CUENTA=false, se escribe como antes.
+   */
   private async fbPost(endpoint: string, body: Record<string, any>, step?: string, token?: string): Promise<any> {
+    if (!pool || process.env.META_EXCLUSION_CUENTA === "false") {
+      return this.fbPostConReintentos(endpoint, body, step, token);
+    }
+    const cuenta = this.config.adAccountId
+      ? (String(this.config.adAccountId).startsWith("act_") ? String(this.config.adAccountId) : `act_${this.config.adAccountId}`)
+      : `pagina:${this.config.pageId || "global"}`;
+    return conExclusionDeCuenta(
+      pool as unknown as PoolBloqueo,
+      Number(this.tenant.id),
+      cuenta,
+      () => this.fbPostConReintentos(endpoint, body, step, token),
+    );
+  }
+
+  private async fbPostConReintentos(endpoint: string, body: Record<string, any>, step?: string, token?: string): Promise<any> {
     const ESPERAS_MS = [1200, 3000];
     for (let intento = 0; ; intento++) {
       try {
@@ -2705,6 +2812,11 @@ Responde SOLO con este JSON exacto:
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(20000),
     });
+    // Cuota de la cuenta: si ya va muy alta, se deja constancia antes del próximo fallo.
+    const uso = leerUso(res.headers);
+    if ((uso.cuentaPorcentaje ?? 0) >= 80 || (uso.appPorcentaje ?? 0) >= 80) {
+      logger.warn({ endpoint, uso }, "[Facebook] Cuota de Meta alta: cerca del límite");
+    }
     const data: any = await res.json();
     if (data.error) {
       const prefix = step ? `[${step}] ` : "";
@@ -2961,17 +3073,18 @@ Responde SOLO con este JSON exacto:
         // (la columna es imageUrl) y /productos/:id no es una ruta real --
         // ambos dejaban el catálogo con productos sin imagen y con un link
         // roto en cada anuncio dinámico/shopping generado desde él.
-        const absoluteImage = absoluteImageUrl(p.imageUrl);
-        const data = {
-          title: p.name,
-          description: (p.description || "").substring(0, 5000),
-          price: `${Number(p.price).toFixed(0)}_COP`,
-          currency: "COP",
-          image_url: absoluteImage || "",
-          product_type: p.category || "Digital",
-          sku: `PROD-${p.id}`,
-          url: `${process.env.APP_URL || ""}/p/${p.id}`,
-        };
+        // Campos y validación según la referencia de Meta (ver meta/catalogo-producto.ts).
+        // Un producto que no cumple se reporta con el motivo, sin llamar a Meta.
+        const armado = payloadProductoCatalogo(
+          { id: p.id, name: p.name, description: p.description, price: p.price, imageUrl: absoluteImageUrl(p.imageUrl), isActive: p.isActive },
+          { appUrl: process.env.APP_URL || "", moneda: "COP", marca: this.tenant?.name || "VentasPro" },
+        );
+        if (!armado.ok) {
+          result.failed++;
+          result.errors.push(`${p.name}: ${armado.motivos.join("; ")}`);
+          continue;
+        }
+        const data = armado.payload;
         if (existing) {
           await this.fbPost(existing.id, data, "catálogo: actualizar producto", this.config.userAccessToken);
         } else {

@@ -84,7 +84,7 @@ export class ArchitectOptimizer {
       }
       if (realFeatures.length > 0) {
         lines.push(``, `**Incluye:**`);
-        realFeatures.forEach((f) => lines.push(`✅ ${f}`));
+        realFeatures.forEach((f: any) => lines.push(`✅ ${f}`));
       }
       const optimizedCopy = lines.join("\n");
 

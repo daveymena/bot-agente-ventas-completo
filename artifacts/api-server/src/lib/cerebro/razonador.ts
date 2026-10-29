@@ -78,6 +78,9 @@ El texto debe ser natural, como si lo escribiera un vendedor real.
       }),
     });
 
+    // Un 4xx/5xx no es "opciones vacías": es un fallo que debe quedar registrado.
+    if (!response.ok) throw new Error(`LLM respondió HTTP ${response.status}`);
+
     const data = (await response.json()) as any;
     const rawJson = data.choices?.[0]?.message?.content || "{}";
 
@@ -101,8 +104,10 @@ El texto debe ser natural, como si lo escribiera un vendedor real.
 
     return opciones.length === 3 ? opciones : fallbackOpciones();
   } catch (err) {
-    console.warn("[razonador] Error generando opciones, usando fallback:", err);
-    return fallbackOpciones();
+    // Antes: fallback silencioso (texto genérico y sin rastro). Ahora el error sube a
+    // razonar(), que lo marca como error_razonador y escala.
+    console.error("[razonador] Error generando opciones:", err);
+    throw err;
   }
 }
 

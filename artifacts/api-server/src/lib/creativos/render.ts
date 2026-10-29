@@ -104,8 +104,8 @@ export async function htmlAPng(html: string, opts: { ancho?: number; altoMax?: n
 }
 
 /** Exporta y guarda en /uploads/creativos/. Devuelve la ruta pública. */
-export async function exportarEscena(tenantId: number, escena: unknown, nombre = "creativo"): Promise<string> {
-  const png = await escenaAPng(escena);
+export async function exportarEscena(tenantId: number, escena: unknown, nombre = "creativo", pngListo?: Buffer | null): Promise<string> {
+  const png = pngListo ?? await escenaAPng(escena);
   const dir = path.join(getImageStoreDir(), "creativos", String(Math.trunc(tenantId)));
   await mkdir(dir, { recursive: true });
   const archivo = `${nombre.toLowerCase().normalize("NFD").replace(/[^\w]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "creativo"}-${randomUUID().slice(0, 8)}.png`;

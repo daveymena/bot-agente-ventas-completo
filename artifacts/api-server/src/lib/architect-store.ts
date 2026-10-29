@@ -329,6 +329,18 @@ export function isRejection(text: string): boolean {
   );
 }
 
+/** Compatibilidad con pestañas antiguas de Studio: su prefijo visual no es la respuesta al plan. */
+export function decisionSinContextoEstudio(text: string): string {
+  const original = String(text);
+  const match = /^\[CONTEXTO DEL ESTUDIO\][^\r\n]*\r?\n\r?\n([\s\S]*)$/.exec(original);
+  if (!match) return original;
+  const respuesta = match[1].trim();
+  // Una condición o un pedido nuevo conserva todo su contexto y vuelve al flujo normal.
+  if (esSiConCorreccion(respuesta)) return original;
+  const rechazoSimple = /^(?:no(?:[, ]+d[eé]jalo as[ií])?|cancel[ao]|det[eé]n(?:lo)?|espera)[.!]*$/i.test(respuesta);
+  return isApproval(respuesta) || rechazoSimple ? respuesta : original;
+}
+
 // ── "Sí, pero…" (aprobación CON corrección) ─────────────────────────────────
 //
 // Medido en vivo (2026-09-29): el admin aprueba el plan pero pide un ajuste

@@ -396,7 +396,20 @@ export class AgentOrchestrator {
       let partes = message.parts as AgentReplyPart[] | undefined;
 
       if (!partes) {
+        // El panel muestra "el vendedor está escribiendo" mientras el motor
+        // piensa. En un turno con herramientas puede tardar varios segundos, y
+        // ese silencio es justo lo que hace dudar de si el bot sigue vivo.
+        try {
+          const { emitir } = await import('../eventos');
+          emitir('agente.escribiendo', tenantIdNum, { conversationId: convo.id, escribiendo: true });
+        } catch { /* el canal en vivo nunca puede tumbar el turno */ }
+
         const reply = await runAgentReply(convo.id);
+
+        try {
+          const { emitir } = await import('../eventos');
+          emitir('agente.escribiendo', tenantIdNum, { conversationId: convo.id, escribiendo: false });
+        } catch { /* no crítico */ }
 
         // Si la respuesta es nula o no tiene partes, no hay nada que enviar
         if (!reply || !reply.parts) {
@@ -435,6 +448,21 @@ export class AgentOrchestrator {
       // ── Enviar ──────────────────────────────────────────────────────────
       const pushName = convo.contactName || phone;
       await enviarPartsAlCliente(tenantIdNum, phone, pushName, partes, message.from);
+
+      // El panel ya puede pintar la respuesta: sin refrescar y sin esperar a
+      // que el dueño vuelva a entrar a la conversación.
+      try {
+        const { emitir } = await import('../eventos');
+        const texto = partes
+          .filter((p: any) => p?.kind === 'text')
+          .map((p: any) => String(p.content || ''))
+          .join('\n')
+          .trim();
+        emitir('agente.respondio', tenantIdNum, {
+          conversationId: convo.id,
+          texto: texto.slice(0, 2000),
+        });
+      } catch { /* no crítico */ }
 
       // NO se persiste aquí: runAgentReply ya guardó la respuesta con
       // saveAgentMessage (con su metadata y actualizando lastMessage) en todos

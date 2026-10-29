@@ -39,6 +39,6 @@ export interface ContextoRazonamiento {
   estadoConversacion: any;
   historial: Array<{ role: string; content: string }>;
   productoEnFoco?: { id: number; nombre: string; precio: number } | null;
-  catálogo: any[];
+  catalogo: any[];
   conocimientoCargado: any[];
 }

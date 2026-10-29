@@ -40,7 +40,7 @@ export async function getLongTermMemoryContext(conversationId: number): Promise<
     const historicalProducts = new Set<string>();
     let pastObjections = 0;
     
-    oldMessages.forEach(msg => {
+    oldMessages.forEach((msg: any) => {
       const meta = msg.metadata as any;
       if (meta?.productId || meta?.productName) {
         historicalProducts.add(meta.productName || `ID:${meta.productId}`);

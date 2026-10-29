@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Loader2, RotateCcw, Save } from "lucide-react";
 import { PAREJAS, FUENTES, fuentePorId, enlaceDeFuentes } from "@estudio/fuentes";
 import { normalizarHex, TEMAS_ESTUDIO, type Retoque } from "@estudio/retoque";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { kitComoRetoque, kitVacio, type KitDeMarca } from "@estudio/kit";
 
 const MUESTRAS = ["#111827", "#4F46E5", "#2563EB", "#0E9F8A", "#16A34A", "#E5342A", "#F97316", "#DB2777", "#8C7A5B", "#7C3AED"];
 
@@ -25,6 +26,11 @@ export function TemaPanel({ retoque, onCambiar, onGuardar, guardando, hayCambios
   /** Colores que salen del producto (foto / rubro). */
   sugeridos?: string[];
 }) {
+  // El kit de marca del negocio: un toque y la landing toma su identidad.
+  const [kit, setKit] = useState<KitDeMarca | null>(null);
+  useEffect(() => {
+    fetch("/api/creativos/kit", { credentials: "include" }).then((r) => (r.ok ? r.json() : null)).then((r) => setKit(r?.definido ? r.kit : null)).catch(() => {});
+  }, []);
   // Las muestras de letra del selector se ven con su propia fuente.
   useEffect(() => {
     const id = "vp-fuentes-muestra";
@@ -43,6 +49,17 @@ export function TemaPanel({ retoque, onCambiar, onGuardar, guardando, hayCambios
   return (
     <div className="flex flex-col h-full min-h-0">
       <div className="flex-1 overflow-y-auto p-3 space-y-4">
+        {kit && !kitVacio(kit) ? (
+          <button onClick={() => onCambiar({ ...retoque, ...kitComoRetoque(kit) })} className="w-full rounded-lg border-2 border-violet-500 bg-violet-50 dark:bg-violet-950/30 p-2.5 text-left hover:bg-violet-100">
+            <span className="flex items-center gap-2 text-sm font-semibold">
+              <span className="flex h-5 w-12 rounded overflow-hidden">{[kit.oscuro, kit.acento, kit.claro].filter(Boolean).map((c) => <span key={c!} className="flex-1" style={{ background: c! }} />)}</span>
+              Usar mi marca
+            </span>
+            <span className="block text-[10px] text-muted-foreground mt-0.5">Color y letras de tu kit de marca (Studio → Marca).</span>
+          </button>
+        ) : (
+          <a href="/estudio?espacio=marca" className="block rounded-lg border border-dashed p-2.5 text-[11px] text-muted-foreground hover:bg-muted">Definí tu <b>kit de marca</b> en Studio → Marca y aplicalo acá con un toque.</a>
+        )}
         <section>
           <h3 className="text-xs font-semibold mb-2">Dirección de arte</h3>
           <div className="space-y-2">{TEMAS_ESTUDIO.map(tema => <button key={tema.id} aria-pressed={retoque.estilo === tema.id} onClick={() => onCambiar({ ...tema.retoque })} className={`w-full rounded-xl border p-3 text-left hover:border-primary ${retoque.estilo === tema.id ? 'ring-2 ring-primary' : ''}`}>

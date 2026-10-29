@@ -1,0 +1,53 @@
+# Configuración de GitHub Models / Copilot
+
+Fecha: 25 de octubre de 2026. Base: para-subir, 34176e85c4bcb83f86eb80ce519509e41038311a.
+
+## Causas
+
+- El catálogo moderno ofrecía GitHub Models como disponible y omitía GitHub Copilot. GitHub Models fue retirado el 30 de julio de 2026; modificar su clave no restablece el servicio.
+- El panel histórico guardaba el modelo de Copilot en settings.githubModel. Atlas buscaba únicamente businessConfig.aiProviders, con otro identificador de proveedor y una ruta directa que no admite la autenticación de Copilot.
+- El probador podía preferir un token antiguo del entorno a la cuenta recién conectada.
+
+## Cambios
+
+- Tarjeta de GitHub Models informativa, sin controles para reactivarlo; endpoints de catálogo, prueba y activación responden 410 con explicación. La configuración histórica permite cambiar a Copilot explícitamente.
+- Copilot aparece separado y lleva al panel existente de conexión por código. No se solicita ni se expone un token nuevo en el navegador.
+- Selector de modelos de la cuenta: consulta el catálogo con la sesión renovable existente; respeta modelos deshabilitados y selección manual no disponible. Carga, error, catálogo vacío y modelo guardado ausente se muestran explícitamente. No se presume que listar un modelo pruebe saldo o capacidad de respuesta.
+- Una sola fuente de guardado: settings.githubModel. Se aplica al entorno, al catálogo y a la prioridad github-copilot de OpenCode. Cuando Copilot está seleccionado y tiene conexión/host de OpenCode configurados, se utiliza su recorrido OAuth existente; sin esa configuración se conservan los respaldos directos.
+- La prueba corta resuelve la misma cuenta de Copilot que su catálogo, incluso si existe una credencial antigua en el entorno.
+
+## Verificación
+
+42 pruebas aprobadas en cinco archivos: catálogo y persistencia reales en SQLite aislado, token de sesión frente al OAuth, políticas del catálogo, cuenta recién conectada frente al entorno, prioridad de Atlas, device-flow y rotación. No se realizaron llamadas de inferencia reales ni se guardaron credenciales del usuario. Backend y frontend compilan; continúan avisos de proveedores duplicados y sourcemaps. El chequeo general de tipos sigue bloqueado por errores y declaraciones de workspace ausentes; no se presenta como aprobado.
+
+La corrección de tipos introducida en el selector se revisó antes de publicar. Queda pendiente probar visualmente los nuevos controles en escritorio/móvil y realizar la conexión, consulta e inferencia con la cuenta real tras desplegar. Subir este código no despliega el servidor ni cambia el proveedor activo de producción.
+
+## Fuentes primarias
+
+- Retiro de GitHub Models: https://docs.github.com/en/github-models
+- Anuncio final: https://github.blog/changelog/2026-07-30-github-models-is-now-retired/
+- Disponibilidad por plan y cliente de Copilot: https://docs.github.com/en/copilot/reference/ai-models/supported-models
+
+Se reutiliza la integración interna de Copilot que ya tiene esta aplicación. La documentación oficial confirma que Copilot y GitHub Models son servicios distintos; no garantiza que todos los modelos de Copilot sean invocables desde esta integración.
+
+## Seguimiento: token existente invisible en el frontend
+
+Inspección autenticada: la pantalla publicada del commit 86074b2 mostraba Copilot sin conexión, ofrecía generar otro código y la consulta local de modelos no conseguía renovar la sesión. No se generó un código, reemplazó un token ni guardó un cambio de proveedor. Se observó además que el proveedor global Groq se representaba como OpenCode en el selector histórico, porque faltaba esa opción.
+
+Causa comprobada: serialize(settings) añadía hasGithubToken/hasCopilotSessionToken, pero GetSettingsResponse y UpdateSettingsResponse de Zod no incluían esos campos y los eliminaban. La UI interpretaba los indicadores ausentes como falta de autenticación. Se corrige el contrato OpenAPI y sus indicadores generados; se limita la actualización generada a Settings, preservando contratos ajenos ante una versión distinta de Orval instalada.
+
+El panel ahora conserva el estado de token guardado al recargar y distingue token persistente de sesión corta. Abrir la configuración de Copilot no selecciona otro proveedor; guardar y usar Copilot es una acción explícita limitada al modelo/proveedor. El token existente se mantiene. La consulta considera las credenciales ya configuradas y, si falla la renovación local, consulta los modelos de la conexión autenticada de Copilot en Atlas. Solo se acepta ese catálogo si OpenCode declara la conexión, no por la mera presencia de modelos estáticos. Si el OAuth vive allí, la prueba local lo explica y enlaza a Atlas en vez de exigir reautenticación.
+
+Regresiones: 49 pruebas aprobadas en cinco archivos, incluidas respuestas GET/PATCH reales que conservan indicadores y ocultan secretos, persistencia con sesión vencida, credenciales alternativas existentes y catálogo autenticado de Atlas. Frontend/backend compilan. Las nuevas vistas deben comprobarse tras desplegar; la inspección de producción anterior no acredita estos últimos cambios. No se cambió el proveedor, token ni cuenta del usuario en producción.
+
+## Copilot Free y selección Auto
+
+Fuentes primarias consultadas: https://github.blog/changelog/2026-06-24-changes-to-model-selection-for-free-and-student-plans/ y https://docs.github.com/copilot/reference/ai-models/supported-models. Copilot Free/Student utiliza selección Auto; Copilot es un servicio que ofrece distintas familias, no un modelo fijo «ChatGPT 4». No se presume que GPT-4o esté disponible o incluido en la cuenta del usuario.
+
+En el navegador se verificó que el token ya aparece guardado y que la consulta responde sin modelos de selección manual. Esa respuesta filtrada no permite certificar el plan exacto del usuario. No se cambió el proveedor activo Groq ni se envió inferencia con Copilot.
+
+Se corrige la clasificación de Copilot en el frontend: planes Free y de pago, sin ocultarlo exclusivamente bajo proveedores de pago. El catálogo distingue modelos seleccionables, modelos informativos sin selección manual y políticas bloqueadas. Se conserva la restricción de GitHub: no se habilitan modelos manuales marcados como no seleccionables. Auto solo se ofrece si el conector publica su identificador real y habilitado; si no, la pantalla explica la limitación en vez de interpretar un listado vacío como ausencia de token. No se agrega un identificador ficticio ni se anuncia soporte de Auto sin comprobar el catálogo del conector.
+
+Se retiran las listas estáticas que afirmaban soporte de GPT-4o/Claude 3.5/o1/o3/Llama 3. Guardar exige haber consultado y seleccionado un modelo del catálogo recibido, evitando activar el antiguo valor mimo-v2.5-free como si fuera un modelo confirmado de Copilot.
+
+53 pruebas focalizadas aprobadas en cinco archivos, incluidos escenarios Auto publicado/no publicado, políticas bloqueadas y catálogo vacío sin inferir plan. Backend y frontend compilan. La actualización de interfaz y la ejecución real de Auto siguen pendientes de despliegue y verificación con esta cuenta; si la versión instalada de OpenCode no expone Auto, será necesario actualizar o adaptar ese conector. No se sustituyó por otro transporte ni se modificaron credenciales.

@@ -39,6 +39,7 @@ export interface CotizacionTransportadora {
 
 export interface ResultadoCotizacion {
   ok: boolean;
+  codigo?: "sin_cobertura" | "departamento_incompatible" | "departamento_requerido" | "api_no_disponible";
   error?: string;
   ciudad?: { nombre: string; departamento: string; aceptaContraentrega: boolean | null };
   transportadoras?: CotizacionTransportadora[];
@@ -122,10 +123,11 @@ async function tokensParaCotizar(tenantId: number): Promise<Array<{ token: strin
 const cacheCiudadesInt = new Map<string, { en: number; lista: Array<{ nombre: string; depto: number; dane: string; tarifas: string }> }>();
 const cacheDeptosInt = new Map<string, { en: number; lista: Array<{ id: number; nombre: string }> }>();
 
-/** Solo para tests: las cachés de 12 h contaminarían un test con otro. */
-export function vaciarCacheCotizador(): void {
+/** Vacía datos cacheados entre pruebas con tokens simulados. */
+export function limpiarCacheDropiCotizadorParaPruebas(): void {
   cacheCiudadesInt.clear();
   cacheDeptosInt.clear();
+  cacheDeptos.clear();
 }
 
 async function ciudadesPorIntegracion(token: string, ciudad: string, departamento: string): Promise<Array<{ nombre: string; depto: number; dane: string; tarifas: string }>> {
@@ -159,33 +161,32 @@ async function cotizarPorIntegracion(
   const conRecaudo = e.conRecaudo !== false;
   const cantidad = Math.max(1, e.cantidad || 1);
   const ciudades = await ciudadesPorIntegracion(token, e.ciudad, String(e.departamento || ""));
-  if (!ciudades.length) return { ok: false, error: "Dropi no devolvió la lista de ciudades." };
+  if (!ciudades.length) return { ok: false, codigo: "api_no_disponible", error: "Dropi no devolvió la lista de ciudades." };
   const deptos = await departamentosPorIntegracion(token);
   const nombreDepto = (id: number) => deptos.find((d) => d.id === id)?.nombre || "";
   const candidatas = ciudades.filter((c) => norm(c.nombre) === norm(e.ciudad));
   const enDepto = e.departamento ? candidatas.filter((c) => norm(nombreDepto(c.depto)) === norm(e.departamento)) : [];
-  if (!candidatas.length) return { ok: false, error: `Dropi no tiene a ${e.ciudad} en su cobertura.` };
-  // 10-10-2026, caso Armenia: si se pidió un departamento y ningún homónimo
-  // es de ahí, NO se cotiza en silencio otra ciudad (era cotizar Antioquia
-  // creyendo que era Quindío). Se devuelve el error con dónde sí la tiene.
+  if (!candidatas.length) return { ok: false, codigo: "sin_cobertura", error: `Dropi no tiene a ${e.ciudad} en su cobertura.` };
+  if (!e.departamento && candidatas.length > 1) {
+    const donde = [...new Set(candidatas.map((c) => nombreDepto(c.depto)).filter(Boolean))];
+    return {
+      ok: false,
+      codigo: "departamento_requerido",
+      error: `La cobertura de Dropi devuelve varios municipios llamados ${e.ciudad}${donde.length ? ` (${donde.join(", ")})` : ""}. Hace falta el departamento; no se cotiza ni se confirma contraentrega por nombre solo.`,
+    };
+  }
+  // Si el cliente dio un departamento, nunca cotices el primer homónimo de
+  // otro departamento. El caller no debe caer luego al endpoint por ciudad
+  // sola y convertir esa respuesta en un “sin contraentrega” falso.
   if (e.departamento && !enDepto.length) {
     const donde = [...new Set(candidatas.map((c) => nombreDepto(c.depto)).filter(Boolean))];
-    if (donde.length) {
-      // 10-10-2026: además de decir dónde sí está, se muestran nombres
-      // parecidos por si Dropi la registra distinto (la capital podría no
-      // llamarse igual que el municipio homónimo).
-      const parecidos = [...new Map(
-        ciudades
-          .filter((c) => norm(c.nombre).includes(norm(e.ciudad)) && norm(c.nombre) !== norm(e.ciudad))
-          .slice(0, 5)
-          .map((c) => [`${c.nombre} (${nombreDepto(c.depto) || "?"})`, null] as const),
-      ).keys()];
-      return { ok: false, error: `Dropi no lista ${e.ciudad} en la cobertura de ${e.departamento} (la tiene en: ${donde.join(", ")})${parecidos.length ? `. Parecidos en Dropi: ${parecidos.join(", ")}` : ""}. Verifica ciudad y departamento.` };
-    }
-    logger.warn({ ciudad: e.ciudad, departamento: e.departamento }, "[DropiCotizador] sin departamentos para desempatar; se usa el primer homónimo");
+    return {
+      ok: false,
+      codigo: "departamento_incompatible",
+      error: `Dropi no lista ${e.ciudad} en la cobertura de ${e.departamento}${donde.length ? `; los homónimos disponibles son de ${donde.join(", ")}` : ""}. No se puede confirmar contraentrega ni cotizar en otra ciudad.`,
+    };
   }
   const ciudad = enDepto[0] || candidatas[0];
-  if (!ciudad) return { ok: false, error: `Dropi no tiene a ${e.ciudad} en su cobertura.` };
   const departamento = nombreDepto(ciudad.depto) || String(e.departamento || "");
   const aceptaContraentrega = ciudad.tarifas ? /CON RECAUDO/i.test(ciudad.tarifas) : null;
   const { dropiIntegracion } = await import("./dropi-directo");
@@ -199,7 +200,7 @@ async function cotizarPorIntegracion(
     ciudad_destino: { nombre: ciudad.nombre, departamento, cod_dane: ciudad.dane },
     products: [producto],
   }, "POST", 25000);
-  if (!r.ok || !Array.isArray(r.data)) return { ok: false, error: String(r.error || "Dropi no cotizó").slice(0, 200) };
+  if (!r.ok || !Array.isArray(r.data)) return { ok: false, codigo: "api_no_disponible", error: String(r.error || "Dropi no cotizó").slice(0, 200) };
   const motivos: Array<{ transportadora: string; motivo: string }> = [];
   const costo = e.costoUnitario && e.costoUnitario > 0 ? e.costoUnitario * cantidad : null;
   const lista: CotizacionTransportadora[] = r.data.map((t: any) => {
@@ -254,18 +255,28 @@ export async function cotizarEnvioDropi(
   for (const { token, tipo } of tokens) {
     const deps = await departamentos(token);
     if (!deps.ok) { errores.push(`${tipo}: ${deps.error}`); continue; }
-    // Ciudad: primero en el departamento dicho; si no se dijo o no está, en todos.
+    // Nunca caigas a un departamento homónimo: si el cliente indicó el
+    // departamento, se consulta SOLO ese. Sin departamento, se exige que el
+    // nombre sea único antes de cotizar.
     const buscada = norm(e.ciudad);
     const candidatosDepto = e.departamento ? deps.lista.filter((d: { id: number; nombre: string }) => norm(d.nombre) === norm(e.departamento)) : [];
-    const ordenDeptos = [...candidatosDepto, ...deps.lista.filter((d: { id: number; nombre: string }) => !candidatosDepto.includes(d))];
-    let ciudad: { id: number; nombre: string; dane: string; tarifas: string; depto: number } | null = null;
-    let depto: { id: number; nombre: string } | null = null;
+    if (e.departamento && !candidatosDepto.length) {
+      return { ok: false, codigo: "departamento_incompatible", error: `El departamento ${e.departamento} no coincide con los departamentos que devuelve Dropi para la consulta de cobertura de ${e.ciudad}. No se cotizó otro departamento.` , autenticacion: tipo };
+    }
+    const ordenDeptos = e.departamento ? candidatosDepto : deps.lista;
+    const ubicaciones: Array<{ ciudad: { id: number; nombre: string; dane: string; tarifas: string; depto: number }; depto: { id: number; nombre: string } }> = [];
     for (const d of ordenDeptos) {
       const cs = await ciudadesDe(token, d.id, conRecaudo);
       const hit = cs.find((x: { id: number; nombre: string }) => norm(x.nombre) === buscada);
-      if (hit) { ciudad = hit; depto = d; break; }
+      if (hit) ubicaciones.push({ ciudad: hit, depto: d });
+      if (e.departamento && hit) break;
     }
-    if (!ciudad || !depto) return { ok: false, error: `Dropi no tiene a ${e.ciudad} en su cobertura${conRecaudo ? " con contraentrega" : ""}.`, autenticacion: tipo };
+    if (!e.departamento && ubicaciones.length > 1) {
+      return { ok: false, codigo: "departamento_requerido", error: `La cobertura de Dropi devuelve varios municipios llamados ${e.ciudad} (${ubicaciones.map((x) => x.depto.nombre).join(", ")}). Hace falta el departamento; no se cotizó ni se confirmó contraentrega por nombre solo.`, autenticacion: tipo };
+    }
+    const ubicacion = ubicaciones[0];
+    if (!ubicacion) return { ok: false, codigo: "sin_cobertura", error: `Dropi no tiene a ${e.ciudad} en la cobertura${e.departamento ? ` de ${e.departamento}` : ""}${conRecaudo ? " con contraentrega" : ""}.`, autenticacion: tipo };
+    const { ciudad, depto } = ubicacion;
     const params: Record<string, string> = {
       variation_id: e.variationId ? String(e.variationId) : "",
       department_id: String(depto.id),

@@ -120,36 +120,32 @@ export function GaleriaDisenos({ productId, secciones, retoque, actual, landingA
   const lista = DISENOS.filter((d) => filtro === "Todos" || d.grupo === filtro);
 
   return (
-    <div className="p-3 sm:p-6 space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div className="mx-auto w-full max-w-[1600px] space-y-5 p-4 sm:p-6">
+      <div className="flex flex-col gap-4 border-b pb-5 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-lg font-bold tracking-tight">Diseños de página</h2>
           <p className="text-sm text-muted-foreground">{landingAbierta ? "Con los textos de tu landing abierta. Elegí uno y se aplica sin perder el contenido." : "Con los datos reales del producto. Elegí uno para crear la landing."}</p>
         </div>
-        <div className="flex max-w-full gap-1 overflow-x-auto rounded-lg border p-0.5 whitespace-nowrap">
+        <div className="flex max-w-full gap-1 overflow-x-auto rounded-xl border bg-muted/50 p-1 [scrollbar-width:none]">
           {grupos.map((g) => (
             <button key={g} onClick={() => setFiltro(g)} aria-pressed={filtro === g} className={`h-8 px-3 rounded-md text-xs font-semibold ${filtro === g ? "bg-violet-600 text-white" : "text-muted-foreground hover:bg-muted"}`}>{g}</button>
           ))}
         </div>
       </div>
-      <div className="grid gap-5 grid-cols-[repeat(auto-fill,minmax(230px,1fr))]">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-4 sm:gap-5">
         {lista.map((d) => {
           const es = actual === d.id;
           return (
-            <div key={d.id} className={`group rounded-xl border bg-card overflow-hidden shadow-sm hover:shadow-lg transition ${es ? "ring-2 ring-violet-600" : ""}`}>
+            <div key={d.id} className={`group overflow-hidden rounded-2xl border bg-card shadow-sm transition-[border-color,box-shadow,transform] duration-200 hover:-translate-y-0.5 hover:border-violet-300 hover:shadow-md dark:hover:border-violet-800 ${es ? "ring-2 ring-violet-600 ring-offset-2 dark:ring-offset-background" : ""}`}>
               <div className="relative">
                 <Vista productId={productId} secciones={secciones} diseno={d} retoque={retoque} ancho={230} alto={290} modo="escritorio" />
-                <div className="absolute inset-0 hidden sm:flex bg-black/0 group-hover:bg-black/35 transition items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+                <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/20 opacity-100 transition sm:bg-black/0 sm:opacity-0 sm:group-hover:bg-black/35 sm:group-hover:opacity-100">
                   <Button size="sm" variant="secondary" className="h-8 text-xs" onClick={() => setGrande(d)}><Maximize2 className="h-3.5 w-3.5 mr-1" />Ver</Button>
                   <Button size="sm" className="h-8 text-xs bg-violet-600 hover:bg-violet-700 text-white" onClick={() => onUsar(d)}>{landingAbierta ? "Aplicar" : "Crear"}</Button>
                 </div>
                 {es && <span className="absolute top-2 left-2 text-[10px] font-bold bg-violet-600 text-white rounded-full px-2 py-0.5 inline-flex items-center gap-1"><Check className="h-3 w-3" />En uso</span>}
               </div>
-              <div className="flex sm:hidden gap-2 px-3 pb-2">
-                <Button size="sm" variant="outline" className="h-10 flex-1 text-xs" onClick={() => setGrande(d)}><Maximize2 className="h-3.5 w-3.5 mr-1" />Ver</Button>
-                <Button size="sm" className="h-10 flex-1 text-xs bg-violet-600 hover:bg-violet-700 text-white" onClick={() => onUsar(d)}>{landingAbierta ? "Aplicar diseño" : "Crear landing"}</Button>
-              </div>
-              <div className="p-3 flex items-start gap-2">
+              <div className="flex items-start gap-2 p-3.5">
                 <span className="mt-1 h-3 w-3 rounded-full shrink-0 ring-1 ring-black/10" style={{ background: d.color }} />
                 <div className="min-w-0">
                   <p className="text-sm font-semibold leading-tight">{d.nombre}</p>
@@ -162,11 +158,11 @@ export function GaleriaDisenos({ productId, secciones, retoque, actual, landingA
       </div>
 
       {grande && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex flex-col pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]" onClick={() => setGrande(null)}>
-          <div className="flex flex-wrap items-center gap-2 px-3 sm:px-4 py-2 min-h-14 bg-background border-b" onClick={(e) => e.stopPropagation()}>
-            <span className="h-3 w-3 rounded-full shrink-0" style={{ background: grande.color }} />
-            <p className="font-semibold text-sm flex-1 min-w-0 truncate">{grande.nombre}</p>
-            <div className="flex rounded-md border p-0.5">
+        <div className="fixed inset-0 z-50 bg-black/60 flex flex-col" onClick={() => setGrande(null)}>
+          <div className="flex min-h-14 flex-wrap items-center gap-2 border-b bg-background px-3 py-2 sm:px-4" onClick={(e) => e.stopPropagation()}>
+            <span className="h-3 w-3 rounded-full" style={{ background: grande.color }} />
+            <p className="font-semibold">{grande.nombre}</p>
+            <div className="flex rounded-lg border p-0.5 sm:ml-2">
               {([["escritorio", Monitor], ["movil", Smartphone]] as const).map(([m, I]) => (
                 <button key={m} onClick={() => setModoGrande(m)} aria-pressed={modoGrande === m} aria-label={m} className={`h-7 w-8 grid place-items-center rounded ${modoGrande === m ? "bg-muted" : ""}`}><I className="h-3.5 w-3.5" /></button>
               ))}

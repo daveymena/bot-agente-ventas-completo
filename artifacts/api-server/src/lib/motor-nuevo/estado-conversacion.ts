@@ -96,6 +96,92 @@ export interface Oferta {
   at: string; // ISO
 }
 
+/**
+ * Los tipos de objeción que de verdad aparecen en un chat de venta, derivados
+ * de lo que el cliente DICE. No es una taxonomía de manual: cada uno tiene un
+ * camino distinto, y confundirlos es lo que hace que el vendedor suene genérico.
+ *
+ * - `precio`: el dinero. Casi nunca es el precio real; suele ser valor no visto.
+ * - `confianza`: "¿es estafa?", "¿me va a llegar?".
+ * - `duda_propia`: "lo voy a pensar", "déjame consultar". No dice qué le frena.
+ * - `producto`: "¿me sirve?", "¿le queda?", encaje del producto con su necesidad.
+ * - `entrega`: plazos, cobertura, "no llega a mi ciudad".
+ * - `pago`: medios, cuotas, "no tengo con qué pagar ahora".
+ * - `momento`: "ahora no", "la otra semana". Timing, no producto.
+ * - `otra`: no se pudo clasificar. Se trata como duda propia y se diagnostica.
+ */
+export type TipoObjecion =
+  | "precio"
+  | "confianza"
+  | "duda_propia"
+  | "producto"
+  | "entrega"
+  | "pago"
+  | "momento"
+  | "otra";
+
+/**
+ * Una objeción como HECHO del estado (2026-10-14).
+ *
+ * Antes de esto, `objecionesVistas` guardaba solo el texto y el guion con la
+ * respuesta correcta vivía en un párrafo del prompt. El motor sabía QUÉ decir
+ * y no tenía forma de saber si ya lo había intentado.
+ */
+export interface Objecion {
+  tipo: TipoObjecion;
+  /** Lo que dijo el cliente, tal cual (recortado). Sirve para el log y el prompt. */
+  texto: string;
+  /** Turno del agente en que se registró. */
+  turno: number;
+  /** ISO. */
+  at: string;
+  /**
+   * Si el vendedor YA preguntó qué lo frena y todavía no le contestaron.
+   * Es lo que evita el bucle de repetir la misma pregunta de diagnóstico.
+   */
+  diagnosticoPedido: boolean;
+  /**
+   * Si el cliente YA explicó qué le frena, esto guarda la causa real.
+   * "está caro" → "no sé si le va a servir a mi gato".
+   */
+  causaReal?: string | null;
+  /** Cuántas veces el vendedor respondió a esta objeción sin resolverla. */
+  intentos: number;
+}
+
+const TIPOS_OBJECION: TipoObjecion[] = [
+  "precio",
+  "confianza",
+  "duda_propia",
+  "producto",
+  "entrega",
+  "pago",
+  "momento",
+  "otra",
+];
+
+/**
+ * Normaliza una objeción venida de la base (estados guardados por una versión
+ * anterior del motor no tienen estos campos). Vive acá y no en `objeciones.ts`
+ * para que el repositorio no dependa del clasificador: `objeciones.ts` importa
+ * los TIPOS de este archivo, y el ciclo de imports rompería en runtime.
+ */
+export function normalizarObjecion(valor: unknown): Objecion | null {
+  if (!valor || typeof valor !== "object") return null;
+  const o = valor as Partial<Objecion>;
+  const tipo = TIPOS_OBJECION.includes(o.tipo as TipoObjecion) ? (o.tipo as TipoObjecion) : "otra";
+  return {
+    tipo,
+    texto: String(o.texto ?? "").slice(0, 300),
+    turno: Number(o.turno) || 0,
+    at: String(o.at ?? new Date().toISOString()),
+    diagnosticoPedido: Boolean(o.diagnosticoPedido),
+    causaReal: o.causaReal ? String(o.causaReal).slice(0, 300) : null,
+    intentos: Number(o.intentos) || 0,
+  };
+}
+
+
 /** Los campos de calificación que el agente va juntando. */
 export type CampoDeDato =
   | "nombre"
@@ -207,6 +293,29 @@ export interface EstadoConversacion {
   /** Objeciones que ya puso, para no volver a explicar lo mismo. */
   objecionesVistas: string[];
 
+  /**
+   * LAS OBJECIONES COMO HECHO, no como frase del prompt (2026-10-14).
+   *
+   * `objecionesVistas` guarda el TEXTO que dijo el cliente, y hasta hoy su
+   * único lector era el prompt ("dudas que ya puso"). El guion (`nicho.ts`) ya
+   * sabía qué responderle a "está caro" o a "lo voy a pensar", pero eso vivía
+   * en un párrafo: el modelo lo leía y hacía lo que quería. Es exactamente el
+   * defecto que este proyecto ya documentó con la letra chica — *"una
+   * instrucción no es un candado"*.
+   *
+   * Acá la objeción queda REGISTRADA con su tipo y con qué se intentó, así el
+   * turno siguiente sabe si ya diagnosticó o si todavía no preguntó nada. Es lo
+   * que permite pasar de "volvé al valor" (consejo) a "ya le dijiste esto y no
+   * funcionó, atacalo por otro lado" (decisión).
+   */
+  objecion: Objecion | null;
+
+  /**
+   * Objeciones ya trabajadas en esta conversación, la más reciente primero.
+   * Sirve para no repetir el mismo intento dos veces.
+   */
+  objecionesTrabajadas: Objecion[];
+
   etapa: Etapa;
   /** Cuántas respuestas lleva dadas el agente en esta conversación. */
   turnos: number;
@@ -307,6 +416,8 @@ export function estadoInicial(conversationId: number): EstadoConversacion {
     comprobanteRecibido: false,
     datos: {},
     objecionesVistas: [],
+    objecion: null,
+    objecionesTrabajadas: [],
     etapa: "saludo",
     turnos: 0,
     ultimoMensajeCliente: null,
@@ -363,6 +474,12 @@ export function normalizarEstado(crudo: unknown, conversationId: number): Estado
     seccionesEnviadas: c.seccionesEnviadas && typeof c.seccionesEnviadas === "object" ? c.seccionesEnviadas : {},
     datos: c.datos && typeof c.datos === "object" ? c.datos : {},
     objecionesVistas: Array.isArray(c.objecionesVistas) ? c.objecionesVistas : [],
+    // Estados guardados antes del 2026-10-14 no tienen estos campos: se
+    // normalizan a "sin objeción" en vez de romper la conversación en curso.
+    objecion: normalizarObjecion(c.objecion),
+    objecionesTrabajadas: Array.isArray(c.objecionesTrabajadas)
+      ? c.objecionesTrabajadas.map(normalizarObjecion).filter(Boolean).slice(0, 10) as Objecion[]
+      : [],
     intencionActual: typeof c.intencionActual === "string" ? (c.intencionActual as EstadoConversacion["intencionActual"]) : null,
     intencionAnterior: typeof c.intencionAnterior === "string" ? (c.intencionAnterior as EstadoConversacion["intencionAnterior"]) : null,
     preguntaPendiente: typeof c.preguntaPendiente === "string" ? c.preguntaPendiente : null,
@@ -587,6 +704,34 @@ function parsearEstado(valor: unknown, conversationId: number): EstadoConversaci
   return normalizarEstado(valor, conversationId);
 }
 
+/**
+ * El pago lo confirma una PERSONA, y esa confirmación vive en
+ * `conversations.paymentStatus` (la escribe `confirm_transfer_payment` en
+ * `app-operator.ts`). El motor v2 guarda su propia bandera
+ * `estado.pagoConfirmadoPorHumano`, y hasta ahora **nadie la escribía**: el
+ * dueño confirmaba la transferencia en el panel, el cliente seguía leyendo
+ * "está en verificación" para siempre, y la venta ya cerrada se rompía en la
+ * postventa.
+ *
+ * La bandera se resuelve en el borde donde el estado entra, que es el único
+ * lugar que ve las dos verdades a la vez. Es aditivo: si la columna no existe
+ * (migración pendiente) o viene `null`, no cambia nada.
+ *
+ * Dirección única a propósito: la base puede ENCENDER la bandera, nunca
+ * apagarla. Si una persona confirmó el pago, un estado viejo del motor no
+ * puede deshacer esa decisión.
+ */
+export function conPagoConfirmadoPorLaBase(
+  estado: EstadoConversacion,
+  fila: { paymentStatus?: unknown; paidAt?: unknown } | null | undefined,
+): EstadoConversacion {
+  const marca = String((fila?.paymentStatus as string) ?? "").trim().toLowerCase();
+  // Los dos valores que usa el panel para "una persona lo verificó".
+  const confirmado = marca === "confirmed" || marca === "approved";
+  if (!confirmado || estado.pagoConfirmadoPorHumano) return estado;
+  return { ...estado, pagoConfirmadoPorHumano: true };
+}
+
 /** Implementación con Drizzle. Aislada acá para que el motor no sepa de la base. */
 export function crearRepositorioDrizzle(deps: {
   db: any;
@@ -597,6 +742,26 @@ export function crearRepositorioDrizzle(deps: {
 
   return {
     async cargar(conversationId) {
+      // Dos intentos, de más completo a más básico. El primero trae las
+      // columnas de pago para resolver `pagoConfirmadoPorHumano`; si el esquema
+      // todavía no las tiene (migración pendiente, o una base de prueba que no
+      // las declara), se cae al select mínimo. Perder el estado entero por una
+      // columna ausente sería peor que no leer la confirmación del pago.
+      try {
+        const [fila] = await db
+          .select({
+            estado: conversations.estadoAgente,
+            paymentStatus: conversations.paymentStatus,
+          })
+          .from(conversations)
+          .where(eq(conversations.id, conversationId))
+          .limit(1);
+        const estado = parsearEstado(fila?.estado, conversationId);
+        return conPagoConfirmadoPorLaBase(estado, fila);
+      } catch {
+        /* la columna de pago puede no existir: se reintenta sin ella */
+      }
+
       try {
         const [fila] = await db
           .select({ estado: conversations.estadoAgente })

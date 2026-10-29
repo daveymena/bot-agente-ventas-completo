@@ -1186,10 +1186,10 @@ export async function loadConversationMemory(conversationId: number): Promise<Co
     .where(eq(messages.conversationId, conversationId))
     .orderBy(desc(messages.createdAt), desc(messages.id))
     .limit(30)
-    .then(rows => rows.reverse()); // Cronológico
+    .then((rows: any) => rows.reverse()); // Cronológico
 
-  const agentMessages = history.filter(m => m.role === "agent");
-  const customerMessages = history.filter(m => m.role === "customer");
+  const agentMessages = history.filter((m: any) => m.role === "agent");
+  const customerMessages = history.filter((m: any) => m.role === "customer");
 
   // ¿Ya saludó el agente?
   const hasGreeted = agentMessages.length > 0;

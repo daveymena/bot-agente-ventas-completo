@@ -173,6 +173,49 @@ export async function recordSpend(tenantId: number, amount: number): Promise<voi
     .where(eq(marketingBudgets.id, row.id));
 }
 
+/**
+ * FIJA el gasto de hoy al valor real de Meta (no lo suma).
+ *
+ * ── Por qué existe, y por qué NO se usa `recordSpend` para esto ────────────
+ *
+ * `recordSpend` SUMA. Sirve cuando el sistema mismo provoca el gasto (aprobar
+ * un cambio de presupuesto, por ejemplo) y sabe exactamente cuánto agregó.
+ *
+ * Pero el gasto REAL de una campaña no lo provoca el sistema: lo produce Meta
+ * segundo a segundo. Sumarlo desde acá exigiría que cada camino de gasto se
+ * acordara de registrar, y el que se olvide deja el contador corto — que es
+ * justo lo que pasaba: `registerSpend()` existía y **nadie lo llamaba**, así que
+ * `todaySpend` reflejaba cambios de presupuesto, no plata gastada.
+ *
+ * Consecuencia medida: un conjunto con $20.000/día corriendo diez días dejaba el
+ * contador en $20.000 en vez de $200.000, y el tope diario de $50.000 no
+ * bloqueaba nada nunca. El guardián existía, funcionaba en sus tests (que le
+ * inyectan el valor a mano) y NO existía en ejecución.
+ *
+ * Fijar el valor absoluto desde los insights de Meta —la fuente de verdad—
+ * elimina la clase entera de bug: no hay nada que «acordarse» de sumar.
+ */
+export async function fijarGastoDeHoy(tenantId: number, gastoRealDeMeta: number): Promise<void> {
+  const monto = Number(gastoRealDeMeta);
+  if (!Number.isFinite(monto) || monto < 0) return;
+  const row = (await db.select().from(marketingBudgets).where(eq(marketingBudgets.tenantId, tenantId)).limit(1))[0];
+  if (!row) return;
+  const key = todayKey();
+  const previoDelDia = row.todayDate === key ? Number(row.todaySpend) : 0;
+  // `periodSpend` sí acumula: es el histórico, y solo se le suma la DIFERENCIA
+  // entre lo que había y lo que Meta reporta ahora (nunca el total otra vez).
+  const diferencia = monto - previoDelDia;
+  await db
+    .update(marketingBudgets)
+    .set({
+      todaySpend: String(monto),
+      todayDate: key,
+      periodSpend: String(Math.max(0, Number(row.periodSpend) + diferencia)),
+      updatedAt: new Date(),
+    })
+    .where(eq(marketingBudgets.id, row.id));
+}
+
 /** Estado actual del presupuesto para el dashboard (MASTER PLAN §28). */
 export async function getBudgetStatus(tenantId: number) {
   const guardrails = await getOrCreateBudget(tenantId);

@@ -16,13 +16,13 @@
  */
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { Link } from "wouter";
 import { promptDelEstudio } from "@/lib/prompt-estudio";
 import { Button } from "@/components/ui/button";
 import { Loader2, Send, Square, Sparkles, X, RotateCcw } from "lucide-react";
 
 export interface ContextoEstudio {
-  espacio: "landings" | "disenos" | "creativos";
+  espacio: "landings" | "disenos" | "creativos" | "marca" | "canva" | "figma";
+  figma?: { fileKey: string; nodeId?: string; name: string } | null;
   producto?: { id: number; nombre: string } | null;
   landing?: { id: number; nombre: string; publicada?: boolean } | null;
   creativo?: { id: string | null; nombre: string } | null;
@@ -33,6 +33,8 @@ type Msg = { role: "user" | "assistant"; content: string };
 const SESION = "estudio";
 
 const SUGERENCIAS: Record<ContextoEstudio["espacio"], string[]> = {
+  figma: ["Revisa la composición del frame de Figma que tengo abierto", "Qué colores y tipografías usa este diseño", "Adapta esta referencia al producto abierto usando los editores de Studio"],
+  canva: ["Prepara un paquete de tres conceptos para este producto con Canva", "Muéstrame mis plantillas y diseños de Canva", "Revisa los resultados de ventas de mis creativos de Canva"],
   landings: [
     "Revisá esta landing como experto y decime qué mejorarías",
     "Hacé el titular de la portada más potente",
@@ -43,6 +45,10 @@ const SUGERENCIAS: Record<ContextoEstudio["espacio"], string[]> = {
     "¿Qué diseño le conviene a este producto y por qué?",
     "Creá una landing nueva para este producto",
   ],
+  marca: [
+    "Proponeme un kit de marca para mi negocio a partir de mis productos",
+    "¿Qué tipografía va con mi marca y por qué?",
+  ],
   creativos: [
     "Prepará un anuncio para Meta: revisá el producto, proponé el copy y decime qué creativo mostraría antes de publicarlo",
     "Creá 3 creativos 4:5 para este producto con ganchos distintos",
@@ -52,14 +58,20 @@ const SUGERENCIAS: Record<ContextoEstudio["espacio"], string[]> = {
 
 function contextoComoTexto(c: ContextoEstudio): string {
   const partes = [`El dueño está en el Estudio (${c.espacio}).`];
+  if (c.figma) partes.push(`Referencia Figma abierta: archivo ${c.figma.fileKey}${c.figma.nodeId ? `, nodo ${c.figma.nodeId}` : ""}. Consulta con figma_disenos antes de opinar. Es referencia visual; valida los hechos del producto con el catálogo.`);
   if (c.producto) partes.push(`Producto abierto: [${c.producto.id}] ${c.producto.nombre}.`);
   if (c.landing) partes.push(`Landing abierta: [${c.landing.id}] ${c.landing.nombre}${c.landing.publicada ? " (publicada)" : " (borrador)"}.`);
   if (c.creativo?.id) partes.push(`Creativo abierto: [${c.creativo.id}] ${c.creativo.nombre}.`);
-  partes.push("Si pide cambios sin decir cuál, se refiere a lo que tiene abierto. Para landings: landing_editar o landing_tema; para creativos: creativo_crear / creativo_editar.");
+  partes.push(
+    "Canva: canva_studio lista diseños, plantillas, paquetes y resultados; prepara variantes y trae cambios. Se refiere al producto abierto. No publiques anuncios al preparar diseños. " +
+    "Si pide cambios sin decir cuál, se refiere a lo que tiene abierto. Mirá antes de tocar: landing_ver / creativo_ver (y ver_imagen con el PNG). " +
+    "Cambios exactos: landing_bloque (un bloque), landing_diseno (uno de los 22 diseños), landing_tema (color/letras), creativo_capa (una capa). " +
+    "Pedidos abiertos: landing_editar, creativo_crear, creativo_editar. Marca: marca_kit_ver / marca_kit_cambiar. Lo que está abierto ya está guardado.",
+  );
   return `[CONTEXTO DEL ESTUDIO] ${partes.join(" ")}`;
 }
 
-export function AtlasDock({ contexto, onTurnoTerminado, onCerrar }: { contexto: ContextoEstudio; onTurnoTerminado: () => void; onCerrar?: () => void }) {
+export function AtlasDock({ contexto, leerContexto, onTurnoTerminado, onCerrar, antesDeEnviar }: { contexto: ContextoEstudio; leerContexto?: () => ContextoEstudio; onTurnoTerminado: () => void; onCerrar?: () => void; antesDeEnviar?: () => Promise<void> }) {
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [texto, setTexto] = useState("");
   const [ocupado, setOcupado] = useState(false);
@@ -89,6 +101,16 @@ export function AtlasDock({ contexto, onTurnoTerminado, onCerrar }: { contexto: 
     const historial = msgs.slice(-20).map((m) => ({ role: m.role, content: m.content }));
     setMsgs((m) => [...m, { role: "user", content: limpio }]);
     setOcupado(true);
+    // Lo que el dueño tiene sin guardar se guarda ANTES: Atlas lee de la base,
+    // y al terminar el estudio recarga desde la base (sin esto, se pisaban).
+    if (antesDeEnviar) {
+      setProgreso("Guardando lo que tenés abierto…");
+      await antesDeEnviar().catch(() => {});
+      // Un creativo recién guardado recibe su id en el render siguiente: se
+      // espera un momento y se lee el contexto FRESCO (si no, Atlas no sabía cuál era).
+      await new Promise((r) => setTimeout(r, 80));
+    }
+    const ctxAhora = leerContexto?.() ?? contexto;
     setProgreso("Atlas está pensando…");
     const ctl = new AbortController();
     corte.current = ctl;
@@ -97,7 +119,7 @@ export function AtlasDock({ contexto, onTurnoTerminado, onCerrar }: { contexto: 
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: promptDelEstudio(contextoComoTexto(contexto), limpio, respuestaAlPlan), history: historial, sessionId: SESION, stream: true }),
+        body: JSON.stringify({ prompt: promptDelEstudio(contextoComoTexto(ctxAhora), limpio, respuestaAlPlan), history: historial, sessionId: SESION, stream: true }),
         signal: ctl.signal,
       });
       if (!r.ok) throw new Error(`Atlas respondió ${r.status}`);
@@ -130,7 +152,7 @@ export function AtlasDock({ contexto, onTurnoTerminado, onCerrar }: { contexto: 
       onTurnoTerminado();
     } catch (e: any) {
       if (e?.name === "AbortError") setMsgs((m) => [...m, { role: "assistant", content: "⏹️ Detenido. Lo que ya se hizo queda como está." }]);
-      else setMsgs((m) => [...m, { role: "assistant", content: `No pude terminar: ${e?.message || "error"}. ¿Lo intentamos de nuevo?` }]);
+      else setMsgs((m) => [...m, { role: "assistant", content: "La aplicación dejó de recibir la respuesta. Atlas sigue protegido por el servidor; al volver a abrir este panel se sincroniza el resultado antes de repetir el pedido." }]);
     } finally {
       setOcupado(false);
       setProgreso("");
@@ -143,8 +165,8 @@ export function AtlasDock({ contexto, onTurnoTerminado, onCerrar }: { contexto: 
   };
 
   return (
-    <div className="flex flex-col h-full min-h-0 bg-background">
-      <div className="flex items-center gap-2 px-3 h-12 border-b shrink-0">
+    <div className="flex h-full min-h-0 flex-col bg-background">
+      <div className="flex h-14 shrink-0 items-center gap-2 border-b px-3">
         <div className="h-7 w-7 rounded-lg bg-gradient-to-br from-violet-600 to-indigo-600 grid place-items-center"><Sparkles className="h-4 w-4 text-white" /></div>
         <div className="leading-tight min-w-0">
           <p className="text-sm font-bold">Atlas</p>
@@ -156,11 +178,11 @@ export function AtlasDock({ contexto, onTurnoTerminado, onCerrar }: { contexto: 
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
+      <div className="flex-1 space-y-3 overflow-y-auto bg-muted/20 px-3 py-4">
         {msgs.length === 0 && (
-          <div className="space-y-3 pt-2">
-            <p className="text-sm text-muted-foreground">Puedo preparar anuncios con los datos reales del producto y enseñarte el resultado disponible antes de guardar o publicar. Las campañas de Meta requieren tu confirmación.</p>
-            <div className="space-y-1.5">
+          <div className="space-y-4 rounded-2xl border bg-background p-4 shadow-sm">
+            <p className="text-sm text-muted-foreground">Pedime lo que quieras sobre tus landings y creativos. Uso tus productos reales y aplico los cambios; lo que cambia algo te lo confirmo antes.</p>
+            <div className="space-y-2">
               {SUGERENCIAS[contexto.espacio].map((s) => (
                 <button key={s} onClick={() => void enviar(s)} disabled={ocupado} className="w-full text-left text-xs rounded-lg border px-3 py-2 hover:border-violet-500 hover:bg-violet-50/60 dark:hover:bg-violet-950/30">{s}</button>
               ))}
@@ -187,10 +209,7 @@ export function AtlasDock({ contexto, onTurnoTerminado, onCerrar }: { contexto: 
         <div ref={fin} />
       </div>
 
-      <div className="border-t p-2 shrink-0 space-y-2">
-        {contexto.espacio === "creativos" && (
-          <Link href={typeof contexto.producto?.id === "number" ? `/creativos?producto=${contexto.producto.id}` : "/creativos"} className="block rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-center text-xs font-semibold text-violet-800 hover:bg-violet-100 dark:border-violet-900 dark:bg-violet-950/40 dark:text-violet-200">Abrir vista previa y editor visual ↗</Link>
-        )}
+      <div className="shrink-0 space-y-2 border-t bg-background p-3">
         {esperaSi && !ocupado && (
           <div className="flex gap-1.5">
             <Button size="sm" className="h-8 flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs" onClick={() => void enviar("Sí, hacelo", true)}>Sí, hacelo</Button>

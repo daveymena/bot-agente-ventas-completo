@@ -42,6 +42,22 @@ describe("consultar_transportadoras", () => {
     expect(r.mensaje).toMatch(/ciudad/);
   });
 
+  test("pasa el departamento para no confundir municipios homónimos", async () => {
+    let recibido: any = null;
+    const pedidos: ServicioDePedidos = {
+      async tomar() { return { estado: "error", motivo: "no" }; },
+      async confirmar() { return { estado: "error", motivo: "no" }; },
+      async transportadoras(ciudad, departamento) {
+        recibido = { ciudad, departamento };
+        return { ok: false, mensaje: "Cobertura ambigua; no se confirma contraentrega." };
+      },
+    };
+    const r = await ejecutores.consultar_transportadoras(ctxCon(pedidos), { ciudad: "Armenia", departamento: "Quindío" });
+    expect(recibido).toEqual({ ciudad: "Armenia", departamento: "Quindío" });
+    expect(r.ok).toBe(false);
+    expect(r.mensaje).toMatch(/ambigua/i);
+  });
+
   test("sin servicio de pedidos no finge la lista", async () => {
     const c = ctxCon(prueba());
     (c as any).pedidos = { tomar: async () => ({ estado: "error" as const, motivo: "x" }), confirmar: async () => ({ estado: "error" as const, motivo: "x" }) };

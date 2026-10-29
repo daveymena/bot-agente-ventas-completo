@@ -14,6 +14,7 @@ import remarkGfm from "remark-gfm";
 import { HelpTourButton } from "@/components/HelpTourButton";
 import { useAutoTour } from "@/hooks/use-auto-tour";
 import { getHelpGuide } from "@/data/help-guides";
+import { VistaPreviaAnuncioEnChat, type VistaPreviaAnuncio } from "@/components/vista-previa-anuncio";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,6 +55,8 @@ interface ActionEntry {
 interface Message {
   role: "user" | "assistant";
   content: string;
+  /** Vista previa del anuncio (imagen, texto, página) que Atlas adjunta antes de publicar. */
+  preview?: VistaPreviaAnuncio | null;
   /**
    * Cuándo se dijo, en milisegundos.
    *
@@ -166,6 +169,7 @@ const FilaDeMensaje = memo(function FilaDeMensaje({ msg, i }: { msg: Message; i:
               <MarkdownDeAtlas texto={msg.content} />
             </div>
           )}
+          {msg.role === "assistant" && msg.preview && <VistaPreviaAnuncioEnChat v={msg.preview} />}
         </div>
 
         {/* La hora del mensaje. Alineada al lado que corresponde:
@@ -1353,6 +1357,7 @@ export default function CodeAgent() {
         role: "assistant",
         at: Date.now(),
         content: data?.reply || (mode === "operator" ? "Listo." : "Configuración generada."),
+        preview: data?.preview ?? null,
         configApplied: data?.configApplied,
         advancedFeaturesEnabled: data?.advancedFeaturesEnabled,
         actions: Array.isArray(data?.actions) ? data.actions : undefined,

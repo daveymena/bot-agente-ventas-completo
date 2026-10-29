@@ -59,6 +59,15 @@ import {
 import { buscarContextoRelevante } from "./buscar-contexto";
 import { bloqueDeLaFichaEnFoco, puntosDeLaFicha } from "./lo-que-dice-la-ficha";
 import { sinCondicionesSinRespaldo, condicionesSinRespaldo } from "./condiciones-sin-respaldo";
+import { describirObjecion } from "./objeciones";
+import { medirFormato, pedidoDeReescritura } from "./formato-whatsapp";
+import {
+  clasificarObjecion,
+  registrarObjecion,
+  anotarCausaReal,
+  marcoDiagnosticoPedido,
+  caminoDeObjecion,
+} from "./objeciones";
 import { renderGuion, type GuionDelNegocio } from "./nicho";
 import { hablarColombiano } from "../hablar-colombiano";
 import type { ClienteLLM } from "./cliente-llm";
@@ -222,6 +231,13 @@ muéstrale lo que sí hay.
 Si el cliente muestra intención de compra ("lo quiero", "cómo pago", "mándame el link", "me sirve", "listo", "dale", "de una"), CIERRA. Deja de dar explicaciones y no hagas más preguntas de descubrimiento. Si no tienes claro de qué producto habla, ubícalo antes con buscar_en_catalogo y enfocar_producto. Si todavía no le mostraste el precio de ese producto, manda primero mostrar(seccion="precio"). Después, según qué es: un producto FÍSICO con envío se cierra con tomar_pedido (el sistema le manda la lista de datos de envío), NO con los medios de pago; lo demás se cierra con mostrar(seccion="pago"). NUNCA pidas compromiso ("¿te lo llevas?", nombre, cédula, dirección) antes de haberle mostrado el precio: primero precio, después datos.
 La ficha de "info" termina ofreciendo "¿te cuento cuánto vale?". Si el cliente contesta "sí" (o "sí, cuánto vale", "qué vale", "dame el precio", "cuánto está"), eso es un pedido de precio: manda mostrar(seccion="precio") en el acto.
 
+RESPUESTA DIRECTA (2026-10-22, pedido del dueño: ir al grano, agilidad y ventas)
+Responde PRIMERO lo que el cliente acaba de preguntar, con el dato exacto (qué es, precio, pago, entrega, garantía, talla, cómo funciona). Una sola respuesta, corta, sin rodeos.
+NO hagas preguntas de calificación cuando el cliente ya dijo qué quiere: contesta y ofrece el siguiente paso (comprar o ver el precio).
+Pregunta de calificación SOLO si pide algo sin producto claro ("quiero info" sin decir de qué). En ese caso, 1 pregunta corta y nada más.
+Nunca hagas más de 1 pregunta por mensaje, y nunca pidas datos de compra mientras aún está respondiendo una duda.
+Si ya te pidió precio/pago/entrega explícito, salta la pregunta y da el dato directo con su maqueta.
+
 CÓMO RESUELVES REFERENCIAS (sin releer texto viejo)
 "sí / no / ese / esa / el primero / el segundo / ese curso / lo quiero / dale / ok / mándame ese / cuánto vale? / qué vale? / cuánto cuesta? / precio / a cómo está? / y ese?" se resuelve con el bloque LO QUE YA PASÓ: mensaje actual primero, después tu última pregunta, producto en foco, producto anterior y última herramienta. Cualquier forma de preguntar el valor ("cuánto vale", "qué vale", "cuánto cuesta", "precio", "a cómo", "el valor") es pedido de precio del producto en foco: muestra mostrar(seccion="precio"). "Ese" después de ofrecer es lo último ofrecido. Si igual no está claro, pregunta cuál antes de mostrar nada.
 Si el mensaje empieza con [Responde citando este mensaje: "..."], el cliente te respondió señalando ESE mensaje: si es una ficha, su primera línea es el producto que eligió; enfócalo y sigue con ese, sin preguntar "¿cuál?".
@@ -274,8 +290,14 @@ ${catalogoCompacto}${voz.instruccionesExtra ? `\n\nINDICACIONES DEL DUEÑO\n${vo
     estado.productoEnFoco != null
       ? bloqueDeLaFichaEnFoco(catalogo.find((p) => p.id === estado.productoEnFoco))
       : "";
+  /** La objeción vigente, ya convertida en instrucción operativa. */
+  const objecion = describirObjecion(estado);
   const delTurno = `LO QUE YA PASÓ EN ESTA CONVERSACIÓN
 ${describirEstado(estado, params.nombrePorProducto)}${fichaEnFoco ? `\n\n${fichaEnFoco}` : ""}${
+    // La objeción vigente va como HECHO del turno, no como consejo del guion:
+    // dice qué se intentó ya y qué no repetir. Ver objeciones.ts.
+    objecion ? `\n\nOBJECIÓN SIN RESOLVER\n${objecion}` : ""
+  }${
     temas.length
       ? `\n\nRESPUESTAS QUE CARGÓ EL DUEÑO (valen aunque el tema figure en "NO TIENES ESTOS DATOS"; ` +
         `el texto exacto te lo da consultar_conocimiento): ${temas.join(" · ")}`
@@ -416,6 +438,10 @@ export async function responder(params: {
    * dueño: se le manda la ficha completa de una, sin "¿te refieres a…?".
    */
   fichaDelAnuncio?: number | null;
+  /** Producto del anuncio que continúa en foco aunque ya no sea el primer turno. */
+  productoDeAnuncioId?: number | null;
+  /** El chat llegó desde Meta/Instagram aunque el SKU no haya podido resolverse. */
+  vieneDeAnuncio?: boolean;
   /** Pedidos de producto físico (ver adaptador.servicioDePedidos). */
   pedidos?: import("./herramientas").ServicioDePedidos;
   /** Contexto del tenant para A/B testing */
@@ -503,6 +529,62 @@ export async function responder(params: {
     }
   }
 
+  // Resolver foco y guion ANTES de construir el contexto que leerá la IA.
+  // Si se hacía después, el primer turno veía la ficha del producto anterior
+  // (o ninguna), aunque el estado ya apuntara al nuevo.
+  const traza: ResultadoRespuesta["traza"] = [];
+  let contextoDeMenciones: string | null = null;
+  // ── El mensaje ACTUAL manda sobre el foco viejo (regla del playbook que
+  // v1 aprendió con sangre, acá como hecho del SERVIDOR) ────────────────────
+  // El probador la marcó dos rondas seguidas: "dice que no lo tiene" con
+  // productos que SÍ existen ("Coche Mecedora para Bebé…") y "el precio que
+  // dice no es el de lo que se está hablando" (×9): el cliente cambia de
+  // producto y el modelo, sin volver a buscar, responde con el foco VIEJO o
+  // niega el existe. Y en el caso del cliente CAÓTICO (nombra varios en un
+  // mensaje), el hecho ahora LISTA TODOS los nombrados: el vendedor no
+  // niega ninguno que exista y el foco queda en el que ganó con margen.
+  // los productos que este turno NOMBRÓ los lleva el guard del precio:
+  // un precio de UNO de esos productos es legítimo aunque el foco sea otro.
+  let mencionadosFoco: number[] = [];
+  try {
+    const mencionados = productosMencionadosEnElMensajeActual(mensajeDelCliente, catalogo);
+    const focoViejo = estado.productoEnFoco ?? null;
+    if (mencionados.length) {
+      mencionadosFoco = mencionados.map((m) => m.id);
+      const hayOtro = mencionados.some((m) => m.id !== focoViejo);
+      if (hayOtro) {
+        // ¿Re-enfoque? SOLO si hay un ganador CLARO (el doble del segundo).
+        // Sin ganador (mención ambigua) el foco se queda y el hecho lista
+        // los nombrados: el vendedor pregunta cuál, no decide solo.
+        const [top, segundo] = mencionados;
+        const ganadorClaro = mencionados.length === 1 || (segundo && top.puntos >= segundo.puntos * 2);
+        if (ganadorClaro) {
+          apilarContexto(estado, focoViejo ? `hablaban de ${nombrePorProducto(focoViejo)}` : "explorando");
+          estado.productoAnterior = focoViejo ?? null;
+          estado.productoEnFoco = top.id;
+          estado.opcionesMostradas = [];
+          // El cambio automático por mención explícita debe tener la misma
+          // semántica que `enfocar_producto`: un "sí" posterior no puede
+          // confirmar una oferta del producto que el cliente acaba de dejar.
+          if (estado.ultimaOferta?.productoId != null && estado.ultimaOferta.productoId !== top.id) {
+            estado.ultimaOferta = null;
+          }
+          if (estado.etapa === "saludo" || estado.etapa === "explorando") estado.etapa = "producto_en_foco";
+          if (params.recargarGuion) {
+            try { Object.assign(guion, await params.recargarGuion(top.id)); } catch { /* conservar el guion disponible */ }
+          }
+          traza.push({ herramienta: "[foco:revalidado]", args: { nuevo: top.id, anterior: focoViejo }, resultado: `${top.nombre} (${top.puntos.toFixed(0)} pts) sustituyó al foco anterior` });
+        }
+        const listaNombres = mencionados.map((m) => `"${m.nombre}" (#${m.id})`).join(", ");
+        contextoDeMenciones =
+            `El cliente MENCIONA en este mensaje: ${listaNombres}. TODOS existen en el catálogo`
+            + (ganadorClaro ? `; el foco YA cambió a "${mencionados[0].nombre}"` : "; NINGUNO quedó en foco todavía")
+            + `. Cualquier dato (precio, ficha, variantes) sale de las herramientas PARA el producto que se esté hablando: el precio/ficha del producto anterior NO aplica y no digas "no lo tengo" de ninguno de los de esa lista`
+            + (mencionados.length > 1 ? " (si no está claro cuál quiere, pregúntale cuál de esos es)." : ".");
+      }
+    }
+  } catch { /* sin revalidación el foco queda como estaba */ }
+
   let { fijo, delTurno } = partesDelPrompt({ voz, estado, catalogo, guion, nombrePorProducto, conocimiento: params.conocimiento });
 
   // A/B TEST: reemplaza prompt si hay versión candidata
@@ -515,6 +597,8 @@ export async function responder(params: {
     catalogo,
     catalogoCompleto: params.catalogoCompleto,
     focoFijo,
+    productoDeAnuncioId: params.productoDeAnuncioId ?? params.fichaDelAnuncio ?? null,
+    vieneDeAnuncio: params.vieneDeAnuncio ?? false,
     partes: [],
     conocimiento: params.conocimiento || [],
     guion,
@@ -571,8 +655,8 @@ export async function responder(params: {
   // Orden pensado para el caché del proveedor (ver partesDelPrompt): lo fijo,
   // el historial (que solo crece al final) y recién ahí el estado del turno.
   const messages: any[] = [{ role: "system", content: fijo }, ...charla, { role: "system", content: delTurno }];
+  if (contextoDeMenciones) messages.push({ role: "system", content: contextoDeMenciones });
 
-  const traza: ResultadoRespuesta["traza"] = [];
   let proveedor = "desconocido";
   let modoPlan = false;
   let textoFinal = "";
@@ -587,61 +671,11 @@ export async function responder(params: {
     uso.cacheados += u.cacheados;
   };
 
-  // ── El mensaje ACTUAL manda sobre el foco viejo (regla del playbook que
-  // v1 aprendió con sangre, acá como hecho del SERVIDOR) ────────────────────
-  // El probador la marcó dos rondas seguidas: "dice que no lo tiene" con
-  // productos que SÍ existen ("Coche Mecedora para Bebé…") y "el precio que
-  // dice no es el de lo que se está hablando" (×9): el cliente cambia de
-  // producto y el modelo, sin volver a buscar, responde con el foco VIEJO o
-  // niega el existe. Y en el caso del cliente CAÓTICO (nombra varios en un
-  // mensaje), el hecho ahora LISTA TODOS los nombrados: el vendedor no
-  // niega ninguno que exista y el foco queda en el que ganó con margen.
-  // los productos que este turno NOMBRÓ los lleva el guard del precio:
-  // un precio de UNO de esos productos es legítimo aunque el foco sea otro.
-  let mencionadosFoco: number[] = [];
-  try {
-    const mencionados = productosMencionadosEnElMensajeActual(mensajeDelClienteActual, catalogo);
-    const focoViejo = estado.productoEnFoco ?? null;
-    if (mencionados.length) {
-      mencionadosFoco = mencionados.map((m) => m.id);
-      const hayOtro = mencionados.some((m) => m.id !== focoViejo);
-      if (hayOtro) {
-        // ¿Re-enfoque? SOLO si hay un ganador CLARO (el doble del segundo).
-        // Sin ganador (mención ambigua) el foco se queda y el hecho lista
-        // los nombrados: el vendedor pregunta cuál, no decide solo.
-        const [top, segundo] = mencionados;
-        const ganadorClaro = mencionados.length === 1 || (segundo && top.puntos >= segundo.puntos * 2);
-        if (ganadorClaro) {
-          apilarContexto(estado, focoViejo ? `hablaban de ${nombrePorProducto(focoViejo)}` : "explorando");
-          estado.productoAnterior = focoViejo ?? null;
-          estado.productoEnFoco = top.id;
-          estado.opcionesMostradas = [];
-          // El cambio automático por mención explícita debe tener la misma
-          // semántica que `enfocar_producto`: un "sí" posterior no puede
-          // confirmar una oferta del producto que el cliente acaba de dejar.
-          if (estado.ultimaOferta?.productoId != null && estado.ultimaOferta.productoId !== top.id) {
-            estado.ultimaOferta = null;
-          }
-          if (estado.etapa === "saludo" || estado.etapa === "explorando") estado.etapa = "producto_en_foco";
-          traza.push({ herramienta: "[foco:revalidado]", args: { nuevo: top.id, anterior: focoViejo }, resultado: `${top.nombre} (${top.puntos.toFixed(0)} pts) sustituyó al foco anterior` });
-        }
-        const listaNombres = mencionados.map((m) => `"${m.nombre}" (#${m.id})`).join(", ");
-        messages.push({
-          role: "system",
-          content:
-            `El cliente MENCIONA en este mensaje: ${listaNombres}. TODOS existen en el catálogo`
-            + (ganadorClaro ? `; el foco YA cambió a "${mencionados[0].nombre}"` : "; NINGUNO quedó en foco todavía")
-            + `. Cualquier dato (precio, ficha, variantes) sale de las herramientas PARA el producto que se esté hablando: el precio/ficha del producto anterior NO aplica y no digas "no lo tengo" de ninguno de los de esa lista`
-            + (mencionados.length > 1 ? " (si no está claro cuál quiere, pregúntale cuál de esos es)." : "."),
-        });
-      }
-    }
-  } catch { /* sin revalidación el foco queda como estaba */ }
-
   // CEREBRO: razonar antes de responder
   const ctxRazonamiento: ContextoRazonamiento = {
     mensajeActual: mensajeDelClienteActual,
-    intentDelCliente: estado.intent || "desconocido",
+    // motor-nuevo todavía no clasifica la intención por turno: se declara, no se lee de un campo inexistente.
+    intentDelCliente: "sin_clasificar",
     estadoConversacion: estado,
     historial: historialParaRazonador.slice(-10), // Últimos 10 para contexto
     productoEnFoco: estado.productoEnFoco
@@ -668,7 +702,7 @@ export async function responder(params: {
     razonamientoDelCerebro = await razonar(ctxRazonamiento);
     traza.push({
       herramienta: "[CEREBRO:razonador]",
-      args: { intent: estado.intent },
+      args: { intent: "sin_clasificar" },
       resultado: `Confianza: ${razonamientoDelCerebro.confianza.toFixed(0)}% | Escalada: ${razonamientoDelCerebro.escalada}`,
     });
 
@@ -812,7 +846,9 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
   // Simulación del 25-09-2026: con el producto del anuncio ya en foco, el
   // modelo preguntaba "¿Te refieres al Corrector de Hombros y Clavícula?".
   // La ficha trae foto, precio, envío, pago y "¿Te lo enviamos?".
-  if (params.fichaDelAnuncio != null && !ctx.partes.some((p) => p.kind === "card")) {
+  if (params.fichaDelAnuncio != null
+    && estado.productoEnFoco === params.fichaDelAnuncio
+    && !ctx.partes.some((p) => p.kind === "card")) {
     try {
       await ejecutores.mostrar(ctx, { productoId: params.fichaDelAnuncio, seccion: "completa" });
       if (ctx.partes.some((p) => p.kind === "card")) textoFinal = /\?/.test(textoFinal) ? "" : textoFinal;
@@ -1150,6 +1186,51 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
     .replace(/<\|\|DSML[\s\S]*/g, "")
     .trim();
 
+  // ── Red de seguridad: el FORMATO de WhatsApp ─────────────────────────────
+  //
+  // Era la única regla del motor sin ninguna comprobación: el prompt pide "2 a 4
+  // frases, un emoji suelto, sin listas ni títulos" y nada lo miraba. El v1 sí
+  // lo medía (`emojis-con-medida.ts`) y el v2 se quedó sin ese reemplazo.
+  //
+  // Mismo patrón que las cifras: se pide UNA reescritura y, si insiste, sale lo
+  // que escribió. El formato es menos grave que dejar al cliente sin respuesta,
+  // así que acá no se recorta el texto por atrás.
+  //
+  // No aplica cuando hay tarjetas: la ficha que pega el servidor tiene su propio
+  // formato (un emoji por línea) y el texto que la acompaña es una línea.
+  if (textoFinal && !hayTarjetas()) {
+    const medida = medirFormato(textoFinal);
+    if (medida.problemas.length) {
+      console.log(
+        `📐 [MOTOR] Formato fuera de medida (${medida.problemas.map((p) => p.tipo).join(", ")}): ` +
+          `frases=${medida.metricas.frases} lineas=${medida.metricas.lineas} emojis=${medida.metricas.emojis}`,
+      );
+      try {
+        const reintento = await llm.crear({
+          messages: [
+            ...messages,
+            { role: "assistant", content: textoFinal },
+            { role: "system", content: pedidoDeReescritura(medida) },
+          ],
+          temperature: 0.6,
+          effort: "high",
+        });
+        contar(reintento.uso);
+        const nuevo = (reintento.content || "")
+          .replace(/<｜｜DSML[\s\S]*/g, "")
+          .replace(/<\|\|DSML[\s\S]*/g, "")
+          .trim();
+        // Se acepta solo si de verdad mejoró: si el reintento viene igual de
+        // largo o peor, se queda el original (no se castiga dos veces).
+        if (nuevo && medirFormato(nuevo).problemas.length < medida.problemas.length) {
+          textoFinal = nuevo;
+        }
+      } catch {
+        /* si el reintento falla, sale el texto original */
+      }
+    }
+  }
+
   // ── Notas internas del modelo ────────────────────────────────────────────
   // Prueba en producción (25-09-2026): al cliente le llegó "(El mensaje
   // anterior ya incluía la pregunta de cierre, espero la respuesta del
@@ -1261,6 +1342,35 @@ ${contextoMemoria.patrones.flatMap((p) => p.recomendaciones.map((r) => `- ${r}`)
   }
 
   estado.turnos += 1;
+
+  // ── La objeción del cliente se registra como HECHO, no se deduce después ──
+  // El modelo puede declararla con `anotar_contexto`, pero no se depende de él:
+  // si el cliente escribió "está caro" o "lo voy a pensar", eso ES una objeción
+  // y el turno siguiente tiene que saberlo. Mismo principio que el resto del
+  // motor: lo que se puede decidir en el servidor, se decide en el servidor.
+  if (mensajeDelClienteActual && mensajeDelClienteActual.trim()) {
+    const tipo = clasificarObjecion(mensajeDelClienteActual);
+    if (tipo !== "otra") {
+      // No re-registrar si el turno YA la marcó y el cliente sigue en lo mismo.
+      registrarObjecion(estado, mensajeDelClienteActual, tipo);
+    } else if (estado.objecion?.diagnosticoPedido && mensajeDelClienteActual.trim().length > 12) {
+      // El vendedor preguntó qué le frena y el cliente contestó algo: esa
+      // respuesta ES la causa real, aunque no matchee ningún patrón.
+      anotarCausaReal(estado, mensajeDelClienteActual);
+    }
+  }
+
+  // Si el vendedor preguntó por la causa en este turno, queda marcado para no
+  // repetir la misma pregunta en el siguiente.
+  if (estado.objecion && !estado.objecion.diagnosticoPedido && textoFinal) {
+    const camino = caminoDeObjecion(estado.objecion.tipo, {
+      intentos: estado.objecion.intentos,
+      yaPregunto: false,
+    });
+    const pregunto = textoFinal.includes("?") &&
+      (camino.exigeDiagnostico || /qu[eé] es lo que te frena|por qu[eé]|qu[eé] te|cu[aá]l es/i.test(textoFinal));
+    if (pregunto) marcoDiagnosticoPedido(estado);
+  }
   // La ficha completa (o de precio) de algo que se despacha sale DESPUÉS del
   // texto y cierra con "¿Te lo enviamos?" / "¿Te tomo el pedido?" (whatsapp.ts):
   // es lo último que el cliente ve. Chat de prueba desplegado (30-09-2026):

@@ -137,6 +137,25 @@ describe("condiciones que el negocio no cargó", () => {
     expect(condicionesSinRespaldo("Incluye soporte personalizado.", sinRespaldo)).toHaveLength(1);
     expect(condicionesSinRespaldo("Las actualizaciones te llegan gratis.", sinRespaldo)).toHaveLength(1);
   });
+
+  test("no inventa que un producto sirve para niños solo porque sea talla única", () => {
+    const texto = "Es talla única, así que en general le sirve muy bien a los niños.";
+    const r = { producto: { ...PIANO, name: "Corrector Zxf", description: "Talla única, doble correa ajustable y neopreno ligero." }, guion: negocioSinLetraChica() };
+    expect(condicionesSinRespaldo(texto, r).map((x) => x.promesa)).toContain("aptitud_por_edad");
+    expect(sinCondicionesSinRespaldo(texto, r)).not.toMatch(/sirve.*niñ/i);
+  });
+
+  test("acepta edad solo con respaldo explícito y respeta una edad mínima", () => {
+    const producto = { ...PIANO, name: "Corrector para niños", description: "Apto para niños de 5 a 12 años." };
+    const r = { producto, guion: negocioSinLetraChica() };
+    expect(condicionesSinRespaldo("Este modelo es apto para niños de 9 años.", r)).toEqual([]);
+    expect(condicionesSinRespaldo("Este modelo es apto para niños de 9 años.", {
+      ...r, producto: { ...producto, description: "No recomendado para niños menores de 12 años." },
+    })).toHaveLength(1);
+    const conRestriccion = { ...r, producto: { ...producto, description: "No recomendado para niños menores de 12 años." } };
+    expect(condicionesSinRespaldo("No es apto para niños de 9 años.", conRestriccion)).toEqual([]);
+    expect(condicionesSinRespaldo("No sé si sirve para niños de 9 años.", sinRespaldo)).toEqual([]);
+  });
 });
 
 describe('el turno "precio" completo, de punta a punta', () => {

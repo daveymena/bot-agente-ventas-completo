@@ -86,8 +86,10 @@ export function generarHipotesis(
   // Busca patrón basado en último mensaje
   const ultimoMensaje = historicoMensajes[historicoMensajes.length - 1]?.content.toLowerCase() || "";
 
+  // Los tags del turno (extraídos del mensaje y del estado) pesan igual que el texto:
+  // antes se ignoraban y "¿cuándo me llega?" nunca activaba el patrón de envío.
   for (const [clave, hipotesis] of Object.entries(patrones)) {
-    if (ultimoMensaje.includes(clave)) {
+    if (tags.includes(clave) || ultimoMensaje.includes(clave)) {
       // Elige la hipótesis más probable
       return hipotesis.sort((a, b) => b.probabilidad - a.probabilidad)[0];
     }

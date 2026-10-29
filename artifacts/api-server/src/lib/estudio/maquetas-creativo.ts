@@ -23,6 +23,8 @@
  */
 import type { Capa, CapaTexto, Escena, Formato } from "./escena";
 import { FORMATOS, idNuevo } from "./escena";
+import { aplicarKit, type KitDeMarca } from "./kit";
+import { tintaSobre } from "./retoque";
 
 export interface DatosCreativo {
   nombre: string;
@@ -41,6 +43,11 @@ export interface DatosCreativo {
   acento: string;
   sobreAcento: string;
   marca?: string | null;
+  /**
+   * Fotos con el fondo quitado (foto original → PNG recortado). Solo las que
+   * se pudieron recortar bien: ver creativos/recorte.ts.
+   */
+  recortes?: Record<string, string>;
 }
 
 export interface Maqueta {
@@ -176,6 +183,8 @@ function apilarHasta(c: Ctx, ps: (Pieza | null)[], yFin: number, separacionPx = 
 }
 
 const foto = (d: DatosCreativo, i = 0) => d.fotos[i] || d.fotos[0] || "";
+/** Para el producto "flotando": la foto recortada si la hay, si no la completa. */
+const fotoFlotante = (d: DatosCreativo, i = 0) => { const f = foto(d, i); return (f && d.recortes?.[f]) || f; };
 const sellosTexto = (d: DatosCreativo, max = 3) => (d.sellos || []).slice(0, max).join("  ·  ");
 
 function escena(f: Formato, fondo: string, capas: Capa[]): Escena {
@@ -208,7 +217,7 @@ function horizontalBasico(c: Ctx, d: DatosCreativo, o: { fondo: string; tinta: s
   const col = apilar(c, piezas, Math.max(c.arriba, 50 - total / 2), 22);
   return [
     forma({ x: 0, y: 0, w: 100, h: 100, relleno: o.fondo, nombre: "Fondo" }),
-    img({ src: foto(d), x: 52, y: o.fotoAjuste === "contain" ? 8 : 0, w: o.fotoAjuste === "contain" ? 44 : 48, h: o.fotoAjuste === "contain" ? 84 : 100, ajuste: o.fotoAjuste || "cover", sombra: o.fotoAjuste === "contain" }),
+    img({ src: o.fotoAjuste === "contain" ? fotoFlotante(d) : foto(d), x: 52, y: o.fotoAjuste === "contain" ? 8 : 0, w: o.fotoAjuste === "contain" ? 44 : 48, h: o.fotoAjuste === "contain" ? 84 : 100, ajuste: o.fotoAjuste || "cover", sombra: o.fotoAjuste === "contain" }),
     ...col.capas,
   ];
 }
@@ -325,7 +334,7 @@ export const MAQUETAS: Maqueta[] = [
           const alto = y1 - y0;
           const out: Capa[] = [
             forma({ x: 14, y: y0, w: 72, h: alto, relleno: d.acento, forma: "circulo", opacidad: 0.1, nombre: "Halo" }),
-            img({ src: foto(d), x: 10, y: y0, w: 80, h: alto, ajuste: "contain", sombra: true }),
+            img({ src: fotoFlotante(d), x: 10, y: y0, w: 80, h: alto, ajuste: "contain", sombra: true }),
           ];
           if (d.precio) out.push(...sello(c, d, 66, y0, 28));
           return out;
@@ -380,7 +389,7 @@ export const MAQUETAS: Maqueta[] = [
           d.apoyo ? pzTexto(c, { texto: d.apoyo, x: 12, w: 76, alinear: "center", tam: 3.3, peso: 400, color: "#4a443b", nombre: "Apoyo" }) : null,
           pzBoton(c, d, 28, 44, false, "#1a1815"),
         ],
-        (y0, y1) => [img({ src: foto(d), x: 12, y: y0, w: 76, h: y1 - y0, ajuste: "contain", sombra: true })],
+        (y0, y1) => [img({ src: fotoFlotante(d), x: 12, y: y0, w: 76, h: y1 - y0, ajuste: "contain", sombra: true })],
         30,
       );
       return escena(f, "#f4efe8", [forma({ x: 0, y: 0, w: 100, h: 100, relleno: "#f4efe8", nombre: "Fondo" }), ...capas]);
@@ -434,7 +443,7 @@ export const MAQUETAS: Maqueta[] = [
         [sellosTexto(d) ? pzTexto(c, { texto: sellosTexto(d), x: 6, w: 88, alinear: "center", tam: 3, peso: 700, color: d.sobreAcento, nombre: "Sellos" }) : null, botonCentrado(c, d, true)],
         (y0, y1) => [
           forma({ x: 8, y: y0, w: 84, h: y1 - y0, relleno: "#ffffff", forma: "circulo", opacidad: 0.14, nombre: "Círculo" }),
-          img({ src: foto(d), x: 14, y: y0, w: 72, h: y1 - y0, ajuste: "contain", sombra: true }),
+          img({ src: fotoFlotante(d), x: 14, y: y0, w: 72, h: y1 - y0, ajuste: "contain", sombra: true }),
         ],
         20,
       );
@@ -578,7 +587,7 @@ export const MAQUETAS: Maqueta[] = [
       };
       const capas = sandwich(c, [gancho], [tarjetas, botonCentrado(c, d)], (y0, y1) => [
         forma({ x: 20, y: y0, w: 60, h: y1 - y0, relleno: d.acento, forma: "circulo", opacidad: 0.12, nombre: "Halo" }),
-        img({ src: foto(d), x: 12, y: y0, w: 76, h: y1 - y0, ajuste: "contain", sombra: true }),
+        img({ src: fotoFlotante(d), x: 12, y: y0, w: 76, h: y1 - y0, ajuste: "contain", sombra: true }),
       ], 24);
       return escena(f, "#eef2f7", [forma({ x: 0, y: 0, w: 100, h: 100, relleno: "#eef2f7", nombre: "Fondo" }), ...capas]);
     },
@@ -648,7 +657,7 @@ export const MAQUETAS: Maqueta[] = [
       if (final) piezas.push(pzTexto(c, { texto: final, x: 6, w: 88, fuente: "anton", mayus: true, color: d.acento, tam, interlineado: 0.98, nombre: "Palabra en color" }));
       const capas = sandwich(c, piezas, [botonCentrado(c, d)], (y0, y1) => [
         forma({ x: 15, y: y0 + (y1 - y0) * 0.1, w: 70, h: (y1 - y0) * 0.9, relleno: d.acento, forma: "circulo", opacidad: 0.22, nombre: "Brillo" }),
-        img({ src: foto(d), x: 10, y: y0, w: 80, h: y1 - y0, ajuste: "contain", sombra: true }),
+        img({ src: fotoFlotante(d), x: 10, y: y0, w: 80, h: y1 - y0, ajuste: "contain", sombra: true }),
       ], 8);
       return escena(f, "#0b0b0f", [forma({ x: 0, y: 0, w: 100, h: 100, relleno: "#0b0b0f", nombre: "Fondo" }), ...capas]);
     },
@@ -696,4 +705,14 @@ function sello(c: Ctx, d: DatosCreativo, x: number, y: number, ancho: number): C
 
 export function maquetaPorId(id: string | null | undefined): Maqueta {
   return MAQUETAS.find((m) => m.id === id) || MAQUETAS[0]!;
+}
+
+/**
+ * Arma un creativo con la identidad de la marca. Es la puerta que deben usar
+ * pantalla y Atlas: `m.armar` solo da la composición; el kit le pone los
+ * colores, letras y logo del negocio (ver estudio/kit.ts).
+ */
+export function armarCreativo(m: Maqueta, d: DatosCreativo, f: Formato, kit?: KitDeMarca | null): Escena {
+  const conAcento = kit?.acento ? { ...d, acento: kit.acento, sobreAcento: tintaSobre(kit.acento) } : d;
+  return aplicarKit(m.armar(conAcento, f), kit, conAcento.acento, { arriba: ctx(f).arriba });
 }

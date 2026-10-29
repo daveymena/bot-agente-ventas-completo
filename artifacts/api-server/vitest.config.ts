@@ -22,7 +22,9 @@ export default defineConfig({
     // ignorar la suite, y en esta sesión ya hubo tres defectos reales que
     // pasaron porque una prueba en verde decía lo contrario.
     hookTimeout: 30_000,
-    testTimeout: 20_000,
+    // 60 s: con la suite completa en paralelo, la primera conexión a PGlite de
+    // cada archivo superaba los 20 s. Es contención, no un defecto (ver arriba).
+    testTimeout: 60_000,
     poolOptions: { threads: { maxThreads: 6, minThreads: 1 } },
     coverage: {
       provider: "v8",

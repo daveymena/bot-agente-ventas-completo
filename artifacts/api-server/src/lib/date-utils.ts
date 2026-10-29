@@ -35,3 +35,18 @@ export function dbNow(): Date | string {
 export function toDbDate(d: Date): Date | string {
   return process.env.USE_SQLITE === "true" ? d.toISOString() : d;
 }
+
+/** Rango del día civil actual de Colombia, sin depender de la TZ del servidor. */
+export function rangoHoyColombia(ahora = new Date()): { desde: Date; hasta: Date; etiqueta: string } {
+  const p = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Bogota", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(ahora);
+  const valor = (tipo: string) => p.find((x) => x.type === tipo)?.value || "0";
+  const anio = Number(valor("year"));
+  const mes = Number(valor("month"));
+  const dia = Number(valor("day"));
+  // Colombia usa UTC-5 y no tiene horario de verano.
+  const desde = new Date(Date.UTC(anio, mes - 1, dia, 5));
+  const hasta = new Date(desde.getTime() + 24 * 60 * 60 * 1000);
+  return { desde, hasta, etiqueta: `${anio}-${String(mes).padStart(2, "0")}-${String(dia).padStart(2, "0")}` };
+}

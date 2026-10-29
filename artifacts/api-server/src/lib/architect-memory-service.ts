@@ -166,8 +166,8 @@ export class ArchitectMemoryService {
         .limit(20);
 
       return memories
-        .filter((m) => (m.metadata?.impact || 0) >= minImpact)
-        .sort((a, b) => (b.metadata?.impact || 0) - (a.metadata?.impact || 0)) as Memory[];
+        .filter((m: any) => (m.metadata?.impact || 0) >= minImpact)
+        .sort((a: any, b: any) => (b.metadata?.impact || 0) - (a.metadata?.impact || 0)) as Memory[];
     } catch (error) {
       logger.error({ error }, "Failed to get high impact lessons");
       return [];
@@ -221,23 +221,23 @@ export class ArchitectMemoryService {
       };
 
       // Contar por tipo
-      memories.forEach((m) => {
+      memories.forEach((m: any) => {
         patterns.byType[m.memoryType] = (patterns.byType[m.memoryType] || 0) + 1;
       });
 
       // Calcular tasa de éxito
-      const decisions = memories.filter((m) => m.memoryType === "decision");
-      const successes = decisions.filter((d) => d.title.includes("✅"));
+      const decisions = memories.filter((m: any) => m.memoryType === "decision");
+      const successes = decisions.filter((d: any) => d.title.includes("✅"));
       patterns.successRate = decisions.length > 0 ? (successes.length / decisions.length) * 100 : 0;
 
       // Promedio de confianza
       patterns.avgConfidence =
-        memories.reduce((sum, m) => sum + (m.metadata?.confidence || 0), 0) / memories.length || 0;
+        memories.reduce((sum: any, m: any) => sum + (m.metadata?.confidence || 0), 0) / memories.length || 0;
 
       // Tags más frecuentes
       const tagCounts = new Map<string, number>();
-      memories.forEach((m) => {
-        m.tags?.forEach((tag) => {
+      memories.forEach((m: any) => {
+        m.tags?.forEach((tag: any) => {
           tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
         });
       });
@@ -274,8 +274,8 @@ export class ArchitectMemoryService {
 
       // Filtrar por confianza baja
       const lowConfidenceIds = toDelete
-        .filter((m) => (m.metadata?.confidence || 100) < minConfidence)
-        .map((m) => m.id);
+        .filter((m: any) => (m.metadata?.confidence || 100) < minConfidence)
+        .map((m: any) => m.id);
 
       if (lowConfidenceIds.length === 0) return 0;
 

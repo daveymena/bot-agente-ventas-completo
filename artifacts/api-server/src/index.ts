@@ -54,6 +54,17 @@ async function start() {
   // Non-blocking database migrations (fires in background)
   runAutoMigrations().catch(() => {});
 
+  // Una escritura por cuenta publicitaria a la vez, en todas las instancias
+  // (ver lib/meta/escritura-global.ts). Apagable con META_EXCLUSION_CUENTA=false.
+  if (process.env.META_EXCLUSION_CUENTA !== "false") {
+    const { pool: poolDb } = await import("@workspace/db");
+    if (poolDb) {
+      const { instalarExclusionDeEscrituras } = await import("./lib/meta/escritura-global");
+      instalarExclusionDeEscrituras(poolDb as unknown as Parameters<typeof instalarExclusionDeEscrituras>[0]);
+      logger.info("Exclusión por cuenta publicitaria activa");
+    }
+  }
+
   // Claves de IA guardadas desde la pantalla de Configuración: se vuelcan al
   // entorno para que los proveedores las usen igual que las del .env.
   try {
@@ -89,7 +100,7 @@ async function start() {
     logger.warn({ err }, "[Bootstrap] no se pudo verificar si existe un administrador");
   }
 
-  app.listen(port, "0.0.0.0", (err: any) => {
+  const servidorHttp = app.listen(port, "0.0.0.0", (err: any) => {
     if (err) {
       logger.error({ err }, "Error listening on port");
       process.exit(1);
@@ -115,6 +126,37 @@ async function start() {
     // Le costó al negocio dos clientes que venían de anuncios pagos.
     instalarApagadoOrdenado();
   });
+
+  // ── Mantenimiento de las carpetas de sesión de WhatsApp ────────────────
+  //
+  // `useMultiFileAuthState` deja un archivo por clave. Medido el 2026-10-14:
+  // un solo negocio había acumulado 18.006 archivos (17.177 de mapeo LID, de
+  // los cuales 5.106 estaban vacíos) y listar la carpeta tardaba 2.120 ms.
+  // Con 100 negocios eso son ~1,8 millones de archivos dentro del contenedor:
+  // el disco se arrastra y los backups se inflan.
+  //
+  // Borra SOLO los mapeos LID de 0 bytes —caché que Baileys repuebla sola,
+  // nunca credenciales—. Ver lib/limpieza-sesiones-whatsapp.ts.
+  try {
+    const { programarLimpiezaDeSesiones } = await import("./lib/limpieza-sesiones-whatsapp");
+    programarLimpiezaDeSesiones(path.resolve(process.cwd(), "data", "whatsapp-tenants"));
+  } catch (err: any) {
+    logger.warn({ err: err?.message }, "[LimpiezaWA] no se pudo programar la limpieza");
+  }
+
+  // ── Canal en vivo (WebSocket) ──────────────────────────────────────────
+  // Se engancha al MISMO http.Server que atiende la API: una sola puerta de
+  // entrada y una sola regla de autenticación (la cookie firmada del panel).
+  // Emite a Atlas y a los agentes lo que pasa al instante, sin polling.
+  try {
+    const { arrancarPuenteEnVivo } = await import("./lib/eventos");
+    const { montarEventosEnVivo } = await import("./routes/eventos");
+    arrancarPuenteEnVivo();
+    montarEventosEnVivo(servidorHttp as any);
+  } catch (err: any) {
+    // Un canal en vivo caído no puede impedir que el vendedor atienda.
+    logger.warn({ err: err?.message }, "[Eventos] no se pudo montar el canal en vivo");
+  }
 }
 
 start().catch((err) => {

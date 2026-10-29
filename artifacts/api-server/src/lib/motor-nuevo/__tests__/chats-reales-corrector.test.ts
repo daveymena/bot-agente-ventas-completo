@@ -35,9 +35,9 @@ describe('"Me interesa este" citando una ficha', () => {
 });
 
 describe("5 correctores y solo entran 4 fichas", () => {
-  test("se le dice al modelo cuál quedó afuera, y las fichas salen sin cierre repetido", () => {
+  test("se le dice al modelo cuál quedó afuera, y las fichas salen sin cierre repetido", async () => {
     const ctx: ContextoHerramientas = { estado: estadoInicial(1), catalogo: correctores, partes: [], conocimiento: [], guion: guion(), mensajeDelCliente: "me los mostrás?", efectos: [] };
-    const r: any = ejecutores.mostrar_opciones(ctx, { productoIds: [1, 2, 3, 4, 5] });
+    const r: any = await ejecutores.mostrar_opciones(ctx, { productoIds: [1, 2, 3, 4, 5] });
     expect(ctx.partes).toHaveLength(4);
     expect(r.mensaje).toMatch(/NO se mostró Corrector espalda Black/);
     expect(ctx.partes.every((p: any) => p.sinCierre)).toBe(true);

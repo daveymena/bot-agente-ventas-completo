@@ -122,8 +122,11 @@ describe("el cierre, con todas sus variantes", () => {
     assert.equal(tarjetas[0].seccion, "precio");
     assert.equal(tarjetas[1].seccion, "pago");
     // La traza deja constancia de que el primer intento de pago fue rechazado.
-    const intentoDePago = r.traza.find((t) => t.herramienta === "mostrar" && (t.args as any)?.seccion === "pago");
-    assert.match(intentoDePago?.resultado || "", /todavía no le dijiste cuánto cuesta/i);
+    // Se busca la entrada por su contenido y no por posición: desde el refuerzo
+    // de foco (motor.ts:621) la traza puede abrir con [foco:revalidado].
+    const rechazo = r.traza.find((t: any) => /no se envió/i.test(String(t.resultado ?? "")));
+    assert.ok(rechazo, "la herramienta de pago debía rechazar el envío sin precio previo");
+    assert.match(String(rechazo!.resultado), /todavía no le dijiste cuánto cuesta/i);
     assert.equal(r.estado.etapa, "cierre");
   });
 

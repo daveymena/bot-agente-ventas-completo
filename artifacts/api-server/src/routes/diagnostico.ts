@@ -144,7 +144,7 @@ router.get("/", async (req, res, next) => {
           });
 
           // Campañas: el dato que se estuvo persiguiendo.
-          const datos = await fb.getCampaignMetrics({ days: 30 });
+          const datos = await fb.getCampaignMetricsHistoricos({ days: 30 });
           const n = datos?.campaigns?.length ?? 0;
           revisiones.push({
             que: "Facebook · campañas",

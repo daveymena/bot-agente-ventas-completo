@@ -277,6 +277,72 @@ function GuiaAliExpress() {
   );
 }
 
+function TarjetaCanva() {
+  const [estado, setEstado] = useState<any>(null);
+  const [cargando, setCargando] = useState(true);
+  const recargar = useCallback(() => {
+    fetch("/api/canva/estado", { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then(j => setEstado(j?.canva || null))
+      .catch(() => setEstado(null))
+      .finally(() => setCargando(false));
+  }, []);
+  useEffect(() => { recargar(); }, [recargar]);
+  // aviso tras volver del OAuth
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    if (q.get("canva") === "conectado") {
+      recargar();
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+  }, [recargar]);
+  const conectada = !!estado?.conectado;
+  const deshabilitado = !estado?.enabled;
+  const probar = async () => {
+    try {
+      const r = await fetch("/api/canva/probar", { method: "POST", credentials: "include" });
+      const j = await r.json().catch(()=>({}));
+      if (r.ok) {
+        recargar();
+        alert(`Canva verificado. ${j.disenosVisibles ? "Tu cuenta permite leer diseños." : "La cuenta está conectada; todavía no hay diseños visibles."} Abre Studio → Canva para preparar tus creativos.`);
+      }
+      else { recargar(); alert("No se pudo verificar Canva: " + (j.error || r.status)); }
+    } catch(e:any){ alert("Error: " + (e?.message||e)); }
+  };
+  const desconectar = async () => {
+    if (!confirm("¿Desconectar Canva? Se borra el token.")) return;
+    await fetch("/api/canva/desconectar", { method: "DELETE", credentials: "include" });
+    recargar();
+  };
+  return (
+    <Card className={estado?.conectado ? "ring-1 ring-emerald-200" : ""}>
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#00C4CC] text-white font-black text-sm ring-1 ring-border shadow-sm">Ca</span>
+            <div className="min-w-0">
+              <CardTitle className="text-lg">Canva Connect</CardTitle>
+              <CardDescription>Prepara variantes desde tus productos, edita en Canva y guarda los archivos en Studio.</CardDescription>
+              <p className="mt-1 text-xs text-muted-foreground">Permisos: ver y crear diseños, listar tu catálogo de diseños, subir archivos, leer plantillas de marca y perfil.</p>
+            </div>
+          </div>
+          {cargando ? <Badge variant="outline">Cargando</Badge> : conectada ? <Badge className="gap-1 bg-emerald-600 hover:bg-emerald-600"><CheckCircle2 className="h-3 w-3" />Conectada</Badge> : deshabilitado ? <Badge variant="outline" className="gap-1"><CircleDashed className="h-3 w-3" />Deshabilitado</Badge> : <Badge variant="outline" className="gap-1"><CircleDashed className="h-3 w-3" />{estado?.requiereRevision ? "Verificar conexión" : "Sin conectar"}</Badge>}
+        </div>
+        {estado?.motivo && <p className="text-xs text-muted-foreground">{estado.motivo}</p>}
+        {estado?.limitaciones && <p className="text-xs text-amber-700 bg-amber-50 rounded p-2">⚠️ {estado.limitaciones}</p>}
+      </CardHeader>
+      <CardContent className="flex flex-wrap gap-2">
+        <Button onClick={() => window.location.href = "/api/canva/auth"} disabled={deshabilitado} className="bg-[#00C4CC] hover:bg-[#00b3bb] text-white">
+          {conectada ? "Reconectar con Canva" : "Conectar con Canva"}
+        </Button>
+        {estado?.tieneToken && <><Button variant="outline" onClick={probar}>Probar conexión</Button><Button variant="ghost" className="text-destructive" onClick={desconectar}><Unplug className="mr-2 h-4 w-4" />Desconectar</Button></>}
+        <a href="/estudio?espacio=canva" className="rounded-lg border px-3 py-2 text-sm font-medium">Abrir Canva en Studio</a>
+        {deshabilitado && <p className="w-full text-xs text-muted-foreground">Activa en el servidor: CANVA_ENABLED=true + CANVA_CLIENT_ID/SECRET + CANVA_REDIRECT_URI=https://ventasproia.com/api/canva/callback. FFmpeg local sigue funcionando sin Canva.</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
 function TarjetaFacebook() {
   const [cfg, setCfg] = useState<ConfigAppFacebook>({ appId: null, enabled: false });
   const [estado, setEstado] = useState<{ hasToken?: boolean; pageId?: string; adAccountId?: string } | null>(null);
@@ -316,6 +382,12 @@ function TarjetaFacebook() {
   );
 }
 
+function TarjetaFigma() {
+  const [estado, setEstado] = useState<{ connected?: boolean; configured?: boolean } | null>(null);
+  useEffect(() => { fetch("/api/figma/estado", { credentials: "include" }).then((r) => r.ok ? r.json() : null).then(setEstado).catch(() => setEstado(null)); }, []);
+  return <Card><CardHeader className="pb-3"><CardTitle className="flex flex-wrap items-center justify-between gap-2 text-lg">Figma<span className="text-xs font-normal text-muted-foreground">{estado?.connected ? "Acceso verificado" : estado?.configured ? "Revisar conexión" : "Sin conectar"}</span></CardTitle><CardDescription>Consulta frames, colores y tipografías con Atlas. Conecta un token de lectura en Studio.</CardDescription></CardHeader><CardContent><Button variant="outline" asChild><Link href="/estudio?espacio=figma">Abrir Figma en Studio<ExternalLink className="ml-2 h-4 w-4" /></Link></Button></CardContent></Card>;
+}
+
 export default function IntegracionesPage() {
   const [estado, setEstado] = useState<Record<string, EstadoIntegracion>>({});
   const [cargando, setCargando] = useState(true);
@@ -338,6 +410,8 @@ export default function IntegracionesPage() {
           <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Cargando…</div>
         ) : (
           <div className="grid gap-4 md:grid-cols-2">
+            <TarjetaCanva />
+            <TarjetaFigma />
             <TarjetaFacebook />
             <TarjetaFacturacion />
             {(["shopify", "mercadolibre", "aliexpress", "falabella"] as Plataforma[]).map((p) => (

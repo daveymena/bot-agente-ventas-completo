@@ -119,9 +119,9 @@
   --muted: 210 40% 96%;
   --muted-foreground: 215 16% 47%;
 
-  /* Accent — violet */
-  --accent: 250 70% 60%;
-  --accent-foreground: 0 0% 100%;
+  /* Accent — índigo suave: el violeta no compite con la marca (REDESENO §5.1) */
+  --accent: 243 75% 97%;
+  --accent-foreground: 243 60% 38%;
 
   /* Destructive */
   --destructive: 0 72% 51%;
@@ -137,7 +137,8 @@
   --app-font-sans: 'Inter', sans-serif;
   --app-font-serif: Georgia, serif;
   --app-font-mono: Menlo, monospace;
-  --radius: .625rem;
+  /* Escala de radios de REDESENO §5.3: botones 10–12px, tarjetas 14–16px */
+  --radius: .75rem;
 
   --shadow-2xs: 0px 1px 2px 0px rgba(15,23,42,0.04);
   --shadow-xs: 0px 1px 2px 0px rgba(15,23,42,0.05);

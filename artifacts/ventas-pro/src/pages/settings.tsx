@@ -22,6 +22,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Save, X, Plus, Settings as SettingsIcon, ShieldCheck, Terminal, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { AIProviders } from "@/components/ai-providers";
+import { CopilotModelPicker } from '@/components/copilot-model-picker';
+import { estadoCopilot } from '@/lib/estado-copilot';
 import { TwoFactorSettings } from "@/components/two-factor-settings";
 import { HelpTourButton } from "@/components/HelpTourButton";
 import { useAutoTour } from "@/hooks/use-auto-tour";
@@ -65,6 +67,10 @@ export default function Settings() {
   // Estado del botón "Probar" del modelo: evita dobles clics mientras la
   // llamada real al proveedor está en curso.
   const [probandoModelo, setProbandoModelo] = useState(false);
+  const [mostrarCopilot, setMostrarCopilot] = useState(false);
+  const [reautorizarCopilot, setReautorizarCopilot] = useState(false);
+  const [probarCopilotEnAtlas, setProbarCopilotEnAtlas] = useState(false);
+  const conexionCopilot = estadoCopilot(settings || {});
 
   const [deviceFlow, setDeviceFlow] = useState({
     active: false,
@@ -238,6 +244,13 @@ export default function Settings() {
     });
   };
 
+  const guardarCopilot = () => {
+    updateSettings.mutate({ data: { aiProvider: 'github_copilot_internal', githubModel: formData.githubModel.trim() } }, {
+      onSuccess: () => { toast.success('Modelo de Copilot guardado'); queryClient.invalidateQueries({ queryKey: getGetSettingsQueryKey() }); },
+      onError: () => toast.error('No se pudo guardar el modelo de Copilot'),
+    });
+  };
+
   const addKeyword = () => {
     const k = keywordInput.trim().toLowerCase();
     if (k && !formData.escalationKeywords.includes(k)) {
@@ -395,9 +408,10 @@ export default function Settings() {
                       onChange={e => setFormData({...formData, aiProvider: e.target.value as any})}
                       className="w-full h-10 rounded-xl border border-input bg-muted/30 px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                     >
+                      {!['opencode','mimo','github_copilot_internal','nvidia','ollama_local','ollama_cloud','openai_default','g4f'].includes(formData.aiProvider) && <option value={formData.aiProvider}>{formData.aiProvider} · proveedor guardado</option>}
                       <option value="opencode">OpenCode Zen (Gratis, con rotación de modelos)</option>
                       <option value="mimo">Xiaomi MiMo (requiere MIMO_API_KEY)</option>
-                      <option value="github_copilot_internal">GitHub Copilot Internal (VS Code Flow)</option>
+                      <option value="github_copilot_internal">GitHub Copilot · conectar cuenta y elegir modelo</option>
                       <option value="nvidia">NVIDIA NIM (High Performance)</option>
                       <option value="ollama_local">Ollama (Local)</option>
                       <option value="ollama_cloud">Ollama Cloud (Pro)</option>
@@ -419,16 +433,13 @@ export default function Settings() {
                           </>
                         );
                       } else if (formData.aiProvider === "github_copilot_internal") {
-                        const tieneSesion = !!(settings as any)?.hasCopilotSessionToken;
-                        const isActive = tieneSesion && new Date(formData.copilotSessionExpiresAt) > new Date();
-                        const isExpired = tieneSesion && !isActive;
+                        const isActive = conexionCopilot.vigente;
+                        const isExpired = conexionCopilot.guardado && !isActive;
                         return (
                           <>
                             <div className={`h-2 w-2 rounded-full ${isActive ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : isExpired ? 'bg-yellow-500' : 'bg-red-500'}`} />
                             <span className="text-[10px] font-bold uppercase tracking-wider">
-                              {isActive ? `Sesión Copilot Activa (Expira: ${new Date(formData.copilotSessionExpiresAt).toLocaleTimeString()})` 
-                                : isExpired ? 'Sesión Copilot Expirada (Se renovará al usar)' 
-                                : 'Copilot Sin Conexión (Requiere Auth)'}
+                              {conexionCopilot.etiqueta}
                             </span>
                           </>
                         );
@@ -486,9 +497,9 @@ export default function Settings() {
                       } else {
                         return (
                           <>
-                            <div className="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" />
+                            <div className="h-2 w-2 rounded-full bg-slate-400" />
                             <span className="text-[10px] font-bold uppercase tracking-wider">
-                              Conectado (OpenAI Default)
+                              Proveedor seleccionado: {formData.aiProvider}
                             </span>
                           </>
                         );
@@ -496,8 +507,9 @@ export default function Settings() {
                     })()}
                   </div>
                   {/* Configuración GitHub Copilot */}
-                  {(formData.aiProvider === "github" || formData.aiProvider === "github_copilot_internal") && (
-                    <div className="space-y-6 animate-in fade-in slide-in-from-left-4">
+                  {formData.aiProvider === 'github' && <Button type="button" variant="outline" className="min-h-11" onClick={() => setFormData(prev => ({ ...prev, aiProvider: 'github_copilot_internal' }))}>Cambiar a GitHub Copilot</Button>}
+                  {(formData.aiProvider === "github_copilot_internal" || conexionCopilot.guardado || mostrarCopilot) && (
+                    <div id="conexion-copilot" className="space-y-6 scroll-mt-24 animate-in fade-in slide-in-from-left-4">
                       {/* ⚠️ ACA HABIA UNA CAJA PARA PEGAR UN TOKEN A MANO, Y SE SACO.
                           
                           No estaba rota: estaba pidiendo algo que NO PUEDE
@@ -540,12 +552,12 @@ export default function Settings() {
                               pasado: para el admin era indistinguible de "sigue
                               esperando". Un aviso que se desvanece no alcanza
                               para confirmar algo que se hace una vez. */}
-                          {deviceFlow.status === "success" ? (
+                          {deviceFlow.status === "success" || (conexionCopilot.guardado && !reautorizarCopilot && !deviceFlow.active && deviceFlow.status === 'idle') ? (
                             <div className="space-y-3 animate-in fade-in duration-500">
                               <div className="flex items-center gap-2 rounded-2xl border border-green-500/30 bg-green-500/5 p-4">
                                 <div className="h-2 w-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
                                 <div>
-                                  <p className="text-sm font-bold">Cuenta de GitHub vinculada</p>
+                                  <p className="text-sm font-bold">Token de GitHub Copilot guardado</p>
                                   <p className="text-[11px] text-muted-foreground">
                                     El token quedó guardado en el servidor. Probá el modelo abajo para confirmar que responde.
                                   </p>
@@ -553,10 +565,10 @@ export default function Settings() {
                               </div>
                               <button
                                 type="button"
-                                onClick={() => setDeviceFlow({ active: false, userCode: "", deviceCode: "", verificationUri: "", status: "idle", intervalS: 5, expiraEn: 0 })}
+                                onClick={() => { setReautorizarCopilot(true); setDeviceFlow({ active: false, userCode: "", deviceCode: "", verificationUri: "", status: "idle", intervalS: 5, expiraEn: 0 }); }}
                                 className="text-[10px] font-black uppercase text-muted-foreground hover:text-foreground"
                               >
-                                Vincular otra cuenta
+                                Volver a autorizar
                               </button>
                             </div>
                           ) : deviceFlow.status === "expirado" ? (
@@ -592,7 +604,7 @@ export default function Settings() {
                           ) : !deviceFlow.active ? (
                             <div className="space-y-6 animate-in fade-in duration-500">
                               <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                                {["GPT-4o", "Claude 3.5", "o1", "o3", "Llama 3"].map(m => (
+                                {["Modelos según tu cuenta", "Free con Auto"].map(m => (
                                   <div key={m} className="flex flex-col items-center gap-1">
                                     <div className="w-full h-1 bg-gradient-to-r from-transparent via-primary/30 to-transparent rounded-full" />
                                     <span className="text-[8px] font-bold text-muted-foreground uppercase">{m}</span>
@@ -712,17 +724,9 @@ export default function Settings() {
                       </div>
 
 
-                      <div className="space-y-2">
-                        <Label className="text-muted-foreground font-semibold uppercase tracking-wider text-[10px]">
-                          {formData.aiProvider === "github_copilot_internal" ? "Modelo de Copilot" : "Modelo de GitHub"}
-                        </Label>
+                      <div className="space-y-3">
+                        <CopilotModelPicker value={formData.githubModel} onChange={githubModel => setFormData(prev => ({ ...prev, githubModel }))} onGuardar={guardarCopilot} guardando={updateSettings.isPending} />
                         <div className="flex gap-2">
-                          <Input
-                            value={formData.githubModel}
-                            onChange={e => setFormData({...formData, githubModel: e.target.value})}
-                            placeholder={formData.aiProvider === "github_copilot_internal" ? "gpt-4o" : "gpt-5.6-luna"}
-                            className="bg-muted/30 font-mono"
-                          />
                           {/* Autenticarse NO garantiza que el modelo responda: el
                               token puede estar bien y el modelo no existir o no
                               estar habilitado en esa cuenta. Este botón hace una
@@ -732,7 +736,7 @@ export default function Settings() {
                           <Button
                             type="button"
                             variant="outline"
-                            disabled={probandoModelo}
+                            disabled={probandoModelo || !formData.githubModel.trim()}
                             onClick={async () => {
                               setProbandoModelo(true);
                               try {
@@ -740,12 +744,14 @@ export default function Settings() {
                                   method: "POST",
                                   headers: { "Content-Type": "application/json" },
                                   body: JSON.stringify({
-                                    proveedor: formData.aiProvider,
+                                    proveedor: 'github_copilot_internal',
                                     model: formData.githubModel,
                                   }),
                                 });
                                 const d = await res.json();
+                                setProbarCopilotEnAtlas(Boolean(d.requiereAtlas));
                                 if (d.ok) toast.success(`Responde: ${formData.githubModel || "modelo por defecto"}`);
+                                else if (d.requiereAtlas) toast.info(d.error);
                                 else toast.error(String(d.error || "No respondió").slice(0, 140));
                               } catch (e: any) {
                                 toast.error(`No se pudo probar: ${e?.message || e}`);
@@ -757,6 +763,7 @@ export default function Settings() {
                             {probandoModelo ? "Probando…" : "Probar"}
                           </Button>
                         </div>
+                        {probarCopilotEnAtlas && <a href="/code-agent" className="inline-flex min-h-11 items-center text-sm font-medium text-primary underline">Abrir Atlas para probar el modelo guardado</a>}
                       </div>
                     </div>
                   )}
@@ -886,17 +893,17 @@ export default function Settings() {
 
                 <div className="bg-muted/20 rounded-2xl p-5 border border-dashed flex flex-col justify-center gap-3">
                   <h4 className="font-bold text-sm flex items-center gap-2">
-                    <ShieldCheck className="h-4 w-4 text-green-500" /> Nota sobre Suscripción
+                    <ShieldCheck className="h-4 w-4 text-green-500" /> Copilot Free y planes de pago
                   </h4>
                   <p className="text-xs text-muted-foreground leading-relaxed">
-                    Requiere suscripción activa a GitHub Copilot. Los modelos de Claude y Gemini estarán disponibles según tu plan.
+                    Conecta tu cuenta de Copilot, gratuita o de pago. Free y Student usan Auto; los demás planes permiten elegir modelos según las políticas de la cuenta y el cliente utilizado.
                   </p>
                   <div className="mt-2 p-3 bg-primary/5 rounded-xl border border-primary/10">
-                    <p className="text-[10px] text-primary font-bold uppercase mb-1">Capacidades Activas</p>
+                    <p className="text-[10px] text-primary font-bold uppercase mb-1">Qué muestra este panel</p>
                     <ul className="text-[10px] space-y-1 text-muted-foreground">
-                      <li>• GPT-4o y Claude 3.5 Sonnet soportados</li>
-                      <li>• Razonamiento por etapas habilitado</li>
-                      <li>• Memoria de corto y mediano plazo activa</li>
+                      <li>• El token ya guardado en el servidor</li>
+                      <li>• Los modelos y modos que publique tu conexión</li>
+                      <li>• La prueba de respuesta, separada de la autenticación</li>
                     </ul>
                   </div>
                 </div>
@@ -915,7 +922,10 @@ export default function Settings() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="pb-8">
-                <AIProviders />
+                <AIProviders onConfigurarCopilot={() => {
+                  setMostrarCopilot(true);
+                  requestAnimationFrame(() => document.getElementById('conexion-copilot')?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+                }} />
               </CardContent>
             </Card>
 

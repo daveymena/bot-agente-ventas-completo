@@ -20,8 +20,11 @@ import subscriptionWebhooksRouter from "./routes/subscription-webhooks";
 import activationRouter from "./routes/activation";
 import aiCatalogRouter from "./routes/ai-catalog";
 import { integracionesRouter, integracionesWebhooksRouter } from "./routes/integraciones";
+import canvaRouter from "./routes/canva";
+import { figmaRouter } from "./routes/figma";
 import { facturacionRouter } from "./routes/facturacion";
 import { posRouter } from "./routes/pos";
+import { eventosRouter } from "./routes/eventos";
 import { logger } from "./lib/logger";
 import { securityShield } from "./lib/security-shield";
 import { imageUrlFixer } from "./lib/image-url-fixer";
@@ -91,6 +94,8 @@ startAdGrowthAgent();
 // vuelta siguiente, nunca se marca "hecho" en falso.
 import { iniciarProgramador } from "./lib/programador";
 import { registrarOrganico } from "./lib/agente-organico";
+import { iniciarCatalogoAutoSync } from "./lib/catalogo-auto-sync";
+import { registrarAgentesAutonomos, activarParaTodosLosTenants as activarAutonomosParaTodos } from "./lib/agentes-autonomos-diarios";
 import { registrarAgencia } from "./lib/agencia-ritmo";
 import { registrarGuardia } from "./lib/agente-horario";
 import { registrarAgendaDeAtlas } from "./lib/atlas-agenda";
@@ -114,6 +119,11 @@ registrarGuardia();
 // Las acciones que el admin deja programadas desde Atlas (ver lib/atlas-agenda.ts).
 registrarAgendaDeAtlas();
 iniciarProgramador();
+// Catálogo vivo + orgánico diario sin que el admin tenga que pedirlo (DIOS)
+iniciarCatalogoAutoSync();
+// Agentes autónomos DIOS: valor diario (enamoran sin vender) + borrador diario + diagnóstico — trabajan solos
+registrarAgentesAutonomos();
+activarAutonomosParaTodos().catch(() => undefined);
 
 // Reporte diario del equipo de marketing. Los 13 agentes existian pero no
 // corria ninguno solo: habia que ir a despertarlos entrando a la pagina. Un
@@ -656,6 +666,9 @@ const publicRoutes = [
   // Pedidos de las landings de Landing Forge: los autentica la x-api-key
   // compartida, no una sesión (routes/landing-forge-entrada.ts).
   "/landing-forge/pedido",
+  // Canva Connect callback: lo llama Canva con ?code&state, sin sesión. El handler valida state PKCE y guarda el token para ese tenant.
+  "/canva/callback",
+  "/api/canva/callback",
   // "/landing-studio" ya NO es pública (29-09-2026): sin sesión, cualquiera
   // podía reescribir la landing de cualquier negocio (/design, /chat con otro
   // landingId) y gastar los proveedores de IA del negocio 1. El panel la
@@ -998,10 +1011,17 @@ app.use("/api/ai", aiCatalogRouter);
 // tenant sin sesión) y van en `publicRoutes` abajo.
 app.use("/api/integraciones", integracionesRouter);
 app.use("/api/integraciones/webhooks", integracionesWebhooksRouter);
+// Canva Connect: OAuth PKCE (auth/callback/estado), con sesión para /estado y /auth, callback público.
+app.use("/api/canva", canvaRouter);
+app.use("/api/figma", figmaRouter);
 // Facturación: cada negocio conecta SU sistema (Alegra o webhook). Con sesión.
 app.use("/api/facturacion", facturacionRouter);
 // POS tienda física: inventario, caja, ventas, devoluciones. Con sesión.
 app.use("/api/pos", posRouter);
+// Canal en vivo: estado y emisión de prueba. El WebSocket se monta aparte, en
+// index.ts, porque necesita el http.Server. Estas rutas van acá para pasar por
+// el mismo middleware de sesión que el resto de la API.
+app.use("/api/eventos", eventosRouter);
 app.use("/api", router);
 
 // Short URL redirect: /p/:productId → /tienda/:slug/producto/:productId

@@ -197,11 +197,11 @@ class MonitoringSystem {
       avgResponseTime,
       aiSuccessRate,
       errorRate: 1 - aiSuccessRate,
-      topStages: stageStats.map(s => ({
+      topStages: stageStats.map((s: any) => ({
         stage: s.stage || 'unknown',
         count: s.count
       })),
-      recentActivity: recentActivity.map(a => ({
+      recentActivity: recentActivity.map((a: any) => ({
         type: a.type,
         description: a.title,
         timestamp: a.createdAt,

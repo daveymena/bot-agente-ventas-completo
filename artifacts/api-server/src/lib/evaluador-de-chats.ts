@@ -12,6 +12,9 @@
  * dijo), no de estilo. Un fallo acá es un fallo demostrable.
  */
 
+import { ESTADO_CONVERSACION_EVALUACION } from "./conversation-status";
+export { ESTADO_CONVERSACION_EVALUACION, esConversacionOperativa } from "./conversation-status";
+
 export interface TurnoEvaluado {
   /** Lo que escribió el cliente. */
   mensaje: string;
@@ -203,7 +206,10 @@ export async function reproducirYEvaluar(
   // Teléfono con pinta colombiana: sin país el motor trata al cliente como extranjero.
   const telefono = `573009${String(Date.now()).slice(-6)}`;
   const [convo] = await db.insert(conversations).values(addTenantToInsert({
-    contactName: "Evaluación", contactPhone: telefono, status: "ai", currentStage: "greeting",
+    // RunAgentReply no inspecciona status; `evaluation` permite excluir esta
+    // conversación sintética de bandeja, métricas y diagnósticos sin cambiar
+    // los mensajes que recibe el motor ni perder el id devuelto al evaluador.
+    contactName: "Evaluación", contactPhone: telefono, status: ESTADO_CONVERSACION_EVALUACION, currentStage: "greeting",
   }, tenantId)).returning();
   const catalogo = await db.select({ id: products.id, name: products.name, price: products.price, kind: products.kind })
     .from(products).where(and(eq(products.tenantId, tenantId), eq(products.isActive, true)));

@@ -148,6 +148,7 @@ router.post("/mensaje", async (req: TenantRequest, res) => {
     // El dueño (09-10-2026): "que sí corrija y mejore, que no me responda eso
     // porque es mentira". Antes encontrar lo falso dependía de su ojo.
     let revision: any[] = [];
+    let revisionEstado: "completada" | "no_disponible" = "no_disponible";
     try {
       const { revisarRespuesta } = await import("../lib/revisar-respuesta");
       const { db, products } = await import("@workspace/db");
@@ -161,6 +162,7 @@ router.post("/mensaje", async (req: TenantRequest, res) => {
         producto: producto ?? null,
         condiciones: await condicionesDe(tenantId),
       });
+      revisionEstado = "completada";
     } catch (e: any) {
       logger.warn({ tenantId, err: e?.message }, "[ProbarVendedor] no se pudo revisar la respuesta");
     }
@@ -168,6 +170,9 @@ router.post("/mensaje", async (req: TenantRequest, res) => {
     return res.json({
       mensajes,
       revision,
+      revisionEstado,
+      textoParaHistorial: turno?.textoParaHistorial || turno?.texto || "",
+      motor: "v2",
       texto: turno?.texto || "",
       estado: r.estado,
       pedido: pedidos.pedido(),

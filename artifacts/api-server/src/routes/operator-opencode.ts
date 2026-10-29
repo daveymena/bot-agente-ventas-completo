@@ -36,7 +36,7 @@ import { correrTurnoDirecto, correrTurnoDirectoConRotacion, candidatosDirectos, 
 import { promptDeAtlas, executeAction, verifyMutation, investigacionRapida, mensajeParaAdmin, isReadOnlyTool, notaDeLandingsEnSegundoPlano, type OperatorContext } from "../lib/app-operator";
 import {
   loadArchitectHistory, saveArchitectTurn, getPendingPlan, setPendingPlan,
-  clearPendingPlan, isApproval, isRejection, esSiConCorreccion, loadRecentLessons,
+  clearPendingPlan, isApproval, isRejection, esSiConCorreccion, decisionSinContextoEstudio, loadRecentLessons,
 } from "../lib/architect-store";
 import { toEmojiStyle } from "../lib/conversation-engine";
 import { esResumenInterno, pareceIngles, avisoDeTurnoIncompleto, avisoDeCierreVacio } from "../lib/respuesta-al-admin";
@@ -515,7 +515,7 @@ function hayClavePropia(providerID: string): boolean {
   // -- y el admin, que acaba de vincular su cuenta, seguía sin verlo aparecer
   // en ningún turno.
   if (/copilot/i.test(providerID)) {
-    return !!(process.env.COPILOT_TOKENS || process.env.GITHUB_COPILOT_TOKEN);
+    return !!(process.env.COPILOT_TOKENS || process.env.GITHUB_COPILOT_TOKEN || process.env.GITHUB_TOKEN);
   }
   const envKey = ENV_POR_PROVEEDOR[providerID];
   return !!(envKey && process.env[envKey]);
@@ -557,7 +557,13 @@ async function candidatosDelTurno(tenantId: number) {
 }
 
 async function directoParaTenant(tenantId: number): Promise<boolean> {
-  return process.env.ATLAS_DIRECTO === "true" && (await candidatosDelTurno(tenantId)).length > 0;
+  if (process.env.ATLAS_DIRECTO !== 'true') return false;
+  try {
+    const [fila] = await db.select().from(settings).limit(1);
+    const { copilotElegido } = await import('../lib/preferencia-modelo-atlas');
+    if (copilotElegido(fila, process.env)) return false;
+  } catch { /* El diagnóstico de candidatos conserva los respaldos existentes. */ }
+  return (await candidatosDelTurno(tenantId)).length > 0;
 }
 
 async function iaActivaDelPanel(): Promise<{ providerID: string; modelID: string } | null> {
@@ -566,10 +572,11 @@ async function iaActivaDelPanel(): Promise<{ providerID: string; modelID: string
     const activa = fila?.aiProvider;
     if (!activa) return null;
     const { leerBusinessConfig } = await import("../lib/ai-keys");
-    const modelo = leerBusinessConfig(fila!.businessConfig).aiProviders?.[activa]?.model;
-    if (!modelo) return null;
+    const { preferenciaModeloAtlas } = await import('../lib/preferencia-modelo-atlas');
+    const preferencia = preferenciaModeloAtlas(fila, leerBusinessConfig(fila!.businessConfig).aiProviders);
+    if (!preferencia) return null;
     const { ID_HACIA_OPENCODE } = await import("../lib/opencode-provider-sync");
-    return { providerID: ID_HACIA_OPENCODE[activa] || activa, modelID: modelo };
+    return { ...preferencia, providerID: ID_HACIA_OPENCODE[activa] || preferencia.providerID };
   } catch {
     return null;
   }
@@ -893,6 +900,10 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       logger.info({ tenantId, largo: texto.length }, "[AtlasOpenCode] Pedido por voz transcrito");
     }
 
+    // El servidor también acepta decisiones enviadas por una pestaña de Studio anterior
+    // al arreglo del frontend. Nunca buscar un «sí» dentro del contexto ni del historial.
+    prompt = decisionSinContextoEstudio(String(prompt));
+
     const persisted = await loadArchitectHistory(tenantId, sessionId);
     const convo = persisted.length > 0 ? persisted : (Array.isArray(historialCrudo) ? historialCrudo : []);
     await saveArchitectTurn(tenantId, sessionId, "user", String(prompt));
@@ -930,7 +941,7 @@ router.post("/operator-opencode", async (req: TenantRequest, res, next) => {
       // Acá un falso positivo publica en la pagina o crea una campaña que
       // gasta: preguntar de nuevo cuesta un mensaje.
       const aprobadoPorElModelo =
-        !isRejection(String(prompt)) &&
+        !isApproval(String(prompt)) && !isRejection(String(prompt)) &&
         (await esUnSiParaEstePlan(String(prompt), pending.actions.map((a: any) => describePlannedAction(a)).join(" · ")));
       if (aprobadoPorElModelo) {
         logger.info({ tenantId, prompt: String(prompt).slice(0, 60) }, "[Atlas] la lista no lo reconocio pero el modelo lo leyo como un si");

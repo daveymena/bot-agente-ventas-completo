@@ -17,7 +17,7 @@ vi.mock("../respaldo-del-dueno", () => ({
   envSoloDelDueno: (tenantId: number, v?: string) => (tenantId === 1 ? String(v || "") : ""),
 }));
 
-import { cotizarEnvioDropi } from "../dropi-cotizador";
+import { cotizarEnvioDropi, limpiarCacheDropiCotizadorParaPruebas } from "../dropi-cotizador";
 
 const respuesta = (status: number, json: unknown) => ({ ok: status < 400, status, text: async () => JSON.stringify(json) });
 
@@ -73,6 +73,51 @@ describe("cotizador de envío de Dropi", () => {
     expect(dueno.autenticacion).toBe("sesion");
   });
 
+  it("API-v2 tampoco elige el primer Armenia si no se dio departamento", async () => {
+    limpiarCacheDropiCotizadorParaPruebas();
+    process.env.DROPI_TOKEN = "tok-session-sin-depto";
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/location/departments")) return respuesta(200, { isSuccess: true, result: [
+        { department_id: 5, name: "ANTIOQUIA" }, { department_id: 63, name: "QUINDIO" },
+      ] });
+      if (url.includes("/location/departments/5/cities")) return respuesta(200, { isSuccess: true, result: [
+        { id: 501, name: "ARMENIA", cod_dane: "05031000", rate_type: "CON RECAUDO", department_id: 5 },
+      ] });
+      if (url.includes("/location/departments/63/cities")) return respuesta(200, { isSuccess: true, result: [
+        { id: 63001, name: "ARMENIA", cod_dane: "63001000", rate_type: "CON RECAUDO", department_id: 63 },
+      ] });
+      if (url.includes("/shipping-quote/123")) return respuesta(200, { isSuccess: true, result: [{ conveyor: "TCC", totalFreight: 10000, isSuccess: true }] });
+      return respuesta(404, { isSuccess: false, message: "no" });
+    });
+    globalThis.fetch = fetchMock as any;
+    const r = await cotizarEnvioDropi(1, { dropiProductId: 123, ciudad: "Armenia", precioVenta: 55000 });
+    expect(r.ok).toBe(false);
+    expect(r.codigo).toBe("departamento_requerido");
+    expect(fetchMock.mock.calls.some(([url]) => url.includes("shipping-quote"))).toBe(false);
+  });
+
+  it("API-v2 cotiza Armenia solo en el departamento confirmado por el cliente", async () => {
+    limpiarCacheDropiCotizadorParaPruebas();
+    process.env.DROPI_TOKEN = "tok-session-con-depto";
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.endsWith("/location/departments")) return respuesta(200, { isSuccess: true, result: [
+        { department_id: 5, name: "ANTIOQUIA" }, { department_id: 63, name: "QUINDIO" },
+      ] });
+      if (url.includes("/location/departments/63/cities")) return respuesta(200, { isSuccess: true, result: [
+        { id: 63001, name: "ARMENIA", cod_dane: "63001000", rate_type: "CON RECAUDO", department_id: 63 },
+      ] });
+      if (url.includes("/shipping-quote/123")) return respuesta(200, { isSuccess: true, result: [{ conveyor: "TCC", totalFreight: 10000, isSuccess: true }] });
+      return respuesta(404, { isSuccess: false, message: "no" });
+    });
+    globalThis.fetch = fetchMock as any;
+    const r = await cotizarEnvioDropi(1, { dropiProductId: 123, ciudad: "Armenia", departamento: "Quindío", precioVenta: 55000 });
+    expect(r.ok).toBe(true);
+    const quote = fetchMock.mock.calls.find(([url]) => url.includes("shipping-quote"))?.[0] as string;
+    expect(quote).toContain("department_id=63");
+    expect(quote).toContain("city_id=63001");
+    expect(quote).toContain("cod_dane=63001000");
+  });
+
   it("una ciudad fuera de cobertura se dice como tal, sin inventar transportadoras", async () => {
     globalThis.fetch = dropiFalso({ aceptaToken: () => true }) as any;
     const r = await cotizarEnvioDropi(7, { dropiProductId: 123, ciudad: "Ciudad Inexistente", precioVenta: 50000 });
@@ -83,7 +128,7 @@ describe("cotizador de envío de Dropi", () => {
 });
 
 describe("cotizador por la API de integraciones (formas reales de Dropi, 30-09-2026)", () => {
-  afterEach(() => { integracion.responder = null; });
+  afterEach(() => { integracion.responder = null; limpiarCacheDropiCotizadorParaPruebas(); });
 
   it("resuelve el DANE de la ciudad, manda el producto y ordena por flete; los que dan error quedan no disponibles", async () => {
     let enviado: any = null;
@@ -113,45 +158,61 @@ describe("cotizador por la API de integraciones (formas reales de Dropi, 30-09-2
     expect(r.motivos).toEqual([{ transportadora: "DOMINA", motivo: "No se tiene configurada tarifa" }]);
   });
 
-  // 10-10-2026, caso real Armenia: dos homónimos; el primero (Antioquia)
-  // sin recaudo y el del Quindío con recaudo. Cotizar "Armenia, Quindío"
-  // NO puede usar en silencio la de Antioquia.
-  function responderArmenia(path: string, body: any, enviado: { v: any }) {
-    if (path === "trajectory/bycity") return { ok: true, data: { cities: [
-      { name: "ARMENIA", department_id: 5, cod_dane: "05031000", rate_type: '["SIN RECAUDO"]' },
-      { name: "ARMENIA", department_id: 63, cod_dane: "63001000", rate_type: '["CON RECAUDO","SIN RECAUDO"]' },
-      { name: "ARMENIA Q", department_id: 63, cod_dane: "63001001", rate_type: '["CON RECAUDO"]' },
-    ] } };
-    if (path === "department") return { ok: true, data: [{ id: 5, name: "ANTIOQUIA" }, { id: 63, name: "QUINDIO" }] };
-    if (path === "orders/cotizaEnvioTransportadoraV2") {
-      enviado.v = body;
-      return { ok: true, data: [{ transportadora: "SERVIENTREGA", transportadora_id: 1, objects: { precioEnvio: 12000 } }] };
-    }
-    return { ok: false, error: "ruta inesperada" };
-  }
-
-  it("Armenia + Quindío cotiza la del Quindío, no la primera (Antioquia)", async () => {
-    const { vaciarCacheCotizador } = await import("../dropi-cotizador");
-    vaciarCacheCotizador();
-    const enviado: { v: any } = { v: null };
-    integracion.responder = (path, body) => responderArmenia(path, body, enviado);
-    const r = await cotizarEnvioDropi(7, { dropiProductId: 155, ciudad: "Armenia", departamento: "Quindío", precioVenta: 55000 });
+  it("Armenia, Quindío usa el homónimo correcto para cotizar recaudo", async () => {
+    let payload: any = null;
+    integracion.responder = (path, body) => {
+      if (path === "trajectory/bycity") return { ok: true, data: { cities: [
+        { name: "ARMENIA", department_id: 5, cod_dane: "05031000", rate_type: '["SIN RECAUDO"]' },
+        { name: "ARMENIA", department_id: 63, cod_dane: "63001000", rate_type: '["CON RECAUDO","SIN RECAUDO"]' },
+      ] } };
+      if (path === "department") return { ok: true, data: [{ id: 5, name: "ANTIOQUIA" }, { id: 63, name: "QUINDIO" }] };
+      if (path === "orders/cotizaEnvioTransportadoraV2") {
+        payload = body;
+        return { ok: true, data: [{ transportadora: "TCC", transportadora_id: 1, objects: { precioEnvio: 13000 } }] };
+      }
+      return { ok: false, error: "ruta inesperada" };
+    };
+    const r = await cotizarEnvioDropi(7, { dropiProductId: 155, ciudad: "Armenia", departamento: "Quindío", precioVenta: 55000, conRecaudo: true });
     expect(r.ok).toBe(true);
-    expect(r.ciudad).toEqual({ nombre: "ARMENIA", departamento: "QUINDIO", aceptaContraentrega: true });
-    expect(enviado.v.ciudad_destino).toMatchObject({ nombre: "ARMENIA", departamento: "QUINDIO", cod_dane: "63001000" });
+    expect(r.ciudad).toMatchObject({ nombre: "ARMENIA", departamento: "QUINDIO", aceptaContraentrega: true });
+    expect(payload.ciudad_destino.cod_dane).toBe("63001000");
+    expect(payload.EnvioConCobro).toBe(true);
   });
 
-  it("Armenia + un departamento donde no está se dice en voz alta, no se cotiza otra", async () => {
-    const { vaciarCacheCotizador } = await import("../dropi-cotizador");
-    vaciarCacheCotizador();
-    const enviado: { v: any } = { v: null };
-    integracion.responder = (path, body) => responderArmenia(path, body, enviado);
-    const r = await cotizarEnvioDropi(7, { dropiProductId: 155, ciudad: "Armenia", departamento: "Huila", precioVenta: 55000 });
+  it("Armenia en Quindío no cotiza por el registro homónimo de Antioquia", async () => {
+    let intentoDeCotizar = false;
+    integracion.responder = (path) => {
+      if (path === "trajectory/bycity") return { ok: true, data: { cities: [
+        { name: "ARMENIA", department_id: 5, cod_dane: "05031000", rate_type: '["SIN RECAUDO"]' },
+      ] } };
+      if (path === "department") return { ok: true, data: [{ id: 5, name: "ANTIOQUIA" }] };
+      if (path === "orders/cotizaEnvioTransportadoraV2") { intentoDeCotizar = true; return { ok: true, data: [] }; }
+      return { ok: false, error: "ruta inesperada" };
+    };
+    const r = await cotizarEnvioDropi(7, { dropiProductId: 155, ciudad: "Armenia", departamento: "Quindío", precioVenta: 55000, conRecaudo: true });
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/cobertura/);
-    expect(r.error).toMatch(/ANTIOQUIA|QUINDIO/);
-    expect(r.error).toMatch(/Parecidos/);
-    expect(enviado.v).toBeNull();
+    expect(r.codigo).toBe("departamento_incompatible");
+    expect(r.error).toMatch(/no se puede confirmar contraentrega/i);
+    expect(intentoDeCotizar).toBe(false);
+  });
+
+  it("sin departamento no cotiza el primer municipio homónimo ni asume recaudo", async () => {
+    limpiarCacheDropiCotizadorParaPruebas();
+    let intentoDeCotizar = false;
+    integracion.responder = (path) => {
+      if (path === "trajectory/bycity") return { ok: true, data: { cities: [
+        { name: "ARMENIA", department_id: 5, cod_dane: "05031000", rate_type: '["SIN RECAUDO"]' },
+        { name: "ARMENIA", department_id: 63, cod_dane: "63001000", rate_type: '["CON RECAUDO"]' },
+      ] } };
+      if (path === "department") return { ok: true, data: [{ id: 5, name: "ANTIOQUIA" }, { id: 63, name: "QUINDIO" }] };
+      if (path === "orders/cotizaEnvioTransportadoraV2") { intentoDeCotizar = true; return { ok: true, data: [] }; }
+      return { ok: false, error: "ruta inesperada" };
+    };
+    const r = await cotizarEnvioDropi(7, { dropiProductId: 155, ciudad: "Armenia", precioVenta: 55000, conRecaudo: true });
+    expect(r.ok).toBe(false);
+    expect(r.codigo).toBe("departamento_requerido");
+    expect(r.error).toMatch(/hace falta el departamento/i);
+    expect(intentoDeCotizar).toBe(false);
   });
 });
 

@@ -1,94 +1,37 @@
 /**
- * Cliente API para LandingForge (motor actual: landing-forge en
- * https://landings.ventasproia.com).
+ * Cliente API para LandingForge (generador propio en landing-forge).
  *
- * Endpoints usados:
- *   GET  /api/landingforge/status    - estado del servicio y la IA
- *   POST /api/landingforge/generate - generar landing (extrae URL + IA + guarda)
- *   GET  /api/landingforge/list      - listar landings generadas
- *   GET  /api/health                 - salud del servicio
+ * Habla con NUESTRO sistema vía x-api-key (ver LANDING_API_KEY):
+ *   POST /api/generate  — genera landing (prompt o URL de producto)
+ *   GET  /api/sites     — lista landings
+ *   GET  /api/export/:id — HTML público para enviar al cliente
  *
- * Autenticacion: header x-api-key con LANDINGFORGE_API_KEY (las escrituras
- * lo exigen; el dashboard usa mismo-origen, el bot usa la key).
+ * Mantiene las firmas que usan whatsapp.ts y landing-pages-ai.ts
+ * (getOrCreateLanding, generateMagicLanding, listLandings, MagicLandingResult).
  */
-
 import { createHmac } from "node:crypto";
 
+// El default de producción es el dominio real de Forge. El commit f553534 lo
+// había revertido a localhost: si la variable faltaba en el deploy, TODAS las
+// llamadas a Forge apuntaban a la máquina local. Restaurado el 2026-10-14.
 const BASE = (process.env.LANDINGFORGE_URL || "https://landings.ventasproia.com").replace(/\/+$/, "");
-// La clave compartida con Landing Forge vive SOLO en el entorno (pedido del
-// dueño 07-10: "que no quede escrita en el repo"): el MISMO valor en
-// LANDINGFORGE_API_KEY (acá) y LANDING_API_KEY (en Forge).
 const API_KEY = process.env.LANDINGFORGE_API_KEY || process.env.LANDING_API_KEY || "";
-const WHATSAPP_DEFAULT = process.env.WHATSAPP_NUMBER || process.env.ADMIN_PHONE || "573136174267";
 
-export interface LFProduct {
-  id: string;
-  name: string;
-  slug: string;
-  priceCents: number;
-  currency: string;
-  kind: "physical" | "digital";
-  description?: string;
-  category?: string;
-  checkoutUrl?: string;
+function headers(extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    ...(API_KEY ? { "x-api-key": API_KEY } : {}),
+    ...extra,
+  };
 }
 
-export interface LFBrief {
-  id: string;
-  data: Record<string, any>;
-  generatedBy: string;
-}
-
-export interface LFLanding {
-  id: string;
-  slug: string;
-  status: "draft" | "published";
-  title?: string;
-  productId: string;
-}
-
-export interface LFSection {
-  id: string;
-  sectionType: string;
-  copy: { title: string; subtitle: string; body: string; cta: string; [k: string]: any };
-  imageUrl?: string;
-  [k: string]: any;
-}
-
-export interface MagicLandingResult {
-  ok: boolean;
-  landingId: string;
-  url: string;
-  slug: string;
-  productName: string;
-  sectionsGenerated: number;
-  sections?: LFSection[];
-  editorUrl?: string;
-  exportUrl?: string;
-  error?: string;
-  /** Fase 1 del forge: el analisis previo (avatar/dolores/angulo). */
-  analisis?: { avatar?: string; promesa?: string; angulo?: string; dolores?: string[] } | null;
-}
-
-export interface ProductData {
-  description?: string;
-  price?: string;
-  currency?: string;
-  category?: string;
-  checkoutUrl?: string;
-  images?: string[];
-  videos?: string[];
-  prompt?: string;
-  /** Origen del trafico ("facebook" en fisico: el forge analiza angulo y diseno para trafico frio). */
-  trafico?: string;
-  /** Negocio dueño: con esto se mandan sus HECHOS (marca, envío, garantía). */
-  tenantId?: number | null;
-  /** Fila del producto: su garantía real (metadata.garantia, de Dropi). */
-  producto?: any;
-  /** true = devolver una landing publicada con el mismo nombre si existe.
-   *  Por defecto NO: pedir una landing nueva crea una nueva (orden del dueño
-   *  07-10). Para cambiar una existente está landing_forge_editar. */
-  reutilizar?: boolean;
+async function api<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { ...opts, headers: headers(opts.headers as any) });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`LandingForge ${opts.method || "GET"} ${path}: ${res.status} ${body.slice(0, 200)}`);
+  }
+  return (await res.json()) as T;
 }
 
 /** Lo único que la landing puede prometer (Forge: lib/ai/hechos.ts). */
@@ -109,6 +52,48 @@ function diasDeGarantia(t: string): number | undefined {
   const m = /(\d{1,2})\s*mes(es)?/i.exec(t);
   return m ? Number(m[1]) * 30 : undefined;
 }
+
+/**
+ * Variante de `api` con tope de tiempo por operación.
+ *
+ * Sin tope, una generación de Forge colgada dejaba a Atlas esperando para
+ * siempre (06-10: "se quedó 6 minutos y nunca resolvió"). Generar (IA + fotos
+ * + revisión) tarda 1 a 4 min; editar ~40 s; el resto es lectura.
+ *
+ * La borró f553534 junto con las diez funciones que la usan. Restaurada el
+ * 2026-10-14.
+ */
+async function lf<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
+  const h: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...((opts.headers as Record<string, string>) || {}),
+  };
+  if (API_KEY) h["x-api-key"] = API_KEY;
+  const tope = path.includes("/generate") ? 300_000 : path.includes("/ai/") ? 180_000 : 30_000;
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, { ...opts, headers: h, signal: opts.signal ?? AbortSignal.timeout(tope) });
+  } catch (e) {
+    const err = e as Error;
+    if (err.name === "TimeoutError" || err.name === "AbortError") {
+      throw new Error(`LandingForge no respondio en ${Math.round(tope / 1000)} s (${path})`);
+    }
+    throw err;
+  }
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`LandingForge ${opts.method || "GET"} ${path}: ${res.status} ${body.slice(0, 200)}`);
+  }
+  return res.json() as Promise<T>;
+}
+
+/**
+ * Las siguientes funciones las borró f553534 junto con el helper `lf` y
+ * el tipo `HechosLanding`: el commit reemplazó el archivo por una copia
+ * estancada. Diez quedaron ausentes con consumidores vivos (`facebook.ts`,
+ * `app-operator.ts`, `competencia-a-dropi.ts`) y cinco tests en rojo.
+ * Restauradas desde 321a96f el 2026-10-14.
+ */
 
 /**
  * Hechos del negocio para la landing, de la MISMA fuente que usa el vendedor
@@ -155,42 +140,8 @@ export async function hechosParaLanding(tenantId: number | null | undefined, pro
   };
 }
 
-async function lf<T = any>(path: string, opts: RequestInit = {}): Promise<T> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...((opts.headers as Record<string, string>) || {}),
-  };
-  if (API_KEY) headers["x-api-key"] = API_KEY;
-  // Sin tope, una generacion de Forge colgada dejaba a Atlas esperando para
-  // siempre (06-10: "se quedo 6 minutos y nunca resolvio"). Generar (IA +
-  // fotos + revision) tarda 1 a 4 min; editar ~40 s; el resto es lectura.
-  const tope = path.includes("/generate") ? 300_000 : path.includes("/ai/") ? 180_000 : 30_000;
-  let res: Response;
-  try {
-    res = await fetch(`${BASE}${path}`, { ...opts, headers, signal: opts.signal ?? AbortSignal.timeout(tope) });
-  } catch (e) {
-    const err = e as Error;
-    if (err.name === "TimeoutError" || err.name === "AbortError") {
-      throw new Error(`LandingForge no respondio en ${Math.round(tope / 1000)} s (${path})`);
-    }
-    throw err;
-  }
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`LandingForge ${opts.method || "GET"} ${path}: ${res.status} ${body.slice(0, 200)}`);
-  }
-  return res.json() as Promise<T>;
-}
-
 export async function landingStatus(): Promise<any> {
   return lf("/api/landingforge/status");
-}
-
-export async function listLandings(): Promise<{
-  landings: Array<{ landing: LFLanding; productName: string }>;
-  total?: number;
-}> {
-  return lf("/api/landingforge/list");
 }
 
 function mapGenerate(d: any, fallbackName: string): MagicLandingResult {
@@ -246,84 +197,6 @@ export async function aiActivaParaForge(): Promise<{ providerId: string; model?:
   } catch {
     return undefined;
   }
-}
-
-export async function getOrCreateLanding(
-  productName: string,
-  productUrl: string,
-  productKind: "physical" | "digital" | "service",
-  productData?: ProductData,
-): Promise<MagicLandingResult> {
-  // Antes reutilizaba SIEMPRE una landing publicada con el mismo nombre de
-  // producto -- de cualquier negocio, porque Forge no sabe de negocios --:
-  // el dueño pedía una landing nueva y recibía la vieja. Ahora solo si se pide.
-  if (productData?.reutilizar === true) try {
-    const { landings } = await listLandings();
-    const existing = (landings || []).find(
-      (l) => l.productName?.toLowerCase() === productName.toLowerCase() && l.landing?.status === "published",
-    );
-    if (existing) {
-      return {
-        ok: true,
-        landingId: existing.landing.id,
-        url: `${BASE}/l/${existing.landing.slug}`,
-        slug: existing.landing.slug,
-        productName,
-        sectionsGenerated: 0,
-        sections: [],
-      };
-    }
-  } catch {
-  }
-
-  const hechos = productData?.tenantId !== undefined
-    ? await hechosParaLanding(productData.tenantId, productData.producto).catch((e) => {
-        console.warn(`[LandingForge] Sin hechos del negocio: ${(e as Error).message}`);
-        return undefined;
-      })
-    : undefined;
-
-  try {
-    const d = await lf<any>("/api/landingforge/generate", {
-      method: "POST",
-      body: JSON.stringify({
-        productUrl,
-        productName,
-        productKind,
-        price: productData?.price,
-        currency: productData?.currency || "COP",
-        checkoutUrl: productData?.checkoutUrl || productUrl || undefined,
-        whatsapp: hechos?.whatsapp || WHATSAPP_DEFAULT,
-        hechos,
-        // Negocio + producto: el pedido del formulario vuelve acá y sale a
-        // Dropi con el token del negocio (routes/landing-forge-entrada.ts).
-        ventaspro: productData?.tenantId && productData?.producto?.id
-          ? { tenantId: productData.tenantId, productId: Number(productData.producto.id) }
-          : undefined,
-        description: productData?.description || undefined,
-        images: productData?.images?.length ? productData.images : undefined,
-        videos: productData?.videos?.length ? productData.videos : undefined,
-        prompt: productData?.prompt || undefined,
-        trafico: productData?.trafico || (productKind === "physical" ? "facebook" : "organico"),
-        // La misma IA que Atlas (botón «Usar para Atlas»); el forge la ignora si no la entiende.
-        aiProvider: (await aiActivaParaForge()) || undefined,
-      }),
-    });
-    console.log(`[LandingForge] Landing generada: ${d.landingId} (${d.sectionsGenerated} secciones)`);
-    return mapGenerate(d, productName);
-  } catch (e) {
-    const msg = (e as Error).message;
-    console.error(`[LandingForge] Error creando landing: ${msg}`);
-    return { ok: false, landingId: "", url: "", slug: "", productName, sectionsGenerated: 0, sections: [], error: msg };
-  }
-}
-
-export async function generateMagicLanding(
-  productUrl: string,
-  opts?: { title?: string; size?: "section" | "square" | "story" | "wide" },
-): Promise<MagicLandingResult> {
-  const name = opts?.title || "Producto";
-  return getOrCreateLanding(name, productUrl, "physical");
 }
 
 /** Trae el spec COMPLETO de una landing Forge (bloques, textos, imágenes). */
@@ -485,13 +358,312 @@ export async function extraerFichaForge(url: string, navegador = false): Promise
   }
 }
 
-/** Enlace de entrada al panel de Forge con sesión ya abierta (Forge:
- *  /api/auth/sso, token firmado HMAC-SHA256 con la MISMA LANDING_API_KEY que
- *  este servidor usa como x-api-key; vence en 2 minutos). Sin clave, Forge
- *  está en modo abierto y basta con la URL. */
+/**
+ * Enlace de entrada SSO a Landing Forge (dueño de la plataforma).
+ * Formato que verifica Forge (src/lib/auth.ts): sso.<exp>.<hex64> con
+ * HMAC-SHA256("sso.<exp>") y la LANDINGFORGE_API_KEY compartida, válido
+ * 2 minutos. Sin clave (Forge en modo abierto) devuelve solo la URL base.
+ * Se perdió en la reescritura del cliente (Arena 12-10) y rompía el build:
+ * lo usan routes/landing-forge-entrada.ts y __tests__/forge-entrada-sso.test.ts.
+ */
 export function enlaceDeEntradaForge(siguiente = "/"): string {
-  if (!API_KEY) return `${BASE}${siguiente.startsWith("/") ? siguiente : "/"}`;
+  const base = (process.env.LANDINGFORGE_URL || "http://localhost:3000").replace(/\/+$/, "");
+  const clave = process.env.LANDINGFORGE_API_KEY || process.env.LANDING_API_KEY || "";
+  if (clave.length < 16) return `${base}/`;
   const exp = Math.floor(Date.now() / 1000) + 120;
-  const firma = createHmac("sha256", API_KEY).update(`sso.${exp}`).digest("hex");
-  return `${BASE}/api/auth/sso?t=${encodeURIComponent(`sso.${exp}.${firma}`)}&next=${encodeURIComponent(siguiente)}`;
+  const firma = createHmac("sha256", clave).update(`sso.${exp}`).digest("hex");
+  return `${base}/api/auth/sso?next=${encodeURIComponent(siguiente)}&t=${encodeURIComponent(`sso.${exp}.${firma}`)}`;
+}
+
+/* ──────────────────────── tipos (compat) ──────────────────────── */
+
+export interface LFProduct {
+  id: string;
+  name: string;
+  slug: string;
+  priceCents: number;
+  currency: string;
+  kind: "physical" | "digital";
+  description?: string;
+  category?: string;
+  checkoutUrl?: string;
+}
+
+export interface LFBrief {
+  id: string;
+  data: Record<string, any>;
+  generatedBy: string;
+}
+
+export interface LFLanding {
+  id: string;
+  slug: string;
+  status: "draft" | "published";
+  title?: string;
+  productId: string;
+}
+
+export interface MagicLandingResult {
+  ok: boolean;
+  landingId: string;
+  url: string;
+  slug: string;
+  productName: string;
+  sectionsGenerated: number;
+  /** Secciones que devolvió Forge (las usa `mapGenerate`). */
+  sections?: any[];
+  editorUrl?: string;
+  exportUrl?: string;
+  analisis?: any;
+  error?: string;
+}
+
+const slugify = (s: string) =>
+  s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60) || "producto";
+
+const publicUrl = (id: string) => `${BASE}/api/export/${id}`;
+
+/* ──────────────────────── landings (nuestro API) ──────────────────────── */
+
+/** Listar landings existentes. */
+export async function listLandings(): Promise<{ landings: Array<{ landing: LFLanding; productName: string }> }> {
+  const data = await api<{ sites: Array<{ id: string; name: string; slug: string }> }>("/api/sites");
+  return {
+    landings: (data.sites || []).map((s) => ({
+      landing: { id: s.id, slug: s.slug, status: "published" as const, title: s.name, productId: "" },
+      productName: s.name,
+    })),
+  };
+}
+
+/** Importar producto desde URL (usa nuestro extractor: nombre, precio, fotos, videos). */
+export async function importProduct(url: string): Promise<{ product: LFProduct; images: number }> {
+  const data = await api<{ product: any }>("/api/extract", {
+    method: "POST",
+    body: JSON.stringify({ url, mode: "browser" }),
+  });
+  const p = data.product || {};
+  return {
+    product: {
+      id: slugify(p.name || "producto"),
+      name: p.name || "Producto",
+      slug: slugify(p.name || "producto"),
+      priceCents: Math.round(Number(p.price || 0) * 100),
+      currency: p.currency || "COP",
+      kind: "physical",
+      description: p.description,
+    },
+    images: (p.images || []).length,
+  };
+}
+
+/** Crear producto manual (nuestro sistema no guarda productos: devuelve objeto local). */
+export async function createProduct(data: {
+  name: string;
+  description?: string;
+  price?: string;
+  currency?: string;
+  kind: "physical" | "digital";
+  category?: string;
+  checkoutUrl?: string;
+}): Promise<{ product: LFProduct; images: number }> {
+  const price = Number(String(data.price || "").replace(/[^\d]/g, "")) || 0;
+  return {
+    product: {
+      id: slugify(data.name),
+      name: data.name,
+      slug: slugify(data.name),
+      priceCents: price * 100,
+      currency: data.currency || "COP",
+      kind: data.kind,
+      description: data.description,
+      category: data.category,
+      checkoutUrl: data.checkoutUrl,
+    },
+    images: 0,
+  };
+}
+
+/** Brief: nuestro /api/generate ya lo hace internamente; stub compatible. */
+export async function generateBrief(_productId: string): Promise<{ brief: LFBrief }> {
+  return { brief: { id: `brief-${Date.now()}`, data: {}, generatedBy: "landing-forge" } };
+}
+
+/** Crear + generar landing en una llamada (nuestro sistema es síncrono). */
+export async function createLanding(opts: {
+  productId: string;
+  skeletonKey: string;
+  briefId?: string;
+  title?: string;
+  prompt?: string;
+  productUrl?: string;
+}): Promise<{ landing: LFLanding }> {
+  const prompt =
+    opts.prompt ||
+    `Landing para vender ${opts.title || "este producto"}` +
+      (opts.productUrl ? ` (ficha: ${opts.productUrl})` : "");
+  const body: any = { prompt, pro: true };
+  if (opts.productUrl) body.url = opts.productUrl;
+  const data = await api<{ spec: any }>("/api/generate", { method: "POST", body: JSON.stringify(body) });
+  const spec = data.spec;
+  return { landing: { id: spec.id, slug: spec.slug, status: "published", title: spec.name, productId: opts.productId } };
+}
+
+/** Sin jobs en nuestro sistema: devuelve hecho. */
+export async function generateLandingSections(
+  landingId: string,
+): Promise<{ jobId: string }> {
+  return { jobId: `done-${landingId}` };
+}
+
+/** Sin jobs: siempre done. */
+export async function getJobStatus(_jobId: string): Promise<{
+  status: "running" | "done" | "error";
+  progress: number;
+  total: number;
+  error?: string;
+}> {
+  return { status: "done", progress: 1, total: 1 };
+}
+
+/** Nuestras landings quedan publicadas al generarse: devuelve URL del HTML. */
+export async function publishLanding(
+  landingId: string,
+  slug?: string,
+): Promise<{ landing: LFLanding; url: string }> {
+  const data = await api<{ spec: any }>(`/api/sites/${landingId}`);
+  const spec = data.spec;
+  return {
+    landing: { id: spec.id, slug: slug || spec.slug, status: "published", title: spec.name, productId: "" },
+    url: publicUrl(spec.id),
+  };
+}
+
+/** Productos: nuestro sistema no los guarda; lista vacía compatible. */
+export async function listProducts(): Promise<{ products: LFProduct[] }> {
+  return { products: [] };
+}
+
+/** Traer catálogo Dropi a través de NUESTRO generador (usa su token Dropi). */
+export async function listDropiProducts(q = "", limit = 24): Promise<{ products: any[]; error?: string }> {
+  const r = await api<{ products: any[]; error?: string }>(
+    `/api/dropi/products?q=${encodeURIComponent(q)}&limit=${limit}`,
+  );
+  return r;
+}
+
+/** Probar conexión Dropi del generador. */
+export async function testDropi(): Promise<any> {
+  return api("/api/dropi/test", { method: "POST", body: JSON.stringify({}) });
+}
+
+/* ──────────────────────── high-level ──────────────────────── */
+
+/**
+ * Genera landing para una URL de producto usando NUESTRO generador.
+ * Flujo: extraer (navegador) → generar pro → URL pública del HTML.
+ */
+export async function generateMagicLanding(
+  productUrl: string,
+  opts?: { title?: string; size?: "section" | "square" | "story" | "wide" },
+): Promise<MagicLandingResult> {
+  try {
+    const data = await api<{ spec: any; engine: string; warnings: string[] }>("/api/generate", {
+      method: "POST",
+      body: JSON.stringify({
+        prompt: `Landing para vender ${opts?.title || "este producto"} (ficha: ${productUrl})`,
+        url: productUrl,
+        pro: true,
+      }),
+    });
+    const spec = data.spec;
+    console.log(`[LandingForge] Landing generada: ${spec.id} (engine=${data.engine})`);
+    return {
+      ok: true,
+      landingId: spec.id,
+      url: publicUrl(spec.id),
+      slug: spec.slug,
+      productName: spec.product?.name || spec.name,
+      sectionsGenerated: spec.blocks?.length || 0,
+    };
+  } catch (e) {
+    const msg = (e as Error).message;
+    console.error(`[LandingForge] Error: ${msg}`);
+    return { ok: false, landingId: "", url: "", slug: "", productName: "", sectionsGenerated: 0, error: msg };
+  }
+}
+
+/**
+ * Genera landing bajo demanda para un producto del catálogo local.
+ * Si ya existe una landing con el mismo nombre, la reutiliza.
+ */
+export async function getOrCreateLanding(
+  productName: string,
+  productUrl: string,
+  productKind: "physical" | "digital",
+  productData?: {
+    description?: string; price?: string; currency?: string; category?: string;
+    checkoutUrl?: string; images?: string[]; dropiProductId?: string;
+  },
+): Promise<MagicLandingResult> {
+  try {
+    const { landings } = await listLandings();
+    const existing = landings.find((l) => l.productName.toLowerCase() === productName.toLowerCase());
+    if (existing) {
+      return {
+        ok: true,
+        landingId: existing.landing.id,
+        url: publicUrl(existing.landing.id),
+        slug: existing.landing.slug,
+        productName,
+        sectionsGenerated: 0,
+      };
+    }
+  } catch {
+    // Si falla la list, simplemente crear nueva
+  }
+
+  try {
+    const priceNum = Number(String(productData?.price || "").replace(/[^\d]/g, "")) || 0;
+    const images = productData?.images || [];
+    // source = datos duros: la IA escribe el copy pero NO inventa precio/nombre/fotos
+    const source: any = {
+      name: productName,
+      price: priceNum || undefined,
+      currency: productData?.currency || "COP",
+      images,
+      description: productData?.description || "",
+      brand: "",
+      host: "dropi",
+    };
+    const parts = [
+      `Landing para vender ${productName}`,
+      priceNum ? `a ${priceNum} ${productData?.currency || "COP"}` : "",
+      productData?.description ? `. ${productData.description.slice(0, 400)}` : "",
+      productKind === "digital" ? " (producto digital, acceso inmediato)" : " (pago contra entrega)",
+    ].filter(Boolean);
+    const data = await api<{ spec: any; engine: string }>("/api/generate", {
+      method: "POST",
+      body: JSON.stringify({
+        prompt: parts.join(" "),
+        source,
+        ...(productUrl ? { url: productUrl } : {}),
+        pro: true,
+      }),
+    });
+    const spec = data.spec;
+    console.log(`[LandingForge] Landing generada: ${spec.id} (engine=${data.engine})`);
+    return {
+      ok: true,
+      landingId: spec.id,
+      url: publicUrl(spec.id),
+      slug: spec.slug,
+      productName,
+      sectionsGenerated: spec.blocks?.length || 0,
+    };
+  } catch (e) {
+    const msg = (e as Error).message;
+    console.error(`[LandingForge] Error creando landing: ${msg}`);
+    return { ok: false, landingId: "", url: "", slug: "", productName, sectionsGenerated: 0, error: msg };
+  }
 }

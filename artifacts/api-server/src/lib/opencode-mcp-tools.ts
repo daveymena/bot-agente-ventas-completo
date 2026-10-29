@@ -128,17 +128,12 @@ const TOOL_SCHEMAS: Record<string, object> = {
     additionalProperties: false,
   },
   landing_forge_pendientes: { type: "object", properties: {} },
-  // ── Atlas diseña (23-10-2026): ver y operar creativos y landings ────────────
-  creativo_ver: {
-    type: "object",
-    properties: {
-      id: { type: "string", description: "Id del creativo (creativo_listar)" },
-      mirar: { type: "boolean", description: "true = renderizarlo y recibir la crítica del director de arte" },
-      objetivo: { type: "string", description: "Qué tiene que lograr el anuncio, en una frase" },
-    },
-    required: ["id"],
-    additionalProperties: false,
-  },
+  landing_ver: { type: "object", properties: { id: { type: "number", description: "id de la landing (landing_listar)" }, mirar: { type: "boolean", description: "true = fotografiarla en un celular y recibir la crítica" }, objetivo: { type: "string" } }, required: ["id"] },
+  creativo_listar: { type: "object", properties: { productId: { type: "number" } } },
+  creativo_ver: { type: "object", properties: { id: { type: "string", description: "id del creativo (creativo_listar)" }, conVision: { type: "boolean" } }, required: ["id"] },
+  creativo_maquetas: { type: "object", properties: {} },
+  marca_kit_ver: { type: "object", properties: { productId: { type: "number", description: "para sugerir paletas desde su foto" } } },
+  // ── Atlas diseña (23-10-2026): operar creativos y landings ──────────────────
   creativo_disenar: {
     type: "object",
     properties: {
@@ -156,16 +151,6 @@ const TOOL_SCHEMAS: Record<string, object> = {
       objetivo: { type: "string" },
     },
     required: ["operaciones"],
-    additionalProperties: false,
-  },
-  landing_ver: {
-    type: "object",
-    properties: {
-      id: { type: "number", description: "Id de la landing (landing_listar)" },
-      mirar: { type: "boolean", description: "true = fotografiarla en un celular y recibir la crítica" },
-      objetivo: { type: "string" },
-    },
-    required: ["id"],
     additionalProperties: false,
   },
   landing_disenar: {
@@ -445,6 +430,11 @@ const TOOL_SCHEMAS: Record<string, object> = {
     properties: { limit: { type: "number" } },
     additionalProperties: false,
   },
+  revisar_conversaciones_hoy: {
+    type: "object",
+    properties: { limite: { type: "number", description: "Máximo 30 chats, por defecto 20" } },
+    additionalProperties: false,
+  },
   predict_customer: {
     type: "object",
     properties: { phone: { type: "string", description: "Número o parte del número del cliente" } },
@@ -571,6 +561,70 @@ const TOOL_SCHEMAS: Record<string, object> = {
       productId: { type: "number", description: "Id en esta tienda (opcional)" },
       wooProductId: { type: "number", description: "Id en WooCommerce (opcional)" },
     },
+    additionalProperties: false,
+  },
+  canva_estado: { type: "object", properties: {}, additionalProperties: false },
+  canva_status: { type: "object", properties: {}, additionalProperties: false },
+  atlas_canva: { type: "object", properties: {}, additionalProperties: false },
+  atlas_canva_estado: { type: "object", properties: {}, additionalProperties: false },
+  figma_disenos: { type: "object", properties: { accion: { type: "string", enum: ["estado", "archivos", "archivo", "nodo"] }, source: { type: "string" }, nodeId: { type: "string" } }, required: ["accion"], additionalProperties: false },
+  canva_studio: { type: "object", properties: { accion: { type: "string", enum: ["catalogo", "dataset", "producto", "plantillas", "trabajos", "resultados"] }, query: { type: "string" }, continuation: { type: "string" }, sourceType: { type: "string", enum: ["design", "brand_template"] }, sourceId: { type: "string" }, productId: { type: "number" } }, required: ["accion"], additionalProperties: false },
+  canva_preparar: { type: "object", properties: { accion: { type: "string", enum: ["paquete", "importar", "plantilla", "continuar", "vincular"] }, productId: { type: "number" }, usage: { type: "string", enum: ["anuncio", "tienda", "landing"] }, texts: { type: "object", properties: { gancho_beneficio: { type: "string", maxLength: 120 }, gancho_detalle: { type: "string", maxLength: 120 }, gancho_consulta: { type: "string", maxLength: 120 } }, additionalProperties: false }, templateId: { type: "string" }, designId: { type: "string" }, formats: { type: "array", items: { type: "string", enum: ["1:1", "4:5", "9:16"] } }, objective: { type: "string", enum: ["mensajes", "ventas"] }, exportFormat: { type: "string", enum: ["png", "jpg", "pdf", "mp4"] }, threeAngles: { type: "boolean" }, sourceType: { type: "string", enum: ["design", "brand_template"] }, sourceId: { type: "string" }, family: { type: "string", enum: ["digital", "fisico", "servicio"] }, title: { type: "string" }, mapping: { type: "object", additionalProperties: { type: "string" } }, jobId: { type: "string" }, pieceKey: { type: "string" }, adId: { type: "string" }, requestId: { type: "string" } }, required: ["accion"], additionalProperties: false },
+  canva_disenos: { type: "object", properties: {
+    accion: { type: "string", enum: ["listar", "exportar"], description: "listar trae diseños; exportar descarga uno a imagen/pdf" },
+    query: { type: "string", description: "Filtro por nombre (solo listar, opcional)" },
+    limit: { type: "number", description: "Cuántos traer (solo listar, default 20)" },
+    designId: { type: "string", description: "Id del diseño (solo exportar, sale del listado)" },
+    formato: { type: "string", enum: ["png", "jpg", "pdf"], description: "Formato de exportación (default png)" },
+  }, additionalProperties: false },
+  dios_orquestar: {
+    type: "object",
+    properties: {
+      productId: { type: "number", description: "Id del producto" },
+      objetivo: { type: "string", enum: ["ventas","mensajes"], description: "Destino del anuncio" },
+      conAvatar: { type: "boolean", description: "Incluir avatar HeyGen stub" },
+    },
+    required: ["productId"],
+    additionalProperties: false,
+  },
+  atlas_dios_orquestar: {
+    type: "object",
+    properties: {
+      productId: { type: "number" },
+      objetivo: { type: "string", enum: ["ventas","mensajes"] },
+      conAvatar: { type: "boolean" },
+    },
+    required: ["productId"],
+    additionalProperties: false,
+  },
+  dios_imagenes: {
+    type: "object",
+    properties: { productId: { type: "number" } },
+    required: ["productId"],
+    additionalProperties: false,
+  },
+  atlas_dios_imagenes: {
+    type: "object",
+    properties: { productId: { type: "number" } },
+    required: ["productId"],
+    additionalProperties: false,
+  },
+  dios_video_render: {
+    type: "object",
+    properties: { productId: { type: "number" } },
+    required: ["productId"],
+    additionalProperties: false,
+  },
+  atlas_dios_video: {
+    type: "object",
+    properties: { productId: { type: "number" } },
+    required: ["productId"],
+    additionalProperties: false,
+  },
+  atlas_video: {
+    type: "object",
+    properties: { productId: { type: "number" } },
+    required: ["productId"],
     additionalProperties: false,
   },
   dropi_transportadoras_sondeo: {
@@ -1471,7 +1525,7 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // Dónde se caen los clientes: sin esto Atlas proponía más anuncios con
     // 0 ventas cerradas (25-09-2026).
     patron: /embudo|d[oó]nde se (caen|pierden|quedan)|por qu[eé] no (vend|compr|cierr)|no (vendo|compran|cierra)|ventas|clientes/i,
-    herramientas: ["embudo_de_ventas", "marketing_attribution", "list_recent_conversations", "metodo_de_venta"],
+    herramientas: ["embudo_de_ventas", "marketing_attribution", "list_recent_conversations", "revisar_conversaciones_hoy", "metodo_de_venta"],
   },
   {
     // ── Anuncios: ANALIZAR ───────────────────────────────────────────────
@@ -1496,8 +1550,8 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     herramientas: ["metodo_de_venta"],
   },
   {
-    patron: /whatsapp|wasap|conversaci|chat|mensaje|cliente|lead/i,
-    herramientas: ["whatsapp_status", "list_recent_conversations", "predict_customer"],
+    patron: /whatsapp|wasap|conversaci|chat|mensaje|cliente|lead|hoy/i,
+    herramientas: ["whatsapp_status", "list_recent_conversations", "revisar_conversaciones_hoy", "predict_customer"],
   },
   {
     // Entrenar / corregir / probar al vendedor: la prueba real va con el agente.
@@ -1550,21 +1604,27 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
     // "no tengo una consulta que devuelva la lista de landings" teniéndola.
     // El patrón tolera "landipage"/"landing page"/"lp"/"Landing Studio".
     patron: /landi|landing|\bl\/|p[aá]gina de venta|\blp\b|studio/i,
-    herramientas: ["landing_listar", "landing_forge_pendientes", "list_products", "landing_ver", "landing_disenar"],
+    // El Studio (14-10-2026): Atlas ve las landings y los creativos por dentro
+    // y el kit de marca. El dock del Studio manda "[CONTEXTO DEL ESTUDIO]", así
+    // que todo pedido hecho desde ahí cae en este grupo.
+    herramientas: ["landing_listar", "landing_forge_pendientes", "list_products", "landing_ver", "landing_disenar", "creativo_listar", "creativo_ver", "creativo_disenar", "creativo_maquetas", "marca_kit_ver", "ver_imagen"],
   },
   {
-    // ── Atlas diseña (23-10-2026) ─────────────────────────────────────────
-    // Ver y operar creativos y landings con sus manos, y mirar el resultado.
-    // Palabras de DISEÑO ("hazlo más bonito", "cambia la letra", "la imagen
-    // del anuncio"), no cualquier mención de "anuncio" o "foto": esas viajan
-    // en los pedidos de pauta y cuatro esquemas más los pasaban del tope por
-    // minuto de Groq (el-filtro-tiene-que-filtrar.test.ts).
-    patron: /dise[ñn]|creativ|maqueta|banner|bonit|\bfe[oa]\b|tipograf|\bletras?\b|\bcapas?\b|titular|imagen (?:para|del|de) (?:el |un |la )?(?:anuncio|post)|landi|landing|p[aá]gina de venta|secci[oó]n|estudio|studio/i,
-    herramientas: ["creativo_listar", "creativo_maquetas", "creativo_ver", "creativo_disenar", "landing_listar", "landing_ver", "landing_disenar", "list_products"],
+    patron: /creativ|maqueta|kit de marca|\bmarca\b|paleta|logo|tipograf|historias?\b|reels?\b|9:16|4:5|banner|pieza/i,
+    herramientas: ["creativo_listar", "creativo_ver", "creativo_disenar", "creativo_maquetas", "marca_kit_ver", "list_products", "ver_imagen"],
   },
   {
     patron: /contenido|publicacion|publicar|org[aá]nic|calendario|estrategia|agencia|redes|instagram|posteo|postear/i,
     herramientas: ["plan_de_contenido", "propuesta_campana", "list_products", "marketing_aprendizajes"],
+  },
+  {
+    patron: /figma|canva|dise[ñn]o.*canva|connect.*canva|plantilla.*canva|traer.*dise[ñn]o|mis.*dise[ñn]os|maqueta.*canva/i,
+    herramientas: ["figma_disenos", "canva_studio", "canva_preparar", "canva_disenos", "canva_estado", "canva_status", "atlas_canva", "atlas_canva_estado", "generate_image"],
+  },
+  {
+    // DIOS — agencia premium: activa orquestador + imágenes reales + video Dios 9:16
+    patron: /dios|agencia (premium|dios)|orquest|atlas.*video|video.*dios|imagen.*dios|anuncio.*dios/i,
+    herramientas: ["dios_orquestar", "atlas_dios_orquestar", "dios_imagenes", "atlas_dios_imagenes", "dios_video_render", "atlas_dios_video", "atlas_video", "video_anuncio_estado", "generate_image"],
   },
 ];
 
@@ -1574,7 +1634,7 @@ const GRUPOS: { patron: RegExp; herramientas: string[] }[] = [
 // mientras uno que sí matcheaba bajó de 69s a 10,6s. El núcleo cubre de sobra
 // las preguntas generales del negocio; si de verdad hiciera falta algo
 // específico, el admin lo va a nombrar y ahí sí matchea su grupo.
-const GENERAL_EXTRA = ["whatsapp_status", "payment_status", "fb_status", "list_recent_conversations"];
+const GENERAL_EXTRA = ["whatsapp_status", "payment_status", "fb_status", "list_recent_conversations", "revisar_conversaciones_hoy"];
 
 /**
  * Charla pura: un saludo, un "dale", un "gracias".
@@ -1836,7 +1896,7 @@ export function buildMcpToolRegistry(pedido?: string): McpToolDef[] {
  */
 const FAMILIAS_DE_CONSULTA: Array<{ tema: string; herramientas: string[] }> = [
   { tema: "Catalogo y tienda", herramientas: ["list_products", "list_categories", "get_store", "search_product_images", "optimize_price", "optimize_copy"] },
-  { tema: "Ventas y clientes", herramientas: ["embudo_de_ventas", "dashboard_summary", "list_recent_conversations", "list_pending_transfers", "list_duplicate_contacts", "predict_customer", "analyze_channel_performance"] },
+  { tema: "Ventas y clientes", herramientas: ["embudo_de_ventas", "dashboard_summary", "list_recent_conversations", "revisar_conversaciones_hoy", "list_pending_transfers", "list_duplicate_contacts", "predict_customer", "analyze_channel_performance"] },
   { tema: "WhatsApp y agente", herramientas: ["whatsapp_status", "get_agent", "configurar_mi_agente", "get_settings", "agente_inspectar", "agente_configurar", "agente_perfil_negocio", "agente_conocimiento", "agente_mensaje", "agente_probar_chat", "agente_disenar", "agente_probar_borrador", "vendedor_diagnosticar", "vendedor_motor_ver", "vendedor_probar"] },
   { tema: "Facebook Ads", herramientas: ["objetivos_de_campana", "fb_permisos_formularios", "fb_status", "fb_ad_accounts", "fb_list_campaigns", "fb_list_adsets", "fb_list_drafts", "fb_campaign_metrics", "fb_why_not_delivering", "fb_page_can_post", "fb_page_preview", "fb_suggest_audience", "fb_pixel_status", "fb_ad_library", "fb_agent_logs", "que_hago_con_la_campana", "ad_brief"] },
   { tema: "Marketing y contenido", herramientas: ["marketing_diagnostico", "marketing_aprendizajes", "marketing_attribution", "plan_de_contenido", "plan_de_lanzamiento", "generate_image", "web_scrape_images"] },
@@ -1844,6 +1904,8 @@ const FAMILIAS_DE_CONSULTA: Array<{ tema: string; herramientas: string[] }> = [
   // Dropi: las DIRECTAS (token del negocio), no las del puente viejo. El resto
   // (margen, pedidos, radar) llega con el grupo de Dropi al nombrarlo.
   { tema: "Entregas y Dropi", herramientas: ["dropi_status", "dropi_buscar", "dropi_con_ordenes", "terabox_list_folder", "verificar_link_entrega", "payment_status"] },
+  { tema: "Canva / Figma / Diseño", herramientas: ["figma_disenos", "canva_studio", "canva_preparar", "canva_disenos", "canva_estado", "canva_status", "atlas_canva", "atlas_canva_estado", "generate_image"] },
+  { tema: "Dios — Agencia premium", herramientas: ["dios_orquestar", "atlas_dios_orquestar", "dios_imagenes", "atlas_dios_imagenes", "dios_video_render", "atlas_dios_video", "atlas_video", "video_anuncio_estado"] },
   { tema: "Sistema", herramientas: ["analyze_system", "system_diagnose", "automatizacion_estado", "negocio_que_falta", "plataforma_info", "test_ai_models", "reason_business_decision"] },
 ];
 

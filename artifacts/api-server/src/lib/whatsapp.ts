@@ -38,6 +38,7 @@ import { presentarParaWhatsApp } from "./presentacion";
 import { createAIClient, getProviderConfig } from "@workspace/integrations-openai-ai-server";
 import { getMessageHandler } from "./services/message-handler";
 import { tenantManager, addTenantToInsert, type TenantContext } from "./tenantManager";
+import { fingerprintDeDispositivo } from "./identidad-de-whatsapp";
 import { 
   makeWASocket, 
   DisconnectReason, 
@@ -2157,21 +2158,10 @@ export class WhatsAppManager {
         console.log("[PROXY] Configurando proxy para WhatsApp...");
         try {
           const proxyUri = new URL(proxyUrl);
-          const proxyAuth = proxyUri.username && proxyUri.password
-            ? `${proxyUri.username}:${proxyUri.password}`
-            : undefined;
-
-          httpAgent = new HttpProxyAgent({
-            host: proxyUri.hostname || undefined,
-            port: proxyUri.port ? Number(proxyUri.port) : undefined,
-            proxyAuth: proxyAuth,
-          });
-
-          httpsAgent = new HttpsProxyAgent({
-            host: proxyUri.hostname || undefined,
-            port: proxyUri.port ? Number(proxyUri.port) : undefined,
-            proxyAuth: proxyAuth,
-          });
+          // La URL conserva host, puerto y credenciales; las versiones
+          // actuales de los agentes ya no aceptan el antiguo objeto proxyAuth.
+          httpAgent = new HttpProxyAgent(proxyUri);
+          httpsAgent = new HttpsProxyAgent(proxyUri);
           console.log("✅ [PROXY] Proxy configurado correctamente");
         } catch (err) {
           console.warn("⚠️ [PROXY] Error al configurar proxy:", err instanceof Error ? err.message : err);
@@ -2180,7 +2170,9 @@ export class WhatsAppManager {
 
       const sock = makeWASocket({
          auth: authState,
-         browser: ["VentasPro", "Chrome", "1.0.0"],
+         // Ver lib/identidad-de-whatsapp.ts. Acá decía "VentasPro"/"Chrome"
+         // "1.0.0", que no es un cliente real y es lo que delata al bot.
+         browser: fingerprintDeDispositivo(),
          syncFullHistory: false,
          markOnlineOnConnect: true,
          generateHighQualityLinkPreview: false,
@@ -3500,7 +3492,7 @@ export class WhatsAppManager {
     
      if (cardIds.length) {
        const rows = await db.select().from(products).where(inArray(products.id, cardIds.filter((id): id is number => id !== undefined)));
-       cardCache = new Map(rows.map((r) => [r.id, r]));
+       cardCache = new Map(rows.map((r: (typeof rows)[number]) => [r.id, r]));
        console.log(`📦 [WA-PARTS] Productos cargados: ${rows.length}/${cardIds.length} - ${timestamp}`);
      }
 

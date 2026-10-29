@@ -25,12 +25,17 @@ export const PERMISOS_FACEBOOK = [
   // leads. Con config_id estos permisos van en la configuración de "Inicio
   // de sesión para empresas" de la app en Meta, no acá.
   "leads_retrieval", "pages_manage_ads",
+  // Lo que el backend revisa y usa: lectura de métricas de anuncios e Instagram
+  // (app-operator.ts, verificación de permisos). Sin estos, el panel marca
+  // "faltan permisos" aunque el negocio haya aceptado todo lo demás.
+  "ads_read", "instagram_basic", "instagram_content_publish",
 ];
 
 /** URL del diálogo de login; null si la app no está configurada. */
 export function urlLoginFacebook(cfg: ConfigAppFacebook, redirectUri: string): string | null {
   if (!cfg.appId) return null;
-  const base = `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(cfg.appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code`;
+  // Misma versión que el backend (META_API_VERSION, por defecto v23.0).
+  const base = `https://www.facebook.com/v23.0/dialog/oauth?client_id=${encodeURIComponent(cfg.appId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code`;
   // "Inicio de sesión con Facebook para empresas" ignora `scope` y exige
   // `config_id` (confirmado en producción, ago-2026).
   if (cfg.loginConfigId) return `${base}&config_id=${encodeURIComponent(cfg.loginConfigId)}`;

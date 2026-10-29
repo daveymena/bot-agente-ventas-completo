@@ -154,6 +154,8 @@ export interface PropsLandingStudio {
   onContexto?: (c: ContextoLanding) => void;
   /** Un diseño elegido en la galería: se aplica o se crea la landing. */
   pedidoDiseno?: { plantilla: string; n: number } | null;
+  /** La suite guarda lo pendiente antes de que Atlas trabaje. */
+  registrarGuardado?: (espacio: string, fn: (() => Promise<void>) | null) => void;
 }
 
 export default function LandingStudioV2(props: PropsLandingStudio = {}) {
@@ -491,6 +493,15 @@ export default function LandingStudioV2(props: PropsLandingStudio = {}) {
     window.addEventListener("estudio:refrescar", refrescar);
     return () => window.removeEventListener("estudio:refrescar", refrescar);
   }, [landingId, cargarSecciones, cargarPreview]);
+
+  useEffect(() => {
+    if (!props.registrarGuardado) return;
+    props.registrarGuardado("landings", async () => {
+      if (hayCambios) await guardarSecciones();
+      if (hayCambiosTema) await guardarTema();
+    });
+    return () => props.registrarGuardado?.("landings", null);
+  }, [hayCambios, hayCambiosTema, guardarSecciones, guardarTema]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const ultimoPedido = useRef(0);
   useEffect(() => {
@@ -838,7 +849,7 @@ Cualquier cambio que me pidas se ve ahí al instante.` }]);
                     <ExternalLink className="h-3.5 w-3.5 mr-2" />Copiar una landing de internet
                   </DropdownMenuItem>
                   <DropdownMenuItem asChild>
-                    <Link href={typeof productId === "number" ? `/creativos?producto=${productId}` : "/creativos"}>
+                    <Link href={typeof productId === "number" ? `/estudio?espacio=creativos&producto=${productId}` : "/estudio?espacio=creativos"}>
                       <ImageIcon className="h-3.5 w-3.5 mr-2" />Crear creativos para el anuncio
                     </Link>
                   </DropdownMenuItem>

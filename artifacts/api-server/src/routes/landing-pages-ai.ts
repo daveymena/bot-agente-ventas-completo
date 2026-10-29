@@ -419,6 +419,14 @@ router.post("/generate", async (req: TenantRequest, res, next) => {
     }
 
     // ── Fallback: generador local existente ──────────────────────────────────
+    // CLAUSURADO: con LANDING_LOCAL_DISABLED=1 no se usa el generador interno;
+    // toda generación va por NUESTRO LandingForge (landingforge-client.ts).
+    if (process.env.LANDING_LOCAL_DISABLED === "1") {
+      return res.status(410).json({
+        ok: false,
+        error: "GENERADOR_LOCAL_CLAUSURADO: usa LandingForge (POST /api/landingforge/generate).",
+      });
+    }
     return res.json(await generarLandingLocal({
       tenantId, product, brandName: req.tenant?.brandName, plantillaId: req.body?.plantilla, sourceAd, language, country, objective,
       familia: req.body?.familia || null,
@@ -452,21 +460,17 @@ async function generateLandingViaForge(
   const productUrl = product.paymentLink || product.checkoutUrl || `https://ventasproia.com/tienda/producto/${product.id}`;
 
   // Usar el pipeline completo del cliente (incluye dedup de landings existentes)
-  // Un servicio va como servicio (página de agenda), no como tienda: ver
-  // lineaDeProducto y la vía de Atlas (landing_forge_crear).
-  const { lineaDeProducto } = await import("../lib/taxonomia");
   const result = await getOrCreateLanding(
     product.name,
     productUrl,
-    lineaDeProducto(product) === "servicio" ? "service" : product.kind === "physical" ? "physical" : "digital",
+    (product.kind === "physical" ? "physical" : "digital") as "physical" | "digital",
     {
       description: product.description || "",
       price: product.price ? String(product.price) : undefined,
       currency: product.currency || "COP",
       category: product.category || undefined,
       checkoutUrl: product.paymentLink || undefined,
-      tenantId: product.tenantId ?? null,
-      producto: product,
+      images: imagenesRealesDe(product),
     },
   );
 

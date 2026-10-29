@@ -13,6 +13,7 @@ import { costTracker } from "../lib/cost-tracker";
 import { logger } from "../lib/logger";
 import { requirePlatformOwner, esDuenoDeLaPlataforma } from "../middleware/requirePlatformOwner";
 import { esValorEnmascarado, enmascararSecreto } from "../lib/secretos";
+import { tokensCopilotGuardados } from '../lib/copilot-modelos';
 
 const router: IRouter = Router();
 
@@ -35,6 +36,8 @@ const SECRETOS_DE_IA = ["githubToken", "copilotSessionToken", "nvidiaApiKey"] as
 router.patch("/", requirePlatformOwner(), async (req, res, next) => {
   try {
     const body = UpdateSettingsBody.parse(req.body);
+    if (body.aiProvider === 'github') return res.status(410).json({ message: 'GitHub Models fue retirado. Selecciona GitHub Copilot u otro proveedor disponible.' });
+    if (typeof body.githubModel === 'string') body.githubModel = body.githubModel.trim();
     // Como al leer se devuelven enmascarados, el navegador puede reenviar la
     // MÁSCARA al guardar cualquier otro campo. Sin este filtro, guardar el
     // nombre del negocio pisaría el token real con "••••1234" y dejaría la IA
@@ -51,6 +54,10 @@ router.patch("/", requirePlatformOwner(), async (req, res, next) => {
       .set(body)
       .where(eq(settings.id, current.id))
       .returning();
+    // La elección del modelo se aplica sin reiniciar el servidor.
+    if (updated?.aiProvider === 'github_copilot_internal' && updated.githubModel) {
+      process.env.GITHUB_MODEL = updated.githubModel;
+    }
     return res.json(UpdateSettingsResponse.parse(serialize(updated!)));
   } catch (e) {
     return next(e);
@@ -375,7 +382,7 @@ function serialize(row: typeof settings.$inferSelect) {
     // había aplicado el mismo criterio. Se enmascaran igual, y los flags
     // dicen si hay algo cargado sin revelar qué.
     githubToken: enmascarar(row.githubToken),
-    hasGithubToken: !!row.githubToken,
+    hasGithubToken: tokensCopilotGuardados(row, process.env).length > 0,
     githubModel: row.githubModel,
     copilotSessionToken: enmascarar(row.copilotSessionToken),
     hasCopilotSessionToken: !!row.copilotSessionToken,

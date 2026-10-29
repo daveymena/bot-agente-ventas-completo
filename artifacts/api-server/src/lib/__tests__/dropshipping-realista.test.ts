@@ -25,9 +25,9 @@ describe("Dropshipping realista", () => {
     await db.insert(productCategories).values({ tenantId: 1, name: "Gadgets" }).onConflictDoNothing();
     await db.insert(productCategories).values({ tenantId: 1, name: "Tecnologia" }).onConflictDoNothing();
     const cats = await db.select().from(productCategories);
-    categoryMap = new Map(cats.map(c => [c.id, c.name.toLowerCase()]));
-    const gadgetsId = cats.find(c => c.name === "Gadgets")?.id ?? 1;
-    const techId = cats.find(c => c.name === "Tecnologia")?.id ?? 2;
+    categoryMap = new Map(cats.map((c: any) => [c.id, c.name.toLowerCase()]));
+    const gadgetsId = cats.find((c: any) => c.name === "Gadgets")?.id ?? 1;
+    const techId = cats.find((c: any) => c.name === "Tecnologia")?.id ?? 2;
 
     await db.insert(products).values({
       tenantId: 1, name: "Mini Licuadora Portatil USB-C",
@@ -100,7 +100,7 @@ describe("Dropshipping realista", () => {
 
     const mensajes = await db.select().from(messages).where(eq(messages.conversationId, conversationId));
     expect(mensajes.length).toBe(8);
-    const ultimoBot = mensajes.filter((m) => m.role === "agent").pop();
+    const ultimoBot = mensajes.filter((m: any) => m.role === "agent").pop();
     expect(ultimoBot?.content).toContain("Santiago");
     expect(ultimoBot?.content).toContain("48.000");
     expect(ultimoBot?.content).toContain("contraentrega");

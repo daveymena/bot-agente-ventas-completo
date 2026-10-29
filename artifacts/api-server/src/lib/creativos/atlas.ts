@@ -6,11 +6,12 @@
  * Usa las mismas maquetas y el mismo dibujante que el estudio: un creativo
  * hecho por Atlas se abre y se sigue editando a mano en /creativos.
  */
-import { MAQUETAS, maquetaPorId, type DatosCreativo } from "../estudio/maquetas-creativo";
+import { MAQUETAS, armarCreativo, maquetaPorId, type DatosCreativo } from "../estudio/maquetas-creativo";
 import { FORMATOS, normalizarEscena, revisarEscena, type Escena, type Formato } from "../estudio/escena";
 import { normalizarHex, tintaSobre } from "../estudio/retoque";
 import { datosDelProducto, ganchosConIA, type VarianteDeCopy } from "./datos";
 import { guardarCreativo, leerCreativo, type Creativo } from "./almacen";
+import type { Veredicto } from "./juez";
 
 const esFormato = (f: unknown): f is Formato => typeof f === "string" && f in FORMATOS;
 
@@ -20,13 +21,13 @@ export function datosDesdeEscena(base: DatosCreativo, e: Escena): DatosCreativo 
   return { ...base, gancho: texto(["Gancho", "Gancho resaltado"]) ?? base.gancho, apoyo: texto(["Apoyo"]) ?? base.apoyo, cta: texto(["Texto del botón"]) ?? base.cta };
 }
 
-export interface ResultadoCreativo { id: string; nombre: string; maqueta: string; formato: Formato; gancho: string; png: string | null; avisos: string[] }
+export interface ResultadoCreativo { id: string; nombre: string; maqueta: string; formato: Formato; gancho: string; png: string | null; avisos: string[]; puntaje?: number | null; juez?: string | null }
 
 export async function crearCreativos(tenantId: number, a: {
   productId: number; maqueta?: string | null; formato?: string | null; cantidad?: number;
   gancho?: string | null; apoyo?: string | null; cta?: string | null; acento?: string | null;
-  conIA?: boolean; pedido?: string | null; exportar?: boolean;
-}): Promise<{ ok: true; creativos: ResultadoCreativo[]; motor: string } | { ok: false; error: string }> {
+  conIA?: boolean; pedido?: string | null; exportar?: boolean; juzgar?: boolean;
+}): Promise<{ ok: true; creativos: ResultadoCreativo[]; motor: string; descartados: number; recorte: string | null; kit: boolean } | { ok: false; error: string }> {
   const d = await datosDelProducto(tenantId, a.productId);
   if (!d) return { ok: false, error: `No encontré el producto ${a.productId} en este negocio.` };
   if (!d.datos.fotos.length) return { ok: false, error: `El producto "${d.producto.name}" no tiene fotos: un creativo sin el producto no sirve. Cargale fotos primero.` };
@@ -51,28 +52,42 @@ export async function crearCreativos(tenantId: number, a: {
 
   // Maqueta y gancho rotan a la vez: 3 creativos = 3 diseños con 3 ganchos
   // distintos (lo que sirve para probar en el anuncio). Sin repetidos.
+  // Se arman candidatos DE MÁS (hasta 2 extra) y el juez visual elige: lo
+  // que no pasa la rúbrica no se guarda. Maqueta y gancho rotan a la vez.
+  const extra = a.juzgar === false ? 0 : Math.min(2, Math.max(0, maquetas.length * ganchos.length - cantidad));
   const combos: { m: (typeof MAQUETAS)[number]; g: VarianteDeCopy }[] = [];
-  for (let i = 0; i < cantidad; i++) {
+  for (let i = 0; combos.length < cantidad + extra && i < (cantidad + extra) * 3; i++) {
     const m = maquetas[i % maquetas.length]!, g = ganchos[i % ganchos.length]!;
     if (!combos.some((c) => c.m.id === m.id && c.g.gancho === g.gancho)) combos.push({ m, g });
   }
 
-  const salida: ResultadoCreativo[] = [];
+  const { escenaAPng, exportarEscena } = await import("./render");
+  const { juzgarCreativo } = await import("./juez");
+  const kit = acento ? { ...d.kit, acento } : d.kit;
+  const candidatos: { m: (typeof MAQUETAS)[number]; g: VarianteDeCopy; escena: Escena; png: Buffer | null; veredicto: Veredicto | null }[] = [];
   for (const { m, g } of combos) {
     const datos = { ...base, gancho: g.gancho, apoyo: g.apoyo || base.apoyo, cta: g.cta || base.cta };
-    const escena = normalizarEscena(m.armar(datos, formato));
+    const escena = normalizarEscena(armarCreativo(m, datos, formato, kit));
+    let png: Buffer | null = null;
+    if (a.exportar !== false) { try { png = await escenaAPng(escena); } catch { png = null; } }
+    const veredicto = a.juzgar === false ? null : await juzgarCreativo(escena, { tenantId, png, conVision: !!png }).catch(() => null);
+    candidatos.push({ m, g, escena, png, veredicto });
+  }
+  // Los mejores primero; los que no pasan, solo si no hay otros.
+  candidatos.sort((x, y) => (y.veredicto?.puntaje ?? 5) - (x.veredicto?.puntaje ?? 5));
+  const elegidos = candidatos.slice(0, cantidad);
+  const descartados = candidatos.length - elegidos.length;
+
+  const salida: ResultadoCreativo[] = [];
+  for (const { m, g, escena, png: buffer, veredicto } of elegidos) {
     let c = await guardarCreativo(tenantId, { nombre: `${g.gancho.slice(0, 40)} · ${m.nombre}`, productId: a.productId, maqueta: m.id, escena }, "atlas");
     let png: string | null = null;
-    if (a.exportar !== false) {
-      try {
-        const { exportarEscena } = await import("./render");
-        png = await exportarEscena(tenantId, escena, c.nombre);
-        c = await guardarCreativo(tenantId, { ...c, png });
-      } catch { png = null; }
+    if (buffer) {
+      try { png = await exportarEscena(tenantId, escena, c.nombre, buffer); c = await guardarCreativo(tenantId, { ...c, png }); } catch { png = null; }
     }
-    salida.push({ id: c.id, nombre: c.nombre, maqueta: m.id, formato, gancho: g.gancho, png, avisos: revisarEscena(escena).map((x) => x.texto) });
+    salida.push({ id: c.id, nombre: c.nombre, maqueta: m.id, formato, gancho: g.gancho, png, avisos: veredicto?.problemas ?? revisarEscena(escena).map((x) => x.texto), puntaje: veredicto?.puntaje ?? null, juez: veredicto?.fuente ?? null });
   }
-  return { ok: true, creativos: salida, motor };
+  return { ok: true, creativos: salida, motor, descartados, recorte: d.recorteMotivo ? `sin recorte de fondo: ${d.recorteMotivo}` : Object.keys(d.datos.recortes || {}).length ? "producto recortado" : null, kit: d.kitDefinido };
 }
 
 // ─── Atlas diseña (23-10-2026): ver, operar capas y mirar el resultado ──────
@@ -101,9 +116,16 @@ async function exportarYMirar(tenantId: number, c: Creativo, mirar: boolean, obj
     if (mirar) png = await escenaAPng(c.escena, { escala: 0.5 });
   } catch { /* sin Chromium: queda guardado sin PNG */ }
   if (!mirar || !png) return { creativo, critica: null, vision: !!png };
+  // Dos miradas sin pagar dos llamadas de visión: el juez del Studio
+  // (creativos/juez.ts) con sus reglas medibles, y la crítica visual con
+  // cambios concretos por id de capa.
+  const { juzgarCreativo } = await import("./juez");
+  const reglas = await juzgarCreativo(c.escena, { tenantId, conVision: false }).catch(() => null);
   const { criticarDiseno } = await import("../estudio/ojo-de-disenador");
   const { describirEscena } = await import("../estudio/operaciones-escena");
-  const critica = await criticarDiseno(png, { tipo: "creativo", formato: c.escena.formato, objetivo, estructura: describirEscena(c.escena) }, tenantId).catch(() => null);
+  const vista = await criticarDiseno(png, { tipo: "creativo", formato: c.escena.formato, objetivo, estructura: describirEscena(c.escena) }, tenantId).catch(() => null);
+  const porReglas = reglas ? `Reglas del Studio: ${reglas.puntaje}/10${reglas.problemas.length ? ` · ${reglas.problemas.join(" / ")}` : ""}` : "";
+  const critica = [porReglas, vista].filter(Boolean).join("\n") || null;
   return { creativo, critica, vision: true };
 }
 
@@ -184,7 +206,7 @@ export async function editarCreativo(tenantId: number, id: string, cambios: {
       ...(cambios.cta ? { cta: String(cambios.cta).slice(0, 40) } : {}),
       ...(acento ? { acento, sobreAcento: tintaSobre(acento) } : {}),
     };
-    escena = normalizarEscena(maquetaPorId(maquetaId).armar(datos, formato));
+    escena = normalizarEscena(armarCreativo(maquetaPorId(maquetaId), datos, formato, acento ? { ...d.kit, acento } : d.kit));
   } else {
     // Hecho a mano: solo se cambian los textos por nombre de capa y el formato.
     escena = normalizarEscena({

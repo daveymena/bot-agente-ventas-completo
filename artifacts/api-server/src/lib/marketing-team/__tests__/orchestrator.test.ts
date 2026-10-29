@@ -24,8 +24,20 @@ describe("MarketingOrchestrator.detectIntent (MASTER PLAN §4)", () => {
     expect(detectIntent("prepara nuevos anuncios")).toBe("create_campaign");
   });
 
+  it("un saludo cae en 'help', NO en unknown", () => {
+    // Decisión deliberada del código (orchestrator.ts:45): "hola" y "buenas"
+    // están en la lista de `help` porque antes un saludo devolvía el 400 "no
+    // identifiqué intención". El test esperaba `unknown`, que era el
+    // comportamiento viejo. Lo que se fija acá es que el admin reciba la ayuda
+    // en vez de un error.
+    expect(detectIntent("hola buenas tardes")).toBe("help");
+    expect(detectIntent("hola")).toBe("help");
+    expect(detectIntent("ayuda")).toBe("help");
+  });
+
   it("devuelve unknown para mensajes sin intención de marketing", () => {
-    expect(detectIntent("hola buenas tardes")).toBe("unknown");
     expect(detectIntent("")).toBe("unknown");
+    expect(detectIntent("el clima de mañana")).toBe("unknown");
+    expect(detectIntent("asdf qwerty")).toBe("unknown");
   });
 });

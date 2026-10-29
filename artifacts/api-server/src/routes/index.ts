@@ -52,6 +52,7 @@ import probarVendedorRouter from "./probar-vendedor";
 import scraperRouter from "./scraper";
 import agentLabDashboardRouter from "./agent-lab-dashboard";
 import campanaRouter from "./campana";
+import agenciaProRouter from "./agencia-pro";
 import creativosRouter from "./creativos";
 
 const router: IRouter = Router();
@@ -108,6 +109,7 @@ router.use("/probar-vendedor", probarVendedorRouter);
 router.use("/scraper", scraperRouter);
 router.use("/agent-lab-dashboard", agentLabDashboardRouter);
 router.use("/campana", campanaRouter);
+router.use("/agencia/pro", agenciaProRouter);
 router.use("/creativos", creativosRouter);
 router.use(errorHandler);
 

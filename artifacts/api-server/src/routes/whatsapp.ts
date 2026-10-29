@@ -151,6 +151,8 @@ router.post("/test-ia", async (req, res) => {
       convo = inserted[0] as any;
     }
 
+    if (!convo) throw new Error("No se pudo resolver la conversaci\u00f3n de prueba");
+
     // Simulación de la llegada desde un anuncio: la metadata que guarda el
     // manejador real cuando Meta manda externalAdReply (ver message-handler).
     const anuncio = req.body?.anuncio && typeof req.body.anuncio === "object" ? req.body.anuncio : null;

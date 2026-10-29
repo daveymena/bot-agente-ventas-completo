@@ -354,15 +354,30 @@ export class AdStrategist {
    * Guardrail de presupuesto antes de crear/activar gasto. Antes publish/upload
    * no consultaban los guardrails del negocio (maxDailySpend), así que el tope
    * diario configurado nunca se aplicaba en estos caminos.
+   *
+   * ⚠️ Falla CERRADO desde el 2026-10-14. Antes, cualquier error al leer el
+   * presupuesto devolvía `allowed: true` con la nota "no se bloquea": un fallo
+   * de base de datos se convertía en permiso para gastar, que es exactamente lo
+   * contrario de lo que un guardián de gasto debe hacer. Si no se puede
+   * comprobar el tope, no se gasta: el dueño puede reintentar, pero una factura
+   * sorpresa no se deshace.
    */
   private async guardPresupuesto(monto: number): Promise<{ allowed: boolean; reason: string }> {
     try {
       const guardrails = await getOrCreateBudget(this.tenant.id);
       const estado = await getBudgetStatus(this.tenant.id);
       return canSpendToday(guardrails, estado.todaySpend, Number(monto) || 0);
-    } catch {
-      // Si no se puede leer el presupuesto, no se bloquea: se sigue como antes.
-      return { allowed: true, reason: "No se pudo leer el presupuesto; no se bloquea." };
+    } catch (err: any) {
+      logger.error(
+        { err: err?.message, tenantId: this.tenant.id, monto },
+        "[AdStrategist] No se pudo verificar el presupuesto: se BLOQUEA el gasto (fail-closed)",
+      );
+      return {
+        allowed: false,
+        reason:
+          "No se pudo verificar el tope de gasto del negocio, así que no se activa nada. " +
+          "Reintentá en un momento; si sigue fallando, revisá la base de datos.",
+      };
     }
   }
 

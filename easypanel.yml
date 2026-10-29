@@ -21,6 +21,9 @@ services:
       USE_SQLITE: "true"
       SQLITE_PATH: "./data/tecnovariedades.db"
 
+      # ========== DIOS — Video/Imagen/Landing premium (2026-10-12) ==========
+      DIOS: "1"
+
       # ========== AI FALLBACK ==========
       AI_FALLBACK_ENABLED: "${AI_FALLBACK_ENABLED:-true}"
       AI_FALLBACK_ORDER: "${AI_FALLBACK_ORDER:-ollama_cloud,opencode,groq,github,g4f}"
@@ -87,6 +90,15 @@ services:
       # ========== ADMIN ==========
       ADMIN_PHONE: "${ADMIN_PHONE}"
 
+      # ========== ALMACENAMIENTO (volumen persistente) ==========
+      IMAGE_STORE_DIR: "/app/data/images"
+
+      # ========== CANVA CONNECT (opcional, costo 0 si deshabilitado) ==========
+      CANVA_ENABLED: "${CANVA_ENABLED:-false}"
+      CANVA_CLIENT_ID: "${CANVA_CLIENT_ID}"
+      CANVA_CLIENT_SECRET: "${CANVA_CLIENT_SECRET}"
+      CANVA_REDIRECT_URI: "${CANVA_REDIRECT_URI:-https://ventasproia.com/api/canva/callback}"
+
     healthCheck:
       path: /api/health
       interval: 30s
@@ -118,8 +130,7 @@ services:
       POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # Sin "ports": la base solo la alcanza la app por la red interna.
 
   opencode-proxy:
     name: "OpenCode AI Proxy"
@@ -169,8 +180,7 @@ services:
       OLLAMA_HOST: "0.0.0.0:11434"
     volumes:
       - ollama_data:/root/.ollama
-    ports:
-      - "11434:11434"
+    # Sin "ports": Ollama solo lo usa la app por la red interna.
 
 volumes:
   postgres_data:

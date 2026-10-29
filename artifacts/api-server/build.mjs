@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm, cp } from "node:fs/promises";
+import { rm, cp, writeFile } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -30,6 +30,33 @@ async function buildAll() {
   } catch (err) {
     console.warn(`⚠️ Could not copy sql-wasm.wasm: ${err.message}`);
   }
+
+  // Worker de Meta: servicio propio en EasyPanel (META_ROLE=worker). Se
+  // empaqueta aparte para no depender de tsx en la imagen de producción.
+  // write:false + fs: en algunas máquinas Windows esbuild no puede escribir
+  // en dist/ (Access is denied); el bundle se genera en memoria y se guarda.
+  const worker = await esbuild({
+    entryPoints: [path.resolve(artifactDir, "src/lib/meta/arranque-worker.ts")],
+    platform: "node",
+    bundle: true,
+    format: "esm",
+    outfile: path.join(distDir, "meta-worker.mjs"),
+    write: false,
+    logLevel: "info",
+    // Igual que el bundle principal: dependencias CJS (dotenv, etc.) necesitan require.
+    banner: {
+      js: `import { createRequire as __bannerCrReq } from 'node:module';
+import __bannerPath from 'node:path';
+import __bannerUrl from 'node:url';
+
+globalThis.require = __bannerCrReq(import.meta.url);
+globalThis.__filename = __bannerUrl.fileURLToPath(import.meta.url);
+globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
+`,
+    },
+    external: ["*.node", "puppeteer", "sharp", "better-sqlite3", "sqlite3", "canvas", "bcrypt", "argon2", "fsevents", "pg-native", "lightningcss"],
+  });
+  for (const salida of worker.outputFiles) await writeFile(salida.path, salida.contents);
 
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/index.ts")],

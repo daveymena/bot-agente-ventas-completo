@@ -115,7 +115,7 @@ export async function queueEmailCampaign(
   opts: { subject: string; html: string; stage?: string },
 ): Promise<QueueResult> {
   const targets = await targetLeads(tenantId, opts.stage);
-  const withEmail = targets.filter((l) => !!l.email);
+  const withEmail = targets.filter((l: any) => !!l.email);
   if (withEmail.length === 0) {
     return { ok: false, summary: "No hay leads con email guardado en ese segmento (potenciales, sin contar ya convertidos/perdidos salvo que pidas un stage puntual).", totalTargeted: 0 };
   }
@@ -131,7 +131,7 @@ export async function queueEmailCampaign(
     tenantId, channel: "email", segment: opts.stage ? `stage=${opts.stage}` : "potenciales (sin convertidos/perdidos)",
     subject: opts.subject, message: opts.html,
     status: "queued",
-    pendingLeadIds: withEmail.map((l) => l.id),
+    pendingLeadIds: withEmail.map((l: any) => l.id),
     totalTargeted: withEmail.length,
   } as any).returning();
 
@@ -156,8 +156,8 @@ export async function queueWhatsappBroadcast(
   // Solo a quien ya escribió por WhatsApp. Ver `losQueEscribieron`: es la
   // proteccion que mas cuida el numero, y no aplica al email --ahi escribirle
   // a un lead que dejo su correo es normal--, por eso va solo en este canal.
-  const escribieron = await losQueEscribieron(tenantId, candidatos.map((l) => l.id));
-  const targets = candidatos.filter((l) => escribieron.has(l.id));
+  const escribieron = await losQueEscribieron(tenantId, candidatos.map((l: any) => l.id));
+  const targets = candidatos.filter((l: any) => escribieron.has(l.id));
   const descartados = candidatos.length - targets.length;
 
   if (targets.length === 0) {
@@ -182,7 +182,7 @@ export async function queueWhatsappBroadcast(
     tenantId, channel: "whatsapp", segment: opts.stage ? `stage=${opts.stage}` : "potenciales (sin convertidos/perdidos)",
     message: opts.message,
     status: "queued",
-    pendingLeadIds: targets.map((l) => l.id),
+    pendingLeadIds: targets.map((l: any) => l.id),
     totalTargeted: targets.length,
   } as any).returning();
 

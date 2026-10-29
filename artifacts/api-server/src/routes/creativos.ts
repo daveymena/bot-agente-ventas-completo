@@ -23,6 +23,72 @@ router.get("/catalogo", (_req, res) => {
   });
 });
 
+// ── Kit de marca ────────────────────────────────────────────────────────────
+// (antes de "/:id": si no, "/kit" se leería como el id de un creativo)
+router.get("/kit", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+    const { leerKit } = await import("../lib/creativos/kit");
+    return res.json(await leerKit(tenantId));
+  } catch (e) { return next(e); }
+});
+
+router.put("/kit", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+    const { guardarKit, leerKit } = await import("../lib/creativos/kit");
+    await guardarKit(tenantId, req.body?.kit ?? req.body);
+    return res.json(await leerKit(tenantId));
+  } catch (e) { return next(e); }
+});
+
+/** Paletas completas armadas desde el color real de la foto del producto. */
+router.get("/paletas", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+    const { paletasDesde } = await import("../lib/estudio/kit");
+    const base = String(req.query.color || "");
+    let colores: string[] = base ? [base] : [];
+    const productId = Number(req.query.productId);
+    if (!colores.length && productId > 0) {
+      const { datosDelProducto } = await import("../lib/creativos/datos");
+      const d = await datosDelProducto(tenantId, productId);
+      // Primero el color del PRODUCTO recortado (sin el fondo del estudio);
+      // después el saturado de la foto y el del rubro. Nunca el gris del fondo.
+      const { colorDelRecorte } = await import("../lib/creativos/recorte");
+      const recorte = Object.values(d?.datos.recortes || {})[0];
+      const delProducto = recorte ? await colorDelRecorte(recorte).catch(() => null) : null;
+      const { colorDominanteDeFoto } = await import("../lib/landing/color-del-producto");
+      const c = !delProducto && d?.datos.fotos[0] ? await colorDominanteDeFoto(d.datos.fotos[0]).catch(() => null) : null;
+      colores = [delProducto, c?.saturado, d?.datos.acento].filter((x): x is string => !!x);
+    }
+    const paletas = colores.flatMap((c) => paletasDesde(c)).filter((p, i, l) => l.findIndex((q) => q.acento === p.acento && q.oscuro === p.oscuro) === i).slice(0, 8);
+    return res.json({ base: colores, paletas });
+  } catch (e) { return next(e); }
+});
+
+/** Quita el fondo liso de una foto (o dice por qué no se puede). */
+router.post("/recortar", async (req: TenantRequest, res, next) => {
+  try {
+    if (!req.tenant?.id) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+    const { recortarFondo } = await import("../lib/creativos/recorte");
+    return res.json(await recortarFondo(String(req.body?.url || "")));
+  } catch (e) { return next(e); }
+});
+
+/** El juez visual: reglas medibles + mirada de un modelo de visión. */
+router.post("/juzgar", async (req: TenantRequest, res, next) => {
+  try {
+    const tenantId = req.tenant?.id;
+    if (!tenantId) return sendError(res, ERROR_CODES.UNAUTHORIZED);
+    const { juzgarCreativo } = await import("../lib/creativos/juez");
+    return res.json(await juzgarCreativo(req.body?.escena, { tenantId }));
+  } catch (e) { return next(e); }
+});
+
 /** Los datos reales del producto con que se arman las maquetas. */
 router.get("/producto/:id", async (req: TenantRequest, res, next) => {
   try {

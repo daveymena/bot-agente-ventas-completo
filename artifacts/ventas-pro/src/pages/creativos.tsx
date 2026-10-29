@@ -14,11 +14,12 @@ import { Layout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
-import { Loader2, Undo2, Redo2, Save, Download, Sparkles, Plus, Type, Image as ImageIcon, Square, Layers, LayoutGrid, Eye, EyeOff, Lock, ArrowUp, ArrowDown, Trash2, Palette, ShieldAlert, FolderOpen, Wand2, SlidersHorizontal, Copy } from "lucide-react";
+import { ShieldCheck, Loader2, Undo2, Redo2, Save, Download, Sparkles, Plus, Type, Image as ImageIcon, Square, Layers, LayoutGrid, Eye, EyeOff, Lock, ArrowUp, ArrowDown, Trash2, Palette, ShieldAlert, FolderOpen, Wand2, SlidersHorizontal, Copy } from "lucide-react";
 import { Lienzo } from "@/components/creativos/lienzo";
 import { Propiedades } from "@/components/creativos/propiedades";
 import { capasAHtml, FORMATOS, idNuevo, normalizarEscena, revisarEscena, type Capa, type Escena, type Formato } from "@estudio/escena";
-import { MAQUETAS, maquetaPorId, type DatosCreativo } from "@estudio/maquetas-creativo";
+import { MAQUETAS, armarCreativo, maquetaPorId, type DatosCreativo } from "@estudio/maquetas-creativo";
+import type { KitDeMarca } from "@estudio/kit";
 import { enlaceDeFuentes, FUENTES } from "@estudio/fuentes";
 import { tintaSobre } from "@estudio/retoque";
 
@@ -79,6 +80,9 @@ export interface PropsCreativos {
   producto?: number | "";
   onProducto?: (id: number | "") => void;
   onContexto?: (c: { productId: number | null; productoNombre: string | null; creativo: { id: string | null; nombre: string } | null }) => void;
+  /** En la suite: abrir el espacio Marca. */
+  onIrAMarca?: () => void;
+  registrarGuardado?: (espacio: string, fn: (() => Promise<void>) | null) => void;
 }
 
 export default function CreativosPage(props: PropsCreativos = {}) {
@@ -91,6 +95,13 @@ export default function CreativosPage(props: PropsCreativos = {}) {
   const setProductId = (v: number | "") => { setProductIdLocal(v); props.onProducto?.(v); };
   useEffect(() => { if (props.producto !== undefined && props.producto !== productId) setProductIdLocal(props.producto); }, [props.producto]); // eslint-disable-line react-hooks/exhaustive-deps
   const [datos, setDatos] = useState<DatosCreativo | null>(null);
+  // Kit de marca del negocio: todas las maquetas salen con su identidad.
+  const [kit, setKit] = useState<KitDeMarca>({});
+  const [kitDefinido, setKitDefinido] = useState(false);
+  const [recorteMotivo, setRecorteMotivo] = useState<string | null>(null);
+  const [veredicto, setVeredicto] = useState<{ puntaje: number; aprobado: boolean; problemas: string[]; fortalezas: string[]; fuente: string } | null>(null);
+  const [juzgando, setJuzgando] = useState(false);
+  const [versionDatos, setVersionDatos] = useState(0);
   const [cargandoDatos, setCargandoDatos] = useState(false);
   const [formato, setFormato] = useState<Formato>("4:5");
   const [escena, setEscenaCruda] = useState<Escena | null>(null);
@@ -136,10 +147,17 @@ export default function CreativosPage(props: PropsCreativos = {}) {
     if (typeof productId !== "number") { setDatos(null); return; }
     setCargandoDatos(true); setVariantes([]); setMotorIA(null);
     api<any>(`/api/creativos/producto/${productId}`)
-      .then((d) => setDatos(d.datos))
+      .then((d) => { setDatos(d.datos); setKit(d.kit || {}); setKitDefinido(!!d.kitDefinido); setRecorteMotivo(d.recorteMotivo || null); })
       .catch((e) => { toast.error(e.message); setDatos(null); })
       .finally(() => setCargandoDatos(false));
-  }, [productId]);
+  }, [productId, versionDatos]);
+
+  // Guardaron el kit (espacio Marca): se recargan datos y maquetas.
+  useEffect(() => {
+    const recargar = () => setVersionDatos((v) => v + 1);
+    window.addEventListener("estudio:kit", recargar);
+    return () => window.removeEventListener("estudio:kit", recargar);
+  }, []);
 
   // ── Historial ────────────────────────────────────────────────────────────
   const marcar = useCallback(() => {
@@ -167,13 +185,26 @@ export default function CreativosPage(props: PropsCreativos = {}) {
     setTic((t) => t + 1);
   };
 
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("creativo");
+    if (!id) return;
+    let vigente = true;
+    api<Guardado>(`/api/creativos/${encodeURIComponent(id)}`).then((c) => {
+      if (!vigente) return;
+      if (c.productId) setProductId(c.productId);
+      abrirEscena(normalizarEscena(c.escena), { maqueta: c.maqueta, id: c.id, nombre: c.nombre, guardado: true });
+      setPng(c.png);
+    }).catch((e) => vigente && toast.error(e.message));
+    return () => { vigente = false; };
+  }, []);
+
   const confirmarDescartar = () => !hayCambios || window.confirm("Tenés cambios sin guardar en este creativo. ¿Descartarlos?");
 
   const usarMaqueta = (id: string, f: Formato = formato, d: DatosCreativo | null = datos) => {
     if (!d) return;
     if (escena && maqueta !== id && !confirmarDescartar()) return;
     const prod = productos.find((p) => p.id === productId);
-    abrirEscena(normalizarEscena(maquetaPorId(id).armar(d, f)), { maqueta: id, nombre: `${prod?.name || "Creativo"} · ${maquetaPorId(id).nombre}` });
+    abrirEscena(normalizarEscena(armarCreativo(maquetaPorId(id), d, f, kit)), { maqueta: id, nombre: `${prod?.name || "Creativo"} · ${maquetaPorId(id).nombre}` });
   };
 
   const cambiarFormato = (f: Formato) => {
@@ -182,7 +213,7 @@ export default function CreativosPage(props: PropsCreativos = {}) {
     // Con maqueta conocida se vuelve a diagramar para el formato nuevo,
     // conservando los textos que se hayan cambiado.
     if (maqueta && datos) {
-      const nueva = normalizarEscena(maquetaPorId(maqueta).armar(datosDesdeEscena(datos, escena), f));
+      const nueva = normalizarEscena(armarCreativo(maquetaPorId(maqueta), datosDesdeEscena(datos, escena), f, kit));
       setEscena(nueva);
       setSeleccion(null);
     } else {
@@ -281,6 +312,24 @@ export default function CreativosPage(props: PropsCreativos = {}) {
     finally { setExportando(false); }
   };
 
+  const juzgar = async () => {
+    const e = escenaRef.current;
+    if (!e) return;
+    setJuzgando(true); setVeredicto(null);
+    try { setVeredicto(await api("/api/creativos/juzgar", { method: "POST", body: JSON.stringify({ escena: e }) })); setPanel((p) => (window.innerWidth < 1024 ? "editar" : p)); }
+    catch (err: any) { toast.error(err.message); }
+    finally { setJuzgando(false); }
+  };
+  // La suite guarda el creativo abierto antes de que Atlas trabaje (así lo ve).
+  useEffect(() => {
+    if (!props.registrarGuardado) return;
+    props.registrarGuardado("creativos", async () => { if (escenaRef.current && (hayCambios || !creativoId)) await guardar(); });
+    return () => props.registrarGuardado?.("creativos", null);
+  }); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Un cambio en la escena deja viejo el veredicto.
+  useEffect(() => { setVeredicto(null); }, [escena]);
+
   const subirImagen = async (archivo: File): Promise<string | null> => {
     if (archivo.size > 8 * 1024 * 1024) { toast.error("La imagen pesa más de 8 MB"); return null; }
     const dataUrl = await new Promise<string>((ok, mal) => { const fr = new FileReader(); fr.onload = () => ok(String(fr.result)); fr.onerror = mal; fr.readAsDataURL(archivo); });
@@ -311,7 +360,7 @@ export default function CreativosPage(props: PropsCreativos = {}) {
     // maqueta es conocida, se vuelve a diagramar (un gancho más largo
     // necesita otro tamaño de letra).
     if (maqueta && datos) {
-      setEscena(normalizarEscena(maquetaPorId(maqueta).armar({ ...datosDesdeEscena(datos, escena), gancho: v.gancho, apoyo: v.apoyo || datos.apoyo, cta: v.cta || datos.cta }, escena.formato)));
+      setEscena(normalizarEscena(armarCreativo(maquetaPorId(maqueta), { ...datosDesdeEscena(datos, escena), gancho: v.gancho, apoyo: v.apoyo || datos.apoyo, cta: v.cta || datos.cta }, escena.formato, kit)));
       setSeleccion(null);
       return;
     }
@@ -324,7 +373,7 @@ export default function CreativosPage(props: PropsCreativos = {}) {
     const ganchos = variantes.length ? variantes.slice(0, 3) : [{ gancho: datos.gancho, apoyo: datos.apoyo || "", cta: datos.cta }];
     const maquetas = [...MAQUETAS].sort((a, b) => Number(b.ideal === formato) - Number(a.ideal === formato)).slice(0, ganchos.length > 1 ? 3 : 6);
     const out: { escena: Escena; maqueta: string; gancho: string }[] = [];
-    for (const g of ganchos) for (const m of maquetas) out.push({ escena: normalizarEscena(m.armar({ ...datos, gancho: g.gancho, apoyo: g.apoyo || datos.apoyo, cta: g.cta || datos.cta }, formato)), maqueta: m.id, gancho: g.gancho });
+    for (const g of ganchos) for (const m of maquetas) out.push({ escena: normalizarEscena(armarCreativo(m, { ...datos, gancho: g.gancho, apoyo: g.apoyo || datos.apoyo, cta: g.cta || datos.cta }, formato, kit)), maqueta: m.id, gancho: g.gancho });
     setLote(out);
   };
 
@@ -342,8 +391,10 @@ export default function CreativosPage(props: PropsCreativos = {}) {
 
   const recolor = (nuevo: string) => {
     if (!escena || !datos) return;
-    setEscena(recolorear(escena, datos.acento, nuevo));
+    const actual = kit.acento || datos.acento;
+    setEscena(recolorear(escena, actual, nuevo));
     setDatos({ ...datos, acento: nuevo, sobreAcento: tintaSobre(nuevo) });
+    if (kit.acento) setKit({ ...kit, acento: nuevo });
   };
 
   // ── Suite: contexto para Atlas y recarga cuando Atlas creó o cambió algo ──
@@ -363,7 +414,7 @@ export default function CreativosPage(props: PropsCreativos = {}) {
     return () => window.removeEventListener("estudio:refrescar", refrescar);
   });
 
-  const galeria = useMemo(() => (datos ? MAQUETAS.map((m) => ({ m, escena: normalizarEscena(m.armar(datos, formato)) })) : []), [datos, formato]);
+  const galeria = useMemo(() => (datos ? MAQUETAS.map((m) => ({ m, escena: normalizarEscena(armarCreativo(m, datos, formato, kit)) })) : []), [datos, formato, kit]);
 
   const nuevaCapa = {
     texto: (): Capa => ({ id: idNuevo("t"), tipo: "texto", nombre: "Texto", texto: "Escribí acá", x: 10, y: 40, w: 80, h: 12, tam: 6, peso: 800, color: "#ffffff", alinear: "center", vertical: "center", fuente: "inter", sombra: true } as Capa),
@@ -397,7 +448,14 @@ export default function CreativosPage(props: PropsCreativos = {}) {
             <p className="text-xs text-muted-foreground">{cargandoDatos ? "Leyendo foto, precio y condiciones del producto…" : "Elegí un producto arriba. La vista previa usa su foto, precio y condiciones reales."}</p>
           ) : (
             <>
-              <p className="text-[11px] text-muted-foreground">Elegí una vista previa para abrirla en el lienzo y ajustar texto, foto o colores.</p>
+              <p className="text-[11px] text-muted-foreground">Ya armadas con tus datos reales. Tocá una para editarla.</p>
+              {!kitDefinido && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 p-2 text-[11px] space-y-1">
+                  <p><b>Sin kit de marca:</b> los colores se adivinan desde la foto y las piezas pueden verse genéricas.</p>
+                  {props.onIrAMarca ? <button className="underline font-semibold" onClick={props.onIrAMarca}>Definir mi marca →</button> : <a className="underline font-semibold" href="/estudio?espacio=marca">Definir mi marca →</a>}
+                </div>
+              )}
+              {recorteMotivo && <p className="text-[10px] text-muted-foreground">Foto sin recortar ({recorteMotivo}). Con una foto de producto sobre fondo liso, el producto sale flotando.</p>}
               <div className="grid grid-cols-2 gap-2">
                 {galeria.map(({ m, escena: e }) => (
                   <div key={m.id} className="space-y-1">
@@ -480,6 +538,16 @@ export default function CreativosPage(props: PropsCreativos = {}) {
 
   const panelPropiedades = escena ? (
     <>
+      {veredicto && (
+        <div className={`mx-3 mt-3 rounded-lg border p-2 space-y-1 ${veredicto.aprobado ? "border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30" : "border-rose-300 bg-rose-50 dark:bg-rose-950/30"}`}>
+          <p className="text-xs font-bold flex items-center gap-1"><ShieldCheck className="h-3.5 w-3.5" /> {veredicto.fuente.startsWith("reglas (")
+            ? <>Reglas medibles: {veredicto.puntaje}/10 {veredicto.aprobado ? "· sin errores de legibilidad" : "· conviene mejorarla"}</>
+            : <>Director de arte: {veredicto.puntaje}/10 {veredicto.aprobado ? "· lista para publicar" : "· conviene mejorarla"}</>}</p>
+          {veredicto.problemas.slice(0, 5).map((p, i) => <p key={i} className="text-[10px]">• {p}</p>)}
+          {veredicto.fortalezas.length > 0 && <p className="text-[10px] text-emerald-700 dark:text-emerald-300">✓ {veredicto.fortalezas.join(" · ")}</p>}
+          <p className="text-[9px] text-muted-foreground">{veredicto.fuente}</p>
+        </div>
+      )}
       <Propiedades
         ref={textoRef}
         escena={escena}
@@ -530,6 +598,9 @@ export default function CreativosPage(props: PropsCreativos = {}) {
             <Button size="sm" variant="ghost" className="h-8 w-8 p-0" disabled={!futuro.current.length} onClick={rehacer} title="Rehacer (Ctrl+Shift+Z)" aria-label="Rehacer"><Redo2 className="h-4 w-4" /></Button>
             <Button size="sm" variant="outline" className="h-8 text-xs" disabled={!escena || guardando || (!hayCambios && !!creativoId)} onClick={() => void guardar()}>
               {guardando ? <Loader2 className="h-3.5 w-3.5 animate-spin sm:mr-1" /> : <Save className="h-3.5 w-3.5 sm:mr-1" />}<span className="hidden sm:inline">{hayCambios || !creativoId ? "Guardar" : "Guardado"}</span>
+            </Button>
+            <Button size="sm" variant="outline" className="h-8 text-xs" disabled={!escena || juzgando} onClick={() => void juzgar()} title="El director de arte revisa la pieza: legibilidad, contraste, jerarquía, producto visible">
+              {juzgando ? <Loader2 className="h-3.5 w-3.5 animate-spin sm:mr-1" /> : <ShieldCheck className="h-3.5 w-3.5 sm:mr-1" />}<span className="hidden sm:inline">Revisar</span>
             </Button>
             <Button size="sm" className="h-8 text-xs bg-violet-600 hover:bg-violet-700 text-white" disabled={!escena || exportando} onClick={() => void exportar()}>
               {exportando ? <Loader2 className="h-3.5 w-3.5 animate-spin sm:mr-1" /> : <Download className="h-3.5 w-3.5 sm:mr-1" />}<span className="hidden sm:inline">Exportar PNG</span>

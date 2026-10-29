@@ -68,7 +68,7 @@ export async function detectarErrores(
     }
 
     // Error: Omisión de preguntas estratégicas
-    if (conv.intent === "comparacion" && !conv.messages.some((m: any) => m.content.includes("diferencia"))) {
+    if (conv.intent === "comparacion" && !mensajeroAgente.some((m: any) => m.content.includes("diferencia"))) {
       errores.push({
         tipo: "omision",
         descripcion: "Cliente comparando pero agente no explica diferencias",
@@ -296,9 +296,14 @@ export function compararSimulaciones(simulaciones: ResultadoSimulacion[]): Compa
   const varianza = simulaciones.reduce((sum, s) => sum + Math.pow(s.mejora - mejoraMean, 2), 0) / simulaciones.length;
   const desvio = Math.sqrt(varianza);
 
-  const confianza = 50 + mejoras.length * 5 - empeoramientos.length * 10; // 50-100
+  // Confianza = balance neto de simulaciones (mejoras − empeoramientos) sobre el total.
+  // Ya no suma 5 puntos por victoria: con 14 mejoras no debe valer 100% por cantidad.
+  const total = simulaciones.length || 1;
+  const confianza = Math.max(0, Math.round(((mejoras.length - empeoramientos.length) / total) * 100));
 
   return {
+    simulacionesTotal: simulaciones.length,
+    mejoraMedia: mejoraMean,
     mejora: {} as CandidataDeMejora,
     simulaciones,
     confianzaPromedio: Math.min(100, Math.max(0, confianza)),
@@ -309,8 +314,14 @@ export function compararSimulaciones(simulaciones: ResultadoSimulacion[]): Compa
   };
 }
 
+/** Hay evidencia suficiente para aplicar sin revisión humana. */
+function evidenciaFuerte(c: ComparacionPrompt, mejoraMinima: number): boolean {
+  return c.simulacionesTotal >= 10 && c.mejoraMedia >= mejoraMinima;
+}
+
 /**
  * Decide: ¿auto-aplicar, proponer+4h, o pedir aprobación?
+ * Auto-aplicar solo con evidencia (>=10 simulaciones, mejora media mínima y cero empeoramientos).
  */
 export function decidirAutonomia(
   mejora: CandidataDeMejora,
@@ -323,7 +334,8 @@ export function decidirAutonomia(
 
   if (mejora.tipo === "tactico") {
     // TÁCTICO: cambios de redacción, tono, reordenamiento
-    if (confianzaPromedio > 85 && sinRiesgos) {
+    // Auto-aplicar exige evidencia: muchas simulaciones y una mejora media clara.
+    if (confianzaPromedio > 85 && sinRiesgos && evidenciaFuerte(comparacion, 20)) {
       decision = "auto_aplicar";
       razonamiento = `Confianza ${confianzaPromedio.toFixed(0)}% + sin riesgos → auto-aplicar`;
     } else if (confianzaPromedio > 70) {
@@ -335,7 +347,7 @@ export function decidirAutonomia(
     }
   } else if (mejora.tipo === "operativo") {
     // OPERATIVO: cambios mayores al prompt (omisiones, contradicciones)
-    if (confianzaPromedio > 90 && sinRiesgos) {
+    if (confianzaPromedio > 90 && sinRiesgos && evidenciaFuerte(comparacion, 25)) {
       decision = "auto_aplicar";
       razonamiento = `Operativo con alta confianza (${confianzaPromedio.toFixed(0)}%) → auto-aplica`;
     } else if (confianzaPromedio > 75) {

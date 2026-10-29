@@ -246,7 +246,7 @@ export function loQueFalta(e: EstadoDelNegocio): Decision[] {
       campo: "estiloDeVenta",
       pregunta: "¿Cómo querés que venda tu asesor?",
       siNoSeConfigura:
-        "Vende con el estilo por defecto: averigua una cosa antes de presentar, ofrece el video como gancho, y ante un “lo voy a pensar” deja algo concreto. Se puede cambiar cuando quieras.",
+        "Vende con el estilo por defecto (pro): pregunta siempre antes de presentar, ofrece el video como gancho, y ante un “lo voy a pensar” pregunta qué lo frena. Se puede cambiar cuando quieras.",
       opciones: PERFILES.map((perfil) => ({
         id: perfil.id,
         etiqueta: perfil.etiqueta,

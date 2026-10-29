@@ -25,6 +25,7 @@ import { logger } from "./logger";
 export const ID_HACIA_OPENCODE: Record<string, string> = {
   google_ai_studio: "google",
   nvidia_nim: "nvidia",
+  github_copilot_internal: "github-copilot",
 };
 
 // Proveedores que NO se sincronizan: `github` usa un token de GitHub Models
@@ -33,14 +34,14 @@ export const ID_HACIA_OPENCODE: Record<string, string> = {
 // {type:"api"}. `mimo` es la API propia de Xiaomi, no confirmado que exista
 // como proveedor conocido en el catálogo de OpenCode -- mejor no intentarlo
 // y ensuciar el log con un 404 esperado en cada guardado.
-const NO_SINCRONIZABLES = new Set(["github", "mimo"]);
+const NO_SINCRONIZABLES = new Set(["github", "github_copilot_internal", "mimo"]);
 
 /**
  * Apunta al contenedor **opencode-clean** (proyecto `opencode1`), no a
  * `operato` -- son dos servicios distintos del mismo proyecto. El circuito
  * completo está documentado en routes/operator-opencode.ts.
  */
-function opencodeConfig(): { host: string; authHeader: string } | null {
+export function opencodeConfig(): { host: string; authHeader: string } | null {
   const host = process.env.ATLAS_OPENCODE_HOST;
   const user = process.env.ATLAS_OPENCODE_USER;
   const pass = process.env.ATLAS_OPENCODE_PASS;

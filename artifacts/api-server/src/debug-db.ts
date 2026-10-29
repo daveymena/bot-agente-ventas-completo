@@ -8,7 +8,7 @@ async function debug() {
       FROM information_schema.columns 
       WHERE table_name = 'agents'
     `);
-    console.log("✅ Columnas de agents:", res.rows.map(r => r.column_name).join(", "));
+    console.log("✅ Columnas de agents:", res.rows.map((r: any) => r.column_name).join(", "));
   } catch (err) {
     console.error("❌ Error consultando columnas:", err);
   }

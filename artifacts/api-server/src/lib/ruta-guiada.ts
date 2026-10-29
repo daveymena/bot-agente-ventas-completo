@@ -583,7 +583,7 @@ export function productoNombrado<T extends { id: number; name: string }>(prompt:
 async function catalogoDelTenant(tenantId: number): Promise<Array<{ id: number; name: string }>> {
   try {
     const rows = await db.select({ id: products.id, name: products.name }).from(products).where(eq(products.tenantId, tenantId));
-    return rows.map((r) => ({ id: Number(r.id), name: String(r.name || "") }));
+    return rows.map((r: any) => ({ id: Number(r.id), name: String(r.name || "") }));
   } catch (err) {
     logger.warn({ err, tenantId }, "[Ruta] No se pudo leer el catálogo para reconocer el producto nombrado");
     return [];

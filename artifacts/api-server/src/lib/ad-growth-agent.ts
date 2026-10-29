@@ -221,6 +221,18 @@ export async function runDailyBudgetGuard(): Promise<void> {
         conGasto.push({ id: c.id, name: c.name, spend: ins.spend });
       }
 
+      // El contador del BudgetGuard se FIJA con el gasto real que reporta Meta.
+      // Antes quedaba en lo que el sistema creía haber autorizado (cambios de
+      // presupuesto), no en lo gastado: un conjunto de $20.000/día corriendo
+      // diez días dejaba el contador en $20.000 y el tope de $50.000 no
+      // bloqueaba nunca. Ver `fijarGastoDeHoy` en budget-guard.ts.
+      try {
+        const { fijarGastoDeHoy } = await import("./marketing-team/budget-guard");
+        await fijarGastoDeHoy(tenant.id, gastoTotal);
+      } catch (err: any) {
+        logger.warn({ err: err?.message, tenantId: tenant.id }, "[AdGrowthAgent] no se pudo fijar el gasto real en el contador");
+      }
+
       if (gastoTotal < DAILY_SPEND_CAP) continue;
 
       // Una sola vez por día: sin esto, al correr cada hora volvería a pausar
@@ -708,4 +720,45 @@ export function startAdGrowthAgent() {
     logger.warn("[AdGrowthAgent] SIN freno de gasto diario: FB_DAILY_SPEND_CAP no está configurado, no hay tope automático de gasto en anuncios");
   }
   logger.info("[AdGrowthAgent] Iniciado -- protección de gasto cada 1h, revisión de tendencia cada 6h");
+
+  // ── La conexión con Meta también se vigila ────────────────────────────────
+  //
+  // Verificado en producción el 2026-10-14: el token de Meta estaba vencido
+  // (`code 190`, "the user logged out") desde hacía días, y el sistema lo
+  // SABÍA — el log de `CatalogoAutoSync` lo decía en cada corrida — pero nadie
+  // se lo dijo al dueño. Consecuencia: el freno de gasto, el freno de margen,
+  // las métricas, la publicación y la atribución quedaron apagados en silencio.
+  //
+  // `isConfigured()` solo comprueba que EXISTA un token, no que funcione: un
+  // token muerto pasa el chequeo y todas las llamadas fallan después, cada una
+  // en su propio `catch`. El dueño ve un panel que no se queja y no sabe que su
+  // inversión publicitaria está a ciegas.
+  const CONEXION_CHECK_MS = 6 * 60 * 60 * 1000; // cada 6 horas
+  const revisarConexion = async () => {
+    for (const tenant of await getAdTenants()) {
+      try {
+        const fb = new FacebookService(tenant);
+        if (!fb.isConfigured()) continue;
+        const r = await fb.verificarConexion();
+        if (r.ok) continue;
+        logger.error({ tenantId: tenant.id, motivo: r.motivo }, "[AdGrowthAgent] LA CONEXIÓN CON META NO FUNCIONA");
+        const phone = await getAdminPhone(tenant.id);
+        const wa = getWhatsAppForTenant(tenant.id);
+        if (!phone || !wa.isConnected()) continue;
+        await wa.sendText(
+          phone,
+          `🔌 *Tu cuenta de Meta no está conectada*\n\n` +
+            `Negocio: *${tenant.brandName || tenant.name}*\n\n` +
+            `${r.motivo}\n\n` +
+            `Mientras esto siga así: los anuncios no se publican, no se leen las métricas ` +
+            `y *los frenos de gasto no pueden vigilar nada*.\n\n` +
+            `Reconectá desde el panel: Integraciones → Facebook.`,
+        );
+      } catch (err: any) {
+        logger.warn({ err: err?.message, tenantId: tenant.id }, "[AdGrowthAgent] no se pudo verificar la conexión con Meta");
+      }
+    }
+  };
+  setTimeout(() => { revisarConexion().catch(() => undefined); }, ARRANQUE_MS).unref?.();
+  setInterval(() => { revisarConexion().catch(() => undefined); }, CONEXION_CHECK_MS);
 }

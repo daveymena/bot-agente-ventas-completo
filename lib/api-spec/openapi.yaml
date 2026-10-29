@@ -1157,6 +1157,12 @@ components:
         githubToken:
           type: string
           nullable: true
+        hasGithubToken:
+          type: boolean
+        hasCopilotSessionToken:
+          type: boolean
+        hasNvidiaApiKey:
+          type: boolean
         githubModel:
           type: string
         copilotSessionToken:

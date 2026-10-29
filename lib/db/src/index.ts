@@ -44,7 +44,11 @@ console.log(`[DB-ENV] CWD=${process.cwd()}`);
 const USE_SQLITE = process.env.USE_SQLITE === "true";
 
 // ── SCHEMA (conditional: SQLite or PG) ───────────────────────────────────────
-const schema = USE_SQLITE ? sqliteSchema : pgSchema;
+// Los tipos son los de Postgres (producción). SQLite comparte nombres de tabla y
+// columnas, pero sus tipos no tienen todas las columnas (p. ej. tenantId): tiparlo
+// como unión rompía el typecheck. El cast solo afecta a la compilación; en ejecución
+// se usa el esquema real según USE_SQLITE.
+const schema = (USE_SQLITE ? sqliteSchema : pgSchema) as unknown as typeof pgSchema;
 
 export const tenants = schema.tenants;
 export const agents = schema.agents;
@@ -404,6 +408,56 @@ async function ensureSqliteTables(sqliteDb: import("sql.js").Database, saveDb: (
 
   for (const sql of tables) {
     try { sqliteDb.run(sql); } catch (err) { console.error("Error creating table:", err); }
+  }
+
+  // ── ÍNDICES ──────────────────────────────────────────────────────────────
+  //
+  // Medido el 2026-10-14: la base tenía **CERO índices**. Ninguno. Ni en
+  // `conversations.tenant_id`, que filtra TODAS las consultas del panel, ni en
+  // `messages.conversation_id`, que es la lectura más frecuente del sistema
+  // (cada vez que se abre un chat).
+  //
+  // Sin índice eso es un full table scan, y el costo crece con los datos: con
+  // el negocio de prueba no se nota; con 20 clientes escribiendo, el inbox —la
+  // pantalla central del producto— recorre la tabla de mensajes entera en cada
+  // carga. Es el multiplicador silencioso de todo lo demás.
+  //
+  // Se crean DESPUÉS de las tablas y antes de las migraciones de columna a
+  // propósito: `CREATE INDEX IF NOT EXISTS` es idempotente y no falla si la
+  // tabla viene de una base vieja. Si alguna columna todavía no existe (una
+  // base muy anterior a esta lista), el índice se saltea en silencio en vez de
+  // impedir el arranque — un índice que falta degrada, no rompe.
+  const indices = [
+    // Las consultas del panel filtran por negocio en TODAS las pantallas.
+    `CREATE INDEX IF NOT EXISTS idx_conversations_tenant ON conversations(tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_conversations_tenant_ultimo ON conversations(tenant_id, last_message_at)`,
+    `CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id)`,
+    // El inbox ordena por fecha y busca por estado/etapa dentro del negocio.
+    `CREATE INDEX IF NOT EXISTS idx_conversations_tenant_estado ON conversations(tenant_id, status)`,
+    `CREATE INDEX IF NOT EXISTS idx_leads_tenant ON leads(tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_leads_telefono ON leads(phone)`,
+    `CREATE INDEX IF NOT EXISTS idx_products_tenant ON products(tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_products_tenant_activo ON products(tenant_id, is_active)`,
+    `CREATE INDEX IF NOT EXISTS idx_payments_tenant ON payments(tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_payments_conversation ON payments(conversation_id)`,
+    // Seguimiento y recordatorios: se consultan por fecha de vencimiento.
+    `CREATE INDEX IF NOT EXISTS idx_follow_ups_scheduled ON follow_ups(scheduled_for, completed)`,
+    `CREATE INDEX IF NOT EXISTS idx_follow_ups_conversation ON follow_ups(conversation_id)`,
+    // Enlaces cortos: se resuelven por código en cada clic.
+    `CREATE INDEX IF NOT EXISTS idx_payment_links_code ON payment_links(short_code)`,
+    // Anuncios y marketing: los barridos recorren todos los negocios.
+    `CREATE INDEX IF NOT EXISTS idx_ad_agent_logs_tenant ON ad_agent_logs(tenant_id, check_type)`,
+    `CREATE INDEX IF NOT EXISTS idx_facebook_drafts_tenant ON facebook_drafts(tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_marketing_campaigns_tenant ON marketing_campaigns(tenant_id)`,
+    // Los trabajos programados se consultan por vencimiento en cada vuelta del
+    // programador (cada 60s, sobre TODOS los negocios).
+    `CREATE INDEX IF NOT EXISTS idx_trabajos_corre_estado ON trabajos_programados(corre_at, estado)`,
+    // Memoria del arquitecto y analíticas: se leen por negocio.
+    `CREATE INDEX IF NOT EXISTS idx_architect_memory_tenant ON architect_memory(tenant_id)`,
+    `CREATE INDEX IF NOT EXISTS idx_landing_pages_tenant ON landing_pages(tenant_id)`,
+  ];
+  for (const sql of indices) {
+    try { sqliteDb.run(sql); } catch { /* tabla o columna ausente: se saltea */ }
   }
 
   // Migración idempotente: agrega columnas nuevas a tablas que ya existían

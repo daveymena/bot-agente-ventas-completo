@@ -28,6 +28,7 @@ import {
 import { runAgentReply } from "../lib/agent";
 import { type AgentReplyPart } from "../lib/whatsapp-singleton";
 import { getWhatsAppForTenant } from "../lib/whatsapp-factory";
+import { condicionConversacionOperativa } from "../lib/conversation-query";
 // El proxy "whatsapp-singleton" siempre apunta a la instancia del tenant por
 // defecto (getCurrentTenantId() está fijo) -- usarlo acá enviaba la respuesta
 // de un cliente del tenant 2 desde el número de WhatsApp del tenant 1. Se usa
@@ -63,7 +64,7 @@ router.get("/", async (req, res, next) => {
     if (!tenantId) return res.status(401).json({ message: "No autorizado" });
 
     const q = ListConversationsQueryParams.parse(req.query);
-    const filters = [eq(conversations.tenantId, tenantId)];
+    const filters = [eq(conversations.tenantId, tenantId), condicionConversacionOperativa()];
     if (q.status) filters.push(eq(conversations.status, q.status));
     if (q.search && q.search.trim()) {
       const term = `%${q.search.trim()}%`;
@@ -108,7 +109,11 @@ router.get("/pendientes", async (req, res, next) => {
     const convos = await db
       .select()
       .from(conversations)
-      .where(and(eq(conversations.tenantId, tenantId), ne(conversations.status, "closed")))
+      .where(and(
+        eq(conversations.tenantId, tenantId),
+        ne(conversations.status, "closed"),
+        condicionConversacionOperativa(),
+      ))
       .orderBy(desc(conversations.lastMessageAt))
       .limit(100);
 
